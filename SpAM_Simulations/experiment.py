@@ -9,8 +9,8 @@ from SpAM_Simulations.helpers import convert_to_condensed
 
 ExperimentParameters = NamedTuple("ExperimentParameters", [
     ("num_subjects", int),
-    ("images_per_trial", int),
     ("trials_per_subject", int),
+    ("images_per_trial", int),
     ("subjects_noise_scale", float),
     ("subjects_noise_df", int),
 ])
