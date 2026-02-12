@@ -49,7 +49,7 @@ def simulate_experiment(
     all_n_obs = np.zeros_like(gt_distances)
     subject_noises = _draw_subject_noises(
         params.subjects_noise_df,
-        params.subjects_noise_scale * gt_distances.mean(),  # scale noise by mean distance to ensure reasonable range
+        params.subjects_noise_scale * gt_distances.std(),  # scale subject noise by GT noise to ensure reasonable range
         params.num_subjects,
         rng
     )
