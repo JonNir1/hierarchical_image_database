@@ -38,7 +38,7 @@ def simulate_experiment(
 
     assert params.num_subjects > 0, f"`num_subjects` must be positive (got {params.num_subjects})"
     assert params.trials_per_subject > 0, f"`trials_per_subject` must be positive (got {params.trials_per_subject})"
-    assert params.subjects_noise_scale > 0, f"`subjects_noise_scale` must be positive (got {params.subjects_noise_scale})"
+    assert params.subjects_noise_scale >= 0, f"`subjects_noise_scale` must be non-negative (got {params.subjects_noise_scale})"
     assert params.subjects_noise_df > 0, f"`subjects_noise_df` must be positive (got {params.subjects_noise_df})"
     # make sure distances are in condensed form
     gt_distances = convert_to_condensed(gt_distances)
@@ -83,7 +83,7 @@ def simulate_single_subject(
     Simulates distance observations from a single subject based on ground truth distances, with added Gaussian noise.
     Unmeasured distances are represented as 0.
     """
-    assert subject_noise > 0, "`subject_noise` must be positive"
+    assert subject_noise >= 0, "`subject_noise` must be non-negative"
     assert num_trials > 0, "`num_trials` must be positive"
     square_gt_distances = squareform(gt_distances)
     N = square_gt_distances.shape[0]
@@ -107,8 +107,10 @@ def _draw_subject_noises(
         df: int, mu_noise: float, n_subjects: int, rng: np.random.Generator
 ) -> np.ndarray:
     assert df > 0, "`df` must be positive"
-    assert mu_noise > 0, "`mu_noise` must be positive"
+    assert mu_noise >= 0, "`mu_noise` must be non-negative"
     assert n_subjects > 0, "`n_subjects` must be positive"
+    if mu_noise == 0:
+        return np.zeros(n_subjects)
     raw_variability = np.abs(rng.standard_t(df, size=n_subjects))
-    scaled_noises = raw_variability / np.mean(raw_variability) * mu_noise
+    scaled_noises = mu_noise * raw_variability / np.mean(raw_variability)
     return scaled_noises
