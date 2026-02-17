@@ -67,7 +67,9 @@ def simulate_experiment(
     all_observations = np.where(     # ensure unmeasured distances are NaN
         all_observations > 0, all_observations, np.nan
     )
-    results = ExperimentResults(datetime.now(), all_observations, all_n_obs, subject_noises)
+    results = ExperimentResults(
+        datetime.now(), all_observations, all_n_obs.astype(np.int8), subject_noises
+    )
     return params, results
 
 

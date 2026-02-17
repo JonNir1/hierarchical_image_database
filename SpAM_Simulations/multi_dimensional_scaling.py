@@ -56,10 +56,8 @@ def run_mds(
     with localconverter(ro.default_converter + numpy2ri.converter):
         r_mds_kwargs = {
             "ndim": ndim, "itmax": max_iters, "eps": convergence_tol, "type": "ratio", "verbose": verbose,
+            "init": "random" if precalc_conf is None else precalc_conf
         }
-        if precalc_conf is not None:
-            # inject the "init" argument
-            r_mds_kwargs["init"] = precalc_conf
         r_dists = dists
         r_weights = weights
         res = smacof.mds(delta=r_dists, weightmat=r_weights, **r_mds_kwargs)

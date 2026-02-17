@@ -69,7 +69,7 @@ class Simulation:
         if D <= 0:
             raise ValueError(f"`D` must be positive (got {D})")
         rng = np.random.default_rng(seed)
-        gt_embeddings = rng.normal(size=(N, D))
+        gt_embeddings = rng.normal(size=(N, D)).astype(np.float32)
         return Simulation(gt_embeddings, rng, datetime.now())
 
     @property
@@ -86,7 +86,7 @@ class Simulation:
         Calculate the pairwise Euclidean distances between embeddings.
         Returns a N(N-1)/2 vector of distances.
         """
-        return pdist(self.gt_embeddings, metric="euclidean")
+        return pdist(self.gt_embeddings, metric="euclidean").astype(np.float32)
 
     def get_experiment(
             self, params: ExperimentParameters

@@ -11,27 +11,38 @@ def coverage(exp_results: ExperimentResults) -> dict:
     """
     Calculates coverage metrics from the number of observations per image pair.
     Coverage metrics include:
+        - Num images (N)
+        - Average number of observations per image (average image observations)
+        - Percentage of images with at least one observation (image coverage)
         - Num image pairs (N(N-1)/2)
-        - Average number of observations per image pair (average observations)
-        - Proportion of image pairs with at least k observations for k=1,3,5 (coverage@k)
+        - Average number of observations per image pair (average pair observations)
+        - Percentage of image pairs with at least one observation (pair coverage)
         - Number of connected components in the image pair graph (where edges exist if at least one observation)
     :param exp_results: ExperimentResults object containing the number of observations per image pair
     """
-    n_obs = convert_to_condensed(exp_results.num_obs)  # convert to condensed form if needed
-    num_pairs = n_obs.shape[0]
-    avg_obs = np.mean(n_obs)
-    coverage_at_1 = np.mean(n_obs > 0)
-    coverage_at_3 = np.mean(n_obs >= 3)
-    coverage_at_5 = np.mean(n_obs >= 5)
+    # extract pairwise statistics
+    n_pairwise_obs = convert_to_condensed(exp_results.num_obs)  # convert to condensed form if needed
+    num_pairs = n_pairwise_obs.shape[0]
+    avg_pairwise_obs = np.mean(n_pairwise_obs)
+    percent_pairwise_obs = np.mean(n_pairwise_obs > 0) * 100
+
+    # extract per-image statistics
+    sq_n_pairwise_obs = squareform(n_pairwise_obs, checks=False)  # convert to square form
+    n_images = sq_n_pairwise_obs.shape[0]
+    n_img_obs = np.sum(sq_n_pairwise_obs > 0, axis=0)  # count number of observed pairs for each image
+    avg_img_obs = np.mean(n_img_obs)
+    percent_img_obs = np.mean(n_img_obs > 0) * 100
+
     # Calculate number of connected components in the image pair graph
-    adjacency_matrix = squareform(n_obs > 0, checks=False).astype(int)  # convert to adjacency matrix
+    adjacency_matrix = squareform(n_pairwise_obs > 0, checks=False).astype(int)  # convert to adjacency matrix
     num_components, _ = connected_components(adjacency_matrix, directed=False)
     return {
+        "num_images": n_images,
+        "average_img_obs": avg_img_obs,
+        "img_coverage": percent_img_obs,
         "num_pairs": num_pairs,
-        "average_obs_count": avg_obs,
-        "coverage": coverage_at_1,
-        "coverage@3": coverage_at_3,
-        "coverage@5": coverage_at_5,
+        "average_pair_obs": avg_pairwise_obs,
+        "pair_coverage": percent_pairwise_obs,
         "num_connected_components": num_components
     }
 
