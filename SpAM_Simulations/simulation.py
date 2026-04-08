@@ -24,7 +24,6 @@ def create_simulation(
         reps: int = 1,
         seed: int = 42,
         verbose: bool = True,
-        append_to_existing: bool = False,
 ) -> Simulation:
     sim = Simulation.make(n_images, n_dims, seed)
     exp_params = [ExperimentParameters(*p) for p in product(
@@ -32,7 +31,7 @@ def create_simulation(
     )]
     for exp in tqdm(exp_params * reps, desc="Running experiments", disable=not verbose):
         sim.run_experiment(exp, verbose=False)
-    sim.to_pickle(append=append_to_existing)
+    sim.to_pickle()
     return sim
 
 
@@ -122,10 +121,9 @@ class Simulation:
             results[params] = existing_results[:reps]   # trim to the requested number of repetitions
         return results
 
-    def to_pickle(self, path: str = "", append: bool = False):
+    def to_pickle(self, path: str = ""):
         path = path or os.path.join(os.getcwd(), f"simulation_{self.start_time.strftime('%Y%m%d')}.pkl")
-        mode = "ab" if append and os.path.exists(path) else "wb"
-        with open(path, mode) as f:
+        with open(path, "wb") as f:
             pkl.dump(self, f)
 
     @staticmethod
