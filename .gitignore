@@ -8,6 +8,7 @@
 # ignore outputs and docs
 *.pkl
 *.json
+!SpAM_Task/config.json
 *.doc
 *.docx
 *.pdf

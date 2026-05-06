@@ -1,0 +1,19 @@
+{
+  "trials_per_subject": 10,
+  "images_per_trial": 20,
+  "unique_images_per_subject": 150,
+  "num_catch_trials": 2,
+  "practice_images_per_trial": 8,
+  "sort_area_width": 900,
+  "sort_area_height": 700,
+  "sort_area_shape": "square",
+  "image_width": 100,
+  "image_height": 100,
+  "min_trial_rt_ms": 5000,
+  "min_pairwise_distance_sd": 0.04,
+  "stimuli_path": "",
+  "stimuli_practice_path": "",
+  "stimuli_catch_path": "",
+  "prolific_completion_url": "",
+  "debug": false
+}
