@@ -2,8 +2,17 @@
 *.pkl
 *.json
 *.doc
-*docx
+*.docx
 *.pdf
+*.csv
+
+# image dataset (stored outside the repo or locally)
+dataset/
+images/
+
+# generated figures
+figures/
+outputs/
 
 
 # Byte-compiled / optimized / DLL files
