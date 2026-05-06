@@ -2,6 +2,9 @@
 .Rhistory
 .RData
 
+# work-in-progress plans (not ready to publish)
+/PLAN.md
+
 # ignore outputs and docs
 *.pkl
 *.json
