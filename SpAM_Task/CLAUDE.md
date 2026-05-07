@@ -99,6 +99,19 @@ area is clamped between `[sort_area_min_width/height, sort_area_width/height]`; 
 is `round(sortW × image_size_fraction)`. This ensures all images render at the same size
 regardless of native resolution and the layout degrades gracefully on smaller screens.
 
+**`stim_starts_inside: true` (images initialise inside the sort area)**: When
+`stim_starts_inside: false` the jsPsychFreeSort plugin places images in staging columns
+*outside* the orange arena border — the sort area must then share the viewport with those
+columns, limiting `sortW` to at most `viewportW / (1 + column_spread_factor)` (≈ half the
+viewport at the default `column_spread_factor: 1.0`). This wastes screen space and produces a
+small arena on any normal monitor. The SpAM literature (Goldstone 1994, Bracci et al. 2019)
+arranges stimuli randomly *within* the arena from the start; disengagement is detected via the
+`min_trial_rt_ms` floor and the interleaved catch trials, not by a staging zone. Setting
+`stim_starts_inside: true` allows the arena to fill up to 85% of the viewport width (limited
+only by `sort_area_width`), giving a substantially larger working space. `column_spread_factor`
+is kept at 1.0 in the config for forward-compatibility if this decision is ever revisited, but
+has no effect while `stim_starts_inside` is `true`.
+
 **Distance normalisation**: All pairwise Euclidean distances from `final_locations` are divided
 by the sort-area diagonal `√(sortW²+sortH²)` → [0, 1]. Removes dependence on screen resolution
 and sort-area size, making distances comparable across participants.
@@ -211,9 +224,11 @@ and writes `trial_type`, `trial_index`, `pairwise_distance_sd`, `pairwise_distan
 | `catch_cluster_max_sd` | 0.10 | Max SD of normalised distances for catch trial to pass |
 | `catch_location_tolerance` | 0.20 | Max normalised centroid–target distance for catch trial to pass |
 | `practice_images_per_trial` | 8 | Images in the (discarded) practice trial |
-| `sort_area_width/height` | 900 / 700 | Maximum sort canvas size in px |
-| `sort_area_min_width/height` | 900 / 700 | Minimum sort canvas size in px |
-| `sort_area_shape` | `"square"` | `"square"` or `"ellipse"` (currently unused — see TODO in task.js) |
+| `sort_area_width/height` | 1400 / 900 | Maximum sort canvas size in px (actual size is also constrained by viewport) |
+| `sort_area_min_width/height` | 900 / 550 | Minimum sort canvas size in px (floor for small screens) |
+| `sort_area_shape` | `"rect"` | `"rect"` or `"ellipse"` — shape of the orange sort-area border |
+| `stim_starts_inside` | `true` | If `true`, images are placed randomly inside the arena at trial start (SpAM convention); if `false`, images begin in staging columns outside the arena, limiting arena width to ≈ `viewportW / (1 + column_spread_factor)` |
+| `column_spread_factor` | 1.0 | Controls how far staging columns extend when `stim_starts_inside: false`; ignored when `stim_starts_inside: true` |
 | `image_size_fraction` | 0.11 | Stimulus size as fraction of sort-area width |
 | `min_trial_rt_ms` | 5000 | Minimum acceptable trial duration (ms) |
 | `min_pairwise_distance_sd` | 0.04 | Minimum SD of normalised distances for main trial to pass |
