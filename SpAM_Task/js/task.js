@@ -102,6 +102,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   //    handles saving before on_finish fires; nothing to do here.
   //    Locally: download a filtered CSV (practice trials excluded).
   // ---------------------------------------------------------------------------
+  /**
+   * Save experiment data at the end of the session.
+   *
+   * On Pavlovia: the `jsPsychPavlovia` finish node in the timeline handles upload
+   * before `on_finish` fires, so this function is a no-op in that environment.
+   *
+   * Locally: filters jsPsych data to main and catch trials (practice excluded),
+   * serialises to CSV, and triggers a browser download via a temporary <a> element.
+   * Filename format: `spam_<PID>_<timestamp>.csv`.
+   */
   function saveData() {
     if (isPavlovia) return;
 
