@@ -20,5 +20,5 @@
   "stimuli_practice_path": "",
   "stimuli_catch_path": "",
   "prolific_completion_url": "",
-  "debug": false
+  "debug": true
 }
