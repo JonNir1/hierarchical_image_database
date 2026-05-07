@@ -61,8 +61,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // TODO: if config paths are authored on Windows, replace backslashes:
   //       config.stimuli_path.replace(/\\/g, '/')
   // ---------------------------------------------------------------------------
-  const imageUrls    = (manifest.images         || []).map(f => config.stimuli_path          + '/' + f);
-  const catchUrls    = (manifest.catch_images   || []).map(f => config.stimuli_path          + '/' + f);
+  const imageUrls    = (manifest.images          || []).map(f => config.stimuli_path          + '/' + f);
+  const catchUrls    = (manifest.catch_images    || []).map(f => config.stimuli_catch_path    + '/' + f);
   const practiceUrls = (manifest.practice_images || []).map(f => config.stimuli_practice_path + '/' + f);
 
   // ---------------------------------------------------------------------------
