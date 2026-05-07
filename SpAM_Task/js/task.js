@@ -229,6 +229,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       images:  trial.images,
       message: '<p>Loading images…</p>',
       show_progress_bar: true,
+      continue_after_error: true,
       error_message: '<p>One or more images failed to load. Please contact the researcher.</p>',
     });
 
