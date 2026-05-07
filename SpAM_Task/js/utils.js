@@ -35,6 +35,8 @@ function verifyConfig(config) {
         catch_cluster_max_sd:      'number',
         catch_location_tolerance:  'number',
         sort_area_shape:           'string',
+        stim_starts_inside:        'boolean',
+        column_spread_factor:      'number',
         debug:                     'boolean',
     };
     for (const [key, type] of Object.entries(REQUIRED_TYPES)) {
@@ -63,6 +65,7 @@ function verifyConfig(config) {
         catch_cluster_max_sd:   catchSd,
         catch_location_tolerance: catchTol,
         sort_area_shape: shape,
+        column_spread_factor: spreadFactor,
     } = config;
 
     if (!Number.isInteger(t)        || t < 1)        err('"trials_per_subject" must be a positive integer, got ' + t + '.');
@@ -81,8 +84,10 @@ function verifyConfig(config) {
     if (catchMean <= 0 || catchMean >= 1) err('"catch_cluster_max_mean" must be in (0, 1), got '    + catchMean + '.');
     if (catchSd   <= 0 || catchSd   >= 1) err('"catch_cluster_max_sd" must be in (0, 1), got '      + catchSd + '.');
     if (catchTol  <= 0 || catchTol  >= 1) err('"catch_location_tolerance" must be in (0, 1), got '  + catchTol + '.');
-    if (shape !== 'square' && shape !== 'ellipse')
-        err('"sort_area_shape" must be "square" or "ellipse", got "' + shape + '".');
+    if (shape !== 'rect' && shape !== 'ellipse')
+        err('"sort_area_shape" must be "rect" or "ellipse", got "' + shape + '".');
+    if (spreadFactor <= 0)
+        err('"column_spread_factor" must be > 0, got ' + spreadFactor + '.');
 
     // ── Group 3: cross-parameter arithmetic ──────────────────────────────────
 
@@ -146,22 +151,30 @@ function verifyConfig(config) {
  * as a fraction of the sort-area width so that emoji and dataset images are always
  * rendered at the same size regardless of their native resolution.
  *
- * Viewport fractions (0.85 wide, 0.78 tall) leave room for browser chrome, jsPsych's
- * own container margins, and the per-trial prompt text above the sort area.
+ * When `stim_starts_inside` is true, images begin inside the sort area so the canvas
+ * can fill 85% of the viewport width. When false, images start in staging columns to
+ * the left and right of the sort area; the plugin positions them at
+ * ±(sortW × 0.5 × column_spread_factor) from the arena edge, so the total horizontal
+ * space needed is sortW × (1 + column_spread_factor). In that case the canvas width is
+ * capped at floor(viewportW / (1 + column_spread_factor)) to prevent overflow.
  *
  * @param {number} viewportW - window.innerWidth
  * @param {number} viewportH - window.innerHeight
  * @param {{
  *   sort_area_width: number, sort_area_height: number,
  *   sort_area_min_width: number, sort_area_min_height: number,
- *   image_size_fraction: number
+ *   image_size_fraction: number,
+ *   stim_starts_inside: boolean, column_spread_factor: number
  * }} config
  * @returns {{ sortW: number, sortH: number, stimSize: number }}
  */
 function computeLayout(viewportW, viewportH, config) {
+    const maxSortW = config.stim_starts_inside
+        ? Math.floor(viewportW * 0.85)
+        : Math.floor(viewportW / (1 + config.column_spread_factor));
     const sortW = Math.max(
         config.sort_area_min_width,
-        Math.min(Math.floor(viewportW * 0.85), config.sort_area_width),
+        Math.min(maxSortW, config.sort_area_width),
     );
     const sortH = Math.max(
         config.sort_area_min_height,

@@ -93,7 +93,9 @@ describe('verifyConfig', () => {
         catch_cluster_max_mean:    0.15,
         catch_cluster_max_sd:      0.10,
         catch_location_tolerance:  0.20,
-        sort_area_shape:           'square',
+        sort_area_shape:           'rect',
+        stim_starts_inside:        true,
+        column_spread_factor:      0.3,
         debug:                     true,   // suppress deployment warnings
         stimuli_path:              'stimuli',
         stimuli_practice_path:     'practice',
@@ -159,6 +161,15 @@ describe('verifyConfig', () => {
         );
     });
 
+    it('throws on invalid sort_area_shape', () => {
+        const cfg = validConfig();
+        cfg.sort_area_shape = 'square'; // old value, now invalid
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /"sort_area_shape" must be "rect" or "ellipse"/ },
+        );
+    });
+
     it('warns (not throws) when practice_images_per_trial > images_per_trial', () => {
         const cfg = validConfig();
         cfg.practice_images_per_trial = 25; // > images_per_trial=20
@@ -169,55 +180,51 @@ describe('verifyConfig', () => {
 
 // ── computeLayout ─────────────────────────────────────────────────────────────
 describe('computeLayout', () => {
-    // Helper: build a minimal config with explicit min/max and fraction.
-    const cfg = (maxW, maxH, minW, minH, frac = 0.11) => ({
-        sort_area_width:    maxW,
-        sort_area_height:   maxH,
+    // Helper: build a minimal config with explicit min/max, fraction, and staging params.
+    const cfg = (maxW, maxH, minW, minH, frac = 0.11, inside = true, spread = 1.0) => ({
+        sort_area_width:      maxW,
+        sort_area_height:     maxH,
         sort_area_min_width:  minW,
         sort_area_min_height: minH,
         image_size_fraction:  frac,
+        stim_starts_inside:   inside,
+        column_spread_factor: spread,
     });
 
-    it('large screen — capped at configured max (900×700)', () => {
+    // ── stim_starts_inside: true (images start inside — full 85% fraction) ───
+    it('inside=true, large screen — capped at configured max', () => {
         // floor(1920 * 0.85) = 1632 > max 900  →  capped at 900
-        // floor(1080 * 0.78) = 842  > max 700  →  capped at 700
         const { sortW, sortH, stimSize } = computeLayout(1920, 1080, cfg(900, 700, 900, 700));
         assert.equal(sortW,    900);
         assert.equal(sortH,    700);
         assert.equal(stimSize,  99); // round(900 * 0.11)
     });
 
-    it('just-fits width — viewport slightly above min still yields min', () => {
-        // floor(1060 * 0.85) = 901 > max 900  →  capped at 900
-        // floor(900  * 0.78) = 702 > max 700  →  capped at 700
-        const { sortW, sortH } = computeLayout(1060, 900, cfg(900, 700, 900, 700));
+    it('inside=true, medium screen — viewport fraction wins between min and max', () => {
+        // floor(1200 * 0.85) = 1020, clamp to [900, 1400] → 1020
+        // floor(800  * 0.78) = 624,  clamp to [700, 900]  → 700
+        const { sortW, sortH } = computeLayout(1200, 800, cfg(1400, 900, 900, 700));
+        assert.equal(sortW, 1020);
+        assert.equal(sortH,  700);
+    });
+
+    // ── stim_starts_inside: false (images start outside — viewport / (1+factor)) ──
+    it('inside=false, large screen with factor=0.3 — capped at max', () => {
+        // floor(1920 / 1.3) = 1476 > max 1400  →  capped at 1400
+        const { sortW } = computeLayout(1920, 1080, cfg(1400, 900, 900, 700, 0.11, false, 0.3));
+        assert.equal(sortW, 1400);
+    });
+
+    it('inside=false, medium screen with factor=0.3 — constrained by staging', () => {
+        // floor(1456 / 1.3) = 1120, clamp to [900, 1400] → 1120
+        const { sortW, stimSize } = computeLayout(1456, 816, cfg(1400, 900, 900, 700, 0.11, false, 0.3));
+        assert.equal(sortW,    1120);
+        assert.equal(stimSize, 123); // round(1120 * 0.11)
+    });
+
+    it('inside=false, small screen — floor wins even with staging constraint', () => {
+        // floor(1000 / 2.0) = 500 < min 900  →  floored at 900
+        const { sortW } = computeLayout(1000, 800, cfg(1400, 900, 900, 700, 0.11, false, 1.0));
         assert.equal(sortW, 900);
-        assert.equal(sortH, 700);
-    });
-
-    it('small screen with default mins — floor holds at 900×700', () => {
-        // 800×600: floor(800*0.85)=680 < min 900; floor(600*0.78)=468 < min 700 → floor wins
-        const { sortW, sortH, stimSize } = computeLayout(800, 600, cfg(900, 700, 900, 700));
-        assert.equal(sortW,    900);
-        assert.equal(sortH,    700);
-        assert.equal(stimSize,  99);
-    });
-
-    it('small screen with low mins — shrinks to viewport-derived size', () => {
-        // floor(700 * 0.85) = 595;  floor(500 * 0.78) = 390
-        // both above min (400×350) and below max (900×700)  →  viewport wins
-        const { sortW, sortH, stimSize } = computeLayout(700, 500, cfg(900, 700, 400, 350));
-        assert.equal(sortW,    595);
-        assert.equal(sortH,    390);
-        assert.equal(stimSize,  65); // round(595 * 0.11)
-    });
-
-    it('large screen with high max — caps at the higher configured max', () => {
-        // floor(1920 * 0.85) = 1632 > max 1100  →  capped at 1100
-        // floor(1080 * 0.78) = 842  > max 800   →  capped at 800
-        const { sortW, sortH, stimSize } = computeLayout(1920, 1080, cfg(1100, 800, 600, 500));
-        assert.equal(sortW,    1100);
-        assert.equal(sortH,    800);
-        assert.equal(stimSize, 121); // round(1100 * 0.11)
     });
 });
