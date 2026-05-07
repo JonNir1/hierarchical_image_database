@@ -5,6 +5,9 @@
 # work-in-progress plans (not ready to publish)
 /PLAN.md
 
+# Claude Code agent working directories
+.claude/
+
 # ignore outputs and docs
 *.pkl
 *.json
