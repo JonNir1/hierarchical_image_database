@@ -62,16 +62,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   //       config.stimuli_path.replace(/\\/g, '/')
   // ---------------------------------------------------------------------------
   const imageUrls    = (manifest.images         || []).map(f => config.stimuli_path          + '/' + f);
+  const catchUrls    = (manifest.catch_images   || []).map(f => config.stimuli_path          + '/' + f);
   const practiceUrls = (manifest.practice_images || []).map(f => config.stimuli_practice_path + '/' + f);
 
   // ---------------------------------------------------------------------------
   // 5. Trial lists
   //    buildTrialLists expects rng as a function (not a seed integer).
-  //    insertCatchTrials will be re-added with the new catch-trial design.
-  //    Returns Array<{type: 'main'|'catch', images: string[], ...}>.
+  //    rng must not be called between here and buildTrialLists — any prior call
+  //    shifts the sequence and breaks per-PID reproducibility.
+  //    insertCatchTrials uses the same rng instance (continued sequence) so
+  //    catch location assignment is also seeded and recorded in trial data.
   // ---------------------------------------------------------------------------
   const mainTrials = buildTrialLists(imageUrls, config, rng);
-  const allTrials  = insertCatchTrials(mainTrials, config, rng);
+  const allTrials  = insertCatchTrials(mainTrials, catchUrls, config, rng);
 
   if (config.debug) {
     console.log('[SpAM] Trial sequence:', allTrials.map((t, i) => i + ':' + t.type));

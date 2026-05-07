@@ -113,3 +113,76 @@ function buildTrialLists(allImages, config, rng) {
     return trials;
 }
 
+// ---------------------------------------------------------------------------
+// Catch trials
+// ---------------------------------------------------------------------------
+
+/**
+ * The five target locations shown to participants in catch trials.
+ * Exported as a constant so task.js and tests can reference the same list.
+ */
+const CATCH_LOCATIONS = [
+    'center',
+    'top left corner',
+    'top right corner',
+    'bottom left corner',
+    'bottom right corner',
+];
+
+/**
+ * Build a single catch trial.
+ *
+ * Samples `config.catch_images_per_trial` images from the catch pool and
+ * draws a target location from CATCH_LOCATIONS — both via the shared seeded
+ * RNG so the assignment is reproducible per participant.
+ *
+ * @param {string[]}          catchPool - Pool of images reserved for catch trials
+ * @param {{catch_images_per_trial: number}} config
+ * @param {function(): number} rng      - Seeded RNG (shared with buildTrialLists)
+ * @returns {{type: 'catch', images: string[], target_location: string}}
+ */
+function buildCatchTrial(catchPool, config, rng) {
+    const k        = config.catch_images_per_trial;
+    const images   = seededShuffle(catchPool, rng).slice(0, k);
+    const locIdx   = Math.floor(rng() * CATCH_LOCATIONS.length);
+    return { type: 'catch', images, target_location: CATCH_LOCATIONS[locIdx] };
+}
+
+/**
+ * Interleave catch trials at evenly spaced interior positions in the trial sequence.
+ *
+ * Insertion positions (in the combined array) are:
+ *   Math.round(numMain / (numCatch + 1) * i)  for i = 1 … numCatch
+ * Example: numMain=10, numCatch=2 → positions [3, 7].
+ *
+ * @param {string[][]}         mainTrials - Output of buildTrialLists
+ * @param {string[]}           catchPool  - Images reserved for catch trials
+ * @param {{num_catch_trials: number, catch_images_per_trial: number}} config
+ * @param {function(): number} rng        - Seeded RNG (same instance used throughout)
+ * @returns {Array<{type: 'main'|'catch', images: string[], target_location?: string}>}
+ */
+function insertCatchTrials(mainTrials, catchPool, config, rng) {
+    const numMain  = mainTrials.length;
+    const numCatch = config.num_catch_trials;
+
+    const catchPositions = [];
+    for (let i = 1; i <= numCatch; i++) {
+        catchPositions.push(Math.round(numMain / (numCatch + 1) * i));
+    }
+
+    const mainObjects = mainTrials.map(images => ({ type: 'main', images }));
+    const combined    = [];
+    let mainIdx  = 0;
+    let catchIdx = 0;
+
+    for (let pos = 0; pos < numMain + numCatch; pos++) {
+        if (catchIdx < catchPositions.length && pos === catchPositions[catchIdx]) {
+            combined.push(buildCatchTrial(catchPool, config, rng));
+            catchIdx++;
+        } else {
+            combined.push(mainObjects[mainIdx++]);
+        }
+    }
+
+    return combined;
+}

@@ -7,7 +7,6 @@ CONFIG_PATH = TASK_DIR / "config.json"
 MANIFEST_PATH = TASK_DIR / "stimuli_manifest.json"
 
 SETS = [
-    ("stimuli_path",          "images"),
     ("stimuli_practice_path", "practice_images"),
 ]
 
@@ -35,6 +34,27 @@ def main() -> None:
         config = json.load(fh)
 
     manifest: dict[str, list[str]] = {}
+
+    # Main image pool: split into catch_images (first N) and images (remainder).
+    # The catch pool is fixed across participants; the main pool is randomised
+    # per-participant by buildTrialLists. Keeping them disjoint at manifest level
+    # guarantees catch images never appear in a participant's main trials.
+    raw_stimuli = config.get("stimuli_path", "")
+    if raw_stimuli:
+        main_dir    = resolve_path(raw_stimuli)
+        catch_n     = config.get("catch_pool_size", 20)
+        if main_dir.exists():
+            all_images          = scan_pngs(main_dir)
+            manifest["catch_images"] = all_images[:catch_n]
+            manifest["images"]       = all_images[catch_n:]
+            print(f"images: {len(manifest['images'])} (catch pool: {catch_n}) in {main_dir}")
+            if len(all_images) <= catch_n:
+                print(f"WARNING: catch_pool_size ({catch_n}) >= total images ({len(all_images)}). "
+                      "Main image pool will be empty.")
+        else:
+            print(f"WARNING: 'stimuli_path' does not exist ({main_dir}) — skipping images.")
+    else:
+        print("WARNING: 'stimuli_path' is empty — skipping images.")
 
     for config_key, manifest_key in SETS:
         raw = config.get(config_key, "")
@@ -68,12 +88,12 @@ def main() -> None:
             )
 
     if "catch_images" in manifest:
-        threshold = config.get("images_per_trial", 0)
+        threshold = config.get("catch_images_per_trial", 0)
         n = len(manifest["catch_images"])
         if n < threshold:
             print(
                 f"WARNING: 'catch_images' has {n} image(s) but config requires "
-                f"at least {threshold} (images_per_trial)."
+                f"at least {threshold} (catch_images_per_trial)."
             )
 
     with MANIFEST_PATH.open("w") as fh:
