@@ -1,6 +1,39 @@
 'use strict';
 
 /**
+ * Compute the sort-area dimensions and stimulus size for the current viewport.
+ *
+ * Sort area is clamped between [min, max] on each axis, where max is the ideal
+ * configured size and min is the smallest acceptable size. Image size is expressed
+ * as a fraction of the sort-area width so that emoji and dataset images are always
+ * rendered at the same size regardless of their native resolution.
+ *
+ * Viewport fractions (0.92 wide, 0.85 tall) leave room for browser chrome and the
+ * per-trial prompt text.
+ *
+ * @param {number} viewportW - window.innerWidth
+ * @param {number} viewportH - window.innerHeight
+ * @param {{
+ *   sort_area_width: number, sort_area_height: number,
+ *   sort_area_min_width: number, sort_area_min_height: number,
+ *   image_size_fraction: number
+ * }} config
+ * @returns {{ sortW: number, sortH: number, stimSize: number }}
+ */
+function computeLayout(viewportW, viewportH, config) {
+    const sortW = Math.max(
+        config.sort_area_min_width,
+        Math.min(Math.floor(viewportW * 0.92), config.sort_area_width),
+    );
+    const sortH = Math.max(
+        config.sort_area_min_height,
+        Math.min(Math.floor(viewportH * 0.85), config.sort_area_height),
+    );
+    const stimSize = Math.round(sortW * config.image_size_fraction);
+    return { sortW, sortH, stimSize };
+}
+
+/**
  * djb2 hash: converts a string to a positive 32-bit integer.
  * Used to derive a numeric seed from a Prolific PID so every subject
  * gets a deterministic but unique stimulus assignment.

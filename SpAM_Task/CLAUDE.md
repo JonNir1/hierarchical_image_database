@@ -66,6 +66,12 @@ that trial's `k` images on demand, not all 150 at the start.
 **jsPsych plugin**: `jsPsychFreeSort`. Images passed as plain URL strings; the plugin wraps
 them in `<img>` elements automatically. Output per trial: `final_locations: [{src, x, y}, ...]`.
 
+**Responsive layout**: Sort-area dimensions and stimulus size are computed at page-load time
+by `computeLayout(window.innerWidth, window.innerHeight, config)` (utils.js). The sort area
+is clamped between `[sort_area_min_width/height, sort_area_width/height]`; stimulus size is
+`round(sortW × image_size_fraction)`. This ensures emoji and dataset images render at the
+same size and the layout degrades gracefully on smaller screens.
+
 **Distance normalisation**: All pairwise Euclidean distances from `final_locations` are divided
 by the sort-area diagonal `√(width²+height²)` → [0, 1]. Removes dependence on screen resolution
 and sort-area size, making measurements comparable across participants.
@@ -107,9 +113,10 @@ testing.
 | `unique_images_per_subject` | 150 | Unique images assigned per subject |
 | `num_catch_trials` | 2 | Catch trials interleaved among main trials |
 | `practice_images_per_trial` | 8 | Images in the (discarded) practice trial |
-| `sort_area_width/height` | 900 / 700 | Sort canvas size in px |
+| `sort_area_width/height` | 900 / 700 | Maximum sort canvas size in px (cap) |
+| `sort_area_min_width/height` | 900 / 700 | Minimum sort canvas size in px (floor) |
 | `sort_area_shape` | `"square"` | `"square"` or `"ellipse"` |
-| `image_width/height` | 100 / 100 | Stimulus display size in px |
+| `image_size_fraction` | 0.11 | Stimulus size as a fraction of sort-area width |
 | `min_trial_rt_ms` | 5000 | Minimum acceptable trial duration |
 | `min_pairwise_distance_sd` | 0.04 | Minimum SD of normalised distances (QC) |
 | `prolific_completion_url` | `""` | Set before deploying to Prolific |

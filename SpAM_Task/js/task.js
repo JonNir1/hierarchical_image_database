@@ -66,7 +66,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   const practiceUrls = (manifest.practice_images || []).map(f => config.stimuli_practice_path + '/' + f);
 
   // ---------------------------------------------------------------------------
-  // 5. Trial lists
+  // 5. Responsive layout — computed once from viewport at page-load time
+  // ---------------------------------------------------------------------------
+  const { sortW, sortH, stimSize } = computeLayout(
+    window.innerWidth, window.innerHeight, config,
+  );
+  if (config.debug) console.log('[SpAM] Layout:', { sortW, sortH, stimSize });
+
+  // ---------------------------------------------------------------------------
+  // 6. Trial lists
   //    buildTrialLists expects rng as a function (not a seed integer).
   //    rng must not be called between here and buildTrialLists — any prior call
   //    shifts the sequence and breaks per-PID reproducibility.
@@ -81,7 +89,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ---------------------------------------------------------------------------
-  // 6. jsPsych initialisation
+  // 7. jsPsych initialisation
   // ---------------------------------------------------------------------------
   const jsPsych = initJsPsych({
     auto_preload: false, // we preload per-trial via jsPsychPreload nodes
@@ -89,7 +97,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // ---------------------------------------------------------------------------
-  // 7. saveData — called by jsPsych.on_finish
+  // 8. saveData — called by jsPsych.on_finish
   //    On Pavlovia: the jsPsychPavlovia finish node (in the timeline below)
   //    handles saving before on_finish fires; nothing to do here.
   //    Locally: download a filtered CSV (practice trials excluded).
@@ -112,7 +120,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ---------------------------------------------------------------------------
-  // 8. Timeline
+  // 9. Timeline
   // ---------------------------------------------------------------------------
   const timeline = [];
 
@@ -170,10 +178,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   timeline.push({
     type:            jsPsychFreeSort,
     stimuli:         practiceUrls.slice(0, config.practice_images_per_trial),
-    sort_area_width:  config.sort_area_width,
-    sort_area_height: config.sort_area_height,
-    stim_width:       config.image_width,
-    stim_height:      config.image_height,
+    sort_area_width:  sortW,
+    sort_area_height: sortH,
+    stim_width:       stimSize,
+    stim_height:      stimSize,
     // TODO: verify 'sort_area_shape' is a valid parameter in the installed plugin
     //       version before uncommenting. Plugin source uses it for elliptical clipping.
     // sort_area_shape: config.sort_area_shape,
@@ -208,10 +216,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     timeline.push({
       type:             jsPsychFreeSort,
       stimuli:          trial.images,
-      sort_area_width:  config.sort_area_width,
-      sort_area_height: config.sort_area_height,
-      stim_width:       config.image_width,
-      stim_height:      config.image_height,
+      sort_area_width:  sortW,
+      sort_area_height: sortH,
+      stim_width:       stimSize,
+      stim_height:      stimSize,
       // TODO: see note above on sort_area_shape
       // sort_area_shape: config.sort_area_shape,
       prompt: trial.type === 'catch'
@@ -223,8 +231,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         // QC metrics
         const pairs = computePairwiseDistances(
           data.final_locations,
-          config.sort_area_width,
-          config.sort_area_height,
+          sortW,
+          sortH,
         );
         const distances = pairs.map(p => p.distance);
         const sd = computeSD(distances);
@@ -240,7 +248,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           const clusterMean = distances.reduce((a, b) => a + b, 0) / (distances.length || 1);
           const locationOk = isCentroidNearTarget(
             centroid, trial.target_location,
-            config.sort_area_width, config.sort_area_height,
+            sortW, sortH,
             config.catch_location_tolerance,
           );
           data.target_location        = trial.target_location;
@@ -297,7 +305,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ---------------------------------------------------------------------------
-  // 9. Run
+  // 10. Run
   // ---------------------------------------------------------------------------
   jsPsych.run(timeline);
 

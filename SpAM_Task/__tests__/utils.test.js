@@ -72,3 +72,56 @@ describe('computeSD', () => {
         assert.ok(Math.abs(computeSD([2,4,4,4,5,5,7,9]) - Math.sqrt(32/7)) < 1e-10);
     });
 });
+
+// ── computeLayout ─────────────────────────────────────────────────────────────
+describe('computeLayout', () => {
+    // Helper: build a minimal config with explicit min/max and fraction.
+    const cfg = (maxW, maxH, minW, minH, frac = 0.11) => ({
+        sort_area_width:    maxW,
+        sort_area_height:   maxH,
+        sort_area_min_width:  minW,
+        sort_area_min_height: minH,
+        image_size_fraction:  frac,
+    });
+
+    it('large screen — capped at configured max (900×700)', () => {
+        const { sortW, sortH, stimSize } = computeLayout(1920, 1080, cfg(900, 700, 900, 700));
+        assert.equal(sortW,    900);
+        assert.equal(sortH,    700);
+        assert.equal(stimSize,  99); // round(900 * 0.11)
+    });
+
+    it('just-fits width — viewport slightly above min still yields min', () => {
+        // floor(980 * 0.92) = 901 > max 900  →  capped at 900
+        // floor(768 * 0.85) = 652 < min 700  →  floored at 700
+        const { sortW, sortH } = computeLayout(980, 768, cfg(900, 700, 900, 700));
+        assert.equal(sortW, 900);
+        assert.equal(sortH, 700);
+    });
+
+    it('small screen with default mins — floor holds at 900×700', () => {
+        // 800×600: viewport-derived values are below min → floor wins
+        const { sortW, sortH, stimSize } = computeLayout(800, 600, cfg(900, 700, 900, 700));
+        assert.equal(sortW,    900);
+        assert.equal(sortH,    700);
+        assert.equal(stimSize,  99);
+    });
+
+    it('small screen with low mins — shrinks to viewport-derived size', () => {
+        // floor(700 * 0.92) = 644;  floor(500 * 0.85) = 425
+        // both above min (400×350) and below max (900×700)  →  viewport wins
+        const { sortW, sortH, stimSize } = computeLayout(700, 500, cfg(900, 700, 400, 350));
+        assert.equal(sortW,    644);
+        assert.equal(sortH,    425);
+        assert.equal(stimSize,  71); // round(644 * 0.11)
+    });
+
+    it('large screen with high max — caps at the higher configured max', () => {
+        // floor(1920 * 0.92) = 1766 > max 1100  →  capped at 1100
+        // floor(1080 * 0.85) = 918  > max 800   →  capped at 800
+        const { sortW, sortH, stimSize } = computeLayout(1920, 1080, cfg(1100, 800, 600, 500));
+        assert.equal(sortW,    1100);
+        assert.equal(sortH,    800);
+        assert.equal(stimSize, 121); // round(1100 * 0.11)
+    });
+});
