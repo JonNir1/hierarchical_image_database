@@ -157,6 +157,8 @@ function verifyConfig(config) {
  * ±(sortW × 0.5 × column_spread_factor) from the arena edge, so the total horizontal
  * space needed is sortW × (1 + column_spread_factor). In that case the canvas width is
  * capped at floor(viewportW / (1 + column_spread_factor)) to prevent overflow.
+ * Height is clamped to 70% of viewport height to leave room for the prompt, counter,
+ * and done button above/below the sort area without triggering a vertical scrollbar.
  *
  * @param {number} viewportW - window.innerWidth
  * @param {number} viewportH - window.innerHeight
@@ -178,7 +180,7 @@ function computeLayout(viewportW, viewportH, config) {
     );
     const sortH = Math.max(
         config.sort_area_min_height,
-        Math.min(Math.floor(viewportH * 0.78), config.sort_area_height),
+        Math.min(Math.floor(viewportH * 0.70), config.sort_area_height),
     );
     const stimSize = Math.round(sortW * config.image_size_fraction);
     return { sortW, sortH, stimSize };

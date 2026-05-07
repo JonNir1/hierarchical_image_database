@@ -194,6 +194,7 @@ describe('computeLayout', () => {
     // ── stim_starts_inside: true (images start inside — full 85% fraction) ───
     it('inside=true, large screen — capped at configured max', () => {
         // floor(1920 * 0.85) = 1632 > max 900  →  capped at 900
+        // floor(1080 * 0.70) = 756  > max 700  →  capped at 700
         const { sortW, sortH, stimSize } = computeLayout(1920, 1080, cfg(900, 700, 900, 700));
         assert.equal(sortW,    900);
         assert.equal(sortH,    700);
@@ -202,29 +203,29 @@ describe('computeLayout', () => {
 
     it('inside=true, medium screen — viewport fraction wins between min and max', () => {
         // floor(1200 * 0.85) = 1020, clamp to [900, 1400] → 1020
-        // floor(800  * 0.78) = 624,  clamp to [700, 900]  → 700
-        const { sortW, sortH } = computeLayout(1200, 800, cfg(1400, 900, 900, 700));
+        // floor(900  * 0.70) = 630,  clamp to [600, 900]  → 630
+        const { sortW, sortH } = computeLayout(1200, 900, cfg(1400, 900, 900, 600));
         assert.equal(sortW, 1020);
-        assert.equal(sortH,  700);
+        assert.equal(sortH,  630);
     });
 
     // ── stim_starts_inside: false (images start outside — viewport / (1+factor)) ──
     it('inside=false, large screen with factor=0.3 — capped at max', () => {
         // floor(1920 / 1.3) = 1476 > max 1400  →  capped at 1400
-        const { sortW } = computeLayout(1920, 1080, cfg(1400, 900, 900, 700, 0.11, false, 0.3));
+        const { sortW } = computeLayout(1920, 1080, cfg(1400, 900, 900, 500, 0.11, false, 0.3));
         assert.equal(sortW, 1400);
     });
 
-    it('inside=false, medium screen with factor=0.3 — constrained by staging', () => {
-        // floor(1456 / 1.3) = 1120, clamp to [900, 1400] → 1120
-        const { sortW, stimSize } = computeLayout(1456, 816, cfg(1400, 900, 900, 700, 0.11, false, 0.3));
-        assert.equal(sortW,    1120);
-        assert.equal(stimSize, 123); // round(1120 * 0.11)
+    it('inside=false, medium screen with factor=1.0 — constrained by staging', () => {
+        // floor(1456 / 2.0) = 728, clamp to [650, 1000] → 728
+        const { sortW, stimSize } = computeLayout(1456, 816, cfg(1000, 750, 650, 500, 0.11, false, 1.0));
+        assert.equal(sortW,    728);
+        assert.equal(stimSize,  80); // round(728 * 0.11)
     });
 
     it('inside=false, small screen — floor wins even with staging constraint', () => {
-        // floor(1000 / 2.0) = 500 < min 900  →  floored at 900
-        const { sortW } = computeLayout(1000, 800, cfg(1400, 900, 900, 700, 0.11, false, 1.0));
-        assert.equal(sortW, 900);
+        // floor(1000 / 2.0) = 500 < min 650  →  floored at 650
+        const { sortW } = computeLayout(1000, 800, cfg(1000, 750, 650, 500, 0.11, false, 1.0));
+        assert.equal(sortW, 650);
     });
 });
