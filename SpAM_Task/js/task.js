@@ -200,9 +200,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     stimuli:         practiceUrls.slice(0, config.practice_images_per_trial),
     sort_area_width:  sortW,
     sort_area_height: sortH,
-    stim_width:       stimSize,
-    stim_height:      stimSize,
-    sort_area_shape:  config.sort_area_shape,
+    stim_width:        stimSize,
+    stim_height:       stimSize,
+    sort_area_shape:   config.sort_area_shape,
+    stim_starts_inside: true,
     prompt: '<p style="font-size:0.9em; color:#333;">PRACTICE — arrange these images by visual similarity. ' +
             'This trial will <strong>not</strong> be recorded.</p>',
     on_finish(data) {
@@ -237,9 +238,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       stimuli:          trial.images,
       sort_area_width:  sortW,
       sort_area_height: sortH,
-      stim_width:       stimSize,
-      stim_height:      stimSize,
-      sort_area_shape:  config.sort_area_shape,
+      stim_width:        stimSize,
+      stim_height:       stimSize,
+      sort_area_shape:   config.sort_area_shape,
+      stim_starts_inside: true,
       prompt: trial.type === 'catch'
         ? '<p style="font-size:0.9em; color:#333;">Please place all images on the ' +
           '<strong>' + trial.target_location + '</strong> of the screen.</p>'
