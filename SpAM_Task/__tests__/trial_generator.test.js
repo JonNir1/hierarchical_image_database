@@ -56,27 +56,3 @@ describe('buildTrialLists', () => {
     });
 });
 
-// ── insertCatchTrials ─────────────────────────────────────────────────────────
-describe('insertCatchTrials', () => {
-    const CATCH = Array.from({ length: 20 }, (_, i) => `catch_${i}.png`);
-    let mains;
-    // Build once before each test (beforeEach not needed — mains is reassigned).
-    const freshMains = () => buildTrialLists(ALL_IMAGES, CONFIG, makeRng());
-
-    it('combined length is numMain + numCatch', () => {
-        assert.equal(insertCatchTrials(freshMains(), CATCH, 2).length, 12);
-    });
-    it('catch trials land at positions 3 and 7 (t=10, numCatch=2)', () => {
-        const combined = insertCatchTrials(freshMains(), CATCH, 2);
-        assert.equal(combined[3].type, 'catch');
-        assert.equal(combined[7].type, 'catch');
-        assert.equal(combined[0].type,  'main');
-        assert.equal(combined[11].type, 'main');
-    });
-    it('all main trials are preserved in order', () => {
-        mains = freshMains();
-        const mains_out = insertCatchTrials(mains, CATCH, 2).filter(t => t.type === 'main');
-        assert.equal(mains_out.length, 10);
-        mains_out.forEach((t, i) => assert.deepEqual(t.images, mains[i]));
-    });
-});

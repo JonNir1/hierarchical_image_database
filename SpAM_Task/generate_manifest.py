@@ -9,7 +9,6 @@ MANIFEST_PATH = TASK_DIR / "stimuli_manifest.json"
 SETS = [
     ("stimuli_path",          "images"),
     ("stimuli_practice_path", "practice_images"),
-    ("stimuli_catch_path",    "catch_images"),
 ]
 
 
