@@ -202,9 +202,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     sort_area_height: sortH,
     stim_width:       stimSize,
     stim_height:      stimSize,
-    // TODO: verify 'sort_area_shape' is a valid parameter in the installed plugin
-    //       version before uncommenting. Plugin source uses it for elliptical clipping.
-    // sort_area_shape: config.sort_area_shape,
+    sort_area_shape:  config.sort_area_shape,
     prompt: '<p style="font-size:0.9em; color:#333;">PRACTICE — arrange these images by visual similarity. ' +
             'This trial will <strong>not</strong> be recorded.</p>',
     on_finish(data) {
@@ -241,8 +239,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       sort_area_height: sortH,
       stim_width:       stimSize,
       stim_height:      stimSize,
-      // TODO: see note above on sort_area_shape
-      // sort_area_shape: config.sort_area_shape,
+      sort_area_shape:  config.sort_area_shape,
       prompt: trial.type === 'catch'
         ? '<p style="font-size:0.9em; color:#333;">Please place all images on the ' +
           '<strong>' + trial.target_location + '</strong> of the screen.</p>'

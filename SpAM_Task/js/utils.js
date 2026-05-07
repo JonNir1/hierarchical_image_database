@@ -146,8 +146,8 @@ function verifyConfig(config) {
  * as a fraction of the sort-area width so that emoji and dataset images are always
  * rendered at the same size regardless of their native resolution.
  *
- * Viewport fractions (0.92 wide, 0.85 tall) leave room for browser chrome and the
- * per-trial prompt text.
+ * Viewport fractions (0.85 wide, 0.78 tall) leave room for browser chrome, jsPsych's
+ * own container margins, and the per-trial prompt text above the sort area.
  *
  * @param {number} viewportW - window.innerWidth
  * @param {number} viewportH - window.innerHeight
@@ -161,11 +161,11 @@ function verifyConfig(config) {
 function computeLayout(viewportW, viewportH, config) {
     const sortW = Math.max(
         config.sort_area_min_width,
-        Math.min(Math.floor(viewportW * 0.92), config.sort_area_width),
+        Math.min(Math.floor(viewportW * 0.85), config.sort_area_width),
     );
     const sortH = Math.max(
         config.sort_area_min_height,
-        Math.min(Math.floor(viewportH * 0.85), config.sort_area_height),
+        Math.min(Math.floor(viewportH * 0.78), config.sort_area_height),
     );
     const stimSize = Math.round(sortW * config.image_size_fraction);
     return { sortW, sortH, stimSize };
