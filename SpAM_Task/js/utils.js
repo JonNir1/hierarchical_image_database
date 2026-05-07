@@ -1,6 +1,144 @@
 'use strict';
 
 /**
+ * Validate experiment configuration loaded from config.json.
+ *
+ * Throws a descriptive Error on any hard failure (missing/wrong-type key,
+ * out-of-range value, or violated arithmetic constraint). Issues console.warn
+ * for soft warnings (non-blocking deployment reminders).
+ *
+ * Call this immediately after parsing config.json, before any computation.
+ *
+ * @param {object} config - Parsed config.json object
+ * @throws {Error} "verifyConfig: <message>" on hard failure
+ */
+function verifyConfig(config) {
+    const err  = msg => { throw new Error('verifyConfig: ' + msg); };
+    const warn = msg => console.warn('verifyConfig: ' + msg);
+
+    // ── Group 1: key presence & types ────────────────────────────────────────
+    const REQUIRED_TYPES = {
+        trials_per_subject:        'number',
+        images_per_trial:          'number',
+        unique_images_per_subject: 'number',
+        num_catch_trials:          'number',
+        catch_images_per_trial:    'number',
+        practice_images_per_trial: 'number',
+        sort_area_width:           'number',
+        sort_area_height:          'number',
+        sort_area_min_width:       'number',
+        sort_area_min_height:      'number',
+        image_size_fraction:       'number',
+        min_trial_rt_ms:           'number',
+        min_pairwise_distance_sd:  'number',
+        catch_cluster_max_mean:    'number',
+        catch_cluster_max_sd:      'number',
+        catch_location_tolerance:  'number',
+        sort_area_shape:           'string',
+        debug:                     'boolean',
+    };
+    for (const [key, type] of Object.entries(REQUIRED_TYPES)) {
+        if (!(key in config))
+            err('missing required key "' + key + '".');
+        if (typeof config[key] !== type)
+            err('"' + key + '" must be a ' + type + ', got ' + typeof config[key] + '.');
+        if (type === 'number' && !Number.isFinite(config[key]))
+            err('"' + key + '" must be finite, got ' + config[key] + '.');
+    }
+
+    // ── Group 2: individual field ranges ─────────────────────────────────────
+    const {
+        trials_per_subject: t,
+        images_per_trial: k,
+        unique_images_per_subject: N,
+        num_catch_trials: nCatch,
+        catch_images_per_trial: kCatch,
+        practice_images_per_trial: kPractice,
+        sort_area_width: maxW,    sort_area_height: maxH,
+        sort_area_min_width: minW, sort_area_min_height: minH,
+        image_size_fraction: frac,
+        min_trial_rt_ms: minRt,
+        min_pairwise_distance_sd: minSd,
+        catch_cluster_max_mean: catchMean,
+        catch_cluster_max_sd:   catchSd,
+        catch_location_tolerance: catchTol,
+        sort_area_shape: shape,
+    } = config;
+
+    if (!Number.isInteger(t)        || t < 1)        err('"trials_per_subject" must be a positive integer, got ' + t + '.');
+    if (!Number.isInteger(k)        || k < 1)        err('"images_per_trial" must be a positive integer, got ' + k + '.');
+    if (!Number.isInteger(N)        || N < 1)        err('"unique_images_per_subject" must be a positive integer, got ' + N + '.');
+    if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"num_catch_trials" must be a non-negative integer, got ' + nCatch + '.');
+    if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_images_per_trial" must be a positive integer, got ' + kCatch + '.');
+    if (!Number.isInteger(kPractice)|| kPractice < 1)err('"practice_images_per_trial" must be a positive integer, got ' + kPractice + '.');
+    if (maxW   <= 0) err('"sort_area_width" must be > 0, got '        + maxW + '.');
+    if (maxH   <= 0) err('"sort_area_height" must be > 0, got '       + maxH + '.');
+    if (minW   <= 0) err('"sort_area_min_width" must be > 0, got '    + minW + '.');
+    if (minH   <= 0) err('"sort_area_min_height" must be > 0, got '   + minH + '.');
+    if (frac <= 0 || frac >= 1)      err('"image_size_fraction" must be in (0, 1), got '            + frac + '.');
+    if (minRt < 0)                   err('"min_trial_rt_ms" must be >= 0, got '                     + minRt + '.');
+    if (minSd <= 0 || minSd >= 1)    err('"min_pairwise_distance_sd" must be in (0, 1), got '       + minSd + '.');
+    if (catchMean <= 0 || catchMean >= 1) err('"catch_cluster_max_mean" must be in (0, 1), got '    + catchMean + '.');
+    if (catchSd   <= 0 || catchSd   >= 1) err('"catch_cluster_max_sd" must be in (0, 1), got '      + catchSd + '.');
+    if (catchTol  <= 0 || catchTol  >= 1) err('"catch_location_tolerance" must be in (0, 1), got '  + catchTol + '.');
+    if (shape !== 'square' && shape !== 'ellipse')
+        err('"sort_area_shape" must be "square" or "ellipse", got "' + shape + '".');
+
+    // ── Group 3: cross-parameter arithmetic ──────────────────────────────────
+
+    // 3a. Trial image pool arithmetic
+    if (N < k)
+        err('unique_images_per_subject (' + N + ') must be >= images_per_trial (' + k + '). Each trial needs k distinct images.');
+    if (N > t * k)
+        err('unique_images_per_subject (' + N + ') exceeds trials_per_subject × images_per_trial (t×k = ' + (t * k) + '). Reduce N or increase t or k.');
+
+    // 3b. Catch trial count
+    if (nCatch >= t)
+        err('num_catch_trials (' + nCatch + ') must be < trials_per_subject (' + t + '). At least one main trial is required.');
+
+    // 3c. Sort area min <= max
+    if (minW > maxW) err('sort_area_min_width (' + minW + ') must not exceed sort_area_width (' + maxW + ').');
+    if (minH > maxH) err('sort_area_min_height (' + minH + ') must not exceed sort_area_height (' + maxH + ').');
+
+    // 3d. Single image fits in minimum sort area
+    const stimSize = Math.round(minW * frac);
+    if (stimSize >= minW) err('Computed stimulus size (' + stimSize + 'px) equals or exceeds sort_area_min_width (' + minW + 'px). Reduce image_size_fraction.');
+    if (stimSize >= minH) err('Computed stimulus size (' + stimSize + 'px) equals or exceeds sort_area_min_height (' + minH + 'px). Reduce image_size_fraction.');
+
+    // 3e. k images fit in a square grid within the minimum sort area
+    const colsMain  = Math.ceil(Math.sqrt(k));
+    const rowsMain  = Math.ceil(k / colsMain);
+    if (colsMain * stimSize > minW)
+        err(k + ' images of ' + stimSize + 'px each cannot fit in a ' + colsMain + '×' + rowsMain +
+            ' grid within the minimum sort area (' + minW + '×' + minH + 'px). Reduce image_size_fraction or images_per_trial, or increase sort area dimensions.');
+    if (rowsMain * stimSize > minH)
+        err(k + ' images of ' + stimSize + 'px each cannot fit in a ' + colsMain + '×' + rowsMain +
+            ' grid within the minimum sort area (' + minW + '×' + minH + 'px). Reduce image_size_fraction or images_per_trial, or increase sort area dimensions.');
+
+    // 3e (catch). kCatch images fit in a square grid within the minimum sort area
+    const colsCatch = Math.ceil(Math.sqrt(kCatch));
+    const rowsCatch = Math.ceil(kCatch / colsCatch);
+    if (colsCatch * stimSize > minW)
+        err(kCatch + ' catch images of ' + stimSize + 'px each cannot fit in a ' + colsCatch + '×' + rowsCatch +
+            ' grid within the minimum sort area (' + minW + '×' + minH + 'px). Reduce image_size_fraction or catch_images_per_trial, or increase sort area dimensions.');
+    if (rowsCatch * stimSize > minH)
+        err(kCatch + ' catch images of ' + stimSize + 'px each cannot fit in a ' + colsCatch + '×' + rowsCatch +
+            ' grid within the minimum sort area (' + minW + '×' + minH + 'px). Reduce image_size_fraction or catch_images_per_trial, or increase sort area dimensions.');
+
+    // 3f. Practice image count (soft warning)
+    if (kPractice > k)
+        warn('"practice_images_per_trial" (' + kPractice + ') > "images_per_trial" (' + k + '). Practice trial will show more images than main trials.');
+
+    // ── Group 4: deployment warnings ─────────────────────────────────────────
+    if (!config.debug) {
+        if (!config.stimuli_path)           warn('"stimuli_path" is empty — no main images will load.');
+        if (!config.stimuli_practice_path)  warn('"stimuli_practice_path" is empty — practice trial will have no images.');
+        if (!config.stimuli_catch_path)     warn('"stimuli_catch_path" is empty — catch trials will have no images.');
+        if (!config.prolific_completion_url)warn('"prolific_completion_url" is empty — participants will not be redirected after completion.');
+    }
+}
+
+/**
  * Compute the sort-area dimensions and stimulus size for the current viewport.
  *
  * Sort area is clamped between [min, max] on each axis, where max is the ideal

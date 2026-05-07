@@ -26,6 +26,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
+  // Validate config before any computation.
+  try {
+    verifyConfig(config);
+  } catch (err) {
+    document.body.innerHTML =
+      '<p style="color:white;font-family:sans-serif;text-align:center;margin-top:20%;">' +
+      '<strong>Configuration error:</strong><br>' + err.message + '</p>';
+    return;
+  }
+
   // ---------------------------------------------------------------------------
   // 2. Environment + participant ID
   // ---------------------------------------------------------------------------

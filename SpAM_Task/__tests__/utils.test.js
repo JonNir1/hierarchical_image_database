@@ -73,6 +73,100 @@ describe('computeSD', () => {
     });
 });
 
+// ── verifyConfig ──────────────────────────────────────────────────────────────
+describe('verifyConfig', () => {
+    // Minimal valid config that passes all checks.
+    const validConfig = () => ({
+        trials_per_subject:        10,
+        images_per_trial:          20,
+        unique_images_per_subject: 150,
+        num_catch_trials:          2,
+        catch_images_per_trial:    10,
+        practice_images_per_trial: 8,
+        sort_area_width:           900,
+        sort_area_height:          700,
+        sort_area_min_width:       900,
+        sort_area_min_height:      700,
+        image_size_fraction:       0.11,
+        min_trial_rt_ms:           5000,
+        min_pairwise_distance_sd:  0.04,
+        catch_cluster_max_mean:    0.15,
+        catch_cluster_max_sd:      0.10,
+        catch_location_tolerance:  0.20,
+        sort_area_shape:           'square',
+        debug:                     true,   // suppress deployment warnings
+        stimuli_path:              'stimuli',
+        stimuli_practice_path:     'practice',
+        stimuli_catch_path:        'catch',
+        prolific_completion_url:   'https://example.com',
+    });
+
+    it('passes a valid config without throwing', () => {
+        assert.doesNotThrow(() => verifyConfig(validConfig()));
+    });
+
+    it('throws on missing key', () => {
+        const cfg = validConfig();
+        delete cfg.images_per_trial;
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /missing required key "images_per_trial"/ },
+        );
+    });
+
+    it('throws on wrong type', () => {
+        const cfg = validConfig();
+        cfg.trials_per_subject = '10';  // string instead of number
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /"trials_per_subject" must be a number/ },
+        );
+    });
+
+    it('throws on out-of-range value (image_size_fraction >= 1)', () => {
+        const cfg = validConfig();
+        cfg.image_size_fraction = 1.5;
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /"image_size_fraction" must be in \(0, 1\)/ },
+        );
+    });
+
+    it('throws when unique_images_per_subject > t * k', () => {
+        const cfg = validConfig();
+        cfg.unique_images_per_subject = 201; // > 10*20
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /unique_images_per_subject \(201\) exceeds/ },
+        );
+    });
+
+    it('throws when num_catch_trials >= trials_per_subject', () => {
+        const cfg = validConfig();
+        cfg.num_catch_trials = 10; // equals trials_per_subject
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /num_catch_trials \(10\) must be < trials_per_subject/ },
+        );
+    });
+
+    it('throws when k images do not fit in a grid on the minimum canvas', () => {
+        const cfg = validConfig();
+        cfg.image_size_fraction = 0.5;  // stimSize = round(900*0.5)=450; 5 cols * 450 > 900
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /cannot fit in a .+ grid/ },
+        );
+    });
+
+    it('warns (not throws) when practice_images_per_trial > images_per_trial', () => {
+        const cfg = validConfig();
+        cfg.practice_images_per_trial = 25; // > images_per_trial=20
+        // Should not throw
+        assert.doesNotThrow(() => verifyConfig(cfg));
+    });
+});
+
 // ── computeLayout ─────────────────────────────────────────────────────────────
 describe('computeLayout', () => {
     // Helper: build a minimal config with explicit min/max and fraction.
