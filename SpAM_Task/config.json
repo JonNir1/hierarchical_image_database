@@ -15,7 +15,7 @@
   "sort_area_shape": "rect",
   "stim_starts_inside": true,
   "column_spread_factor": 1.0,
-  "image_size_fraction": 0.11,
+  "image_size_fraction": 0.08,
   "min_trial_rt_ms": 5000,
   "min_pairwise_distance_sd": 0.04,
   "stimuli_path": "",

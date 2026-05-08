@@ -83,6 +83,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   );
   if (config.debug) console.log('[SpAM] Layout:', { sortW, sortH, stimSize });
 
+  // jsPsychFreeSort only recognises 'square' (rectangular) and 'ellipse'.
+  // Our config uses 'rect'/'ellipse'; map here so the inside-check uses the
+  // correct geometry (passing an unrecognised value falls through to ellipse,
+  // which would exclude images placed in the corners of a rectangular arena).
+  const pluginShape = config.sort_area_shape === 'ellipse' ? 'ellipse' : 'square';
+
   // ---------------------------------------------------------------------------
   // 6. Trial lists
   //    buildTrialLists expects rng as a function (not a seed integer).
@@ -202,9 +208,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     sort_area_height: sortH,
     stim_width:        stimSize,
     stim_height:       stimSize,
-    sort_area_shape:   config.sort_area_shape,
-    stim_starts_inside:    config.stim_starts_inside,
-      column_spread_factor:  config.column_spread_factor,
+    sort_area_shape:      pluginShape,
+    stim_starts_inside:   config.stim_starts_inside,
+    column_spread_factor: config.column_spread_factor,
     prompt: '<p style="font-size:0.9em; color:#333;">PRACTICE — arrange these images by visual similarity. ' +
             'This trial will <strong>not</strong> be recorded.</p>',
     on_finish(data) {
@@ -241,9 +247,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       sort_area_height: sortH,
       stim_width:        stimSize,
       stim_height:       stimSize,
-      sort_area_shape:   config.sort_area_shape,
-      stim_starts_inside:    config.stim_starts_inside,
-      column_spread_factor:  config.column_spread_factor,
+      sort_area_shape:      pluginShape,
+      stim_starts_inside:   config.stim_starts_inside,
+      column_spread_factor: config.column_spread_factor,
       prompt: trial.type === 'catch'
         ? '<p style="font-size:0.9em; color:#333;">Please place all images on the ' +
           '<strong>' + trial.target_location + '</strong> of the screen.</p>'
