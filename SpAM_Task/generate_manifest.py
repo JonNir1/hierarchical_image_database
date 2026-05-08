@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 from pathlib import Path
@@ -40,6 +41,38 @@ def scan_pngs(directory: Path) -> list[str]:
     return sorted(results)
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse optional CLI path overrides.
+
+    CLI arguments let you point generate_manifest.py at local filesystem paths
+    that differ from the URL prefixes stored in config.json (e.g. when stimuli
+    live outside the served directory during local development).  config.json is
+    never modified — the overrides only affect which directories are scanned.
+
+    Example — main stimuli stored outside SpAM_Task/:
+        python generate_manifest.py --stimuli "C:/Users/me/Desktop/MyImages"
+
+    When an argument is omitted the corresponding config.json value is used
+    unchanged, so existing usage (no arguments) is fully backward-compatible.
+    """
+    parser = argparse.ArgumentParser(
+        description="Scan stimulus directories and write stimuli_manifest.json.",
+    )
+    parser.add_argument(
+        "--stimuli", metavar="PATH", default=None,
+        help="Override stimuli_path from config.json with a local filesystem path",
+    )
+    parser.add_argument(
+        "--practice", metavar="PATH", default=None,
+        help="Override stimuli_practice_path from config.json",
+    )
+    parser.add_argument(
+        "--catch", metavar="PATH", default=None,
+        help="Override stimuli_catch_path from config.json",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
     """Read config.json, scan each stimulus directory, and write stimuli_manifest.json.
 
@@ -52,11 +85,23 @@ def main() -> None:
     Validates that each set contains at least as many images as the matching
     ``*_per_trial`` threshold in config.json and warns if not.
     """
+    args = parse_args()
+
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(f"config.json not found at {CONFIG_PATH}")
 
     with CONFIG_PATH.open() as fh:
         config = json.load(fh)
+
+    # Apply CLI overrides — only affects directory scanning, not config.json.
+    cli_overrides = {
+        "stimuli_path":          args.stimuli,
+        "stimuli_practice_path": args.practice,
+        "stimuli_catch_path":    args.catch,
+    }
+    for key, val in cli_overrides.items():
+        if val is not None:
+            config[key] = val
 
     manifest: dict[str, list[str]] = {}
 
