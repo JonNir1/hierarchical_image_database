@@ -16,130 +16,153 @@ function verifyConfig(config) {
     const err  = msg => { throw new Error('verifyConfig: ' + msg); };
     const warn = msg => console.warn('verifyConfig: ' + msg);
 
-    // ── Group 1: key presence & types ────────────────────────────────────────
-    const REQUIRED_TYPES = {
-        trials_per_subject:        'number',
-        images_per_trial:          'number',
-        unique_images_per_subject: 'number',
-        num_catch_trials:          'number',
-        catch_images_per_trial:    'number',
-        practice_images_per_trial: 'number',
-        sort_area_width:           'number',
-        sort_area_height:          'number',
-        sort_area_min_width:       'number',
-        sort_area_min_height:      'number',
-        image_size_fraction:       'number',
-        min_trial_rt_ms:           'number',
-        min_pairwise_distance_sd:  'number',
-        catch_cluster_max_mean:    'number',
-        catch_cluster_max_sd:      'number',
-        catch_location_tolerance:  'number',
-        sort_area_shape:           'string',
-        stim_starts_inside:        'boolean',
-        column_spread_factor:      'number',
-        debug:                     'boolean',
+    // ── Group 1: section presence & key types ────────────────────────────────
+    const SCHEMA = {
+        stimuli_paths: {
+            main:     'string',
+            practice: 'string',
+            catch:    'string',
+        },
+        design: {
+            trials_per_subject:        'number',
+            images_per_trial:          'number',
+            unique_images_per_subject: 'number',
+            practice_images_per_trial: 'number',
+        },
+        catch_trials: {
+            num_trials:         'number',
+            images_per_trial:   'number',
+            cluster_max_mean:   'number',
+            cluster_max_sd:     'number',
+            location_tolerance: 'number',
+        },
+        display: {
+            sort_area_width:      'number',
+            sort_area_height:     'number',
+            sort_area_min_width:  'number',
+            sort_area_min_height: 'number',
+            sort_area_shape:      'string',
+            stim_starts_inside:   'boolean',
+            column_spread_factor: 'number',
+            image_size_fraction:  'number',
+        },
+        quality_control: {
+            min_trial_rt_ms:          'number',
+            min_pairwise_distance_sd: 'number',
+        },
+        deployment: {
+            prolific_completion_url: 'string',
+            debug:                   'boolean',
+        },
     };
-    for (const [key, type] of Object.entries(REQUIRED_TYPES)) {
-        if (!(key in config))
-            err('missing required key "' + key + '".');
-        if (typeof config[key] !== type)
-            err('"' + key + '" must be a ' + type + ', got ' + typeof config[key] + '.');
-        if (type === 'number' && !Number.isFinite(config[key]))
-            err('"' + key + '" must be finite, got ' + config[key] + '.');
+
+    for (const [section, keys] of Object.entries(SCHEMA)) {
+        if (!(section in config) || typeof config[section] !== 'object' || config[section] === null)
+            err('missing required section "' + section + '".');
+        for (const [key, type] of Object.entries(keys)) {
+            const fullKey = section + '.' + key;
+            if (!(key in config[section]))
+                err('missing required key "' + fullKey + '".');
+            if (typeof config[section][key] !== type)
+                err('"' + fullKey + '" must be a ' + type + ', got ' + typeof config[section][key] + '.');
+            if (type === 'number' && !Number.isFinite(config[section][key]))
+                err('"' + fullKey + '" must be finite, got ' + config[section][key] + '.');
+        }
     }
 
     // ── Group 2: individual field ranges ─────────────────────────────────────
-    const {
-        trials_per_subject: t,
-        images_per_trial: k,
-        unique_images_per_subject: N,
-        num_catch_trials: nCatch,
-        catch_images_per_trial: kCatch,
-        practice_images_per_trial: kPractice,
-        sort_area_width: maxW,    sort_area_height: maxH,
-        sort_area_min_width: minW, sort_area_min_height: minH,
-        image_size_fraction: frac,
-        min_trial_rt_ms: minRt,
-        min_pairwise_distance_sd: minSd,
-        catch_cluster_max_mean: catchMean,
-        catch_cluster_max_sd:   catchSd,
-        catch_location_tolerance: catchTol,
-        sort_area_shape: shape,
-        column_spread_factor: spreadFactor,
-    } = config;
+    const { design: d, catch_trials: ct, display: disp, quality_control: qc } = config;
 
-    if (!Number.isInteger(t)        || t < 1)        err('"trials_per_subject" must be a positive integer, got ' + t + '.');
-    if (!Number.isInteger(k)        || k < 1)        err('"images_per_trial" must be a positive integer, got ' + k + '.');
-    if (!Number.isInteger(N)        || N < 1)        err('"unique_images_per_subject" must be a positive integer, got ' + N + '.');
-    if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"num_catch_trials" must be a non-negative integer, got ' + nCatch + '.');
-    if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_images_per_trial" must be a positive integer, got ' + kCatch + '.');
-    if (!Number.isInteger(kPractice)|| kPractice < 1)err('"practice_images_per_trial" must be a positive integer, got ' + kPractice + '.');
-    if (maxW   <= 0) err('"sort_area_width" must be > 0, got '        + maxW + '.');
-    if (maxH   <= 0) err('"sort_area_height" must be > 0, got '       + maxH + '.');
-    if (minW   <= 0) err('"sort_area_min_width" must be > 0, got '    + minW + '.');
-    if (minH   <= 0) err('"sort_area_min_height" must be > 0, got '   + minH + '.');
-    if (frac <= 0 || frac >= 1)      err('"image_size_fraction" must be in (0, 1), got '            + frac + '.');
-    if (minRt < 0)                   err('"min_trial_rt_ms" must be >= 0, got '                     + minRt + '.');
-    if (minSd <= 0 || minSd >= 1)    err('"min_pairwise_distance_sd" must be in (0, 1), got '       + minSd + '.');
-    if (catchMean <= 0 || catchMean >= 1) err('"catch_cluster_max_mean" must be in (0, 1), got '    + catchMean + '.');
-    if (catchSd   <= 0 || catchSd   >= 1) err('"catch_cluster_max_sd" must be in (0, 1), got '      + catchSd + '.');
-    if (catchTol  <= 0 || catchTol  >= 1) err('"catch_location_tolerance" must be in (0, 1), got '  + catchTol + '.');
+    const t          = d.trials_per_subject;
+    const k          = d.images_per_trial;
+    const N          = d.unique_images_per_subject;
+    const kPractice  = d.practice_images_per_trial;
+    const nCatch     = ct.num_trials;
+    const kCatch     = ct.images_per_trial;
+    const catchMean  = ct.cluster_max_mean;
+    const catchSd    = ct.cluster_max_sd;
+    const catchTol   = ct.location_tolerance;
+    const maxW       = disp.sort_area_width;
+    const maxH       = disp.sort_area_height;
+    const minW       = disp.sort_area_min_width;
+    const minH       = disp.sort_area_min_height;
+    const shape      = disp.sort_area_shape;
+    const spread     = disp.column_spread_factor;
+    const frac       = disp.image_size_fraction;
+    const minRt      = qc.min_trial_rt_ms;
+    const minSd      = qc.min_pairwise_distance_sd;
+
+    if (!Number.isInteger(t)        || t < 1)        err('"design.trials_per_subject" must be a positive integer, got ' + t + '.');
+    if (!Number.isInteger(k)        || k < 1)        err('"design.images_per_trial" must be a positive integer, got ' + k + '.');
+    if (!Number.isInteger(N)        || N < 1)        err('"design.unique_images_per_subject" must be a positive integer, got ' + N + '.');
+    if (!Number.isInteger(kPractice)|| kPractice < 1)err('"design.practice_images_per_trial" must be a positive integer, got ' + kPractice + '.');
+    if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"catch_trials.num_trials" must be a non-negative integer, got ' + nCatch + '.');
+    if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
+    if (catchMean <= 0 || catchMean >= 1) err('"catch_trials.cluster_max_mean" must be in (0, 1), got ' + catchMean + '.');
+    if (catchSd   <= 0 || catchSd   >= 1) err('"catch_trials.cluster_max_sd" must be in (0, 1), got '   + catchSd   + '.');
+    if (catchTol  <= 0 || catchTol  >= 1) err('"catch_trials.location_tolerance" must be in (0, 1), got '+ catchTol  + '.');
+    if (maxW <= 0) err('"display.sort_area_width" must be > 0, got '        + maxW + '.');
+    if (maxH <= 0) err('"display.sort_area_height" must be > 0, got '       + maxH + '.');
+    if (minW <= 0) err('"display.sort_area_min_width" must be > 0, got '    + minW + '.');
+    if (minH <= 0) err('"display.sort_area_min_height" must be > 0, got '   + minH + '.');
+    if (frac  <= 0 || frac  >= 1) err('"display.image_size_fraction" must be in (0, 1), got ' + frac  + '.');
+    if (spread <= 0)               err('"display.column_spread_factor" must be > 0, got '      + spread + '.');
     if (shape !== 'rect' && shape !== 'ellipse')
-        err('"sort_area_shape" must be "rect" or "ellipse", got "' + shape + '".');
-    if (spreadFactor <= 0)
-        err('"column_spread_factor" must be > 0, got ' + spreadFactor + '.');
+        err('"display.sort_area_shape" must be "rect" or "ellipse", got "' + shape + '".');
+    if (minRt < 0)              err('"quality_control.min_trial_rt_ms" must be >= 0, got '              + minRt + '.');
+    if (minSd <= 0 || minSd >= 1) err('"quality_control.min_pairwise_distance_sd" must be in (0, 1), got ' + minSd + '.');
 
     // ── Group 3: cross-parameter arithmetic ──────────────────────────────────
 
     // 3a. Trial image pool arithmetic
     if (N < k)
-        err('unique_images_per_subject (' + N + ') must be >= images_per_trial (' + k + '). Each trial needs k distinct images.');
+        err('design.unique_images_per_subject (' + N + ') must be >= design.images_per_trial (' + k + '). Each trial needs k distinct images.');
     if (N > t * k)
-        err('unique_images_per_subject (' + N + ') exceeds trials_per_subject × images_per_trial (t×k = ' + (t * k) + '). Reduce N or increase t or k.');
+        err('design.unique_images_per_subject (' + N + ') exceeds trials_per_subject × images_per_trial (t×k = ' + (t * k) + '). Reduce N or increase t or k.');
 
     // 3b. Catch trial count
     if (nCatch >= t)
-        err('num_catch_trials (' + nCatch + ') must be < trials_per_subject (' + t + '). At least one main trial is required.');
+        err('catch_trials.num_trials (' + nCatch + ') must be < design.trials_per_subject (' + t + '). At least one main trial is required.');
 
     // 3c. Sort area min <= max
-    if (minW > maxW) err('sort_area_min_width (' + minW + ') must not exceed sort_area_width (' + maxW + ').');
-    if (minH > maxH) err('sort_area_min_height (' + minH + ') must not exceed sort_area_height (' + maxH + ').');
+    if (minW > maxW) err('display.sort_area_min_width ('  + minW + ') must not exceed display.sort_area_width ('  + maxW + ').');
+    if (minH > maxH) err('display.sort_area_min_height (' + minH + ') must not exceed display.sort_area_height (' + maxH + ').');
 
     // 3d. Single image fits in minimum sort area
     const stimSize = Math.round(minW * frac);
-    if (stimSize >= minW) err('Computed stimulus size (' + stimSize + 'px) equals or exceeds sort_area_min_width (' + minW + 'px). Reduce image_size_fraction.');
-    if (stimSize >= minH) err('Computed stimulus size (' + stimSize + 'px) equals or exceeds sort_area_min_height (' + minH + 'px). Reduce image_size_fraction.');
+    if (stimSize >= minW) err('Computed stimulus size (' + stimSize + 'px) equals or exceeds display.sort_area_min_width ('  + minW + 'px). Reduce display.image_size_fraction.');
+    if (stimSize >= minH) err('Computed stimulus size (' + stimSize + 'px) equals or exceeds display.sort_area_min_height (' + minH + 'px). Reduce display.image_size_fraction.');
 
     // 3e. k images fit in a square grid within the minimum sort area
-    const colsMain  = Math.ceil(Math.sqrt(k));
-    const rowsMain  = Math.ceil(k / colsMain);
+    const colsMain = Math.ceil(Math.sqrt(k));
+    const rowsMain = Math.ceil(k / colsMain);
     if (colsMain * stimSize > minW)
         err(k + ' images of ' + stimSize + 'px each cannot fit in a ' + colsMain + '×' + rowsMain +
-            ' grid within the minimum sort area (' + minW + '×' + minH + 'px). Reduce image_size_fraction or images_per_trial, or increase sort area dimensions.');
+            ' grid within the minimum sort area (' + minW + '×' + minH + 'px). Reduce display.image_size_fraction or design.images_per_trial, or increase sort area dimensions.');
     if (rowsMain * stimSize > minH)
         err(k + ' images of ' + stimSize + 'px each cannot fit in a ' + colsMain + '×' + rowsMain +
-            ' grid within the minimum sort area (' + minW + '×' + minH + 'px). Reduce image_size_fraction or images_per_trial, or increase sort area dimensions.');
+            ' grid within the minimum sort area (' + minW + '×' + minH + 'px). Reduce display.image_size_fraction or design.images_per_trial, or increase sort area dimensions.');
 
     // 3e (catch). kCatch images fit in a square grid within the minimum sort area
     const colsCatch = Math.ceil(Math.sqrt(kCatch));
     const rowsCatch = Math.ceil(kCatch / colsCatch);
     if (colsCatch * stimSize > minW)
         err(kCatch + ' catch images of ' + stimSize + 'px each cannot fit in a ' + colsCatch + '×' + rowsCatch +
-            ' grid within the minimum sort area (' + minW + '×' + minH + 'px). Reduce image_size_fraction or catch_images_per_trial, or increase sort area dimensions.');
+            ' grid within the minimum sort area (' + minW + '×' + minH + 'px). Reduce display.image_size_fraction or catch_trials.images_per_trial, or increase sort area dimensions.');
     if (rowsCatch * stimSize > minH)
         err(kCatch + ' catch images of ' + stimSize + 'px each cannot fit in a ' + colsCatch + '×' + rowsCatch +
-            ' grid within the minimum sort area (' + minW + '×' + minH + 'px). Reduce image_size_fraction or catch_images_per_trial, or increase sort area dimensions.');
+            ' grid within the minimum sort area (' + minW + '×' + minH + 'px). Reduce display.image_size_fraction or catch_trials.images_per_trial, or increase sort area dimensions.');
 
     // 3f. Practice image count (soft warning)
     if (kPractice > k)
-        warn('"practice_images_per_trial" (' + kPractice + ') > "images_per_trial" (' + k + '). Practice trial will show more images than main trials.');
+        warn('"design.practice_images_per_trial" (' + kPractice + ') > "design.images_per_trial" (' + k + '). Practice trial will show more images than main trials.');
 
     // ── Group 4: deployment warnings ─────────────────────────────────────────
-    if (!config.debug) {
-        if (!config.stimuli_path)           warn('"stimuli_path" is empty — no main images will load.');
-        if (!config.stimuli_practice_path)  warn('"stimuli_practice_path" is empty — practice trial will have no images.');
-        if (!config.stimuli_catch_path)     warn('"stimuli_catch_path" is empty — catch trials will have no images.');
-        if (!config.prolific_completion_url)warn('"prolific_completion_url" is empty — participants will not be redirected after completion.');
+    if (!config.deployment.debug) {
+        if (!config.stimuli_paths.main)                    warn('"stimuli_paths.main" is empty — no main images will load.');
+        if (!config.stimuli_paths.practice)                warn('"stimuli_paths.practice" is empty — practice trial will have no images.');
+        if (!config.stimuli_paths.catch)                   warn('"stimuli_paths.catch" is empty — catch trials will have no images.');
+        if (!config.deployment.prolific_completion_url)    warn('"deployment.prolific_completion_url" is empty — participants will not be redirected after completion.');
     }
 }
 
@@ -162,27 +185,33 @@ function verifyConfig(config) {
  *
  * @param {number} viewportW - window.innerWidth
  * @param {number} viewportH - window.innerHeight
- * @param {{
+ * @param {{ display: {
  *   sort_area_width: number, sort_area_height: number,
  *   sort_area_min_width: number, sort_area_min_height: number,
  *   image_size_fraction: number,
  *   stim_starts_inside: boolean, column_spread_factor: number
- * }} config
+ * }}} config
  * @returns {{ sortW: number, sortH: number, stimSize: number }}
  */
 function computeLayout(viewportW, viewportH, config) {
-    const maxSortW = config.stim_starts_inside
+    const {
+        sort_area_width, sort_area_height,
+        sort_area_min_width, sort_area_min_height,
+        image_size_fraction, stim_starts_inside, column_spread_factor,
+    } = config.display;
+
+    const maxSortW = stim_starts_inside
         ? Math.floor(viewportW * 0.85)
-        : Math.floor(viewportW / (1 + config.column_spread_factor));
+        : Math.floor(viewportW / (1 + column_spread_factor));
     const sortW = Math.max(
-        config.sort_area_min_width,
-        Math.min(maxSortW, config.sort_area_width),
+        sort_area_min_width,
+        Math.min(maxSortW, sort_area_width),
     );
     const sortH = Math.max(
-        config.sort_area_min_height,
-        Math.min(Math.floor(viewportH * 0.70), config.sort_area_height),
+        sort_area_min_height,
+        Math.min(Math.floor(viewportH * 0.70), sort_area_height),
     );
-    const stimSize = Math.round(sortW * config.image_size_fraction);
+    const stimSize = Math.round(sortW * image_size_fraction);
     return { sortW, sortH, stimSize };
 }
 

@@ -44,15 +44,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   const params = new URLSearchParams(window.location.search);
   const rawPid = params.get('PROLIFIC_PID');
 
-  if (!rawPid && !config.debug) {
+  if (!rawPid && !config.deployment.debug) {
     document.body.innerHTML =
       '<p style="color:white;font-family:sans-serif;text-align:center;margin-top:20%;">' +
       'No participant ID detected. Please access this experiment via your Prolific invitation link.</p>';
     return;
   }
 
-  const PID = config.debug ? 'debug_participant' : rawPid;
-  if (config.debug) console.log('[SpAM] Debug mode active. PID:', PID);
+  const PID = config.deployment.debug ? 'debug_participant' : rawPid;
+  if (config.deployment.debug) console.log('[SpAM] Debug mode active. PID:', PID);
 
   // ---------------------------------------------------------------------------
   // 3. Seeded RNG
@@ -61,7 +61,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // rng must not be called before buildTrialLists — any prior call shifts the
   // sequence and breaks reproducibility for the same PID.
   const rng  = new Math.seedrandom(seed);
-  if (config.debug) console.log('[SpAM] Seed:', seed);
+  if (config.deployment.debug) console.log('[SpAM] Seed:', seed);
 
   // ---------------------------------------------------------------------------
   // 4. Build image URL arrays
@@ -71,9 +71,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // TODO: if config paths are authored on Windows, replace backslashes:
   //       config.stimuli_path.replace(/\\/g, '/')
   // ---------------------------------------------------------------------------
-  const imageUrls    = (manifest.images          || []).map(f => config.stimuli_path          + '/' + f);
-  const catchUrls    = (manifest.catch_images    || []).map(f => config.stimuli_catch_path    + '/' + f);
-  const practiceUrls = (manifest.practice_images || []).map(f => config.stimuli_practice_path + '/' + f);
+  const imageUrls    = (manifest.images          || []).map(f => config.stimuli_paths.main     + '/' + f);
+  const catchUrls    = (manifest.catch_images    || []).map(f => config.stimuli_paths.catch    + '/' + f);
+  const practiceUrls = (manifest.practice_images || []).map(f => config.stimuli_paths.practice + '/' + f);
 
   // ---------------------------------------------------------------------------
   // 5. Responsive layout — computed once from viewport at page-load time
@@ -81,13 +81,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const { sortW, sortH, stimSize } = computeLayout(
     window.innerWidth, window.innerHeight, config,
   );
-  if (config.debug) console.log('[SpAM] Layout:', { sortW, sortH, stimSize });
+  if (config.deployment.debug) console.log('[SpAM] Layout:', { sortW, sortH, stimSize });
 
   // jsPsychFreeSort only recognises 'square' (rectangular) and 'ellipse'.
   // Our config uses 'rect'/'ellipse'; map here so the inside-check uses the
   // correct geometry (passing an unrecognised value falls through to ellipse,
   // which would exclude images placed in the corners of a rectangular arena).
-  const pluginShape = config.sort_area_shape === 'ellipse' ? 'ellipse' : 'square';
+  const pluginShape = config.display.sort_area_shape === 'ellipse' ? 'ellipse' : 'square';
 
   // ---------------------------------------------------------------------------
   // 6. Trial lists
@@ -100,7 +100,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const mainTrials = buildTrialLists(imageUrls, config, rng);
   const allTrials  = insertCatchTrials(mainTrials, catchUrls, config, rng);
 
-  if (config.debug) {
+  if (config.deployment.debug) {
     console.log('[SpAM] Trial sequence:', allTrials.map((t, i) => i + ':' + t.type));
   }
 
@@ -203,14 +203,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Practice trial ---
   timeline.push({
     type:            jsPsychFreeSort,
-    stimuli:         practiceUrls.slice(0, config.practice_images_per_trial),
+    stimuli:         practiceUrls.slice(0, config.design.practice_images_per_trial),
     sort_area_width:  sortW,
     sort_area_height: sortH,
     stim_width:        stimSize,
     stim_height:       stimSize,
     sort_area_shape:      pluginShape,
-    stim_starts_inside:   config.stim_starts_inside,
-    column_spread_factor: config.column_spread_factor,
+    stim_starts_inside:   config.display.stim_starts_inside,
+    column_spread_factor: config.display.column_spread_factor,
     prompt: '<p style="font-size:0.9em; color:#333;">PRACTICE — arrange these images by visual similarity. ' +
             'This trial will <strong>not</strong> be recorded.</p>',
     on_finish(data) {
@@ -248,7 +248,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       stim_width:        stimSize,
       stim_height:       stimSize,
       sort_area_shape:      pluginShape,
-      stim_starts_inside:   config.stim_starts_inside,
+      stim_starts_inside:   config.display.stim_starts_inside,
       column_spread_factor: config.column_spread_factor,
       prompt: trial.type === 'catch'
         ? '<p style="font-size:0.9em; color:#333;">Please place all images on the ' +
@@ -277,25 +277,25 @@ document.addEventListener('DOMContentLoaded', async () => {
           const locationOk = isCentroidNearTarget(
             centroid, trial.target_location,
             sortW, sortH,
-            config.catch_location_tolerance,
+            config.catch_trials.location_tolerance,
           );
           data.target_location        = trial.target_location;
           data.centroid_x             = centroid.x;
           data.centroid_y             = centroid.y;
           data.cluster_mean_distance  = clusterMean;
-          data.qc_flag = clusterMean > config.catch_cluster_max_mean ||
-                         sd          > config.catch_cluster_max_sd   ||
+          data.qc_flag = clusterMean > config.catch_trials.cluster_max_mean  ||
+                         sd          > config.catch_trials.cluster_max_sd    ||
                          !locationOk ||
-                         data.rt < config.min_trial_rt_ms;
+                         data.rt < config.quality_control.min_trial_rt_ms;
         } else {
-          data.qc_flag = sd < config.min_pairwise_distance_sd ||
-                         data.rt < config.min_trial_rt_ms;
+          data.qc_flag = sd < config.quality_control.min_pairwise_distance_sd ||
+                         data.rt < config.quality_control.min_trial_rt_ms;
         }
 
         // Store pairs as JSON string for CSV compatibility
         data.pairwise_distances = JSON.stringify(pairs);
 
-        if (config.debug) {
+        if (config.deployment.debug) {
           console.log(
             '[SpAM] Trial', idx, '(' + trial.type + ')',
             '| sd=' + sd.toFixed(4),
@@ -325,8 +325,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       type:    jsPsychPavlovia,
       command: 'finish',
       completedCallback() {
-        if (config.prolific_completion_url) {
-          window.location.href = config.prolific_completion_url;
+        if (config.deployment.prolific_completion_url) {
+          window.location.href = config.deployment.prolific_completion_url;
         }
       },
     });

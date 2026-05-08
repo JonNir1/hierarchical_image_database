@@ -1,26 +1,43 @@
 {
-  "trials_per_subject": 10,
-  "images_per_trial": 20,
-  "unique_images_per_subject": 150,
-  "num_catch_trials": 2,
-  "catch_images_per_trial": 10,
-  "catch_cluster_max_mean": 0.15,
-  "catch_cluster_max_sd": 0.10,
-  "catch_location_tolerance": 0.20,
-  "practice_images_per_trial": 8,
-  "sort_area_width": 1400,
-  "sort_area_height": 900,
-  "sort_area_min_width": 900,
-  "sort_area_min_height": 550,
-  "sort_area_shape": "rect",
-  "stim_starts_inside": true,
-  "column_spread_factor": 1.0,
-  "image_size_fraction": 0.08,
-  "min_trial_rt_ms": 5000,
-  "min_pairwise_distance_sd": 0.04,
-  "stimuli_path": "",
-  "stimuli_practice_path": "",
-  "stimuli_catch_path": "",
-  "prolific_completion_url": "",
-  "debug": true
+  "stimuli_paths": {
+    "main":     "./assets/stimuli/",
+    "practice": "./assets/openmoji/",
+    "catch":    "./assets/openmoji/"
+  },
+
+  "design": {
+    "trials_per_subject":        10,
+    "images_per_trial":          20,
+    "unique_images_per_subject": 150,
+    "practice_images_per_trial": 8
+  },
+
+  "catch_trials": {
+    "num_trials":         2,
+    "images_per_trial":   10,
+    "cluster_max_mean":   0.15,
+    "cluster_max_sd":     0.10,
+    "location_tolerance": 0.20
+  },
+
+  "display": {
+    "sort_area_width":      1400,
+    "sort_area_height":     900,
+    "sort_area_min_width":  900,
+    "sort_area_min_height": 550,
+    "sort_area_shape":      "rect",
+    "stim_starts_inside":   true,
+    "column_spread_factor": 1.0,
+    "image_size_fraction":  0.08
+  },
+
+  "quality_control": {
+    "min_trial_rt_ms":          5000,
+    "min_pairwise_distance_sd": 0.04
+  },
+
+  "deployment": {
+    "prolific_completion_url": "",
+    "debug": true
+  }
 }

@@ -224,27 +224,50 @@ and writes `trial_type`, `trial_index`, `pairwise_distance_sd`, `pairwise_distan
 
 ## config.json Parameters
 
+config.json is organised into six sections:
+
+### `stimuli_paths`
 | Key | Default | Description |
 |---|---|---|
-| `stimuli_path` | `""` | Path to the 754 dataset images (relative to `index.html`) |
-| `stimuli_practice_path` | `""` | Path to practice trial images |
-| `stimuli_catch_path` | `""` | Path to catch trial images |
+| `main` | `""` | Path to the 754 dataset images (relative to `index.html`) |
+| `practice` | `""` | Path to practice trial images |
+| `catch` | `""` | Path to catch trial images |
+
+### `design`
+| Key | Default | Description |
+|---|---|---|
 | `trials_per_subject` | 10 | Number of main free-sort trials |
 | `images_per_trial` | 20 | Images shown per main trial |
 | `unique_images_per_subject` | 150 | Unique images assigned per subject |
-| `num_catch_trials` | 2 | Catch trials interleaved among main trials |
-| `catch_images_per_trial` | 10 | Images shown per catch trial |
-| `catch_cluster_max_mean` | 0.15 | Max mean normalised distance for catch trial to pass (cluster tightness) |
-| `catch_cluster_max_sd` | 0.10 | Max SD of normalised distances for catch trial to pass |
-| `catch_location_tolerance` | 0.20 | Max normalised centroid–target distance for catch trial to pass |
 | `practice_images_per_trial` | 8 | Images in the (discarded) practice trial |
-| `sort_area_width/height` | 1400 / 900 | Maximum sort canvas size in px (actual size is also constrained by viewport) |
+
+### `catch_trials`
+| Key | Default | Description |
+|---|---|---|
+| `num_trials` | 2 | Catch trials interleaved among main trials |
+| `images_per_trial` | 10 | Images shown per catch trial |
+| `cluster_max_mean` | 0.15 | Max mean normalised distance for catch trial to pass (cluster tightness) |
+| `cluster_max_sd` | 0.10 | Max SD of normalised distances for catch trial to pass |
+| `location_tolerance` | 0.20 | Max normalised centroid–target distance for catch trial to pass |
+
+### `display`
+| Key | Default | Description |
+|---|---|---|
+| `sort_area_width/height` | 1400 / 900 | Maximum sort canvas size in px (actual size also constrained by viewport) |
 | `sort_area_min_width/height` | 900 / 550 | Minimum sort canvas size in px (floor for small screens) |
 | `sort_area_shape` | `"rect"` | `"rect"` or `"ellipse"` — shape of the orange sort-area border |
 | `stim_starts_inside` | `true` | If `true`, images are placed randomly inside the arena at trial start (SpAM convention); if `false`, images begin in staging columns outside the arena, limiting arena width to ≈ `viewportW / (1 + column_spread_factor)` |
 | `column_spread_factor` | 1.0 | Controls how far staging columns extend when `stim_starts_inside: false`; ignored when `stim_starts_inside: true` |
-| `image_size_fraction` | 0.11 | Stimulus size as fraction of sort-area width |
+| `image_size_fraction` | 0.08 | Stimulus size as fraction of sort-area width |
+
+### `quality_control`
+| Key | Default | Description |
+|---|---|---|
 | `min_trial_rt_ms` | 5000 | Minimum acceptable trial duration (ms) |
 | `min_pairwise_distance_sd` | 0.04 | Minimum SD of normalised distances for main trial to pass |
+
+### `deployment`
+| Key | Default | Description |
+|---|---|---|
 | `prolific_completion_url` | `""` | Set before deploying to Prolific |
 | `debug` | `false` | Use `"debug_participant"` as PID and log extra info to console |

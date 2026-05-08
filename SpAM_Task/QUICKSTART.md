@@ -65,10 +65,14 @@ change are:
 
 ```json
 {
-  "stimuli_path":          "path/to/your/main/images",
-  "stimuli_practice_path": "path/to/your/practice/images",
-  "stimuli_catch_path":    "path/to/your/catch/images",
-  "prolific_completion_url": ""
+  "stimuli_paths": {
+    "main":     "path/to/your/main/images",
+    "practice": "path/to/your/practice/images",
+    "catch":    "path/to/your/catch/images"
+  },
+  "deployment": {
+    "prolific_completion_url": ""
+  }
 }
 ```
 
@@ -91,7 +95,7 @@ New-Item -ItemType Junction `
 ln -s /path/to/your/images SpAM_Task/assets/stimuli
 ```
 
-Then set `stimuli_path` to `"./assets/stimuli"` in `config.json`.
+Then set `stimuli_paths.main` to `"./assets/stimuli"` in `config.json`.
 The junction is local-only and does not affect deployment.
 
 **Leave `prolific_completion_url` empty for now** — you will fill it in after creating your
@@ -104,11 +108,11 @@ is substantially smaller or larger, adjust accordingly.
 
 | Parameter | Default | What it controls |
 |---|---|---|
-| `trials_per_subject` | 10 | How many sorting trials each participant completes |
-| `images_per_trial` | 20 | How many images appear on screen per trial |
-| `unique_images_per_subject` | 150 | How many distinct images each participant sees |
-| `num_catch_trials` | 2 | How many attention-check trials are interleaved |
-| `catch_images_per_trial` | 10 | Images per catch trial |
+| `design.trials_per_subject` | 10 | How many sorting trials each participant completes |
+| `design.images_per_trial` | 20 | How many images appear on screen per trial |
+| `design.unique_images_per_subject` | 150 | How many distinct images each participant sees |
+| `catch_trials.num_trials` | 2 | How many attention-check trials are interleaved |
+| `catch_trials.images_per_trial` | 10 | Images per catch trial |
 
 > **Coverage check**: with your chosen parameters, verify that each image will be seen by
 > enough participants for reliable averaging.
@@ -119,11 +123,11 @@ is substantially smaller or larger, adjust accordingly.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `min_trial_rt_ms` | 5000 | Trials completed in under 5 s are flagged as too fast |
-| `min_pairwise_distance_sd` | 0.04 | Main trials where all images are piled in one spot are flagged |
-| `catch_cluster_max_mean` | 0.15 | Catch trial: images must be clustered (low mean distance) |
-| `catch_cluster_max_sd` | 0.10 | Catch trial: cluster must be tight (low SD) |
-| `catch_location_tolerance` | 0.20 | Catch trial: cluster centre must be near the instructed region |
+| `quality_control.min_trial_rt_ms` | 5000 | Trials completed in under 5 s are flagged as too fast |
+| `quality_control.min_pairwise_distance_sd` | 0.04 | Main trials where all images are piled in one spot are flagged |
+| `catch_trials.cluster_max_mean` | 0.15 | Catch trial: images must be clustered (low mean distance) |
+| `catch_trials.cluster_max_sd` | 0.10 | Catch trial: cluster must be tight (low SD) |
+| `catch_trials.location_tolerance` | 0.20 | Catch trial: cluster centre must be near the instructed region |
 
 A participant is excluded in post-processing if more than 30% of their trials are flagged.
 You can leave these at their defaults for a pilot run and revisit after inspecting the data.
@@ -251,8 +255,8 @@ ID. Pass the folder of CSVs to the post-processing pipeline for aggregation and 
 ## Troubleshooting
 
 **Images don't appear / sort area is empty**
-: Check that `stimuli_path` in `config.json` is correct and that `generate_manifest.py` found
-your images. Confirm the web server is running from `SpAM_Task/`, not from the repo root.
+: Check that `stimuli_paths.main` in `config.json` is correct and that `generate_manifest.py`
+found your images. Confirm the web server is running from `SpAM_Task/`, not from the repo root.
 If your images live outside `SpAM_Task/`, the HTTP server cannot reach them — create a
 directory junction or symlink as described in Step 2.
 

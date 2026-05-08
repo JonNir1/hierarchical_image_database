@@ -50,17 +50,17 @@ function _eligibleIndices(trials, img, k) {
  * No image ever appears more than once within a single trial.
  *
  * @param {string[]} allImages - All available image paths (from stimuli_manifest.json)
- * @param {{trials_per_subject: number,
- *           images_per_trial: number,
- *           unique_images_per_subject: number}} config
+ * @param {{design: {trials_per_subject: number,
+ *                   images_per_trial: number,
+ *                   unique_images_per_subject: number}}} config
  * @param {function(): number} rng - Seeded RNG returning float in [0, 1)
  * @returns {string[][]} Array of `t` arrays, each containing exactly `k` image paths
  * @throws {Error} If assignment leaves any trial underfilled (indicates a config bug)
  */
 function buildTrialLists(allImages, config, rng) {
-    const t        = config.trials_per_subject;
-    const k        = config.images_per_trial;
-    const n_unique = config.unique_images_per_subject;
+    const t        = config.design.trials_per_subject;
+    const k        = config.design.images_per_trial;
+    const n_unique = config.design.unique_images_per_subject;
     const n_double = t * k - n_unique; // images that appear in 2 trials each
 
     // Subject-specific random subset of the full image pool
@@ -137,12 +137,12 @@ const CATCH_LOCATIONS = [
  * RNG so the assignment is reproducible per participant.
  *
  * @param {string[]}          catchPool - Pool of images reserved for catch trials
- * @param {{catch_images_per_trial: number}} config
+ * @param {{catch_trials: {images_per_trial: number}}} config
  * @param {function(): number} rng      - Seeded RNG (shared with buildTrialLists)
  * @returns {{type: 'catch', images: string[], target_location: string}}
  */
 function buildCatchTrial(catchPool, config, rng) {
-    const k        = config.catch_images_per_trial;
+    const k        = config.catch_trials.images_per_trial;
     const images   = seededShuffle(catchPool, rng).slice(0, k);
     const locIdx   = Math.floor(rng() * CATCH_LOCATIONS.length);
     return { type: 'catch', images, target_location: CATCH_LOCATIONS[locIdx] };
@@ -157,13 +157,13 @@ function buildCatchTrial(catchPool, config, rng) {
  *
  * @param {string[][]}         mainTrials - Output of buildTrialLists
  * @param {string[]}           catchPool  - Images reserved for catch trials
- * @param {{num_catch_trials: number, catch_images_per_trial: number}} config
+ * @param {{catch_trials: {num_trials: number, images_per_trial: number}}} config
  * @param {function(): number} rng        - Seeded RNG (same instance used throughout)
  * @returns {Array<{type: 'main'|'catch', images: string[], target_location?: string}>}
  */
 function insertCatchTrials(mainTrials, catchPool, config, rng) {
     const numMain  = mainTrials.length;
-    const numCatch = config.num_catch_trials;
+    const numCatch = config.catch_trials.num_trials;
 
     const catchPositions = [];
     for (let i = 1; i <= numCatch; i++) {

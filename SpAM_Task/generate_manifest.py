@@ -6,10 +6,11 @@ TASK_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = TASK_DIR / "config.json"
 MANIFEST_PATH = TASK_DIR / "stimuli_manifest.json"
 
+# Maps (config section, config key) → manifest key
 SETS = [
-    ("stimuli_path",          "images"),
-    ("stimuli_practice_path", "practice_images"),
-    ("stimuli_catch_path",    "catch_images"),
+    ("stimuli_paths", "main",     "images"),
+    ("stimuli_paths", "practice", "practice_images"),
+    ("stimuli_paths", "catch",    "catch_images"),
 ]
 
 
@@ -50,7 +51,7 @@ def main() -> None:
     found, so partial runs remain usable during development.
 
     Validates that each set contains at least as many images as the matching
-    ``*_per_trial`` threshold in config.json and warns if not.
+    threshold in config.json and warns if not.
     """
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(f"config.json not found at {CONFIG_PATH}")
@@ -58,17 +59,22 @@ def main() -> None:
     with CONFIG_PATH.open() as fh:
         config = json.load(fh)
 
+    stimuli_paths = config.get("stimuli_paths", {})
+    design        = config.get("design", {})
+    catch_trials  = config.get("catch_trials", {})
+
     manifest: dict[str, list[str]] = {}
 
-    for config_key, manifest_key in SETS:
-        raw = config.get(config_key, "")
+    for section_key, path_key, manifest_key in SETS:
+        raw = config.get(section_key, {}).get(path_key, "")
+        config_ref = f"{section_key}.{path_key}"
         if not raw:
-            print(f"WARNING: '{config_key}' is missing or empty — skipping {manifest_key}.")
+            print(f"WARNING: '{config_ref}' is missing or empty — skipping {manifest_key}.")
             continue
 
         directory = resolve_path(raw)
         if not directory.exists():
-            print(f"WARNING: '{config_key}' path does not exist ({directory}) — skipping {manifest_key}.")
+            print(f"WARNING: '{config_ref}' path does not exist ({directory}) — skipping {manifest_key}.")
             continue
 
         images = scan_pngs(directory)
@@ -83,21 +89,21 @@ def main() -> None:
         print("WARNING: 'images' set has fewer than 1 image.")
 
     if "practice_images" in manifest:
-        threshold = config.get("practice_images_per_trial", 0)
+        threshold = design.get("practice_images_per_trial", 0)
         n = len(manifest["practice_images"])
         if n < threshold:
             print(
                 f"WARNING: 'practice_images' has {n} image(s) but config requires "
-                f"at least {threshold} (practice_images_per_trial)."
+                f"at least {threshold} (design.practice_images_per_trial)."
             )
 
     if "catch_images" in manifest:
-        threshold = config.get("catch_images_per_trial", 0)
+        threshold = catch_trials.get("images_per_trial", 0)
         n = len(manifest["catch_images"])
         if n < threshold:
             print(
-                f"WARNING: 'catch_images' has {n} emoji image(s) but config requires "
-                f"at least {threshold} (catch_images_per_trial)."
+                f"WARNING: 'catch_images' has {n} image(s) but config requires "
+                f"at least {threshold} (catch_trials.images_per_trial)."
             )
 
     with MANIFEST_PATH.open("w") as fh:
