@@ -197,7 +197,21 @@ and writes `trial_type`, `trial_index`, `pairwise_distance_sd`, `pairwise_distan
 
 ## Running Locally (testing)
 
-1. Set stimulus paths in `config.json` and populate those directories
+1. Set stimulus paths in `config.json`. Paths serve as both filesystem paths (for
+   `generate_manifest.py`) and URL prefixes (for the browser), so images must be reachable
+   from within `SpAM_Task/`. If your images live outside this directory, create a junction
+   (Windows) or symlink (macOS/Linux) inside `SpAM_Task/assets/` and point `config.json` at
+   the junction:
+   ```powershell
+   # Windows PowerShell
+   New-Item -ItemType Junction -Path "SpAM_Task\assets\stimuli" -Target "C:\path\to\images"
+   ```
+   ```bash
+   # macOS / Linux
+   ln -s /path/to/images SpAM_Task/assets/stimuli
+   ```
+   Then set `"stimuli_path": "./assets/stimuli"` in `config.json`.
+
 2. Run `python generate_manifest.py` from `SpAM_Task/`
 3. Serve with a local HTTP server (required because `task.js` uses `fetch()`):
    ```bash

@@ -72,8 +72,27 @@ change are:
 }
 ```
 
-**Paths** can be absolute (`C:/Users/you/images`) or relative to the `SpAM_Task/` directory.
-Use forward slashes even on Windows.
+**Paths** must be relative to `SpAM_Task/` and use forward slashes — they serve as both
+filesystem paths (for `generate_manifest.py`) and URL prefixes (for the browser, which can
+only load files within the HTTP server's root directory).
+
+If your images live **outside** `SpAM_Task/`, create a directory junction (Windows) or
+symlink (macOS/Linux) inside `SpAM_Task/assets/` pointing at the external directory, then
+set the config path to the junction:
+
+```powershell
+# Windows PowerShell — run once; no data is copied
+New-Item -ItemType Junction `
+    -Path  "SpAM_Task\assets\stimuli" `
+    -Target "C:\path\to\your\images"
+```
+```bash
+# macOS / Linux
+ln -s /path/to/your/images SpAM_Task/assets/stimuli
+```
+
+Then set `stimuli_path` to `"./assets/stimuli"` in `config.json`.
+The junction is local-only and does not affect deployment.
 
 **Leave `prolific_completion_url` empty for now** — you will fill it in after creating your
 Prolific study (Step 6).
@@ -234,6 +253,8 @@ ID. Pass the folder of CSVs to the post-processing pipeline for aggregation and 
 **Images don't appear / sort area is empty**
 : Check that `stimuli_path` in `config.json` is correct and that `generate_manifest.py` found
 your images. Confirm the web server is running from `SpAM_Task/`, not from the repo root.
+If your images live outside `SpAM_Task/`, the HTTP server cannot reach them — create a
+directory junction or symlink as described in Step 2.
 
 **"No participant ID detected" message**
 : You accessed the URL without a `PROLIFIC_PID` parameter. Either add `?PROLIFIC_PID=test` to
