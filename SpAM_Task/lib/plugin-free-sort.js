@@ -370,7 +370,8 @@ var jsPsychFreeSort = (function (jspsych) {
             moves.push({
               src: this.dataset.src,
               x: this.offsetLeft,
-              y: this.offsetTop
+              y: this.offsetTop,
+              t: Math.round(performance.now() - start_time)
             });
             document.removeEventListener("pointerup", on_pointer_up);
           };
