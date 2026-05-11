@@ -132,7 +132,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (isPavlovia) return;
 
     const csv  = jsPsych.data.get()
-                   .filter(d => d.trial_type === 'main' || d.trial_type === 'catch')
+                   .filterCustom(d => d.trial_type.startsWith('trial_') ||
+                                      d.trial_type.startsWith('catch_'))
                    .csv();
     const blob = new Blob([csv], { type: 'text/csv' });
     const url  = URL.createObjectURL(blob);
@@ -227,6 +228,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // --- Main + catch trials ---
+  let mainCount = 0, catchCount = 0;
   allTrials.forEach((trial, idx) => {
 
     // Per-trial preload (only this trial's images)
@@ -249,7 +251,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       stim_height:       stimSize,
       sort_area_shape:      pluginShape,
       stim_starts_inside:   config.display.stim_starts_inside,
-      column_spread_factor: config.column_spread_factor,
+      column_spread_factor: config.display.column_spread_factor,
       prompt: trial.type === 'catch'
         ? '<p style="font-size:0.9em; color:#333;">Please place all images on the ' +
           '<strong>' + trial.target_location + '</strong> of the screen.</p>'
@@ -265,7 +267,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const distances = pairs.map(p => p.distance);
         const sd = computeSD(distances);
 
-        data.trial_type            = trial.type; // 'main' or 'catch'
+        // trial_type: 'trial_N' for main trials, 'catch_N' for catch trials
+        // (1-based running index within each category)
+        data.trial_type  = trial.type === 'catch'
+          ? 'catch_' + (++catchCount)
+          : 'trial_' + (++mainCount);
         data.trial_index           = idx;
         data.pairwise_distance_sd  = sd;
 

@@ -19,11 +19,15 @@ const makeRng = (seed = 42) => {
 
 const CATCH_POOL = Array.from({ length: 20 }, (_, i) => `catch_${i}.png`);
 const CONFIG = {
-    trials_per_subject:      10,
-    images_per_trial:        20,
-    unique_images_per_subject: 150,
-    num_catch_trials:        2,
-    catch_images_per_trial:  10,
+    design: {
+        trials_per_subject:        10,
+        images_per_trial:          20,
+        unique_images_per_subject: 150,
+    },
+    catch_trials: {
+        num_trials:       2,
+        images_per_trial: 10,
+    },
 };
 const SORT_W = 900;
 const SORT_H = 700;
@@ -39,7 +43,7 @@ describe('buildCatchTrial', () => {
 
     it('samples exactly catch_images_per_trial images', () => {
         const trial = buildCatchTrial(CATCH_POOL, CONFIG, makeRng());
-        assert.equal(trial.images.length, CONFIG.catch_images_per_trial);
+        assert.equal(trial.images.length, CONFIG.catch_trials.images_per_trial);
     });
 
     it('target_location is one of the five valid options', () => {

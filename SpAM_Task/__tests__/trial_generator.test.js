@@ -18,7 +18,7 @@ const makeRng = (seed = 42) => {
 };
 
 const ALL_IMAGES = Array.from({ length: 754 }, (_, i) => `img_${i}.png`);
-const CONFIG     = { trials_per_subject: 10, images_per_trial: 20, unique_images_per_subject: 150 };
+const CONFIG     = { design: { trials_per_subject: 10, images_per_trial: 20, unique_images_per_subject: 150 } };
 // n_double = 10*20 - 150 = 50
 
 // ── buildTrialLists ───────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ describe('buildTrialLists', () => {
         // 2 images, 3 trials × 2 slots — impossible to fill every trial
         assert.throws(() =>
             buildTrialLists(['x.png','y.png'],
-                { trials_per_subject:3, images_per_trial:2, unique_images_per_subject:2 },
+                { design: { trials_per_subject:3, images_per_trial:2, unique_images_per_subject:2 } },
                 makeRng())
         );
     });
