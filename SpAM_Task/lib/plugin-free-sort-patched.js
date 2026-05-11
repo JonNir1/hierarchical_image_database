@@ -1,3 +1,13 @@
+// =============================================================================
+// plugin-free-sort-patched.js
+// Based on jsPsych plugin-free-sort v2.1.0 (https://www.jspsych.org)
+//
+// LOCAL MODIFICATION (SpAM_Task):
+//   Each entry in the `moves` array now includes a `t` field — milliseconds
+//   elapsed since trial start (Math.round(performance.now() - start_time)) —
+//   recorded at pointer-up (drag end). Fields `src`, `x`, and `y` are unchanged.
+//   This is the only deviation from the upstream release.
+// =============================================================================
 var jsPsychFreeSort = (function (jspsych) {
   'use strict';
 

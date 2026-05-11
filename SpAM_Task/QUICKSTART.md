@@ -168,7 +168,7 @@ following files and place them in `SpAM_Task/lib/`:
 | File | Source |
 |---|---|
 | `jspsych.js` | [github.com/jspsych/jsPsych](https://github.com/jspsych/jsPsych/releases) — jsPsych 7 |
-| `plugin-free-sort.js` | Same release |
+| `plugin-free-sort-patched.js` | Based on jsPsych 7 release — locally patched to add move timestamps (see file header) |
 | `plugin-preload.js` | Same release |
 | `plugin-html-button-response.js` | Same release |
 | `plugin-fullscreen.js` | Same release |
