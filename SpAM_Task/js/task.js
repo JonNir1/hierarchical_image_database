@@ -2,7 +2,7 @@
 
 // Requires (loaded via <script> tags before this file):
 //   jspsych.js, plugin-preload.js, plugin-html-button-response.js,
-//   plugin-fullscreen.js, plugin-free-sort.js, seedrandom.js,
+//   plugin-fullscreen.js, plugin-free-sort-patched.js, seedrandom.js,
 //   jspsych-7-pavlovia-2022.1.1.js, utils.js, trial_generator.js
 
 document.addEventListener('DOMContentLoaded', async () => {
