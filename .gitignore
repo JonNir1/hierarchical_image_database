@@ -8,6 +8,9 @@
 # Claude Code agent working directories
 .claude/
 
+# SpAM_Task: exclude the local stimuli junction (dataset lives outside the repo)
+SpAM_Task/assets/stimuli/
+
 # ignore outputs and docs
 *.pkl
 *.json
