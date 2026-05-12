@@ -4,18 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Spatial Arrangement Task</title>
-  <link rel="stylesheet" href="lib/jspsych.css">
+  <link rel="stylesheet" href="jspsych/jspsych.css">
   <style>body { background-color: #808080; margin: 0; }</style>
 
-  <!-- jsPsych 7 core + plugins (local copies in lib/) -->
-  <script src="lib/jspsych.js"></script>
-  <script src="lib/plugin-preload.js"></script>
-  <script src="lib/plugin-html-button-response.js"></script>
-  <script src="lib/plugin-fullscreen.js"></script>
-  <script src="lib/plugin-free-sort-patched.js"></script>
+  <!-- jsPsych 7 core + plugins (local copies in jspsych/) -->
+  <script src="jspsych/jspsych.js"></script>
+  <script src="jspsych/plugin-preload.js"></script>
+  <script src="jspsych/plugin-html-button-response.js"></script>
+  <script src="jspsych/plugin-fullscreen.js"></script>
+  <script src="jspsych/plugin-free-sort-patched.js"></script>
 
   <!-- Seedrandom (separate from jsPsych — exposes Math.seedrandom globally) -->
-  <script src="lib/seedrandom.js"></script>
+  <script src="jspsych/seedrandom.js"></script>
 
   <!-- Pavlovia integration: only loaded when running on pavlovia.org.
        document.write is intentional here — it inserts the script tag
@@ -24,7 +24,7 @@
        the 404 would cause a noisy console error without this guard. -->
   <script>
     if (window.location.hostname.includes('pavlovia.org')) {
-      document.write('<script src="lib\/jspsych-7-pavlovia-2022.1.1.js"><\/script>');
+      document.write('<script src="jspsych\/jspsych-7-pavlovia-2022.1.1.js"><\/script>');
     }
   </script>
 

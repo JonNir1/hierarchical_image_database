@@ -47,7 +47,7 @@ eggs/
 .eggs/
 lib/
 lib64/
-!SpAM_Task/lib/
+!SpAM_Task/jspsych/
 parts/
 sdist/
 var/

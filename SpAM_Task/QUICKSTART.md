@@ -162,8 +162,8 @@ If any warnings appear (missing path, too few images), fix them before continuin
 
 ## Step 4 — Install jsPsych locally
 
-The task loads jsPsych from a local `lib/` directory (no CDN dependency). Download the
-following files and place them in `SpAM_Task/lib/`:
+The task loads jsPsych from a local `jspsych/` directory (no CDN dependency). Download the
+following files and place them in `SpAM_Task/jspsych/`:
 
 | File | Source |
 |---|---|
@@ -209,7 +209,7 @@ following files and place them in `SpAM_Task/lib/`:
 ## Step 6 — Deploy to Pavlovia
 
 1. **Create a Pavlovia project**: log in to [pavlovia.org](https://pavlovia.org), create a
-   new project, and push your repository (including `SpAM_Task/` and all `lib/` files) to
+   new project, and push your repository (including `SpAM_Task/` and all `jspsych/` files) to
    its GitLab repository. The `stimuli_manifest.json` file must be committed — it is
    gitignored by default in this repo, so either remove it from `.gitignore` or commit it
    explicitly (`git add -f SpAM_Task/stimuli_manifest.json`).

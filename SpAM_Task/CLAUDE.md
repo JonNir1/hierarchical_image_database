@@ -14,7 +14,7 @@ over 754 object images. Built with jsPsych, hosted on Pavlovia, recruiting via P
 Before first use:
 1. Populate the three stimulus directories and set their paths in `config.json`
 2. Run `python generate_manifest.py` from `SpAM_Task/`
-3. Download jsPsych + plugins into `lib/` (see *Running Locally* below)
+3. Download jsPsych + plugins into `jspsych/` (see *Running Locally* below)
 4. Set `prolific_completion_url` in `config.json` before deploying to Prolific
 
 ---
@@ -25,14 +25,14 @@ Before first use:
 SpAM_Task/
   config.json               ← all tuneable parameters (t, k, QC thresholds, sort area, stimuli paths)
   index.html                ← jsPsych entry point; fetches config.json + stimuli_manifest.json,
-                              then loads lib/ and js/ via <script> tags
+                              then loads jspsych/ and js/ via <script> tags
   js/
     utils.js                ← computeLayout, hashString, seededShuffle,
                               computePairwiseDistances, computeCentroid,
                               isCentroidNearTarget, _targetPoint, computeSD
     trial_generator.js      ← buildTrialLists, buildCatchTrial, insertCatchTrials, CATCH_LOCATIONS
     task.js                 ← jsPsych timeline construction, saveData, Pavlovia integration
-  lib/                      ← local copies of jsPsych core + plugins + seedrandom:
+  jspsych/                      ← local copies of jsPsych core + plugins + seedrandom:
                               jspsych.js, plugin-free-sort-patched.js (v2.1.0 + move
                               timestamps), plugin-preload.js, plugin-html-button-response.js, plugin-fullscreen.js,
                               jspsych-7-pavlovia-2022.1.1.js, seedrandom.js
