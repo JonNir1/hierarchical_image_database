@@ -18,13 +18,13 @@
   <script src="jspsych/seedrandom.js"></script>
 
   <!-- Pavlovia integration: only loaded when running on pavlovia.org.
-       document.write is intentional here — it inserts the script tag
-       synchronously into the parse stream so the plugin is available
-       before task.js runs. On localhost the file is not needed and
-       the 404 would cause a noisy console error without this guard. -->
+       Pavlovia injects lib/jspsych-7-pavlovia-2022.1.1.js at runtime via a
+       server-side symlink — do NOT commit this file to the repo.
+       document.write is intentional: inserts the script tag synchronously
+       so the plugin is available before task.js runs. -->
   <script>
     if (window.location.hostname.includes('pavlovia.org')) {
-      document.write('<script src="jspsych\/jspsych-7-pavlovia-2022.1.1.js"><\/script>');
+      document.write('<script src="lib\/jspsych-7-pavlovia-2022.1.1.js"><\/script>');
     }
   </script>
 
