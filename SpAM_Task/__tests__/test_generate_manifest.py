@@ -91,7 +91,7 @@ class TestScanPngs:
 
 class TestMainErrors:
     def test_missing_config_raises_file_not_found(self, task_env):
-        with pytest.raises(FileNotFoundError, match="config.json"):
+        with pytest.raises(FileNotFoundError, match="task_config.json"):
             gm.main()
 
     def test_empty_stimuli_path_prints_warning(self, task_env, capsys):

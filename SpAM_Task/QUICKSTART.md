@@ -34,7 +34,7 @@ No Python packages beyond the standard library are needed for `generate_manifest
 ## Step 1 — Prepare your images
 
 The task expects three sets of PNG images. Create a directory for each (they can live anywhere
-on your machine; you will point `config.json` at them in Step 2).
+on your machine; you will point `task_config.json` at them in Step 2).
 
 ### Main stimuli
 Your experimental image library — the images you want similarity data for. There is no hard
@@ -60,7 +60,7 @@ emoji-style or clip-art images work well.
 
 ## Step 2 — Configure the experiment
 
-Open `SpAM_Task/config.json` in a text editor. The parameters you are most likely to need to
+Open `SpAM_Task/task_config.json` in a text editor. The parameters you are most likely to need to
 change are:
 
 ```json
@@ -95,7 +95,7 @@ New-Item -ItemType Junction `
 ln -s /path/to/your/images SpAM_Task/assets/stimuli
 ```
 
-Then set `stimuli_paths.main` to `"./assets/stimuli"` in `config.json`.
+Then set `stimuli_paths.main` to `"./assets/stimuli"` in `task_config.json`.
 The junction is local-only and does not affect deployment.
 
 **Leave `prolific_completion_url` empty for now** — you will fill it in after creating your
@@ -144,7 +144,7 @@ cd SpAM_Task
 python generate_manifest.py
 ```
 
-This reads your paths from `config.json`, scans each directory recursively for `.png` files,
+This reads your paths from `task_config.json`, scans each directory recursively for `.png` files,
 and writes `stimuli_manifest.json`. Run it again any time you add, remove, or rename images.
 
 You should see output like:
@@ -182,7 +182,7 @@ following files and place them in `SpAM_Task/jspsych/`:
 
 ## Step 5 — Test locally
 
-1. Enable debug mode in `config.json` (bypasses the Prolific ID requirement):
+1. Enable debug mode in `task_config.json` (bypasses the Prolific ID requirement):
    ```json
    "debug": true
    ```
@@ -233,11 +233,11 @@ following files and place them in `SpAM_Task/jspsych/`:
 2. Paste the Pavlovia URL (from Step 6) into the *Study URL* field.
 3. Under *Completion*, select *I'll redirect them using a URL* and copy the Prolific
    completion URL (it looks like `https://app.prolific.com/submissions/complete?cc=XXXXXXXX`).
-4. Paste that completion URL into `config.json`:
+4. Paste that completion URL into `task_config.json`:
    ```json
    "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=XXXXXXXX"
    ```
-5. Commit and push the updated `config.json` to Pavlovia, then re-activate the experiment.
+5. Commit and push the updated `task_config.json` to Pavlovia, then re-activate the experiment.
 
 **Recommended pilot**: run 10–15 participants before launching full data collection. Inspect
 the downloaded CSVs for QC flag rates and check that the MDS output shows sensible structure.
@@ -255,14 +255,14 @@ ID. Pass the folder of CSVs to the post-processing pipeline for aggregation and 
 ## Troubleshooting
 
 **Images don't appear / sort area is empty**
-: Check that `stimuli_paths.main` in `config.json` is correct and that `generate_manifest.py`
+: Check that `stimuli_paths.main` in `task_config.json` is correct and that `generate_manifest.py`
 found your images. Confirm the web server is running from `SpAM_Task/`, not from the repo root.
 If your images live outside `SpAM_Task/`, the HTTP server cannot reach them — create a
 directory junction or symlink as described in Step 2.
 
 **"No participant ID detected" message**
 : You accessed the URL without a `PROLIFIC_PID` parameter. Either add `?PROLIFIC_PID=test` to
-the URL manually, or set `"debug": true` in `config.json`.
+the URL manually, or set `"debug": true` in `task_config.json`.
 
 **Pavlovia shows a blank page or 404**
 : Make sure `stimuli_manifest.json` is committed to the GitLab repository (it is gitignored by

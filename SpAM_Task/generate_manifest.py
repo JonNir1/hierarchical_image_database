@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 TASK_DIR = Path(__file__).resolve().parent
-CONFIG_PATH = TASK_DIR / "config.json"
+CONFIG_PATH = TASK_DIR / "task_config.json"
 MANIFEST_PATH = TASK_DIR / "stimuli_manifest.json"
 
 # Maps (config section, config key) → manifest key
@@ -54,7 +54,7 @@ def main() -> None:
     threshold in config.json and warns if not.
     """
     if not CONFIG_PATH.exists():
-        raise FileNotFoundError(f"config.json not found at {CONFIG_PATH}")
+        raise FileNotFoundError(f"task_config.json not found at {CONFIG_PATH}")
 
     with CONFIG_PATH.open() as fh:
         config = json.load(fh)

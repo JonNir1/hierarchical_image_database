@@ -1,15 +1,15 @@
 'use strict';
 
 /**
- * Validate experiment configuration loaded from config.json.
+ * Validate experiment configuration loaded from task_config.json.
  *
  * Throws a descriptive Error on any hard failure (missing/wrong-type key,
  * out-of-range value, or violated arithmetic constraint). Issues console.warn
  * for soft warnings (non-blocking deployment reminders).
  *
- * Call this immediately after parsing config.json, before any computation.
+ * Call this immediately after parsing task_config.json, before any computation.
  *
- * @param {object} config - Parsed config.json object
+ * @param {object} config - Parsed task_config.json object
  * @throws {Error} "verifyConfig: <message>" on hard failure
  */
 function verifyConfig(config) {

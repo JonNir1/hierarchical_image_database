@@ -12,10 +12,10 @@ over 754 object images. Built with jsPsych, hosted on Pavlovia, recruiting via P
 
 **Implemented.** All JS modules, the HTML entry point, and `generate_manifest.py` are complete.
 Before first use:
-1. Populate the three stimulus directories and set their paths in `config.json`
+1. Populate the three stimulus directories and set their paths in `task_config.json`
 2. Run `python generate_manifest.py` from `SpAM_Task/`
 3. Download jsPsych + plugins into `jspsych/` (see *Running Locally* below)
-4. Set `prolific_completion_url` in `config.json` before deploying to Prolific
+4. Set `prolific_completion_url` in `task_config.json` before deploying to Prolific
 
 ---
 
@@ -23,8 +23,8 @@ Before first use:
 
 ```
 SpAM_Task/
-  config.json               ← all tuneable parameters (t, k, QC thresholds, sort area, stimuli paths)
-  index.html                ← jsPsych entry point; fetches config.json + stimuli_manifest.json,
+  task_config.json               ← all tuneable parameters (t, k, QC thresholds, sort area, stimuli paths)
+  index.html                ← jsPsych entry point; fetches task_config.json + stimuli_manifest.json,
                               then loads jspsych/ and js/ via <script> tags
   js/
     utils.js                ← computeLayout, hashString, seededShuffle,
@@ -41,7 +41,7 @@ SpAM_Task/
   __tests__/                ← Jest (JS) and pytest (Python) test suites
 ```
 
-Stimuli live **outside this directory** at paths specified in `config.json`.
+Stimuli live **outside this directory** at paths specified in `task_config.json`.
 
 ---
 
@@ -49,7 +49,7 @@ Stimuli live **outside this directory** at paths specified in `config.json`.
 
 Browsers cannot list the contents of a server directory, so `task.js` cannot discover which
 image files exist at runtime. `generate_manifest.py` solves this: it reads the three stimulus
-paths from `config.json`, recursively scans each directory for `.png` files, and writes
+paths from `task_config.json`, recursively scans each directory for `.png` files, and writes
 `stimuli_manifest.json`.
 
 **Output format** (keys used by `task.js`):
@@ -179,7 +179,7 @@ handles data upload; the `finish` command node is appended to the timeline and c
 ### `task.js`
 
 Single async `DOMContentLoaded` handler. Execution order:
-1. Fetch `config.json` + `stimuli_manifest.json` in parallel
+1. Fetch `task_config.json` + `stimuli_manifest.json` in parallel
 2. Parse `PROLIFIC_PID` from URL; halt with error message if absent and not in debug mode
 3. Seed RNG: `new Math.seedrandom(hashString(PID))` â€” **no RNG calls before `buildTrialLists`**
 4. Build image URL arrays from manifest keys (`images`, `practice_images`, `catch_images`) + config paths
@@ -197,10 +197,10 @@ and writes `trial_type`, `trial_index`, `pairwise_distance_sd`, `pairwise_distan
 
 ## Running Locally (testing)
 
-1. Set stimulus paths in `config.json`. Paths serve as both filesystem paths (for
+1. Set stimulus paths in `task_config.json`. Paths serve as both filesystem paths (for
    `generate_manifest.py`) and URL prefixes (for the browser), so images must be reachable
    from within `SpAM_Task/`. If your images live outside this directory, create a junction
-   (Windows) or symlink (macOS/Linux) inside `SpAM_Task/assets/` and point `config.json` at
+   (Windows) or symlink (macOS/Linux) inside `SpAM_Task/assets/` and point `task_config.json` at
    the junction:
    ```powershell
    # Windows PowerShell
@@ -210,21 +210,21 @@ and writes `trial_type`, `trial_index`, `pairwise_distance_sd`, `pairwise_distan
    # macOS / Linux
    ln -s /path/to/images SpAM_Task/assets/stimuli
    ```
-   Then set `"stimuli_path": "./assets/stimuli"` in `config.json`.
+   Then set `"stimuli_path": "./assets/stimuli"` in `task_config.json`.
 
 2. Run `python generate_manifest.py` from `SpAM_Task/`
 3. Serve with a local HTTP server (required because `task.js` uses `fetch()`):
    ```bash
    python -m http.server 8000   # from SpAM_Task/
    ```
-4. Open `http://localhost:8000?PROLIFIC_PID=test123`; set `"debug": true` in `config.json`
+4. Open `http://localhost:8000?PROLIFIC_PID=test123`; set `"debug": true` in `task_config.json`
    for extra console logging and to bypass the missing-PID guard
 
 ---
 
-## config.json Parameters
+## task_config.json Parameters
 
-config.json is organised into six sections:
+task_config.json is organised into six sections:
 
 ### `stimuli_paths`
 | Key | Default | Description |

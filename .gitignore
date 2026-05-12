@@ -14,7 +14,7 @@ SpAM_Task/assets/stimuli/
 # ignore outputs and docs
 *.pkl
 *.json
-!SpAM_Task/config.json
+!SpAM_Task/task_config.json
 *.doc
 *.docx
 *.pdf

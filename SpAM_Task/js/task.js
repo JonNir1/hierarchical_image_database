@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let config, manifest;
   try {
     const [configRes, manifestRes] = await Promise.all([
-      fetch('config.json'),
+      fetch('task_config.json'),
       fetch('stimuli_manifest.json'),
     ]);
     config   = await configRes.json();
