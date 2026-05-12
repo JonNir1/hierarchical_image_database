@@ -109,41 +109,57 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ---------------------------------------------------------------------------
   const jsPsych = initJsPsych({
     auto_preload: false, // we preload per-trial via jsPsychPreload nodes
-    on_finish:    saveData,
+    on_finish:    onFinish,
   });
 
   // ---------------------------------------------------------------------------
-  // 8. saveData — called by jsPsych.on_finish
+  // 8. onFinish / saveData — called by jsPsych.on_finish
   //    On Pavlovia: the jsPsychPavlovia finish node (in the timeline below)
-  //    handles saving before on_finish fires; nothing to do here.
-  //    Locally: download a filtered CSV (practice trials excluded).
+  //    handles saving before on_finish fires; nothing to do here except show
+  //    the end screen.
+  //    Locally: download a filtered CSV (practice trials excluded), then show
+  //    the end screen.
   // ---------------------------------------------------------------------------
+  function showEndScreen() {
+    document.body.innerHTML = `
+      <div style="
+        display: flex; align-items: center; justify-content: center;
+        height: 100vh; color: #ddd; font-family: sans-serif; text-align: center;
+      ">
+        <div>
+          <p>Press <strong>Esc</strong> to exit full screen.</p>
+          <p>You may now close this window.</p>
+        </div>
+      </div>`;
+  }
+
   /**
-   * Save experiment data at the end of the session.
+   * Save experiment data at the end of the session, then show the end screen.
    *
    * On Pavlovia: the `jsPsychPavlovia` finish node in the timeline handles upload
-   * before `on_finish` fires, so this function is a no-op in that environment.
+   * before `on_finish` fires, so only the end screen is shown here.
    *
    * Locally: filters jsPsych data to main and catch trials (practice excluded),
    * serialises to CSV, and triggers a browser download via a temporary <a> element.
    * Filename format: `spam_<PID>_<timestamp>.csv`.
    */
-  function saveData() {
-    if (isPavlovia) return;
-
-    const csv  = jsPsych.data.get()
-                   .filterCustom(d => d.trial_type.startsWith('trial_') ||
-                                      d.trial_type.startsWith('catch_'))
-                   .csv();
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = 'spam_' + PID + '_' + Date.now() + '.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  function onFinish() {
+    if (!isPavlovia) {
+      const csv  = jsPsych.data.get()
+                     .filterCustom(d => d.trial_type.startsWith('trial_') ||
+                                        d.trial_type.startsWith('catch_'))
+                     .csv();
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'spam_' + PID + '_' + Date.now() + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+    showEndScreen();
   }
 
   // ---------------------------------------------------------------------------
