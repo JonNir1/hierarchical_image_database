@@ -179,10 +179,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       <div style="max-width:700px; text-align:left;">
         <h2>Participant Information &amp; Consent</h2>
         <p>In this study you will arrange images of objects according to how visually
-           similar they appear to you. The task takes approximately 20–30 minutes.</p>
+           similar they appear to you. The task takes approximately 45-60 minutes.</p>
         <p>Your participation is voluntary. Responses are recorded anonymously and will
-           be used for academic research only. You may withdraw at any time by closing
-           the browser tab.</p>
+           be used for solely academic research only. You may withdraw at any time by
+           closing the browser tab.</p>
         <p>By clicking <strong>I agree to participate</strong> you confirm that you are
            18 years of age or older and consent to take part.</p>
       </div>`,
@@ -202,7 +202,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <li><strong>Different-looking</strong> images → place them <strong>far apart</strong>.</li>
         </ul>
         <p>There are no right or wrong answers — go with your first impression.</p>
-        <p>You will first do a short <strong>practice trial</strong> (not recorded),
+        <p>You will first do a short <strong>practice trial</strong>,
            then ${allTrials.length} real trials.</p>
         <p>Please work in <strong>fullscreen</strong>. Do not use the back button.</p>
       </div>`,
@@ -258,6 +258,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // Free-sort trial
+    let header_text = trial.type === 'catch'
+        ? '<p style="font-size:0.9em; color:#333;">Please place all images on the ' +
+          '<strong>' + trial.target_location + '</strong> of the screen.</p>'
+        : '<p style="font-size:0.9em; color:#333;">Arrange the images by visual similarity. ' +
+          'Close together = similar &nbsp;|&nbsp; Far apart = different.</p>';
     timeline.push({
       type:             jsPsychFreeSort,
       stimuli:          trial.images,
@@ -268,11 +273,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       sort_area_shape:      pluginShape,
       stim_starts_inside:   config.display.stim_starts_inside,
       column_spread_factor: config.display.column_spread_factor,
-      prompt: trial.type === 'catch'
-        ? '<p style="font-size:0.9em; color:#333;">Please place all images on the ' +
-          '<strong>' + trial.target_location + '</strong> of the screen.</p>'
-        : '<p style="font-size:0.9em; color:#333;">Arrange the images by visual similarity. ' +
-          'Close together = similar &nbsp;|&nbsp; Far apart = different.</p>',
+      prompt: '',
+      counter_text_unfinished:  header_text,
+      counter_text_finished:    header_text,
       on_finish(data) {
         // QC metrics
         const pairs = computePairwiseDistances(
