@@ -64,14 +64,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (config.deployment.debug) console.log('[SpAM] Seed:', seed);
 
   // ---------------------------------------------------------------------------
-  // 4. Build image URL arrays
+  // 4. SHINE variant — cross-check manifest against config
+  //    generate_manifest.py writes the active variant into the manifest at build
+  //    time. If the config has been edited since the manifest was generated, the
+  //    two will disagree and the wrong images would load. Fail loudly instead.
+  // ---------------------------------------------------------------------------
+  const variant = config.shine.shine_variant;
+  if (manifest.shine_variant !== variant) {
+    document.body.innerHTML =
+      '<p style="color:white;font-family:sans-serif;text-align:center;margin-top:20%;">' +
+      '<strong>Configuration / manifest mismatch:</strong><br>' +
+      'config.shine.shine_variant = "' + variant + '" but stimuli_manifest.json was built ' +
+      'for "' + manifest.shine_variant + '".<br>Re-run generate_manifest.py and reload.</p>';
+    return;
+  }
+  if (config.deployment.debug) console.log('[SpAM] SHINE variant:', variant);
+
+  // ---------------------------------------------------------------------------
+  // 5. Build image URL arrays
   //    Manifest paths are filenames relative to each stimulus directory.
-  //    config.*_path values are relative to SpAM_Task/ (same dir as index.html),
+  //    Main URL = stimuli_paths.main_root + "<variant>_shine/" + filename;
+  //    practice/catch URLs are unchanged.
+  //    All path values are relative to SpAM_Task/ (same dir as index.html),
   //    so concatenating them gives browser-resolvable relative URLs.
   // TODO: if config paths are authored on Windows, replace backslashes:
   //       config.stimuli_path.replace(/\\/g, '/')
   // ---------------------------------------------------------------------------
-  const imageUrls    = (manifest.images          || []).map(f => config.stimuli_paths.main     + '/' + f);
+  const mainPrefix   = config.stimuli_paths.main_root + variant + '_shine';
+  const imageUrls    = (manifest.images          || []).map(f => mainPrefix                   + '/' + f);
   const catchUrls    = (manifest.catch_images    || []).map(f => config.stimuli_paths.catch    + '/' + f);
   const practiceUrls = (manifest.practice_images || []).map(f => config.stimuli_paths.practice + '/' + f);
 
@@ -292,6 +312,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           ? 'catch_' + (++catchCount)
           : 'trial_' + (++mainCount);
         data.trial_index           = idx;
+        data.shine_variant         = variant;
         data.pairwise_distance_sd  = sd;
 
         if (trial.type === 'catch') {

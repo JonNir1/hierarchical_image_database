@@ -1,8 +1,12 @@
 {
   "stimuli_paths": {
-    "main":     "./assets/stimuli/",
-    "practice": "./assets/openmoji/",
-    "catch":    "./assets/openmoji/"
+    "main_root": "../images/",
+    "practice":  "./assets/openmoji/",
+    "catch":     "./assets/openmoji/"
+  },
+
+  "shine": {
+    "shine_variant": "pre"
   },
 
   "design": {

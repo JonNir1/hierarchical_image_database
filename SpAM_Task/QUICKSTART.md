@@ -66,9 +66,12 @@ change are:
 ```json
 {
   "stimuli_paths": {
-    "main":     "path/to/your/main/images",
-    "practice": "path/to/your/practice/images",
-    "catch":    "path/to/your/catch/images"
+    "main_root": "../images/",
+    "practice":  "./assets/openmoji/",
+    "catch":     "./assets/openmoji/"
+  },
+  "shine": {
+    "shine_variant": "pre"
   },
   "deployment": {
     "prolific_completion_url": ""
@@ -76,27 +79,22 @@ change are:
 }
 ```
 
-**Paths** must be relative to `SpAM_Task/` and use forward slashes — they serve as both
-filesystem paths (for `generate_manifest.py`) and URL prefixes (for the browser, which can
-only load files within the HTTP server's root directory).
+**Dataset layout.** Main stimuli live at `<repo>/images/{pre_shine,post_shine}/` (one
+directory per SHINE-preprocessing variant). The main directory is resolved as
+`<main_root>/<shine_variant>_shine/`. `main_root` is relative to `SpAM_Task/`, so the
+default `"../images/"` reaches `<repo>/images/`.
 
-If your images live **outside** `SpAM_Task/`, create a directory junction (Windows) or
-symlink (macOS/Linux) inside `SpAM_Task/assets/` pointing at the external directory, then
-set the config path to the junction:
+The dataset is gitignored on `main` (not pushed to GitHub) and force-added on
+`pavlovia_deploy` (shipped to the Pavlovia gitlab remote). Tracked `.gitkeep` stubs make
+the layout discoverable on fresh checkout.
 
-```powershell
-# Windows PowerShell — run once; no data is copied
-New-Item -ItemType Junction `
-    -Path  "SpAM_Task\assets\stimuli" `
-    -Target "C:\path\to\your\images"
-```
-```bash
-# macOS / Linux
-ln -s /path/to/your/images SpAM_Task/assets/stimuli
-```
+To populate the dataset, copy or move your images into `<repo>/images/pre_shine/`
+(and later `<repo>/images/post_shine/`), preserving any category subdirectories. No
+junctions or symlinks are required.
 
-Then set `stimuli_paths.main` to `"./assets/stimuli"` in `task_config.json`.
-The junction is local-only and does not affect deployment.
+**SHINE variant.** Set `shine.shine_variant` to `"pre"` to load original images or
+`"post"` to load SHINE-preprocessed images. The selected variant is recorded in the
+manifest and in every saved trial row.
 
 **Leave `prolific_completion_url` empty for now** — you will fill it in after creating your
 Prolific study (Step 6).
@@ -149,14 +147,15 @@ and writes `stimuli_manifest.json`. Run it again any time you add, remove, or re
 
 You should see output like:
 ```
-images: 754 images in /path/to/your/main/images
-practice_images: 8 images in /path/to/your/practice/images
-catch_images: 22 images in /path/to/your/catch/images
+images (pre-SHINE): 754 images in <repo>/images/pre_shine
+practice_images: 8 images in <repo>/SpAM_Task/assets/openmoji
+catch_images: 22 images in <repo>/SpAM_Task/assets/openmoji
 
 Manifest written to .../SpAM_Task/stimuli_manifest.json
 ```
 
-If any warnings appear (missing path, too few images), fix them before continuing.
+The script aborts if `main_root/<variant>_shine/` is missing or empty (main set is
+fatal). Practice/catch paths emit warnings on missing content but do not abort.
 
 ---
 
@@ -255,7 +254,7 @@ ID. Pass the folder of CSVs to the post-processing pipeline for aggregation and 
 ## Troubleshooting
 
 **Images don't appear / sort area is empty**
-: Check that `stimuli_paths.main` in `task_config.json` is correct and that `generate_manifest.py`
+: Check that `stimuli_paths.main_root` and `shine.shine_variant` in `task_config.json` are correct and that `generate_manifest.py`
 found your images. Confirm the web server is running from `SpAM_Task/`, not from the repo root.
 If your images live outside `SpAM_Task/`, the HTTP server cannot reach them — create a
 directory junction or symlink as described in Step 2.

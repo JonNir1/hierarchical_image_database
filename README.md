@@ -21,3 +21,23 @@ Building a database of real-world objects in a neutral background that can be us
 - Exploratory: hyperbolic-space replication; item-level Procrustes; alternate sensory metrics.
 
 Full pre-registration: *[OSF link, populated after submission]*.
+
+## Dataset Layout
+
+The 754-image dataset lives at `<repo>/images/` with one subdirectory per SHINE
+variant:
+
+```
+images/
+  pre_shine/   <cat1>/<cat2>/.../<name>NN.png    # original images
+  post_shine/  <cat1>/<cat2>/.../<name>NN.png    # SHINE-color processed (populated later)
+```
+
+Image files are gitignored on `main` (never pushed to GitHub) and force-added on
+`pavlovia_deploy` (shipped to the Pavlovia gitlab remote). The hierarchy is encoded in
+the directory tree, mirrored across the two variants so per-image pre/post pairing is a
+filename match. Tracked `.gitkeep` stubs make the layout visible on fresh checkout.
+
+`SpAM_Task` reads the active variant via `stimuli_paths.main_root` +
+`shine.shine_variant` in `task_config.json`; future analysis sub-modules will read from
+the same top-level location.

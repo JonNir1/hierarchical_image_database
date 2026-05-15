@@ -8,8 +8,21 @@
 # Claude Code agent working directories
 .claude/
 
-# SpAM_Task: exclude the local stimuli junction (dataset lives outside the repo)
-SpAM_Task/assets/stimuli/
+# Image dataset
+#   - Canonical location: <repo>/images/{pre_shine,post_shine}/
+#   - Image files are gitignored on `main` so they never reach GitHub.
+#   - On `pavlovia_deploy`: image files are force-added (`git add -f images/<variant>/`)
+#     to ship them to the Pavlovia gitlab remote. The .gitkeep stubs are tracked on
+#     all branches to make the layout discoverable.
+#   - We ignore image file extensions inside images/ rather than the whole directory,
+#     so that .gitkeep stubs (and the directories themselves) remain tracked.
+dataset/
+images/**/*.png
+images/**/*.jpg
+images/**/*.jpeg
+images/**/*.gif
+images/**/*.webp
+images/**/*.bmp
 
 # ignore outputs and docs
 *.pkl
@@ -19,10 +32,6 @@ SpAM_Task/assets/stimuli/
 *.docx
 *.pdf
 *.csv
-
-# image dataset (stored outside the repo or locally)
-dataset/
-images/
 
 # generated figures
 figures/

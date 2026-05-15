@@ -197,41 +197,47 @@ and writes `trial_type`, `trial_index`, `pairwise_distance_sd`, `pairwise_distan
 
 ## Running Locally (testing)
 
-1. Set stimulus paths in `task_config.json`. Paths serve as both filesystem paths (for
-   `generate_manifest.py`) and URL prefixes (for the browser), so images must be reachable
-   from within `SpAM_Task/`. If your images live outside this directory, create a junction
-   (Windows) or symlink (macOS/Linux) inside `SpAM_Task/assets/` and point `task_config.json` at
-   the junction:
-   ```powershell
-   # Windows PowerShell
-   New-Item -ItemType Junction -Path "SpAM_Task\assets\stimuli" -Target "C:\path\to\images"
-   ```
-   ```bash
-   # macOS / Linux
-   ln -s /path/to/images SpAM_Task/assets/stimuli
-   ```
-   Then set `"stimuli_path": "./assets/stimuli"` in `task_config.json`.
+The dataset lives at `<repo>/images/{pre_shine,post_shine}/` — outside `SpAM_Task/` so
+that analysis sub-modules can share it. SpAM_Task reaches it via the relative path
+`../images/<variant>_shine/`. Because the browser fetches `../images/...`, the local HTTP
+server must be rooted at the **repo root**, not at `SpAM_Task/`.
 
-2. Run `python generate_manifest.py` from `SpAM_Task/`
-3. Serve with a local HTTP server (required because `task.js` uses `fetch()`):
-   ```bash
-   python -m http.server 8000   # from SpAM_Task/
+1. Populate `<repo>/images/pre_shine/` (and later `<repo>/images/post_shine/`) with the
+   dataset. Image files are gitignored on `main`; `.gitkeep` stubs are tracked so the
+   layout is visible on fresh checkout.
+2. Set the active SHINE variant in `task_config.json`:
+   ```jsonc
+   "shine": { "shine_variant": "pre" }   // or "post"
    ```
-4. Open `http://localhost:8000?PROLIFIC_PID=test123`; set `"debug": true` in `task_config.json`
-   for extra console logging and to bypass the missing-PID guard
+   The `stimuli_paths.main_root` default `"../images/"` resolves the full main directory
+   to `<repo>/images/<variant>_shine/` via `generate_manifest.py`.
+3. Run `python generate_manifest.py` from `SpAM_Task/`. The manifest records the active
+   variant; `task.js` cross-checks it against the config and aborts on mismatch.
+4. Serve with a local HTTP server **from the repo root** (required because `task.js`
+   uses `fetch()` and the main URLs are `../images/...`):
+   ```bash
+   python -m http.server 8000   # from <repo>/, not SpAM_Task/
+   ```
+5. Open `http://localhost:8000/SpAM_Task/?PROLIFIC_PID=test123`; set `"debug": true` in
+   `task_config.json` for extra console logging and to bypass the missing-PID guard.
 
 ---
 
 ## task_config.json Parameters
 
-task_config.json is organised into six sections:
+task_config.json is organised into seven sections:
 
 ### `stimuli_paths`
 | Key | Default | Description |
 |---|---|---|
-| `main` | `""` | Path to the 754 dataset images (relative to `index.html`) |
+| `main_root` | `"../images/"` | Parent of the per-variant stimulus directories. The main directory resolves to `<main_root>/<shine_variant>_shine/`. |
 | `practice` | `""` | Path to practice trial images |
 | `catch` | `""` | Path to catch trial images |
+
+### `shine`
+| Key | Default | Description |
+|---|---|---|
+| `shine_variant` | `"pre"` | `"pre"` or `"post"`. Selects which variant subdirectory under `main_root` to load. Recorded in the manifest and in every saved trial row for auditing. |
 
 ### `design`
 | Key | Default | Description |

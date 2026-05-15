@@ -78,9 +78,12 @@ describe('verifyConfig', () => {
     // Minimal valid config that passes all checks.
     const validConfig = () => ({
         stimuli_paths: {
-            main:     'stimuli',
-            practice: 'practice',
-            catch:    'catch',
+            main_root: 'images',
+            practice:  'practice',
+            catch:     'catch',
+        },
+        shine: {
+            shine_variant: 'pre',
         },
         design: {
             trials_per_subject:        10,
