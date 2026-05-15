@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 TASK_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = TASK_DIR.parent
 CONFIG_PATH = TASK_DIR / "task_config.json"
 MANIFEST_PATH = TASK_DIR / "stimuli_manifest.json"
 
@@ -21,11 +22,13 @@ def resolve_path(raw: str) -> Path:
     """Resolve a config path string to an absolute Path.
 
     Absolute paths are returned unchanged. Relative paths are resolved
-    relative to the SpAM_Task directory (where this script lives), not the
-    current working directory, so the script can be run from anywhere.
+    relative to the project root (parent of SpAM_Task/), matching how the
+    browser resolves the same strings relative to the page at <root>/index.html.
+    This way the same path string in task_config.json works for both Python
+    (manifest generation) and the browser (image fetching).
     """
     p = Path(raw)
-    return p if p.is_absolute() else (TASK_DIR / p).resolve()
+    return p if p.is_absolute() else (PROJECT_ROOT / p).resolve()
 
 
 def resolve_main_dir(config: dict) -> tuple[Path, str]:

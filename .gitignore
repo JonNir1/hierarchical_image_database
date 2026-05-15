@@ -28,6 +28,7 @@ images/**/*.bmp
 *.pkl
 *.json
 !SpAM_Task/task_config.json
+!SpAM_Task/stimuli_manifest.json
 *.doc
 *.docx
 *.pdf

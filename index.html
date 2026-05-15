@@ -4,22 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Spatial Arrangement Task</title>
-  <link rel="stylesheet" href="jspsych/jspsych.css">
+  <link rel="stylesheet" href="SpAM_Task/jspsych/jspsych.css">
   <style>body { background-color: #808080; margin: 0; }</style>
 
-  <!-- jsPsych 7 core + plugins (local copies in jspsych/) -->
-  <script src="jspsych/jspsych.js"></script>
-  <script src="jspsych/plugin-preload.js"></script>
-  <script src="jspsych/plugin-html-button-response.js"></script>
-  <script src="jspsych/plugin-fullscreen.js"></script>
-  <script src="jspsych/plugin-free-sort-patched.js"></script>
+  <!-- jsPsych 7 core + plugins (local copies in SpAM_Task/jspsych/) -->
+  <script src="SpAM_Task/jspsych/jspsych.js"></script>
+  <script src="SpAM_Task/jspsych/plugin-preload.js"></script>
+  <script src="SpAM_Task/jspsych/plugin-html-button-response.js"></script>
+  <script src="SpAM_Task/jspsych/plugin-fullscreen.js"></script>
+  <script src="SpAM_Task/jspsych/plugin-free-sort-patched.js"></script>
 
   <!-- Seedrandom (separate from jsPsych — exposes Math.seedrandom globally) -->
-  <script src="jspsych/seedrandom.js"></script>
+  <script src="SpAM_Task/jspsych/seedrandom.js"></script>
 
   <!-- Pavlovia integration: only loaded when running on pavlovia.org.
        Pavlovia injects lib/jspsych-7-pavlovia-2022.1.1.js at runtime via a
-       server-side symlink — do NOT commit this file to the repo.
+       server-side symlink at the project root — do NOT commit this file to
+       the repo.
        document.write is intentional: inserts the script tag synchronously
        so the plugin is available before task.js runs. -->
   <script>
@@ -29,9 +30,9 @@
   </script>
 
   <!-- Experiment modules (load order matters: utils → trial_generator → task) -->
-  <script src="js/utils.js"></script>
-  <script src="js/trial_generator.js"></script>
-  <script src="js/task.js"></script>
+  <script src="SpAM_Task/js/utils.js"></script>
+  <script src="SpAM_Task/js/trial_generator.js"></script>
+  <script src="SpAM_Task/js/task.js"></script>
 </head>
 <body></body>
 </html>

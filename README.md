@@ -41,3 +41,18 @@ filename match. Tracked `.gitkeep` stubs make the layout visible on fresh checko
 `SpAM_Task` reads the active variant via `stimuli_paths.main_root` +
 `shine.shine_variant` in `task_config.json`; future analysis sub-modules will read from
 the same top-level location.
+
+## Repository Layout
+
+```
+index.html                 ← Pavlovia entry point; loads scripts from SpAM_Task/
+SpAM_Task/                 ← task code (js/, jspsych/, assets/, task_config.json, ...)
+images/                    ← canonical dataset, gitignored on main, force-added on pavlovia_deploy
+SpAM_Simulations/          ← MDS simulations (developer-only; not on Pavlovia)
+visualize_dataset/         ← dataset visualization tools (developer-only; not on Pavlovia)
+analysis/                  ← future: analysis notebooks (developer-only; not on Pavlovia)
+```
+
+The `main` and `pavlovia_deploy` branches share an identical structure. `pavlovia_deploy`
+differs only in (a) a stricter `.gitignore` that excludes developer-only directories and
+(b) force-added image files for the active SHINE variant.

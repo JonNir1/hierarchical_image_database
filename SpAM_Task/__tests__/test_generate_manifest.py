@@ -15,16 +15,16 @@ from conftest import make_config
 class TestResolvePath:
     def test_absolute_path_returned_unchanged(self, tmp_path):
         target = tmp_path / "some" / "dir"
-        with patch.object(gm, "TASK_DIR", tmp_path):
+        with patch.object(gm, "PROJECT_ROOT", tmp_path):
             assert gm.resolve_path(str(target)) == target
 
-    def test_relative_path_resolved_against_task_dir(self, tmp_path):
-        with patch.object(gm, "TASK_DIR", tmp_path):
+    def test_relative_path_resolved_against_project_root(self, tmp_path):
+        with patch.object(gm, "PROJECT_ROOT", tmp_path):
             result = gm.resolve_path("stimuli")
         assert result == (tmp_path / "stimuli").resolve()
 
     def test_relative_path_with_subdirs(self, tmp_path):
-        with patch.object(gm, "TASK_DIR", tmp_path):
+        with patch.object(gm, "PROJECT_ROOT", tmp_path):
             result = gm.resolve_path("a/b/c")
         assert result == (tmp_path / "a" / "b" / "c").resolve()
 

@@ -23,4 +23,9 @@ jupyter notebook SpAM_Simulations/evaluation.ipynb
 jupyter notebook visualize_dataset/dataset_visualizations.ipynb
 ```
 
-There is no test suite.
+The SpAM task is served from the repo root via `index.html` (a thin entry point that
+loads scripts from `SpAM_Task/`). For local browser testing: `python -m http.server`
+from the repo root, then open `http://localhost:8000/`.
+
+There is a test suite under `SpAM_Task/__tests__/` (pytest for the Python manifest
+generator, `node --test` for the JS modules).

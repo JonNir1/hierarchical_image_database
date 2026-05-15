@@ -1,8 +1,8 @@
 {
   "stimuli_paths": {
-    "main_root": "../images/",
-    "practice":  "./assets/openmoji/",
-    "catch":     "./assets/openmoji/"
+    "main_root": "./images/",
+    "practice":  "./SpAM_Task/assets/openmoji/",
+    "catch":     "./SpAM_Task/assets/openmoji/"
   },
 
   "shine": {

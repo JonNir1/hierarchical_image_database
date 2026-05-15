@@ -11,9 +11,16 @@ import generate_manifest as gm
 
 @pytest.fixture
 def task_env(tmp_path):
-    """Patch module-level path constants to a temp directory, yield it."""
+    """Patch module-level path constants to a temp directory, yield it.
+
+    Both TASK_DIR and PROJECT_ROOT are patched to tmp_path. In production
+    TASK_DIR is SpAM_Task/ and PROJECT_ROOT is its parent, but the tests
+    treat tmp_path as both the script's home AND the project root so that
+    relative paths in test configs resolve into tmp_path.
+    """
     with (
         patch.object(gm, "TASK_DIR", tmp_path),
+        patch.object(gm, "PROJECT_ROOT", tmp_path),
         patch.object(gm, "CONFIG_PATH", tmp_path / "task_config.json"),
         patch.object(gm, "MANIFEST_PATH", tmp_path / "stimuli_manifest.json"),
     ):

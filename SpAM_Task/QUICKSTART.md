@@ -186,7 +186,7 @@ following files and place them in `SpAM_Task/jspsych/`:
    "debug": true
    ```
 
-2. Start a local web server from the `SpAM_Task/` directory:
+2. Start a local web server from the **repo root** (where `index.html` lives):
    ```bash
    python -m http.server 8000
    ```
@@ -207,16 +207,15 @@ following files and place them in `SpAM_Task/jspsych/`:
 
 ## Step 6 — Deploy to Pavlovia
 
-1. **Create a Pavlovia project**: log in to [pavlovia.org](https://pavlovia.org), create a
-   new project, and push your repository (including `SpAM_Task/` and all `jspsych/` files) to
-   its GitLab repository. The `stimuli_manifest.json` file must be committed — it is
-   gitignored by default in this repo, so either remove it from `.gitignore` or commit it
-   explicitly (`git add -f SpAM_Task/stimuli_manifest.json`).
+1. **Create a Pavlovia project** at [pavlovia.org](https://pavlovia.org). Push the
+   `pavlovia_deploy` branch to its GitLab remote. The branch ships `index.html` at the
+   project root (Pavlovia's required entry point), `SpAM_Task/` with the task code, and
+   the active variant's images under `images/<variant>_shine/`. Developer-only
+   directories (`SpAM_Simulations/`, `visualize_dataset/`, `analysis/`) are excluded
+   on this branch via the deploy-only `.gitignore` rules.
 
-2. **Set the experiment URL**: in Pavlovia's dashboard, set the experiment entry point to
-   `SpAM_Task/index.html`.
-
-3. **Activate the experiment**: switch the project status to *Running*.
+2. **Activate the experiment**: switch the project status to *Piloting* for testing or
+   *Running* for live data collection.
 
 4. **Copy the Pavlovia experiment URL** — it will look like:
    ```
@@ -254,19 +253,20 @@ ID. Pass the folder of CSVs to the post-processing pipeline for aggregation and 
 ## Troubleshooting
 
 **Images don't appear / sort area is empty**
-: Check that `stimuli_paths.main_root` and `shine.shine_variant` in `task_config.json` are correct and that `generate_manifest.py`
-found your images. Confirm the web server is running from `SpAM_Task/`, not from the repo root.
-If your images live outside `SpAM_Task/`, the HTTP server cannot reach them — create a
-directory junction or symlink as described in Step 2.
+: Check that `stimuli_paths.main_root` and `shine.shine_variant` in `task_config.json`
+are correct and that `generate_manifest.py` found your images. Confirm the web server
+is running from the **repo root**, not from `SpAM_Task/` — `index.html` lives at the
+root and references task code via `SpAM_Task/...` paths.
 
 **"No participant ID detected" message**
 : You accessed the URL without a `PROLIFIC_PID` parameter. Either add `?PROLIFIC_PID=test` to
 the URL manually, or set `"debug": true` in `task_config.json`.
 
 **Pavlovia shows a blank page or 404**
-: Make sure `stimuli_manifest.json` is committed to the GitLab repository (it is gitignored by
-default — you must add it explicitly). Also verify that the entry point is set to
-`SpAM_Task/index.html`, not `index.html` at the repo root.
+: Make sure `SpAM_Task/stimuli_manifest.json` is committed to the GitLab repository
+(the `*.json` rule in `.gitignore` ignores it by default; the `!SpAM_Task/stimuli_manifest.json`
+exception un-ignores it). Verify `index.html` is at the project root on Pavlovia
+(Pavlovia auto-detects it there and cannot be configured to look elsewhere).
 
 **Catch trial QC flags everyone**
 : The catch-trial tolerance parameters may be too strict for your screen-size range. Try

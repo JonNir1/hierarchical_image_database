@@ -13,8 +13,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   let config, manifest;
   try {
     const [configRes, manifestRes] = await Promise.all([
-      fetch('task_config.json'),
-      fetch('stimuli_manifest.json'),
+      fetch('SpAM_Task/task_config.json'),
+      fetch('SpAM_Task/stimuli_manifest.json'),
     ]);
     config   = await configRes.json();
     manifest = await manifestRes.json();
@@ -85,8 +85,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   //    Manifest paths are filenames relative to each stimulus directory.
   //    Main URL = stimuli_paths.main_root + "<variant>_shine/" + filename;
   //    practice/catch URLs are unchanged.
-  //    All path values are relative to SpAM_Task/ (same dir as index.html),
-  //    so concatenating them gives browser-resolvable relative URLs.
+  //    All stimuli_paths values are relative to the repo root (where
+  //    index.html lives), so concatenating them with filenames yields
+  //    browser-resolvable URLs.
   // TODO: if config paths are authored on Windows, replace backslashes:
   //       config.stimuli_path.replace(/\\/g, '/')
   // ---------------------------------------------------------------------------
