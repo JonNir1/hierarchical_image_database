@@ -10,7 +10,7 @@ Building a database of real-world objects in a neutral background that can be us
 ## Analysis Plan (summary)
 
 - Collect SpAM data via Prolific/Pavlovia for two between-subject cohorts (N=75 each; one pre-SHINE, one post-SHINE).
-- Build population RDMs per cohort via weighted metric MDS (R `smacof` via `rpy2`).
+- Build population RDMs per cohort via unweighted metric MDS (R `smacof` via `rpy2`; binary pair weights — 1 if observed, 0 otherwise).
 - **RQ1a (any hierarchy?)** — normalised Gromov δ-hyperbolicity; compared against semantic (tree-like) and sensory (Euclidean) baselines.
 - **RQ1b (matches Kiani-Mur?)** — Spearman/Mantel ρ between perceptual RDM and a Kiani-Mur categorical-distance RDM; stratified by tree level.
 - **RQ2a (SHINE preserves vs perturbs)** — Spearman ρ(pre, post) tested against (i) an image-label shuffle null for shared structure and (ii) a cross-subject shuffle null for SHINE-specific perturbation.
@@ -20,7 +20,11 @@ Building a database of real-world objects in a neutral background that can be us
 - Multiple comparisons via FDR within each RQ family.
 - Exploratory: hyperbolic-space replication; item-level Procrustes; alternate sensory metrics.
 
-Full pre-registration: *[OSF link, populated after submission]*.
+**Planning documents** (in [`docs/`](./docs/)):
+- [`docs/OSF_PRE_REG__draft.md`](./docs/OSF_PRE_REG__draft.md) — full pre-registration draft (hypotheses, design, sampling, analysis plan).
+- [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) — operational checklist for executing the analysis plan; not part of the OSF submission.
+
+Full pre-registration on OSF: *[link, populated after submission]*.
 
 ## Dataset Layout
 
@@ -48,6 +52,7 @@ the same top-level location.
 index.html                 ← Pavlovia entry point; loads scripts from SpAM_Task/
 SpAM_Task/                 ← task code (js/, jspsych/, assets/, task_config.json, ...)
 images/                    ← canonical dataset, gitignored on main, force-added on pavlovia_deploy
+docs/                      ← planning documents (pre-reg draft + workflow checklist)
 SpAM_Simulations/          ← MDS simulations (developer-only; not on Pavlovia)
 visualize_dataset/         ← dataset visualization tools (developer-only; not on Pavlovia)
 analysis/                  ← future: analysis notebooks (developer-only; not on Pavlovia)
