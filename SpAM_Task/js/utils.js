@@ -168,6 +168,7 @@ function verifyConfig(config) {
     // ── Group 4: deployment warnings ─────────────────────────────────────────
     if (!config.deployment.debug) {
         if (!config.stimuli_paths.main_root)               warn('"stimuli_paths.main_root" is empty — no main images will load.');
+        if (!config.stimuli_paths.main)                    warn('"stimuli_paths.main" is empty — task.js cannot build image URLs.');
         if (!config.stimuli_paths.practice)                warn('"stimuli_paths.practice" is empty — practice trial will have no images.');
         if (!config.stimuli_paths.catch)                   warn('"stimuli_paths.catch" is empty — catch trials will have no images.');
         if (!config.deployment.prolific_completion_url)    warn('"deployment.prolific_completion_url" is empty — participants will not be redirected after completion.');

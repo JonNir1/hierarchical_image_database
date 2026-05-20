@@ -202,8 +202,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         <p>In this study you will arrange images of objects according to how visually
            similar they appear to you. The task takes approximately 45-60 minutes.</p>
         <p>Your participation is voluntary. Responses are recorded anonymously and will
-           be used for solely academic research only. You may withdraw at any time by
-           closing the browser tab.</p>
+           be used for academic research only. You may withdraw at any time by closing 
+           the browser tab.</p>
         <p>By clicking <strong>I agree to participate</strong> you confirm that you are
            18 years of age or older and consent to take part.</p>
       </div>`,
@@ -279,7 +279,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // Free-sort trial
-    let header_text = trial.type === 'catch'
+    // NOTE: header_text must go in `prompt`, NOT counter_text_*.
+    // counter_text_* wraps its content in a <p>; putting a <p> inside a <p> is
+    // invalid HTML, and the browser auto-corrects it by splitting them.  When
+    // stim_starts_inside:true the plugin then immediately overwrites the counter
+    // innerHTML, rendering the text a second time → duplicate instructions.
+    const header_text = trial.type === 'catch'
         ? '<p style="font-size:0.9em; color:#333;">Please place all images on the ' +
           '<strong>' + trial.target_location + '</strong> of the screen.</p>'
         : '<p style="font-size:0.9em; color:#333;">Arrange the images by visual similarity. ' +
@@ -294,9 +299,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       sort_area_shape:      pluginShape,
       stim_starts_inside:   config.display.stim_starts_inside,
       column_spread_factor: config.display.column_spread_factor,
-      prompt: '',
-      counter_text_unfinished:  header_text,
-      counter_text_finished:    header_text,
+      prompt:                   header_text,
+      counter_text_unfinished:  '',
+      counter_text_finished:    '',
       on_finish(data) {
         // QC metrics
         const pairs = computePairwiseDistances(
