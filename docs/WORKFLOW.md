@@ -24,7 +24,9 @@ has been done and what is pending.
       structure** so per-image pre/post correspondence is a filename match.
       input: `images/pre_shine/`, output: `images/post_shine/`
 - [ ] Dataset manifest. `code: image_processing/build_dataset_manifest.py`.
-      Build a manifest CSV with one row per image, including source attribution and Kiani-Mur & WordNet labels.
+      Build a manifest CSV with one row per image, including source attribution,
+      Kiani-Mur labels, WordNet/ImageNet labels, and a per-image **text description**
+      (~1 sentence; consumed by SGPT in the exploratory semantic RDM step below).
       Output: `analysis/results/dataset_manifest.csv`. (Distinct from the task's `stimuli_manifest.json`.)
 - [ ] Sensory RDMs. `code: analysis/rdms/sensory.py`.
       flatten images, calculate pairwise Euclidean. No luminance
@@ -35,6 +37,23 @@ has been done and what is pending.
 - [ ] Semantic RDM (WordNet). `code: analysis/rdms/semantic_wn.py`.
       Top-1 ImageNet (ResNet-50 / CLIP) classification of each image → WordNet synset →
       shortest-path distance in the WordNet hypernym graph. Out: `D_sem_wn.npy`.
+- [ ] Visual-semantic RDM (CLIP). `code: analysis/rdms/visual_semantic_clip.py`.
+      Load OpenAI pretrained CLIP **ViT-B/32** (e.g., via `clip` or `open_clip`).
+      Encode each of the 754 images via the image encoder, take the **output-layer**
+      embedding (Shoham et al. 2024 spec). Pairwise **cosine** distance → condensed.
+      Run separately for pre-SHINE and post-SHINE images.
+      Out: `D_clip_pre.npy`, `D_clip_post.npy`.
+- [ ] (Exploratory) High-level visual RDM (VGG-16). `code: analysis/rdms/visual_vgg.py`.
+      Load ImageNet-pretrained VGG-16 from `torchvision`. Forward-pass each image and
+      extract **FC7 penultimate-layer** activations (Shoham et al. 2024 spec).
+      Pairwise **cosine** distance. Run pre and post SHINE.
+      Out: `D_vgg_pre.npy`, `D_vgg_post.npy`.
+- [ ] (Exploratory) SGPT-based semantic RDM. `code: analysis/rdms/semantic_sgpt.py`.
+      Requires per-image text descriptions in the dataset manifest (Shoham et al.
+      used first-paragraph Wikipedia / dictionary definitions). Encode each description
+      with **SGPT-1.3B-msmarco-mean-tokens** (bi-encoder), take output layer.
+      Pairwise **cosine** distance. Variant-agnostic — one RDM, used for both cohorts.
+      Out: `D_sem_sgpt.npy`.
 - [ ] SHINE manipulation check. `code: analysis/rdms/manip_check.ipynb`.
       Verify `D_sens_post` has much lower variance in luminance + color-histogram
       moments than `D_sens_pre`. If not, abort and re-run SHINE.
@@ -93,11 +112,25 @@ has been done and what is pending.
       level × condition test. `code: analysis/pipeline/rq2d_level.py`.
 - [ ] `[EXPLORATORY]` RQ2c+d WordNet replication — repeat RQ2c and RQ2d with WordNet D_sem.
       `code: analysis/pipeline/rq2c_wordnet.py` and `rq2d_wordnet.py`.
-- [ ] `[CONFIRM]` RQ3 / KM — NNLS fit per cohort with D_sem = D_sem_km. Bootstrap CIs on α, β, diffs.
-      `code: analysis/pipeline/rq3_decomp_km.py`.
-- [ ] `[SECONDARY]` RQ3 / WN — same as above with D_sem = D_sem_wn (supplementary
+- [ ] `[CONFIRM]` RQ3 — 3-predictor NNLS fit per cohort:
+      `D_perc = α·D_sem_km + β·D_clip + γ·D_sens + ε`.
+      Bootstrap CIs (5k subject resamples) on (α, β, γ) and the pre−post differences.
+      Confirmatory predictions on α (semantic preserved) and γ (sensory reduced).
+      β (CLIP / visual-semantic) reported descriptively, no directional claim.
+      Additional reporting per Shoham et al. 2024 protocol:
+        • Hierarchical MLR: ΔR² for D_sens → +D_clip → +D_sem_km
+        • Partial correlations for each predictor controlling for the other two
+        • Fisher-z transform + FDR across the three predictors
+      `code: analysis/pipeline/rq3_decomp.py`.
+- [ ] `[SECONDARY]` RQ3 / WN — same with D_sem = D_sem_wn (supplementary
       robustness check; reported alongside KM but not required to support H3).
       `code: analysis/pipeline/rq3_decomp_wn.py`.
+- [ ] `[EXPLORATORY]` RQ3 / SGPT — same with D_sem = D_sem_sgpt (Shoham et al.
+      2024 exact specification). `code: analysis/pipeline/rq3_decomp_sgpt.py`.
+- [ ] `[EXPLORATORY]` RQ3 / 4-predictor — add D_VGG (FC7 cosine) as a 4th predictor:
+      `D_perc = α·D_sem_km + β·D_clip + γ·D_vgg + δ·D_pix + ε`.
+      Tests whether SHINE selectively reduces δ (pixel) while preserving γ (VGG).
+      Reported descriptively only. `code: analysis/pipeline/rq3_decomp_4pred.py`.
 
 ## Phase 4 — Exploratory (Optional)
 - [ ] S1 hyperbolic embedding (Poincaré / HyPoE replication of Phases 2-3).

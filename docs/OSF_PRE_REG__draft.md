@@ -95,20 +95,61 @@ basic level.
 **RQ3:** When perceptual distance is modelled as a weighted combination of semantic and sensory distances, does SHINE
 selectively reduce the sensory weight while leaving the semantic weight intact?
 
-H3: In the model $D_{perc} = α·D_{sem} + β·D_{sens} + ε$ fit per condition via non-negative least squares (NNLS):  
-(i) $β^{pre} > β^{post}$ (equivalently: lower bound of $CI(β^{pre} − β^{post}) > 0$    
-(ii) $α^{pre} ≈ α^{post}$ $0 \in CI(α^{pre} - α^{post})$  
-(CI calculated using bootstrapped resamples of subjects)
+H3 (confirmatory, 3-predictor): In the model
+$$D_{perc} = α·D_{sem} + β·D_{CLIP} + γ·D_{sens} + ε$$
+fit per cohort via non-negative least squares (NNLS), with main analysis using
+$D_{sem} = D_{KM}$ (Kiani-Mur graph distance):
 
-The main H3 test uses $D_{sem} = D_{KM}$ (Kiani-Mur graph distance). The same model is
-also fit with $D_{sem} = D_{WN}$ (ImageNet+WordNet shortest path) and reported as a
-supplementary robustness check; agreement between sources is informative but not
-required for the H3 conclusion.
+(i)  $γ^{pre} > γ^{post}$ — SHINE reduces the pure-sensory (low-level pixel)
+     contribution. Operationally: lower bound of $CI(γ^{pre} − γ^{post}) > 0$.
+(ii) $α^{pre} ≈ α^{post}$ — SHINE preserves the pure-semantic contribution.
+     Operationally: $0 \in CI(α^{pre} − α^{post})$.
+
+Reported but not directionally pre-registered:
+(iii) $β^{pre}$ vs $β^{post}$ — change in the visual-semantic (CLIP) contribution.
+      Bootstrap CI reported without a directional claim, because the impoverished
+      single-object stimulus set may or may not show a unique CLIP component
+      analogous to Shoham et al. (2024).
+
+CIs throughout: 5k bootstrap resamples over subjects, 95% percentile.
+
+Additional reporting (following Shoham et al. 2024, Nature Human Behaviour):
+- **Hierarchical multiple linear regression**: predictors entered in fixed order
+  $D_{sens} \to {+}D_{CLIP} \to {+}D_{sem}$; report the additional $R^2$
+  contributed by each predictor when it enters the model.
+- **Partial correlations**: each predictor while holding the other two constant
+  (unique-variance contribution). Fisher-z transform on correlations before any
+  t-tests. FDR (Benjamini-Hochberg) across the three predictors.
+
+The same confirmatory model is also fit under $D_{sem} = D_{WN}$ (ImageNet+WordNet
+shortest path) as a registered supplementary robustness check; agreement between
+sources is informative but not required for the H3 conclusion.
+
+H3 exploratory variants (registered, not confirmatory):
+- $D_{sem} = D_{sem}^{SGPT}$ — matches Shoham et al.'s exact "semantic"
+  specification.
+- 4-predictor model $D_{perc} = α·D_{sem} + β·D_{CLIP} + γ·D_{VGG} + δ·D_{pix} + ε$,
+  decomposing the visual contribution into high-level (VGG FC7) and low-level
+  (pixel) components. Tests the sharper prediction that SHINE selectively reduces
+  $δ$ (pixel) while preserving $γ$ (VGG), $β$ (CLIP), and $α$ (semantic).
+  Reported descriptively only — no FDR-corrected directional claims on the
+  individual coefficients in this expanded model.
+
+*Note on predictor collinearity*: Shoham et al. (2024) hand-picked 20 stimulus
+objects to minimize the correlation between their visual (VGG), visual-semantic
+(CLIP), and semantic (SGPT) DNN embeddings, giving them near-orthogonal predictors.
+Our 754-image set was curated for hierarchical coverage of Kiani-Mur, with no such
+orthogonality guarantee. Predictor multicollinearity in our H3 regression will
+therefore be substantively higher than in Shoham et al. NNLS coefficients on
+correlated predictors are known to be unstable; the partial-correlation and
+hierarchical-$R^2$ analyses in the reporting protocol mitigate this by attributing
+unique vs shared variance per predictor.
 <br><br><br>
 **Exploratory / Supplementary Analyses; not part of main RQs:**
 - use hyperbolic embeddings (e.g. Poincaré disk; Marton 2025 HyPoE or equivalent) to replicate the H2 and H3 analyses in a non-Euclidean space.
 - item-level Procrustes displacement maps to visualize which images move the most between pre- and post-SHINE spaces, and whether those movements are consistent with a sensory vs semantic shift (e.g. top-K=5 nearest-neighbour Jaccard).
-- alternate sensory metrics: Gabor-bank distance; corneal/V1-filtered pixel distance.
+- alternate sensory metrics: Gabor-bank distance; corneal/V1-filtered pixel distance; VGG-16 FC7 high-level visual features (used as the 4th predictor in the exploratory 4-predictor H3 variant).
+- alternate semantic metric: $D_{sem}^{SGPT}$ (SGPT bi-encoder sentence embeddings of per-image descriptions), matching Shoham et al. 2024's exact "semantic" operationalization.
 
 ### Foreknowledge of data or evidence
 Data does not yet exist. No part of the data that will be used for this analysis plan exists, and no part will be generated until after this plan is registered.
@@ -185,20 +226,52 @@ intervals of 5 subjects after reaching N=75).
 - Subject-level reliability index: Spearman ρ on the 50 within-subject repeated images
 - Population-level perceptual RDMs from unweighted metric MDS (`smacof` in R; binary pair weights — 1 if observed, 0 otherwise): $D^{pre}_{perc}$ and $D^{post}_{perc}$
 - Semantic distance matrices: $D_{sem}^{KM}$ (Kiani-Mur graph distance) and $D_{sem}^{WN}$ (WordNet shortest path on ImageNet labels)
-- Sensory distance matrices: $D_{sens}^{pre}$ and $D_{sens}^{post}$
-  pairwise Euclidean distance between flattened image vectors, before and after SHINE preprocessing, respectively.
+- Sensory distance matrices: $D_{sens}^{pre}$ and $D_{sens}^{post}$ — pairwise Euclidean
+  distance between flattened image vectors, before and after SHINE preprocessing,
+  respectively. Captures low-level pixel info that SHINE directly manipulates.
+- Visual-semantic distance matrix: $D_{CLIP}^{pre}$ and $D_{CLIP}^{post}$ — pairwise
+  cosine distance between OpenAI pretrained CLIP ViT-B/32 output-layer image
+  embeddings, computed on pre-SHINE and post-SHINE images respectively. Following
+  Shoham et al. (2024, *Nature Human Behaviour*), who showed that CLIP-derived
+  RDMs capture variance in human similarity beyond what pure-visual or pure-semantic
+  predictors explain.
+- (Exploratory) High-level-visual distance matrix: $D_{VGG}^{pre}$ and $D_{VGG}^{post}$
+  — pairwise cosine distance between VGG-16 penultimate-layer (FC7) activations on
+  pre- and post-SHINE images. Uses ImageNet-pretrained VGG-16 from `torchvision`.
+  Matches Shoham et al.'s exact "visual" operationalization; used as a sensitivity-
+  analysis predictor representing high-level visual features (in contrast to the
+  primary pixel-wise $D_{sens}$ which captures low-level features that SHINE directly
+  manipulates).
+- (Exploratory) SGPT-based semantic distance: $D_{sem}^{SGPT}$ — pairwise cosine
+  distance between SGPT sentence embeddings (1.3B-param GPT bi-encoder, output
+  layer) of per-image category descriptions. Variant-agnostic (one RDM, used for
+  both cohorts). Registered as a sensitivity check on $D_{sem}^{KM}$, matching
+  Shoham et al.'s exact "semantic" operationalization.
 - Pre/post image correspondence is established by **filename match**. SHINE preserves
   filenames and directory structure (`images/pre_shine/<cat>/<name>NN.png` ↔
   `images/post_shine/<cat>/<name>NN.png`), so the i-th row/column of $D^{pre}_{sens}$
   corresponds to the same object as the i-th row/column of $D^{post}_{sens}$ (and
-  likewise for the perceptual RDMs).
+  likewise for the perceptual RDMs, $D_{CLIP}$, and $D_{VGG}$).
 
 ## Analysis Plan
 ### Statistical models
 - Population RDM: unweighted metric MDS via R package `smacof` (binary pair weights: 1 if pair observed, 0 otherwise)
 - Hierarchy validation: Gromov δ-hyperbolicity metric for each RDM (bootstrap sampling of 10⁵ 4-tuples)
-- Spearman ρ between perceptual RDMs and sensory/semantic RDMS
-- Decomposition: NNLS regression on condensed RDMs: $$D_{perc} = α·D_{sem} + β·D_{sens} + ε$$
+- Spearman ρ between perceptual RDMs and sensory/semantic/visual-semantic RDMs
+- Decomposition (following Shoham et al. 2024, *Nature Human Behaviour*):
+  - **Confirmatory**: NNLS regression on condensed RDMs of the form
+    $D_{perc} = α·D_{sem} + β·D_{CLIP} + γ·D_{sens} + ε$. Bootstrap CIs (5k
+    subject resamples) on coefficients and pre-post differences.
+  - **Variance attribution**: hierarchical multiple linear regression with
+    predictors entered in fixed order ($D_{sens} \to {+}D_{CLIP} \to {+}D_{sem}$);
+    report $\Delta R^2$ per step. Partial correlations for unique-variance
+    contribution of each predictor controlling for the other two. Fisher-z
+    transform on correlations before t-tests; FDR (Benjamini-Hochberg) across
+    the three predictors.
+  - **Exploratory 4-predictor variant** decomposes the visual contribution by
+    adding $D_{VGG}$ (VGG-16 FC7) between $D_{sens}$ (pixels) and $D_{CLIP}$,
+    probing whether SHINE selectively reduces low-level (pixel) versus
+    high-level (VGG) visual contributions.
 - Optional: Procrustes analysis for visualizing structural differences 
 
 ### Transformations
