@@ -16,7 +16,7 @@ has been done and what is pending.
 ---
 
 ## Phase 0 — Pre-launch prep (no data yet)
-- [ ] Resize images. Images should already be resized to 100×100 px, but need to make sure.
+- [ ] Resize images. Images should already be resized to 175×175 px, but need to make sure.
       `code: image_processing/run_resize.py`.
       input: `images/pre_shine/`, output: `images/pre_shine/`.
 - [ ] SHINE images. `code: image_processing/run_shine.py`.
