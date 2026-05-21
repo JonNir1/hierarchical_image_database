@@ -36,6 +36,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
+  // Apply global typography and background from config.display.
+  // Setting these on <body> lets all jsPsych screens inherit them without
+  // needing per-element inline styles.
+  (function applyGlobalStyles(disp) {
+    const style = document.createElement('style');
+    style.textContent = [
+      'body {',
+      '  background-color: ' + disp.background_color + ';',
+      '  color: '            + disp.text_color        + ';',
+      '  font-family: '      + disp.font_family        + ';',
+      '  font-size: '        + disp.font_size          + ';',
+      '  line-height: '      + disp.line_height        + ';',
+      '}',
+    ].join('\n');
+    document.head.appendChild(style);
+  }(config.display));
+
   // ---------------------------------------------------------------------------
   // 2. Environment + participant ID
   // ---------------------------------------------------------------------------
@@ -145,7 +162,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.body.innerHTML = `
       <div style="
         display: flex; align-items: center; justify-content: center;
-        height: 100vh; color: #ddd; font-family: sans-serif; text-align: center;
+        height: 100vh; text-align: center;
       ">
         <div>
           <p>Press <strong>Esc</strong> to exit full screen.</p>
@@ -193,19 +210,59 @@ document.addEventListener('DOMContentLoaded', async () => {
     timeline.push({ type: jsPsychPavlovia, command: 'init' });
   }
 
-  // --- Consent ---
+  // --- Screen 1 — Welcome Screen ---
+  const c = config.consent;
   timeline.push({
     type:     jsPsychHtmlButtonResponse,
     stimulus: `
-      <div style="max-width:700px; text-align:left;">
-        <h2>Participant Information &amp; Consent</h2>
-        <p>In this study you will arrange images of objects according to how visually
-           similar they appear to you. The task takes approximately 45-60 minutes.</p>
-        <p>Your participation is voluntary. Responses are recorded anonymously and will
-           be used for academic research only. You may withdraw at any time by closing 
-           the browser tab.</p>
-        <p>By clicking <strong>I agree to participate</strong> you confirm that you are
-           18 years of age or older and consent to take part.</p>
+      <div style="max-width:720px; text-align:left;">
+        <h2 style="text-align:center;">Welcome to Our Study</h2>
+
+        <h3>General Information</h3>
+        <p>This experiment is part of a study that investigates cognitive processes related 
+           to visual perception.<br>
+           You will be shown sets of object images and asked to arrange them based on how 
+           visually similar they appear to you. The task takes approximately
+           <strong>${c.study_duration_minutes} minutes</strong>.</p>
+
+        <h3>Participation</h3>
+        <p>Your participation is voluntary. You may stop at any time by returning your
+           Prolific submission; this will not affect your Prolific account in any way.
+           You will receive Prolific payment for your time.</p>
+
+        <h3>Data and Privacy</h3>
+        <p>Your responses will be stored for scientific analysis, linked to a participant
+           code. The link between the code and your identity is kept separately from the
+           data. If results are published, they will refer to group-level statistics and
+           will not identify you in any way.<br>
+           Following the <i>Open Science</i> principle, anonymized data may be shared with 
+           other researchers or deposited on public repositories. Any information that
+           could identify you will be removed before data are shared or made public.</p>
+      </div>`,
+    choices: ['Continue to consent'],
+  });
+
+  // --- Consent: Screen 2 — Declaration of Consent ---
+  timeline.push({
+    type:     jsPsychHtmlButtonResponse,
+    stimulus: `
+      <div style="max-width:720px; text-align:left;">
+        <h2 style="text-align:center;">Declaration of Consent</h2>
+        <p>By clicking <strong>"I agree to participate"</strong> below, you confirm that:</p>
+        <ul>
+          <li>You are 18 years of age or older.</li>
+          <li>You have read and understood the participant information on the previous page.</li>
+          <li>You understand that your participation is voluntary and you may withdraw at
+              any time without penalty by returning your submission on Prolific.</li>
+          <li>You agree to participate in this study in exchange for Prolific payment.</li>
+        </ul>
+        
+        <h3>Contact</h3>
+        <p>For any questions, please contact:<br>
+           Researcher: ${c.researcher_name} &mdash; <a href="mailto:${c.researcher_email}" style="color:#aad;">${c.researcher_email}</a><br>
+           Principal Investigator: ${c.pi_name} &mdash; <a href="mailto:${c.pi_email}" style="color:#aad;">${c.pi_email}</a><br>
+           ${c.lab_name}, ${c.institution}<br>
+           Tel: ${c.lab_phone}</p>
       </div>`,
     choices: ['I agree to participate'],
   });
@@ -226,6 +283,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         <p>You will first do a short <strong>practice trial</strong>,
            then ${allTrials.length} real trials.</p>
         <p>Please work in <strong>fullscreen</strong>. Do not use the back button.</p>
+        <p><strong>Important:</strong> Read the instruction at the top of every trial
+           carefully — the task may vary from trial to trial.</p>
       </div>`,
     choices: ['Start practice'],
   });
@@ -249,8 +308,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     sort_area_shape:      pluginShape,
     stim_starts_inside:   config.display.stim_starts_inside,
     column_spread_factor: config.display.column_spread_factor,
-    prompt: '<p style="font-size:0.9em; color:#333;">PRACTICE — arrange these images by visual similarity. ' +
-            'This trial will <strong>not</strong> be recorded.</p>',
+    prompt: '<p style="font-size:0.9em;"><strong>Your task:</strong> Arrange these images by their ' +
+        '<strong>visual similarity.</strong><br>' +
+        'PRACTICE — this trial will <strong>not</strong> be recorded.</p>',
+    counter_text_unfinished:  '',
+    counter_text_finished:    '',
     on_finish(data) {
       data.trial_type = 'practice';
     },
@@ -285,9 +347,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // stim_starts_inside:true the plugin then immediately overwrites the counter
     // innerHTML, rendering the text a second time → duplicate instructions.
     const header_text = trial.type === 'catch'
-        ? '<p style="font-size:0.9em; color:#333;">Please place all images on the ' +
+        ? '<p style="font-size:0.9em;"><strong>Your task:</strong> Place all images in the ' +
           '<strong>' + trial.target_location + '</strong> of the screen.</p>'
-        : '<p style="font-size:0.9em; color:#333;">Arrange the images by visual similarity. ' +
+        : '<p style="font-size:0.9em;"><strong>Your task:</strong> Arrange the images by visual similarity. ' +
           'Close together = similar &nbsp;|&nbsp; Far apart = different.</p>';
     timeline.push({
       type:             jsPsychFreeSort,

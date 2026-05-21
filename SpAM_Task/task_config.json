@@ -33,7 +33,12 @@
     "sort_area_shape":      "rect",
     "stim_starts_inside":   true,
     "column_spread_factor": 1.0,
-    "image_size_fraction":  0.08
+    "image_size_fraction":  0.08,
+    "background_color":     "#808080",
+    "text_color":           "#111111",
+    "font_family":          "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    "font_size":            "16px",
+    "line_height":          1.6
   },
 
   "quality_control": {
@@ -44,5 +49,16 @@
   "deployment": {
     "prolific_completion_url": "",
     "debug": true
+  },
+
+  "consent": {
+    "researcher_name":        "Nir Jonathan",
+    "researcher_email":       "nir.jonathan@mail.huji.ac.il",
+    "pi_name":                "Leon Deouell",
+    "pi_email":               "leon.deouell@mail.huji.ac.il",
+    "lab_name":               "Human Cognitive Neuroscience Lab",
+    "lab_phone":              "02-5880014",
+    "institution":            "The Hebrew University of Jerusalem",
+    "study_duration_minutes": 60
   }
 }

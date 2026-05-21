@@ -48,6 +48,11 @@ function verifyConfig(config) {
             stim_starts_inside:   'boolean',
             column_spread_factor: 'number',
             image_size_fraction:  'number',
+            background_color:     'string',
+            text_color:           'string',
+            font_family:          'string',
+            font_size:            'string',
+            line_height:          'number',
         },
         quality_control: {
             min_trial_rt_ms:          'number',
@@ -56,6 +61,16 @@ function verifyConfig(config) {
         deployment: {
             prolific_completion_url: 'string',
             debug:                   'boolean',
+        },
+        consent: {
+            researcher_name:        'string',
+            researcher_email:       'string',
+            pi_name:                'string',
+            pi_email:               'string',
+            lab_name:               'string',
+            lab_phone:              'string',
+            institution:            'string',
+            study_duration_minutes: 'number',
         },
     };
 
@@ -72,6 +87,19 @@ function verifyConfig(config) {
                 err('"' + fullKey + '" must be finite, got ' + config[section][key] + '.');
         }
     }
+
+    // ── Group 1b: consent string fields must not be empty ───────────────────
+    const CONSENT_STRING_KEYS = [
+        'researcher_name', 'researcher_email',
+        'pi_name', 'pi_email',
+        'lab_name', 'lab_phone', 'institution',
+    ];
+    for (const key of CONSENT_STRING_KEYS) {
+        if (!config.consent[key].trim())
+            err('"consent.' + key + '" must not be empty.');
+    }
+    if (config.consent.study_duration_minutes <= 0)
+        err('"consent.study_duration_minutes" must be > 0, got ' + config.consent.study_duration_minutes + '.');
 
     // ── Group 2: individual field ranges ─────────────────────────────────────
     const { design: d, catch_trials: ct, display: disp, quality_control: qc } = config;
@@ -112,6 +140,11 @@ function verifyConfig(config) {
     if (spread <= 0)               err('"display.column_spread_factor" must be > 0, got '      + spread + '.');
     if (shape !== 'rect' && shape !== 'ellipse')
         err('"display.sort_area_shape" must be "rect" or "ellipse", got "' + shape + '".');
+    if (!disp.background_color.trim()) err('"display.background_color" must not be empty.');
+    if (!disp.text_color.trim())       err('"display.text_color" must not be empty.');
+    if (!disp.font_family.trim())      err('"display.font_family" must not be empty.');
+    if (!disp.font_size.trim())        err('"display.font_size" must not be empty.');
+    if (disp.line_height <= 0)         err('"display.line_height" must be > 0, got ' + disp.line_height + '.');
     if (minRt < 0)              err('"quality_control.min_trial_rt_ms" must be >= 0, got '              + minRt + '.');
     if (minSd <= 0 || minSd >= 1) err('"quality_control.min_pairwise_distance_sd" must be in (0, 1), got ' + minSd + '.');
 
@@ -168,7 +201,6 @@ function verifyConfig(config) {
     // ── Group 4: deployment warnings ─────────────────────────────────────────
     if (!config.deployment.debug) {
         if (!config.stimuli_paths.main_root)               warn('"stimuli_paths.main_root" is empty — no main images will load.');
-        if (!config.stimuli_paths.main)                    warn('"stimuli_paths.main" is empty — task.js cannot build image URLs.');
         if (!config.stimuli_paths.practice)                warn('"stimuli_paths.practice" is empty — practice trial will have no images.');
         if (!config.stimuli_paths.catch)                   warn('"stimuli_paths.catch" is empty — catch trials will have no images.');
         if (!config.deployment.prolific_completion_url)    warn('"deployment.prolific_completion_url" is empty — participants will not be redirected after completion.');
