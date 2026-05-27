@@ -17,27 +17,39 @@ The effects of image preprocessing on the semantic-sensory decomposition of perc
 curated hierarchical single-object image dataset.
 
 ### Description
-A cognitive-computational analysis of the dataset curated by [Auerbach-Asch et al., 2023](https://doi.org/10.1101/2023.06.28.546397).
-This dataset of 754 single-object images on neutral backgrounds was assembled from three sources: Face-Place ([Righi et
-al., 2012](https://doi.org/10.1080/13506285.2012.654624)), [Kiani et al., 2007](https://journals.physiology.org/doi/full/10.1152/jn.00024.2007),
-[Grootswagers et al., 2019](https://doi.org/10.1016/j.neuroimage.2018.12.046). It was organized to match the Kiani–Mur
-category hierarchy ([Kiani et al., 2007](https://journals.physiology.org/doi/full/10.1152/jn.00024.2007), [Mur et al.,
-2013](https://doi.org/10.3389/fpsyg.2013.00128)). This image dataset has a semantically hierarchical structure where
-relationships between images can be modeled using a tree graph (see Figure 1 in [Auerbach-Asch et al.,
-2023](https://doi.org/10.1101/2023.06.28.546397)).
+Perceptual similarity analysis of a curated 725-image dataset, with and without low-level image preprocessing.<br>
+Our goal is to examine the effect of a commonly used image preprocessing pipeline on the geometric structure of 
+human perceptual similarity, and its decomposition into _semantic_ and _sensory_ components.
+<br><br>
+The dataset consists of 725 images of real-world objects on a neutral background, curated from the dataset  
+used by [Auerbach-Asch et al., 2023](https://doi.org/10.1101/2023.06.28.546397). The current dataset is organized in a hierarchical directory 
+structure that encodes semantic hierarchy for the objects, following a well-established hierarchy (see 
+[Kiani et al., 2007](https://journals.physiology.org/doi/full/10.1152/jn.00024.2007), 
+[Kriegeskorte et al., 2008b](https://www.cell.com/neuron/fulltext/S0896-6273(08)00943-4), 
+[Mur et al., 2013](https://doi.org/10.3389/fpsyg.2013.00128), 
+[Cichy et al., 2014](https://www.nature.com/articles/nn.3635), 
+[Grootwagers et al., 2018](https://www.sciencedirect.com/science/article/abs/pii/S1053811918305299),
+and [Auerbach-Asch et al., 2023](https://doi.org/10.1101/2023.06.28.546397)).
 
-To enrich the dataset further, we supply a concept hierarchy for the objects and similarity scores for image pairs,
-derived from an online Spatial Arrangement Method (SpAM) task. The SpAM task collects perceptual dissimilarity scores
-by having subjects arrange subsets of images on a 2-D plane, with pairwise Euclidean distances yielding dissimilarity
-data. We will use the Multi-Dimensional Scaling (MDS) algorithm to embed the dissimilarity scores in a high-dimensional
-space, and analyze the resulting representational geometry (see detailed methods in: [Hout et al., 2013](https://doi.org/10.1037/a0028860);
-[Robbins et al., 2025](https://doi.org/10.3758/s13428-025-02732-0)).
+Note that this dataset is an extension of the curated 92-image set used in Kriegeskorte (2008b), Mur (2013), 
+and Cichy (2014), which posed a potential threat for "overfitting" to a single dataset ([Grootswagers & Robinson,
+2021](https://www.frontiersin.org/journals/human-neuroscience/articles/10.3389/fnhum.2021.682661/full)).
+<br><br>
+The dataset includes two variants of each image:
+- the original images after background removal and resizing to 170x170 pixels.
+- the same images after `SHINE-color` ([Dal Ben, 2023](https://doi.org/10.1016/j.mex.2023.102377)) preprocessing, which normalizes low-level image 
+  properties (luminance, color histogram) while other low-level features information. This preprocessing is 
+  commonly used to ensure EEG compatibility in visual experiments, but its effect on perceptual similarity 
+  structure is not well understood.
 
-We will also investigate the effect of image preprocessing for normalizing color histograms and equalizing luminiscence
-(commonly used for EEG experiments) on the perceptual similarity structure of the dataset. Image preprocessing will be
-done with the SHINE-color toolbox, [Dal Ben, 2023](https://doi.org/10.1016/j.mex.2023.102377). We will collect
-perceptual dissimilarity scores for both raw and processed images, and analyze how SHINE-color preprocessing
-affects the semantic-sensory decomposition of perceptual similarity.
+<br><br>
+Perceptual similarity scores are collected using the Spatial Arrangement Method (SpAM; [Hout et al., 
+2013](https://doi.org/10.3758/s13428-012-0265-0), [Mur et al., 2013](https://doi.org/10.3389/fpsyg.2013.00128)) 
+via a web-based task deployed on Pavlovia.<br>
+Participants are randomly assigned to either the pre- or post-SHINE cohorts, with a between-subject design. 
+We will build representational dissimilarity matrices (RDMs) from the SpAM data and test a set of hypotheses 
+about the geometric structure of perceptual similarity and its relationship to semantic and sensory similarity, 
+as well as the effect of SHINE preprocessing on that structure and decomposition.
 
 ### Authors
 
@@ -138,7 +150,7 @@ H3 exploratory variants (registered, not confirmatory):
 *Note on predictor collinearity*: Shoham et al. (2024) hand-picked 20 stimulus
 objects to minimize the correlation between their visual (VGG), visual-semantic
 (CLIP), and semantic (SGPT) DNN embeddings, giving them near-orthogonal predictors.
-Our 754-image set was curated for hierarchical coverage of Kiani-Mur, with no such
+Our 725-image set was curated for hierarchical coverage of Kiani-Mur, with no such
 orthogonality guarantee. Predictor multicollinearity in our H3 regression will
 therefore be substantively higher than in Shoham et al. NNLS coefficients on
 correlated predictors are known to be unstable; the partial-correlation and
@@ -175,7 +187,7 @@ Cohort-level RDMs will be generated and compared to each other and to reference 
 ### Randomization (optional)
 Subjects are assigned to pre/post SHINE cohorts based on the experiment they choose to perform. Subjects from one 
 cohort are excluded from the second via Prolific prescreening blocklist and code-level checks.  
-A subset of `M=150` images from the 754 dataset is assigned to subjects based on their Prolific-ID (RNG seed).  
+A subset of `M=150` images from the 725 dataset is assigned to subjects based on their Prolific-ID (RNG seed).  
 Of those, each subject performs `t=10` trials, each with a randomly assigned subset of `k=20` images.  
 A subset of `n_double=50` images is repeated across two different trials for within-subject reliability estimation.  
 Catch-trial positions and target locations are drawn from the same RNG.

@@ -39,7 +39,7 @@ has been done and what is pending.
       shortest-path distance in the WordNet hypernym graph. Out: `D_sem_wn.npy`.
 - [ ] Visual-semantic RDM (CLIP). `code: analysis/rdms/visual_semantic_clip.py`.
       Load OpenAI pretrained CLIP **ViT-B/32** (e.g., via `clip` or `open_clip`).
-      Encode each of the 754 images via the image encoder, take the **output-layer**
+      Encode each of the 725 images via the image encoder, take the **output-layer**
       embedding (Shoham et al. 2024 spec). Pairwise **cosine** distance → condensed.
       Run separately for pre-SHINE and post-SHINE images.
       Out: `D_clip_pre.npy`, `D_clip_post.npy`.

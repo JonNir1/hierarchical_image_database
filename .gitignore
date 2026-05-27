@@ -10,19 +10,29 @@
 
 # Image dataset
 #   - Canonical location: <repo>/images/{pre_shine,post_shine}/
-#   - Image files are gitignored on `main` so they never reach GitHub.
-#   - On `pavlovia_deploy`: image files are force-added (`git add -f images/<variant>/`)
-#     to ship them to the Pavlovia gitlab remote. The .gitkeep stubs are tracked on
-#     all branches to make the layout discoverable.
-#   - We ignore image file extensions inside images/ rather than the whole directory,
-#     so that .gitkeep stubs (and the directories themselves) remain tracked.
+#   - As of this commit, image files in images/ ARE tracked (725 PNGs per variant,
+#     curated 725-image subset of the original Auerbach-Asch 754-image set). They
+#     ship to GitHub and to the Pavlovia gitlab remote alike. No more force-add
+#     needed on pavlovia_deploy.
+#   - .gitkeep stubs (if any) remain tracked via the !images/**/.gitkeep exception.
 dataset/
-images/**/*.png
-images/**/*.jpg
-images/**/*.jpeg
-images/**/*.gif
-images/**/*.webp
-images/**/*.bmp
+!images/**/.gitkeep
+
+# Source datasets (under source_datasets/)
+#   - We DO NOT redistribute the original image datasets — they belong to their
+#     respective owners under their own licenses. Only the directory structure
+#     and per-source attribution/PDFs are tracked, plus a .gitkeep per subdir to
+#     make the structure visible on fresh checkout.
+source_datasets/**/*.png
+source_datasets/**/*.jpg
+source_datasets/**/*.jpeg
+source_datasets/**/*.gif
+source_datasets/**/*.webp
+source_datasets/**/*.bmp
+source_datasets/**/*.tif
+source_datasets/**/*.tiff
+source_datasets/**/Thumbs.db
+!source_datasets/**/.gitkeep
 
 # ignore outputs and docs
 *.pkl
@@ -33,6 +43,7 @@ images/**/*.bmp
 *.docx
 *.pdf
 *.csv
+!images/manifest.csv
 
 # generated figures
 figures/

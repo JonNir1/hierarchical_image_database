@@ -1,7 +1,7 @@
 ﻿# CLAUDE.md â€” SpAM_Task
 
 Online Spatial Arrangement Method (SpAM) task for collecting human perceptual similarity judgements
-over 754 object images. Built with jsPsych, hosted on Pavlovia, recruiting via Prolific.
+over 725 object images. Built with jsPsych, hosted on Pavlovia, recruiting via Prolific.
 
 > **Full research & implementation plan**: `PLAN.md` at the repo root (gitignored â€” not yet published).
 > Read it before making significant changes to parameters, QC logic, or trial design.

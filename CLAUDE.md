@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cognitive neuroscience research project building a hierarchical image dataset (754 PNG images of objects with white/transparent backgrounds). The goal is to collect human perceptual dissimilarity scores via an online Spatial Arrangement Method (SpAM) task, then use Multidimensional Scaling (MDS) to embed them into a perceptual similarity space and compare against semantic hierarchy and pixel-wise similarity.
+Cognitive neuroscience research project building a hierarchical image dataset (725 curated PNG images of objects with white/transparent backgrounds, distilled from six source datasets — see `source_datasets/`). The goal is to collect human perceptual dissimilarity scores via an online Spatial Arrangement Method (SpAM) task, then use Multidimensional Scaling (MDS) to embed them into a perceptual similarity space and compare against semantic hierarchy and pixel-wise similarity.
 
 **Status**: Simulations complete (`SpAM_Simulations/`); dataset visualization tools complete (`visualize_dataset/`); online SpAM task implemented (`SpAM_Task/`), awaiting IRB approval and OSF pre-reg submission before launch. The full analysis plan is drafted in the OSF pre-registration (see `README.md` for a short summary).
 

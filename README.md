@@ -3,7 +3,7 @@ Building a database of real-world objects in a neutral background that can be us
 
 ## Research Questions
 
-1. **Hierarchy validation** — does the curated 754-image set exhibit hierarchical perceptual structure that resembles the Kiani-Mur (2007, 2013) hierarchy?
+1. **Hierarchy validation** — does the curated 725-image set exhibit hierarchical perceptual structure that resembles the Kiani-Mur (2007, 2013) hierarchy?
 2. **SHINE effect** — does SHINE-color preprocessing (required for EEG compatibility) preserve that perceptual structure or distort it?
 3. **Decomposition shift** — when perceptual distance is modelled as a weighted combination of semantic and sensory distances, does SHINE selectively reduce the sensory weight while leaving the semantic weight intact?
 
@@ -28,36 +28,62 @@ Full pre-registration on OSF: *[link, populated after submission]*.
 
 ## Dataset Layout
 
-The 754-image dataset lives at `<repo>/images/` with one subdirectory per SHINE
-variant:
+The 725-image curated dataset lives at `<repo>/images/`, with one subdirectory per
+SHINE variant and a per-image manifest:
 
 ```
 images/
-  pre_shine/   <cat1>/<cat2>/.../<name>NN.png    # original images
-  post_shine/  <cat1>/<cat2>/.../<name>NN.png    # SHINE-color processed (populated later)
+  README.md                                      # dataset documentation (outward-facing)
+  manifest.csv                                   # per-image source attribution + KM labels
+  pre_shine/  <cat1>/<cat2>/.../<name>NN.png     # original images
+  post_shine/ <cat1>/<cat2>/.../<name>NN.png     # SHINE-color processed (same filenames as pre_shine)
 ```
 
-Image files are gitignored on `main` (never pushed to GitHub) and force-added on
-`pavlovia_deploy` (shipped to the Pavlovia gitlab remote). The hierarchy is encoded in
-the directory tree, mirrored across the two variants so per-image pre/post pairing is a
-filename match. Tracked `.gitkeep` stubs make the layout visible on fresh checkout.
+Image files are tracked on both `main` (GitHub) and `pavlovia_deploy` (Pavlovia gitlab).
+The hierarchy is encoded in the directory tree, mirrored across the two variants so
+per-image pre/post pairing is a filename match.
+
+See [`images/README.md`](./images/README.md) for dataset provenance, curation criteria,
+and per-source attribution. The CSV manifest at `images/manifest.csv` is the
+machine-readable index used by analysis sub-modules.
 
 `SpAM_Task` reads the active variant via `stimuli_paths.main_root` +
-`shine.shine_variant` in `task_config.json`; future analysis sub-modules will read from
-the same top-level location.
+`shine.shine_variant` in `task_config.json`.
+
+## Source Datasets
+
+The directory [`source_datasets/`](./source_datasets/) groups the original image sets
+from which our 725-image set was curated:
+
+```
+source_datasets/
+  Grootswagers 2019/   .gitkeep         # Grootswagers et al., 2019, NeuroImage
+  Kiani 2007/          .gitkeep         # Kiani et al., 2007 (with Kriegeskorte 2008 / Mur 2013 PDFs)
+  Kiani_ImageSet/      .gitkeep
+  PiCS 2025/           .gitkeep         # PiCS dataset, Robbins et al. 2025
+  face place/          .gitkeep         # Face-Place, Righi et al. 2012
+  huji_flowers/        .gitkeep
+```
+
+**Source images themselves are NOT redistributed** — they belong to their respective
+owners under their own licenses. Only the directory structure + `.gitkeep` stubs are
+tracked. Re-obtain the originals from each source's official channel; the curation
+mapping is in `images/manifest.csv`.
 
 ## Repository Layout
 
 ```
 index.html                 ← Pavlovia entry point; loads scripts from SpAM_Task/
 SpAM_Task/                 ← task code (js/, jspsych/, assets/, task_config.json, ...)
-images/                    ← canonical dataset, gitignored on main, force-added on pavlovia_deploy
+images/                    ← canonical 725-image curated dataset (tracked on both branches)
+source_datasets/           ← original datasets (structure tracked; image files NOT redistributed)
 docs/                      ← planning documents (pre-reg draft + workflow checklist)
 SpAM_Simulations/          ← MDS simulations (developer-only; not on Pavlovia)
 visualize_dataset/         ← dataset visualization tools (developer-only; not on Pavlovia)
 analysis/                  ← future: analysis notebooks (developer-only; not on Pavlovia)
 ```
 
-The `main` and `pavlovia_deploy` branches share an identical structure. `pavlovia_deploy`
-differs only in (a) a stricter `.gitignore` that excludes developer-only directories and
-(b) force-added image files for the active SHINE variant.
+The `main` and `pavlovia_deploy` branches share an identical structure for the task and
+dataset. `pavlovia_deploy` differs only in a stricter `.gitignore` that excludes the
+developer-only directories (`SpAM_Simulations/`, `visualize_dataset/`, etc.) so they
+don't reach Pavlovia.

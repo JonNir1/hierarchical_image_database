@@ -147,7 +147,7 @@ and writes `stimuli_manifest.json`. Run it again any time you add, remove, or re
 
 You should see output like:
 ```
-images (pre-SHINE): 754 images in <repo>/images/pre_shine
+images (pre-SHINE): 725 images in <repo>/images/pre_shine
 practice_images: 8 images in <repo>/SpAM_Task/assets/openmoji
 catch_images: 22 images in <repo>/SpAM_Task/assets/openmoji
 
