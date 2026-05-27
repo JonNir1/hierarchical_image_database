@@ -84,9 +84,10 @@ directory per SHINE-preprocessing variant). The main directory is resolved as
 `<main_root>/<shine_variant>_shine/`. `main_root` is relative to `SpAM_Task/`, so the
 default `"../images/"` reaches `<repo>/images/`.
 
-The dataset is gitignored on `main` (not pushed to GitHub) and force-added on
-`pavlovia_deploy` (shipped to the Pavlovia gitlab remote). Tracked `.gitkeep` stubs make
-the layout discoverable on fresh checkout.
+The dataset (725 images per variant) is tracked on both `main` (GitHub) and
+`pavlovia_deploy` (Pavlovia gitlab) — no force-add required. Source datasets used
+to derive the curated set live under `<repo>/source_datasets/` but are not
+redistributed.
 
 To populate the dataset, copy or move your images into `<repo>/images/pre_shine/`
 (and later `<repo>/images/post_shine/`), preserving any category subdirectories. No
