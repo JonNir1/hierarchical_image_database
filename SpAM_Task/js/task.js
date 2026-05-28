@@ -150,6 +150,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     on_finish:    onFinish,
   });
 
+  // Session-level fields written to every trial row automatically.
+  // sort_area_width/height give the rectangle boundaries (top-left is always
+  // 0,0 in final_locations coords; bottom-right is sortW, sortH).
+  jsPsych.data.addProperties({
+    participant_id:   PID,
+    shine_variant:    assignedVariant,
+    sort_area_width:  sortW,
+    sort_area_height: sortH,
+  });
+
   // ---------------------------------------------------------------------------
   // 8. onFinish / saveData — called by jsPsych.on_finish
   //    On Pavlovia: the jsPsychPavlovia finish node (in the timeline below)
@@ -379,10 +389,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         data.trial_type  = trial.type === 'catch'
           ? 'catch_' + (++catchCount)
           : 'trial_' + (++mainCount);
-        data.trial_index           = idx;
-        data.participant_id        = PID;
-        data.shine_variant         = assignedVariant;
-        data.pairwise_distance_sd  = sd;
+        data.trial_index = idx;
 
         if (trial.type === 'catch') {
           // Catch-trial QC: cluster tightness + centroid proximity to target.
@@ -394,7 +401,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             sortW, sortH,
             config.catch_trials.location_tolerance,
           );
-          data.target_location        = trial.target_location;
+          data.catch_trial_target_location = trial.target_location;
           data.centroid_x             = centroid.x / sortW;
           data.centroid_y             = centroid.y / sortH;
           data.cluster_mean_distance  = clusterMean;
@@ -406,9 +413,6 @@ document.addEventListener('DOMContentLoaded', async () => {
           data.qc_flag = sd < config.quality_control.min_pairwise_distance_sd ||
                          data.rt < config.quality_control.min_trial_rt_ms;
         }
-
-        // Store pairs as JSON string for CSV compatibility
-        data.pairwise_distances = JSON.stringify(pairs);
 
         if (mode === 'debug') {
           console.log(
