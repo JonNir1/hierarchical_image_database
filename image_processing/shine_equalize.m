@@ -25,8 +25,7 @@ ROOT_DIR      = SCRIPT_DIR(1 : idx + numel(repo_name) - 1);
 
 INPUT_DIR     = fullfile(ROOT_DIR, 'images', 'pre_shine');
 OUTPUT_DIR    = fullfile(ROOT_DIR, 'images', 'post_shine');
-SHINE_DIR     = fullfile(ROOT_DIR, 'image_processing', 'SHINE_color_toolbox', ...
-                         'SHINE_color_toolbox_v0.2');
+SHINE_DIR     = fullfile(ROOT_DIR, 'image_processing', 'SHINE_color_toolbox');
 SHINE_MODE    = 'LumEquated_histMatch';   % change to any SHINE output mode
 TEMP_FLAT_DIR = fullfile(ROOT_DIR, 'images', '_shine_tmp_flat');
 
