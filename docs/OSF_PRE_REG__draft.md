@@ -21,8 +21,7 @@ Perceptual similarity analysis of a curated 725-image dataset, with and without 
 Our goal is to examine the effect of a commonly used image preprocessing pipeline on the geometric structure of 
 human perceptual similarity, and its decomposition into _semantic_ and _sensory_ components.
 <br><br>
-The dataset consists of 725 images of real-world objects on a neutral background, curated from the dataset  
-used by [Auerbach-Asch et al., 2023](https://doi.org/10.1101/2023.06.28.546397). The current dataset is organized in a hierarchical directory 
+The dataset consists of 725 images of real-world objects on a neutral background, curated from the dataset used by [Auerbach-Asch et al., 2023](https://doi.org/10.1101/2023.06.28.546397). The current dataset is organized in a hierarchical directory 
 structure that encodes semantic hierarchy for the objects, following a well-established hierarchy (see 
 [Kiani et al., 2007](https://journals.physiology.org/doi/full/10.1152/jn.00024.2007), 
 [Kriegeskorte et al., 2008b](https://www.cell.com/neuron/fulltext/S0896-6273(08)00943-4), 
@@ -41,8 +40,7 @@ The dataset includes two variants of each image:
   properties (luminance, color histogram) while other low-level features information. This preprocessing is 
   commonly used to ensure EEG compatibility in visual experiments, but its effect on perceptual similarity 
   structure is not well understood.
-
-<br><br>
+<br>
 Perceptual similarity scores are collected using the Spatial Arrangement Method (SpAM; [Hout et al., 
 2013](https://doi.org/10.3758/s13428-012-0265-0), [Mur et al., 2013](https://doi.org/10.3389/fpsyg.2013.00128)) 
 via a web-based task deployed on Pavlovia.<br>

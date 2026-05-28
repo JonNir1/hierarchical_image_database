@@ -74,7 +74,7 @@ images are background-removed versions of the original images.
 
 ### ANU Butterflies (21)
 Twenty-one butterfly/moth images from the Australian National University's online 
-Butterflies and Moths Image Archive.
+_Butterflies and Moths Image Archive_.
 - Public archive: <http://artserve.anu.edu.au/new/australia/canberra/CSIRO/butterflies-moths/index1.html>
 - License: **<TODO: check>**
 
