@@ -380,6 +380,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           ? 'catch_' + (++catchCount)
           : 'trial_' + (++mainCount);
         data.trial_index           = idx;
+        data.participant_id        = PID;
         data.shine_variant         = assignedVariant;
         data.pairwise_distance_sd  = sd;
 
@@ -394,8 +395,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             config.catch_trials.location_tolerance,
           );
           data.target_location        = trial.target_location;
-          data.centroid_x             = centroid.x;
-          data.centroid_y             = centroid.y;
+          data.centroid_x             = centroid.x / sortW;
+          data.centroid_y             = centroid.y / sortH;
           data.cluster_mean_distance  = clusterMean;
           data.qc_flag = clusterMean > config.catch_trials.cluster_max_mean  ||
                          sd          > config.catch_trials.cluster_max_sd    ||
