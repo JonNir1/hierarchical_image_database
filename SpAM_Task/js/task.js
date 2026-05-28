@@ -414,6 +414,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                          data.rt < config.quality_control.min_trial_rt_ms;
         }
 
+        data.pairwise_distances = JSON.stringify(pairs);
+
         if (mode === 'debug') {
           console.log(
             '[SpAM] Trial', idx, '(' + trial.type + ')',
