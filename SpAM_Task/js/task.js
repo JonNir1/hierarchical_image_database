@@ -220,39 +220,66 @@ document.addEventListener('DOMContentLoaded', async () => {
     timeline.push({ type: jsPsychPavlovia, command: 'init' });
   }
 
-  // --- Screen 1 — Welcome Screen ---
+  // --- init consent form ---
   const c = config.consent;
+
+  // --- Screen 1 — General Info ---
   timeline.push({
-    type:     jsPsychHtmlButtonResponse,
+    type: jsPsychHtmlButtonResponse,
     stimulus: `
       <div style="max-width:720px; text-align:left;">
         <h2 style="text-align:center;">Welcome to Our Study</h2>
 
-        <h3>General Information</h3>
+        <h3>General Information</h3>        
         <p>This experiment is part of a study that investigates cognitive processes related 
            to visual perception.<br>
            You will be shown sets of object images and asked to arrange them based on how 
-           visually similar they appear to you. The task takes approximately
-           <strong>${c.study_duration_minutes} minutes</strong>.</p>
+           visually similar they appear to you.<br>
+           The task takes approximately <strong>${c.study_duration_minutes} minutes</strong>. 
+        </p>
 
-        <h3>Participation</h3>
+        <h3>Participation and Compensation</h3>
         <p>Your participation is voluntary. You may stop at any time by returning your
-           Prolific submission; this will not affect your Prolific account in any way.
-           You will receive Prolific payment for your time.</p>
-
-        <h3>Data and Privacy</h3>
-        <p>Your responses will be stored for scientific analysis, linked to a participant
-           code. The link between the code and your identity is kept separately from the
-           data. If results are published, they will refer to group-level statistics and
-           will not identify you in any way.<br>
-           Following the <i>Open Science</i> principle, anonymized data may be shared with 
-           other researchers or deposited on public repositories. Any information that
-           could identify you will be removed before data are shared or made public.</p>
+           Prolific submission; this will not affect your Prolific account in any way.<br>
+           You will receive payment from Prolific for your time. Otherwise, the experiment 
+           will not benefit you personally, but we expect the results to improve our 
+           understanding of human cognitive and neural function.
+        </p>
       </div>`,
-    choices: ['Continue to consent'],
+    choices: ['Continue'],
   });
 
-  // --- Consent: Screen 2 — Declaration of Consent ---
+  // --- Screen 2 — Privacy & Contact Info ---
+  timeline.push({
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+      <div style="max-width:720px; text-align:left;">
+
+        <h3>Data and Privacy</h3>
+        <p>Your responses will be stored for scientific analysis and research purposes,
+           linked to a participant code that identifies you. The link between the code 
+           and your personal information is kept separately from the recorded data. 
+           If results are published, they will typically refer to group-level statistics 
+           and will not identify you in any way.<br>
+           Following the <i>Open Science</i> principle, we may share the collected data 
+           with other researchers or post them on public repositories for the sake of future 
+           scientific analysis and scrutiny. Any personal information that could identify 
+           you will be removed or changed before files are shared with other researchers or 
+           results are made public.
+        </p>
+        
+        <h3>Contact</h3>
+        <p>For any questions, please contact:<br>
+           Researcher: <a href="mailto:${c.researcher_email}" style="color:#0000FF;">${c.researcher_name}</a><br>
+           Principal Investigator: <a href="mailto:${c.pi_email}" style="color:#0000FF;">${c.pi_name}</a><br>
+           ${c.lab_name}, ${c.institution}<br>
+           Tel: ${c.lab_phone}
+        </p>
+      </div>`,
+    choices: ['Continue'],
+  });
+
+  // --- Screen 3 — Declaration of Consent ---
   timeline.push({
     type:     jsPsychHtmlButtonResponse,
     stimulus: `
@@ -266,13 +293,6 @@ document.addEventListener('DOMContentLoaded', async () => {
               any time without penalty by returning your submission on Prolific.</li>
           <li>You agree to participate in this study in exchange for Prolific payment.</li>
         </ul>
-        
-        <h3>Contact</h3>
-        <p>For any questions, please contact:<br>
-           Researcher: ${c.researcher_name} &mdash; <a href="mailto:${c.researcher_email}" style="color:#aad;">${c.researcher_email}</a><br>
-           Principal Investigator: ${c.pi_name} &mdash; <a href="mailto:${c.pi_email}" style="color:#aad;">${c.pi_email}</a><br>
-           ${c.lab_name}, ${c.institution}<br>
-           Tel: ${c.lab_phone}</p>
       </div>`,
     choices: ['I agree to participate'],
   });
