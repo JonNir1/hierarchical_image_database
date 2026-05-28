@@ -1,13 +1,8 @@
 {
   "stimuli_paths": {
     "main_root": "./images/",
-    "main":      "images/pre_shine/",
     "practice":  "SpAM_Task/assets/openmoji/",
     "catch":     "SpAM_Task/assets/openmoji/"
-  },
-
-  "shine": {
-    "shine_variant": "pre"
   },
 
   "design": {
@@ -47,8 +42,9 @@
   },
 
   "deployment": {
-    "prolific_completion_url": "",
-    "debug": true
+    "mode": "debug",
+    "debug_shine_variant": "pre",
+    "prolific_completion_url": ""
   },
 
   "consent": {

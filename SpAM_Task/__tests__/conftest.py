@@ -33,25 +33,21 @@ def make_config(
     main_root: str = "",
     stimuli_practice_path: str = "",
     stimuli_catch_path: str = "",
-    shine_variant: str = "pre",
     images_per_trial: int = 20,
     practice_images_per_trial: int = 8,
     **extra,
 ) -> dict:
-    """Write a minimal task_config.json (new nested schema) into *base*.
+    """Write a minimal task_config.json into *base*.
 
     Returns the config dict. `main_root` is the value of
-    `stimuli_paths.main_root`; the main directory resolves to
-    `<main_root>/<shine_variant>_shine/` per `generate_manifest.resolve_main_dir`.
+    `stimuli_paths.main_root`; generate_manifest scans both
+    `<main_root>/pre_shine/` and `<main_root>/post_shine/`.
     """
     config = {
         "stimuli_paths": {
             "main_root": main_root,
             "practice":  stimuli_practice_path,
             "catch":     stimuli_catch_path,
-        },
-        "shine": {
-            "shine_variant": shine_variant,
         },
         "design": {
             "practice_images_per_trial": practice_images_per_trial,

@@ -23,9 +23,6 @@ function verifyConfig(config) {
             practice:  'string',
             catch:     'string',
         },
-        shine: {
-            shine_variant: 'string',
-        },
         design: {
             trials_per_subject:        'number',
             images_per_trial:          'number',
@@ -59,8 +56,9 @@ function verifyConfig(config) {
             min_pairwise_distance_sd: 'number',
         },
         deployment: {
+            mode:                    'string',
+            debug_shine_variant:     'string',
             prolific_completion_url: 'string',
-            debug:                   'boolean',
         },
         consent: {
             researcher_name:        'string',
@@ -148,10 +146,15 @@ function verifyConfig(config) {
     if (minRt < 0)              err('"quality_control.min_trial_rt_ms" must be >= 0, got '              + minRt + '.');
     if (minSd <= 0 || minSd >= 1) err('"quality_control.min_pairwise_distance_sd" must be in (0, 1), got ' + minSd + '.');
 
-    // 2b. SHINE variant must be "pre" or "post"
-    const variant = config.shine.shine_variant;
-    if (variant !== 'pre' && variant !== 'post')
-        err('"shine.shine_variant" must be "pre" or "post", got "' + variant + '".');
+    // 2b. Deployment mode + debug variant
+    const mode = config.deployment.mode;
+    if (mode !== 'debug' && mode !== 'pilot' && mode !== 'production')
+        err('"deployment.mode" must be "debug", "pilot", or "production", got "' + mode + '".');
+    if (mode === 'debug') {
+        const dsv = config.deployment.debug_shine_variant;
+        if (dsv !== 'pre' && dsv !== 'post')
+            err('"deployment.debug_shine_variant" must be "pre" or "post", got "' + dsv + '".');
+    }
 
     // ── Group 3: cross-parameter arithmetic ──────────────────────────────────
 
@@ -199,7 +202,7 @@ function verifyConfig(config) {
         warn('"design.practice_images_per_trial" (' + kPractice + ') > "design.images_per_trial" (' + k + '). Practice trial will show more images than main trials.');
 
     // ── Group 4: deployment warnings ─────────────────────────────────────────
-    if (!config.deployment.debug) {
+    if (mode !== 'debug') {
         if (!config.stimuli_paths.main_root)               warn('"stimuli_paths.main_root" is empty — no main images will load.');
         if (!config.stimuli_paths.practice)                warn('"stimuli_paths.practice" is empty — practice trial will have no images.');
         if (!config.stimuli_paths.catch)                   warn('"stimuli_paths.catch" is empty — catch trials will have no images.');

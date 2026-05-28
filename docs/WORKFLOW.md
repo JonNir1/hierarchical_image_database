@@ -59,27 +59,40 @@ has been done and what is pending.
       moments than `D_sens_pre`. If not, abort and re-run SHINE.
 - [ ] OSF. Submit pre-reg to OSF, get timestamp.
 - [ ] Code-freeze the `SpAM_Task/` at OSF submission timestamp (git tag `osf-freeze-v1`).
-- [ ] Prolific + Pavlovia setup. Two studies (pre-SHINE first, post-SHINE second).
-      Configure `task_config.json`: `debug=false`, real `prolific_completion_url`.
-      Set Pavlovia status to RUNNING. Configure blocklist on the post-SHINE study.
+- [ ] Prolific + Pavlovia setup. Single Pavlovia/Prolific study; cohort assignment is
+      automatic (PID hash). No blocklist required.
+      Configure `task_config.json`: `deployment.mode = "pilot"` for pilot run,
+      then `"production"` for full data collection. Set real `prolific_completion_url`.
+      Set Pavlovia status to RUNNING.
 
 ## Phase 1 — Data collection & QC
-- [ ] Launch pre-SHINE study (N=75 retained). Monitor QC pass-rate via Pavlovia
-      data exports.
-- [ ] Connectivity check at N=75: confirm dissimilarity graph is strongly connected.
-      If not, add subjects in batches of 5 until it is.
-- [ ] Final data export from Pavlovia after the cohort closes. Snapshot raw session
-      CSVs to `analysis/data/pre_shine_raw/`. Verify row counts match Pavlovia session counts.
-- [ ] Report quality control statistics: mean & SD of reaction time, number of moves, QC thresholds & pass-rates, etc.
-      `code: analysis/pipeline/qc_report.py`
+
+### Phase 1a — Pilot (mode: `"pilot"`, ~15-20 participants, pre-SHINE only)
+- [ ] Launch pilot study with `deployment.mode = "pilot"` in `task_config.json`.
+      All pilot participants are assigned to the pre-SHINE cohort.
+- [ ] Download data from Pavlovia. Inspect QC pass-rates, trial RT distributions,
+      image loading, and CSV format. Fix any issues before full launch.
+- [ ] After pilot sign-off: set `deployment.mode = "production"` in `task_config.json`,
+      commit, and push to Pavlovia. Exclude pilot PIDs from Prolific before relaunching.
+
+### Phase 1b — Production (mode: `"production"`, both cohorts concurrently)
+- [ ] Launch production study. Both cohorts recruited simultaneously; assignment is
+      automatic from PID hash (even → pre-SHINE, odd → post-SHINE).
+- [ ] Monitor cohort sizes periodically by downloading Pavlovia data and counting
+      retained subjects per `shine_variant` value. Continue until both cohorts reach
+      N=75 retained subjects with strongly connected dissimilarity graphs.
+      Check connectivity in batches of 5 subjects after reaching N=75 per cohort.
+- [ ] Final data export after both cohorts close. Snapshot raw session CSVs to
+      `analysis/data/pre_shine_raw/` and `analysis/data/post_shine_raw/` (split by
+      `shine_variant` column). Verify row counts match Pavlovia session counts.
+- [ ] Report quality control statistics: mean & SD of reaction time, number of moves,
+      QC thresholds & pass-rates, etc. `code: analysis/pipeline/qc_report.py`
 - [ ] Calculate within-cohort split-half reliability as a diagnostic.
       Report in final paper, but does not affect stopping.
       `code: analysis/pipeline/reliability_cohort.py`
-- [ ] Calculate within-subject reliability index for each subject (Spearman ρ on the 50 repeated images),
-      with and without 10th percentile exclusion. Report distribution in final paper.
+- [ ] Calculate within-subject reliability index for each subject (Spearman ρ on the
+      50 repeated images), with and without 10th percentile exclusion.
       `code: analysis/pipeline/reliability_subject.py`
-- [ ] Launch post-SHINE study (with pre-SHINE PIDs as Prolific blocklist). Snapshot raw
-      to `analysis/data/post_shine_raw/`. Repeat all previous Phase 1 steps for the post-SHINE cohort.
 - [ ] Checkpoint :: Compare data collection against pre-reg. Document any deviations
       (e.g., recruitment shortfalls, technical issues, exclusion-rate surprises) as
       an OSF amendment alongside the registered version.

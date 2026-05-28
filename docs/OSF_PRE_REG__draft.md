@@ -168,9 +168,9 @@ Data does not yet exist. No part of the data that will be used for this analysis
 ### Study type
 + Quasi-experimental design: The strategy to identify or estimate a causal relationship takes advantage of some particular feature(s) or circumstance(s) that helps avoid much of the need for adjustment or control variables. This may include instrumental variables, "natural" experiments, interrupted time series designs, difference-in-difference designs, synthetic controls, or related approaches.
 + Other:  
-  Two between-subject cohorts (pre-SHINE and post-SHINE), recruited sequentially from the same Prolific subject pool.
-  Cohort assignment is determined by which study a subject signs up for first (controlled by a Prolific blocklist
-  preventing subjects from doing both).
+  Two between-subject cohorts (pre-SHINE and post-SHINE), recruited concurrently via a single Prolific study.
+  Cohort assignment is determined automatically at task startup by a deterministic function of the participant's
+  Prolific ID (see *Randomization* below), so both cohorts are collected in parallel.
 
 ### Intention for causal interpretation (optional)
 Direct inference on causal relationship(s): This study is intended to infer or estimate a causal relationship between two or more variables. It is designed specifically for the purposes of causal inference or identification
@@ -183,8 +183,11 @@ Two between-subject cohorts: pre-SHINE and post-SHINE.
 Cohort-level RDMs will be generated and compared to each other and to reference (semantic/sensory) RDMs.
 
 ### Randomization (optional)
-Subjects are assigned to pre/post SHINE cohorts based on the experiment they choose to perform. Subjects from one 
-cohort are excluded from the second via Prolific prescreening blocklist and code-level checks.  
+Each participant is assigned to a cohort automatically at task startup by `hashString(PID) % 2`,
+where `hashString` is the djb2 hash of the Prolific ID: even hash value → pre-SHINE cohort,
+odd hash value → post-SHINE cohort. The assignment is deterministic and reproducible from the
+Prolific ID, and is recorded in every saved trial row (`shine_variant` field).
+This produces an approximately equal split across participants.  
 A subset of `M=150` images from the 725 dataset is assigned to subjects based on their Prolific-ID (RNG seed).  
 Of those, each subject performs `t=10` trials, each with a randomly assigned subset of `k=20` images.  
 A subset of `n_double=50` images is repeated across two different trials for within-subject reliability estimation.  
@@ -375,9 +378,9 @@ across the two trials, and use it as an additional QC filter (lowest decile excl
 
 ### Subject de-duplication across SHINE cohorts
 
-Implemented at the Prolific level via custom prescreening blocklist: pre-SHINE cohort PIDs
-become a blocklist for the post-SHINE study. Code-level reinforcement: every saved trial
-row carries `shine_variant` (`"pre"` or `"post"`) for post-hoc auditing.
+PID-hash assignment is injective: each Prolific ID maps to exactly one cohort, making
+cross-enrollment structurally impossible within the single study. Every saved trial row
+carries `shine_variant` (`"pre"` or `"post"`) for post-hoc auditing.
 
 ---
 

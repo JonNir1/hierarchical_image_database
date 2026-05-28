@@ -7,11 +7,9 @@ PROJECT_ROOT = TASK_DIR.parent
 CONFIG_PATH = TASK_DIR / "task_config.json"
 MANIFEST_PATH = TASK_DIR / "stimuli_manifest.json"
 
-VALID_SHINE_VARIANTS = ("pre", "post")
-
 # Practice and catch sets are variant-agnostic and resolved directly from config.
-# The main set is resolved dynamically from (stimuli_paths.main_root, shine.shine_variant)
-# — see `resolve_main_dir`.
+# The main set is resolved from stimuli_paths.main_root; both pre_shine/ and
+# post_shine/ subdirectories are scanned and verified to be identical.
 SECONDARY_SETS = [
     ("stimuli_paths", "practice", "practice_images"),
     ("stimuli_paths", "catch",    "catch_images"),
@@ -31,26 +29,15 @@ def resolve_path(raw: str) -> Path:
     return p if p.is_absolute() else (PROJECT_ROOT / p).resolve()
 
 
-def resolve_main_dir(config: dict) -> tuple[Path, str]:
-    """Resolve the main-stimulus directory by combining `stimuli_paths.main_root`
-    and `shine.shine_variant` into `<main_root>/<variant>_shine/`.
+def resolve_main_root(config: dict) -> Path:
+    """Resolve the main-stimulus root directory from stimuli_paths.main_root.
 
-    Returns (resolved_directory, variant_string). Raises ValueError on invalid
-    or missing config values.
+    Returns the resolved Path. Raises ValueError if the key is missing or empty.
     """
     main_root_raw = config.get("stimuli_paths", {}).get("main_root", "")
     if not main_root_raw:
         raise ValueError("'stimuli_paths.main_root' is missing or empty in task_config.json")
-
-    variant = config.get("shine", {}).get("shine_variant", "")
-    if variant not in VALID_SHINE_VARIANTS:
-        raise ValueError(
-            f"'shine.shine_variant' must be one of {VALID_SHINE_VARIANTS}; "
-            f"got {variant!r}"
-        )
-
-    main_dir = resolve_path(main_root_raw) / f"{variant}_shine"
-    return main_dir, variant
+    return resolve_path(main_root_raw)
 
 
 def scan_pngs(directory: Path) -> list[str]:
@@ -72,15 +59,15 @@ def scan_pngs(directory: Path) -> list[str]:
 def main() -> None:
     """Read task_config.json, scan each stimulus directory, and write stimuli_manifest.json.
 
-    Produces a JSON file with the keys ``shine_variant``, ``images``,
-    ``practice_images``, and ``catch_images``. The active SHINE variant is
-    recorded in the manifest so task.js and downstream consumers can sanity-check
-    it.
+    Produces a JSON file with the keys ``images``, ``practice_images``, and
+    ``catch_images``. ``images`` contains filenames relative to the variant root
+    (identical for pre_shine/ and post_shine/ since the two directories mirror each
+    other). Both variant directories are scanned: pre_shine/ provides the canonical
+    file list (fatal if missing/empty), and post_shine/ is verified to contain the
+    same filenames (fatal if the directory is missing; warning if the file sets diverge).
 
-    The main set is fatal: if the variant subdirectory is missing or empty,
-    the script aborts. Practice and catch directories emit warnings on
-    missing/empty content but do not abort, so partial runs remain usable during
-    development.
+    Practice and catch directories emit warnings on missing/empty content but do not
+    abort, so partial runs remain usable during development.
     """
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(f"task_config.json not found at {CONFIG_PATH}")
@@ -91,23 +78,41 @@ def main() -> None:
     design       = config.get("design", {})
     catch_trials = config.get("catch_trials", {})
 
-    main_dir, variant = resolve_main_dir(config)
+    main_root = resolve_main_root(config)
+    pre_dir   = main_root / "pre_shine"
+    post_dir  = main_root / "post_shine"
 
-    manifest: dict[str, object] = {"shine_variant": variant}
+    manifest: dict[str, object] = {}
 
-    # Main set — fatal on missing/empty.
-    if not main_dir.exists():
+    # pre_shine/ — canonical image list, fatal on missing/empty.
+    if not pre_dir.exists():
         raise FileNotFoundError(
-            f"Main stimulus directory does not exist: {main_dir}\n"
-            f"Populate {variant}_shine/ under stimuli_paths.main_root and retry."
+            f"Main stimulus directory does not exist: {pre_dir}\n"
+            f"Populate pre_shine/ under stimuli_paths.main_root and retry."
         )
-    main_images = scan_pngs(main_dir)
-    if not main_images:
+    pre_images = scan_pngs(pre_dir)
+    if not pre_images:
         raise RuntimeError(
-            f"Main stimulus directory is empty (no .png files): {main_dir}"
+            f"Main stimulus directory is empty (no .png files): {pre_dir}"
         )
-    manifest["images"] = main_images
-    print(f"images ({variant}-SHINE): {len(main_images)} images in {main_dir}")
+    manifest["images"] = pre_images
+    print(f"images: {len(pre_images)} images in {pre_dir}")
+
+    # post_shine/ — must exist and match pre_shine/ file list.
+    if not post_dir.exists():
+        raise FileNotFoundError(
+            f"post_shine directory does not exist: {post_dir}\n"
+            f"Populate post_shine/ under stimuli_paths.main_root and retry."
+        )
+    post_images = scan_pngs(post_dir)
+    if set(pre_images) != set(post_images):
+        print(
+            f"WARNING: pre_shine and post_shine file sets differ.\n"
+            f"  pre only:  {sorted(set(pre_images) - set(post_images))[:5]}\n"
+            f"  post only: {sorted(set(post_images) - set(pre_images))[:5]}"
+        )
+    else:
+        print(f"  post_shine: verified OK ({len(post_images)} images in {post_dir})")
 
     # Secondary sets — warn on missing/empty.
     for section_key, path_key, manifest_key in SECONDARY_SETS:

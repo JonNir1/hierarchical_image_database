@@ -57,19 +57,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 2. Environment + participant ID
   // ---------------------------------------------------------------------------
   const isPavlovia = window.location.hostname.includes('pavlovia.org');
+  const mode = config.deployment.mode;
 
   const params = new URLSearchParams(window.location.search);
   const rawPid = params.get('PROLIFIC_PID');
 
-  if (!rawPid && !config.deployment.debug) {
+  if (!rawPid && mode !== 'debug') {
     document.body.innerHTML =
       '<p style="color:white;font-family:sans-serif;text-align:center;margin-top:20%;">' +
       'No participant ID detected. Please access this experiment via your Prolific invitation link.</p>';
     return;
   }
 
-  const PID = config.deployment.debug ? 'debug_participant' : rawPid;
-  if (config.deployment.debug) console.log('[SpAM] Debug mode active. PID:', PID);
+  const PID = mode === 'debug' ? 'debug_participant' : rawPid;
+  if (mode === 'debug') console.log('[SpAM] Debug mode active. PID:', PID);
 
   // ---------------------------------------------------------------------------
   // 3. Seeded RNG
@@ -78,24 +79,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   // rng must not be called before buildTrialLists — any prior call shifts the
   // sequence and breaks reproducibility for the same PID.
   const rng  = new Math.seedrandom(seed);
-  if (config.deployment.debug) console.log('[SpAM] Seed:', seed);
+  if (mode === 'debug') console.log('[SpAM] Seed:', seed);
 
   // ---------------------------------------------------------------------------
-  // 4. SHINE variant — cross-check manifest against config
-  //    generate_manifest.py writes the active variant into the manifest at build
-  //    time. If the config has been edited since the manifest was generated, the
-  //    two will disagree and the wrong images would load. Fail loudly instead.
+  // 4. Cohort assignment
+  //    debug  → use config.deployment.debug_shine_variant
+  //    pilot  → always "pre" (pre-SHINE cohort for pilot runs)
+  //    production → deterministic from PID hash; even → "pre", odd → "post"
+  //    hashString(PID) % 2 uses the hash value directly — it does NOT consume
+  //    from the rng instance, so trial reproducibility is unaffected.
   // ---------------------------------------------------------------------------
-  const variant = config.shine.shine_variant;
-  if (manifest.shine_variant !== variant) {
-    document.body.innerHTML =
-      '<p style="color:white;font-family:sans-serif;text-align:center;margin-top:20%;">' +
-      '<strong>Configuration / manifest mismatch:</strong><br>' +
-      'config.shine.shine_variant = "' + variant + '" but stimuli_manifest.json was built ' +
-      'for "' + manifest.shine_variant + '".<br>Re-run generate_manifest.py and reload.</p>';
-    return;
+  let assignedVariant;
+  if (mode === 'debug') {
+    assignedVariant = config.deployment.debug_shine_variant;
+  } else if (mode === 'pilot') {
+    assignedVariant = 'pre';
+  } else {
+    assignedVariant = hashString(PID) % 2 === 0 ? 'pre' : 'post';
   }
-  if (config.deployment.debug) console.log('[SpAM] SHINE variant:', variant);
+  if (mode === 'debug') console.log('[SpAM] SHINE variant:', assignedVariant, '(mode:', mode + ')');
 
   // ---------------------------------------------------------------------------
   // 5. Build image URL arrays
@@ -105,10 +107,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   //    All stimuli_paths values are relative to the repo root (where
   //    index.html lives), so concatenating them with filenames yields
   //    browser-resolvable URLs.
-  // TODO: if config paths are authored on Windows, replace backslashes:
-  //       config.stimuli_path.replace(/\\/g, '/')
   // ---------------------------------------------------------------------------
-  const mainPrefix   = config.stimuli_paths.main_root + variant + '_shine';
+  const mainPrefix   = config.stimuli_paths.main_root + assignedVariant + '_shine';
   const imageUrls    = (manifest.images          || []).map(f => mainPrefix                   + '/' + f);
   const catchUrls    = (manifest.catch_images    || []).map(f => config.stimuli_paths.catch    + '/' + f);
   const practiceUrls = (manifest.practice_images || []).map(f => config.stimuli_paths.practice + '/' + f);
@@ -119,7 +119,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const { sortW, sortH, stimSize } = computeLayout(
     window.innerWidth, window.innerHeight, config,
   );
-  if (config.deployment.debug) console.log('[SpAM] Layout:', { sortW, sortH, stimSize });
+  if (mode === 'debug') console.log('[SpAM] Layout:', { sortW, sortH, stimSize });
 
   // jsPsychFreeSort only recognises 'square' (rectangular) and 'ellipse'.
   // Our config uses 'rect'/'ellipse'; map here so the inside-check uses the
@@ -138,7 +138,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const mainTrials = buildTrialLists(imageUrls, config, rng);
   const allTrials  = insertCatchTrials(mainTrials, catchUrls, config, rng);
 
-  if (config.deployment.debug) {
+  if (mode === 'debug') {
     console.log('[SpAM] Trial sequence:', allTrials.map((t, i) => i + ':' + t.type));
   }
 
@@ -380,7 +380,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           ? 'catch_' + (++catchCount)
           : 'trial_' + (++mainCount);
         data.trial_index           = idx;
-        data.shine_variant         = variant;
+        data.shine_variant         = assignedVariant;
         data.pairwise_distance_sd  = sd;
 
         if (trial.type === 'catch') {
@@ -409,7 +409,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Store pairs as JSON string for CSV compatibility
         data.pairwise_distances = JSON.stringify(pairs);
 
-        if (config.deployment.debug) {
+        if (mode === 'debug') {
           console.log(
             '[SpAM] Trial', idx, '(' + trial.type + ')',
             '| sd=' + sd.toFixed(4),
