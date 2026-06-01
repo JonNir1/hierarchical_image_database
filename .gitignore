@@ -23,6 +23,7 @@ source_datasets/**/*.bmp
 source_datasets/**/*.tif
 source_datasets/**/*.tiff
 source_datasets/**/Thumbs.db
+images/__carmel__post_shine/    # Auerbach-Asch (2023) post-SHINE images, kept only for reference
 
 # ignore outputs and docs
 *.pkl
