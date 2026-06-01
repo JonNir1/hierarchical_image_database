@@ -1,21 +1,37 @@
 %% shine_equalize.m
 %
-% Applies SHINE_color luminance/color equalization to all .png images
-% under INPUT_DIR, preserving the subdirectory structure in OUTPUT_DIR.
+% Applies the SHINE_color toolbox (Willenbockel et al., 2010; color
+% adaptation by Dal Ben, 2019) to all .png images under INPUT_DIR,
+% preserving the subdirectory structure in OUTPUT_DIR.
 %
-% Because SHINE_color requires a flat input directory, the pipeline:
-%   1. Flattens INPUT_DIR into a temporary flat directory, encoding
-%      subdirectory paths into filenames using '__' as a separator.
-%   2. Runs SHINE_color on the flat directory.
-%   3. Restores the original subdirectory structure in OUTPUT_DIR.
-%   4. Removes the temporary directory.
+% Target configuration: LumEquated_histMatch
+%   = luminance equating via histogram matching (SHINE mode 2, histMatch),
+%     with figure-ground separation driven by the per-image alpha channel
+%     (wholeIm = 3), template background luminance = 0 (transparent).
 %
-% NOTE: The flatten step assumes that no two source images share both the
-% same filename AND the same encoded path prefix (i.e. filenames are
-% globally unique within INPUT_DIR, or are unique when path-encoded).
-% A warning is printed if a conflict is detected.
+% IMPORTANT: SHINE_color is a vendored, peer-reviewed toolbox and is NOT
+% modified. Because its input() prompts cannot be driven from outside, this
+% wrapper prints an exact answer sheet before handing control to SHINE_color
+% -- type the listed values, in order, at each command-window prompt.
 %
-% Edit INPUT_DIR, OUTPUT_DIR, and SHINE_MODE before running.
+% Pipeline:
+%   1. Flattens INPUT_DIR into TEMP_FLAT_IN, encoding subdirectory paths
+%      into filenames using '__' as a separator.
+%   2. Reads alpha templates in the same alphabetical order SHINE_color uses
+%      (via readImages.m), so templ{im} aligns positionally with each image.
+%   3. Runs SHINE_color, writing results to TEMP_FLAT_OUT.
+%   4. Restores the original subdirectory structure in OUTPUT_DIR using a
+%      flat_name -> relative_subpath map built during flattening.
+%   5. Removes both temporary directories.
+%
+% NOTE: The flatten step assumes encoded filenames are globally unique.
+% A warning is printed and the duplicate skipped if a conflict is detected.
+%
+% REQUIRES: Image Processing Toolbox (for medfilt2, called by SHINE_color's
+%   separate.m during figure-ground segmentation).
+%   Install via: Home -> Add-Ons -> Get Add-Ons -> "Image Processing Toolbox".
+%
+% Edit INPUT_DIR / OUTPUT_DIR before running.
 
 %% --- Constants -----------------------------------------------------------
 SCRIPT_DIR    = fileparts(mfilename('fullpath'));
@@ -25,9 +41,11 @@ ROOT_DIR      = SCRIPT_DIR(1 : idx + numel(repo_name) - 1);
 
 INPUT_DIR     = fullfile(ROOT_DIR, 'images', 'pre_shine');
 OUTPUT_DIR    = fullfile(ROOT_DIR, 'images', 'post_shine');
-SHINE_DIR     = fullfile(ROOT_DIR, 'image_processing', 'SHINE_color_toolbox');
-SHINE_MODE    = 'LumEquated_histMatch';   % change to any SHINE output mode
-TEMP_FLAT_DIR = fullfile(ROOT_DIR, 'images', '_shine_tmp_flat');
+SHINE_DIR     = fullfile(SCRIPT_DIR, 'SHINE_color_toolbox');
+HELPERS_DIR   = fullfile(SCRIPT_DIR, 'helpers');
+TEMP_FLAT_IN  = fullfile(ROOT_DIR, 'images', '_shine_tmp_in');
+TEMP_FLAT_OUT = fullfile(ROOT_DIR, 'images', '_shine_tmp_out');
+addpath(HELPERS_DIR);
 
 %% --- Collect all .png files recursively ---------------------------------
 listing = dir(fullfile(INPUT_DIR, '**', '*.png'));
@@ -38,14 +56,18 @@ if n == 0
     error('No .png files found in INPUT_DIR: %s', INPUT_DIR);
 end
 
-if ~exist(TEMP_FLAT_DIR, 'dir')
-    mkdir(TEMP_FLAT_DIR);
+% Guard OUTPUT_DIR: create if absent, error if non-empty
+check_output_dir(OUTPUT_DIR);
+
+% Fresh temp dirs (wipe any leftover from a previous interrupted run)
+for d = {TEMP_FLAT_IN, TEMP_FLAT_OUT}
+    if exist(d{1}, 'dir'); rmdir(d{1}, 's'); end
+    mkdir(d{1});
 end
 
-%% --- Step 1: Flatten and collect alpha templates ------------------------
-flat_names    = cell(n, 1);   % encoded flat filename (no extension)
-rel_subpaths  = cell(n, 1);   % relative path within INPUT_DIR (for restore)
-alpha_templates = cell(n, 1);
+%% --- Step 1: Flatten INPUT_DIR into TEMP_FLAT_IN -------------------------
+% Record a flat_name -> relative_subpath map for the restore step.
+name2rel = containers.Map('KeyType', 'char', 'ValueType', 'char');
 
 for i = 1:n
     src_path = fullfile(listing(i).folder, listing(i).name);
@@ -58,85 +80,95 @@ for i = 1:n
         rel_dir = rel_dir(2:end);
     end
 
-    if isempty(rel_dir)
-        encoded_name = listing(i).name;
-    else
-        % Replace path separators with '__'
-        encoded_rel = strrep(rel_dir, filesep, '__');
-        encoded_rel = strrep(encoded_rel, '/', '__');
-        encoded_rel = strrep(encoded_rel, '\', '__');
-        [~, base, ext] = fileparts(listing(i).name);
-        encoded_name = [encoded_rel '__' base ext];
-    end
+    encoded_name = encode_flat_name(rel_dir, listing(i).name);
 
-    flat_path = fullfile(TEMP_FLAT_DIR, encoded_name);
+    flat_path = fullfile(TEMP_FLAT_IN, encoded_name);
 
     % Conflict check
-    if exist(flat_path, 'file')
-        warning('Filename conflict — skipping duplicate: %s', src_path);
+    if isKey(name2rel, encoded_name) || exist(flat_path, 'file')
+        warning('Filename conflict -- skipping duplicate: %s', src_path);
         continue;
     end
 
     copyfile(src_path, flat_path);
+    name2rel(encoded_name) = fullfile(rel_dir, listing(i).name);
+end
 
-    flat_names{i}   = encoded_name;
-    rel_subpaths{i} = fullfile(rel_dir, listing(i).name);  % relative path for restore
+%% --- Step 2: Read alpha templates in SHINE/readImages order -------------
+% readImages.m loads files via dir(fullfile(pathname,'*.png')) -- alphabetical
+% -- and SHINE_color writes each result back positionally (templ{im}).
+% We must build alpha_templates in that exact order so masks align with images.
+flat_listing = dir(fullfile(TEMP_FLAT_IN, '*.png'));
+m = numel(flat_listing);
+alpha_templates = cell(m, 1);
 
-    % Read alpha channel for SHINE template
-    [tmp_img, ~, alpha] = imread(flat_path);
+for im = 1:m
+    [img, ~, alpha] = imread(fullfile(TEMP_FLAT_IN, flat_listing(im).name));
     if isempty(alpha)
-        alpha = 255 * ones(size(tmp_img, 1), size(tmp_img, 2), 'uint8');
-        warning('No alpha channel in %s — using fully opaque mask.', src_path);
+        alpha = 255 * ones(size(img, 1), size(img, 2), 'uint8');
+        warning('No alpha channel in %s -- using fully opaque mask.', ...
+                flat_listing(im).name);
     end
-    alpha_templates{i} = alpha;
+    alpha_templates{im} = alpha;
 end
 
-% Remove any empty entries caused by skipped conflicts
-valid = ~cellfun(@isempty, flat_names);
-flat_names      = flat_names(valid);
-rel_subpaths    = rel_subpaths(valid);
-alpha_templates = alpha_templates(valid);
-
-%% --- Step 2: Run SHINE_color --------------------------------------------
+%% --- Step 3: Run SHINE_color (interactive) ------------------------------
 addpath(SHINE_DIR);
-fprintf('Running SHINE_color (mode: %s) on %d images...\n', SHINE_MODE, numel(flat_names));
 
-SHINE_color({}, alpha_templates, TEMP_FLAT_DIR, TEMP_FLAT_DIR);
+fprintf('\n');
+fprintf('========================================================================\n');
+fprintf(' SHINE_color is interactive. Enter the following at each prompt, in order\n');
+fprintf(' (target config: LumEquated_histMatch + figure-ground via alpha mask):\n');
+fprintf('------------------------------------------------------------------------\n');
+fprintf('   1.  Input     [1=images, 2=video]                          ->  1\n');
+fprintf('   2.  Type the image format  [e.g., jpg, png]                ->  png\n');
+fprintf('   3.  SHINE_color options    [1=default, 2=custom]           ->  2\n');
+fprintf('   4.  Matching mode [1=luminance, 2=spatial freq, 3=both]    ->  1\n');
+fprintf('   5.  Luminance option [1=lumMatch, 2=histMatch]             ->  2\n');
+fprintf('   6.  Optimize SSIM    [1=no, 2=yes]                         ->  1\n');
+fprintf('   7.  Templ background [1=specify lum, 2=find automatically] ->  1\n');
+fprintf('   8.  Enter lum value  [integer between 0 and 255]           ->  0\n');
+fprintf('------------------------------------------------------------------------\n');
+fprintf(' Running on %d images. Output -> %s\n', m, TEMP_FLAT_OUT);
+fprintf('========================================================================\n\n');
 
-%% --- Step 3: Restore subdirectory structure -----------------------------
-shine_out_dir = fullfile(TEMP_FLAT_DIR, SHINE_MODE);
+SHINE_color({}, alpha_templates, TEMP_FLAT_IN, TEMP_FLAT_OUT);
 
-if ~exist(shine_out_dir, 'dir')
-    % SHINE may use a slightly different folder name; try to find it
-    d = dir(TEMP_FLAT_DIR);
-    subdirs = {d([d.isdir] & ~strcmp({d.name},'.') & ~strcmp({d.name},'..')).name};
-    if numel(subdirs) == 1
-        shine_out_dir = fullfile(TEMP_FLAT_DIR, subdirs{1});
-        fprintf('SHINE output found in: %s\n', shine_out_dir);
-    else
-        error('Cannot locate SHINE output subfolder in %s. Subdirs found: %s', ...
-              TEMP_FLAT_DIR, strjoin(subdirs, ', '));
-    end
+%% --- Step 4: Restore subdirectory structure -----------------------------
+out_listing = dir(fullfile(TEMP_FLAT_OUT, '*.png'));
+if isempty(out_listing)
+    error(['SHINE_color produced no .png output in %s. ' ...
+           'Did the run complete (rather than being quit at a prompt)?'], ...
+          TEMP_FLAT_OUT);
 end
 
-for i = 1:numel(flat_names)
-    shine_file = fullfile(shine_out_dir, flat_names{i});
-    if ~exist(shine_file, 'file')
-        warning('SHINE output not found for: %s', flat_names{i});
+restored = 0;
+for i = 1:numel(out_listing)
+    encoded_name = out_listing(i).name;
+    if ~isKey(name2rel, encoded_name)
+        warning('Unexpected SHINE output with no source mapping: %s', encoded_name);
         continue;
     end
 
-    dst_path = fullfile(OUTPUT_DIR, rel_subpaths{i});
+    dst_path = fullfile(OUTPUT_DIR, name2rel(encoded_name));
     dst_dir  = fileparts(dst_path);
-    if ~exist(dst_dir, 'dir')
-        mkdir(dst_dir);
-    end
+    if ~exist(dst_dir, 'dir'); mkdir(dst_dir); end
 
-    movefile(shine_file, dst_path);
+    movefile(fullfile(TEMP_FLAT_OUT, encoded_name), dst_path);
+    restored = restored + 1;
 end
 
-fprintf('Output written to: %s\n', OUTPUT_DIR);
+% Warn about any input that produced no SHINE output
+out_names = {out_listing.name};
+in_names  = name2rel.keys;
+missing   = setdiff(in_names, out_names);
+for k = 1:numel(missing)
+    warning('No SHINE output found for input: %s', missing{k});
+end
 
-%% --- Step 4: Cleanup temp directory -------------------------------------
-rmdir(TEMP_FLAT_DIR, 's');
-fprintf('Temporary directory removed.\n');
+fprintf('Restored %d / %d images to: %s\n', restored, numel(in_names), OUTPUT_DIR);
+
+%% --- Step 5: Cleanup temp directories -----------------------------------
+rmdir(TEMP_FLAT_IN, 's');
+rmdir(TEMP_FLAT_OUT, 's');
+fprintf('Temporary directories removed.\n');
