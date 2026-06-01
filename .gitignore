@@ -40,6 +40,7 @@ analysis/results/
 *.pdf
 *.csv
 !images/manifest.csv
+!analysis/rdms/imagenet_classifications.csv
 
 # generated figures
 figures/
