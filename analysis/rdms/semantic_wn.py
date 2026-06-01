@@ -35,6 +35,7 @@ import torch
 from torchvision.models import resnet50, ResNet50_Weights
 from PIL import Image as PILImage
 from nltk.corpus import wordnet as wn
+from nltk.corpus.reader.wordnet import WordNetError
 from tqdm import tqdm
 
 from analysis.rdms.common import RESULTS_DIR, image_paths, load_image_rgb, load_manifest, save_rdm
@@ -70,13 +71,6 @@ def _load_class_index() -> dict[str, list[str]]:
         urllib.request.urlretrieve(_CLASS_INDEX_URL, _CLASS_INDEX_CACHE)
     with open(_CLASS_INDEX_CACHE) as f:
         return json.load(f)
-
-
-def _wnid_to_synset(wnid: str):
-    """Convert an ImageNet WordNet ID (e.g. 'n02119789') to an NLTK Synset."""
-    pos = wnid[0]          # always 'n' for ImageNet
-    offset = int(wnid[1:])
-    return wn.synset_from_pos_and_offset(pos, offset)
 
 
 @lru_cache(maxsize=None)
@@ -135,9 +129,9 @@ def _build_classifications_cache() -> pd.DataFrame:
     for idx in tqdm(class_indices, desc="idx->synset"):
         wnid, class_name = class_index[str(idx)]
         try:
-            syn = _wnid_to_synset(wnid)
+            syn = wn.synset_from_pos_and_offset(wnid[0], int(wnid[1:]))
             synset_name = syn.name()
-        except Exception:
+        except WordNetError:
             synset_name = None
         records.append({
             "imagenet_class_idx":  idx,
@@ -184,17 +178,16 @@ def build_wn_rdm() -> np.ndarray:
 
     # Reconstruct NLTK Synset objects from cached synset names
     synsets = []
-    none_count = 0
     for name in clf["wordnet_synset_name"]:
         if pd.isna(name):
             synsets.append(None)
-            none_count += 1
         else:
             try:
                 synsets.append(wn.synset(str(name)))
-            except Exception:
+            except WordNetError:
                 synsets.append(None)
-                none_count += 1
+
+    none_count = sum(s is None for s in synsets)
     if none_count:
         print(f"[semantic_wn] {none_count} images had no resolvable synset.")
 
