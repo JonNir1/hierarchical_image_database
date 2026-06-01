@@ -1,9 +1,13 @@
-"""Tests for analysis.rdms.common."""
+"""Tests for analysis.rdms.common, analysis.rdms.semantic_km (helpers + smoke),
+and smoke tests for analysis.rdms.sensory."""
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
+import pandas as pd
 import pytest
 from PIL import Image
 from scipy.spatial.distance import squareform
@@ -222,3 +226,169 @@ def test_squareform_symmetric_zero_diagonal(patched_results):
     assert sq.shape == (_N, _N)
     np.testing.assert_array_almost_equal(sq, sq.T)
     np.testing.assert_array_equal(np.diag(sq), 0.0)
+
+
+def test_load_rdm_missing_metadata_raises(patched_results):
+    """load_rdm raises RuntimeError when metadata.json is absent (not via save_rdm)."""
+    condensed = np.abs(np.random.rand(_LEN))
+    np.save(patched_results / "D_orphan.npy", condensed)
+    # No metadata.json written
+    with pytest.raises(RuntimeError, match="metadata.json not found"):
+        common.load_rdm("orphan")
+
+
+def test_load_rdm_missing_record_raises(patched_results):
+    """load_rdm raises RuntimeError when metadata.json exists but has no record for name."""
+    # Write metadata for a different RDM name
+    condensed = np.abs(np.random.rand(_LEN))
+    common.save_rdm("other", condensed, metric="euclidean", source="tests")
+    # Write the .npy for a name that has no metadata record
+    np.save(patched_results / "D_unrecorded.npy", condensed)
+    with pytest.raises(RuntimeError, match="No metadata record"):
+        common.load_rdm("unrecorded")
+
+
+# ---------------------------------------------------------------------------
+# semantic_km helpers
+# ---------------------------------------------------------------------------
+
+import analysis.rdms.semantic_km as km
+
+
+def test_dir_parts_windows_backslash():
+    """Windows backslash paths are normalised; filename is stripped."""
+    assert km._dir_parts(r"animate\animal\body\bird\chick1.png") == (
+        "animate", "animal", "body", "bird"
+    )
+
+
+def test_dir_parts_forward_slash():
+    """Forward-slash paths work the same."""
+    assert km._dir_parts("inanimate/natural/food/apple1.png") == (
+        "inanimate", "natural", "food"
+    )
+
+
+def test_lca_depth_identical():
+    assert km._lca_depth(("a", "b", "c"), ("a", "b", "c")) == 3
+
+
+def test_lca_depth_no_common():
+    assert km._lca_depth(("animate",), ("inanimate",)) == 0
+
+
+def test_lca_depth_partial():
+    assert km._lca_depth(("a", "b", "c"), ("a", "b", "d")) == 2
+
+
+def test_lca_depth_one_shallower():
+    assert km._lca_depth(("a", "b"), ("a", "b", "c")) == 2
+
+
+# ---------------------------------------------------------------------------
+# semantic_km smoke test (build_km_rdm with synthetic manifest)
+# ---------------------------------------------------------------------------
+
+def _make_synthetic_manifest(paths: list[str]) -> pd.DataFrame:
+    return pd.DataFrame({
+        "curated_path": paths,
+        "curated_filename": [p.split("\\")[-1] for p in paths],
+        "category": ["X"] * len(paths),
+        "source_dataset": ["test"] * len(paths),
+        "source_filename_or_url": [""] * len(paths),
+        "manual_match_validation": ["V"] * len(paths),
+    })
+
+
+@pytest.fixture()
+def patched_km(tmp_path, monkeypatch):
+    """Patch km module so build_km_rdm uses a tiny synthetic manifest."""
+    paths_4img = [
+        r"animate\animal\bird\chick1.png",   # depth 3
+        r"animate\animal\bird\chick2.png",   # depth 3, same leaf
+        r"animate\animal\fish\fish1.png",    # depth 3, different leaf
+        r"inanimate\object\tool\hammer1.png", # depth 3, different top-level
+    ]
+    synthetic = _make_synthetic_manifest(paths_4img)
+    monkeypatch.setattr(km, "load_manifest", lambda: synthetic)
+    monkeypatch.setattr(km, "save_rdm", lambda *a, **kw: None)
+    return paths_4img
+
+
+def test_build_km_rdm_same_leaf_distance_1(patched_km):
+    """Two images in the same leaf folder must have distance 1 (not 0)."""
+    condensed = km.build_km_rdm()
+    # pair (0,1): chick1 vs chick2 — same leaf "bird"
+    assert condensed[0] == 1.0
+
+
+def test_build_km_rdm_cross_top_level(patched_km):
+    """animate vs inanimate pair has larger distance than within-animate pair."""
+    condensed = km.build_km_rdm()
+    # pair (0,1): same-leaf → 1
+    # pair (0,3): animate vs inanimate → LCA depth 0 → d = 3+3 = 6 → floored at max(1,6) = 6
+    same_leaf = condensed[0]  # chick1 vs chick2
+    cross_top = condensed[3]  # chick1 vs hammer1
+    assert cross_top > same_leaf
+
+
+def test_build_km_rdm_condensed_length(patched_km):
+    condensed = km.build_km_rdm()
+    assert len(condensed) == 4 * 3 // 2  # 6 pairs
+
+
+def test_build_km_rdm_zero_diagonal(patched_km):
+    """squareform of result has zero diagonal."""
+    condensed = km.build_km_rdm()
+    sq = squareform(condensed)
+    np.testing.assert_array_equal(np.diag(sq), 0.0)
+
+
+def test_build_km_rdm_symmetric(patched_km):
+    condensed = km.build_km_rdm()
+    sq = squareform(condensed)
+    np.testing.assert_array_equal(sq, sq.T)
+
+
+# ---------------------------------------------------------------------------
+# sensory smoke test
+# ---------------------------------------------------------------------------
+
+import analysis.rdms.sensory as sensory_mod
+
+
+@pytest.fixture()
+def patched_sensory(tmp_path, monkeypatch):
+    """Patch sensory module with 4 tiny synthetic images."""
+    img_dir = tmp_path / "imgs"
+    img_dir.mkdir()
+    paths = []
+    for i in range(4):
+        p = img_dir / f"img{i}.png"
+        arr = np.full((8, 8, 4), fill_value=[i * 60, 0, 0, 255], dtype=np.uint8)
+        Image.fromarray(arr, mode="RGBA").save(p)
+        paths.append(p)
+
+    monkeypatch.setattr(sensory_mod, "image_paths", lambda variant: paths)
+    monkeypatch.setattr(sensory_mod, "save_rdm", lambda *a, **kw: None)
+    return paths
+
+
+def test_sensory_condensed_length(patched_sensory):
+    condensed = sensory_mod.build_sensory_rdm("pre_shine")
+    assert len(condensed) == 4 * 3 // 2  # 6 pairs
+
+
+def test_sensory_non_negative(patched_sensory):
+    condensed = sensory_mod.build_sensory_rdm("pre_shine")
+    assert np.all(condensed >= 0)
+
+
+def test_sensory_identical_images_zero_distance(tmp_path, monkeypatch):
+    """Two identical images must have zero pairwise distance."""
+    p = tmp_path / "same.png"
+    Image.fromarray(np.full((8, 8, 3), 128, dtype=np.uint8)).save(p)
+    monkeypatch.setattr(sensory_mod, "image_paths", lambda variant: [p, p])
+    monkeypatch.setattr(sensory_mod, "save_rdm", lambda *a, **kw: None)
+    condensed = sensory_mod.build_sensory_rdm("pre_shine")
+    assert condensed[0] == 0.0
