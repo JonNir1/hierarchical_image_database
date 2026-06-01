@@ -13,6 +13,7 @@ import hashlib
 import json
 import subprocess
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -47,11 +48,15 @@ def load_manifest() -> pd.DataFrame:
     return pd.read_csv(MANIFEST_PATH)
 
 
+@lru_cache(maxsize=1)
 def order_hash() -> str:
     """
     16-character SHA-256 hex prefix over the manifest's ordered curated_path
     column. Stored with every saved RDM and asserted on load to guarantee
     cross-RDM row/col alignment.
+
+    Result is cached; the manifest row order must not change between a
+    save_rdm() call and the subsequent load_rdm() call.
     """
     df = load_manifest()
     paths_str = "\n".join(df["curated_path"].tolist())
@@ -79,9 +84,24 @@ def image_paths(variant: str) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 
+def open_as_rgb_pil(path: Path) -> Image.Image:
+    """
+    Open an image file, composite any alpha channel over white, and return a
+    PIL RGB image.
+
+    Handles all PIL modes (RGB, RGBA, L, LA, P, PA, …) by converting to RGBA
+    first, which correctly applies palette lookups and transparency regardless
+    of the source mode.
+    """
+    img = Image.open(path).convert("RGBA")
+    bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+    bg.paste(img, mask=img.split()[3])
+    return bg.convert("RGB")
+
+
 def load_image_rgb(path: Path, size: int | None = None) -> np.ndarray:
     """
-    Open a PNG, composite any alpha channel over white, and return uint8 RGB.
+    Open an image, composite alpha over white, and return a uint8 RGB array.
 
     Parameters
     ----------
@@ -92,22 +112,11 @@ def load_image_rgb(path: Path, size: int | None = None) -> np.ndarray:
     -------
     np.ndarray, shape (H, W, 3), dtype uint8
     """
-    img = Image.open(path)
-
-    # Composite alpha over white background
-    if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
-        img = img.convert("RGBA")
-        bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
-        bg.paste(img, mask=img.split()[3])
-        img = bg.convert("RGB")
-    else:
-        img = img.convert("RGB")
-
+    img = open_as_rgb_pil(path)
     if size is not None and img.size != (size, size):
         raise ValueError(
             f"Expected {size}x{size} image, got {img.size[0]}x{img.size[1]} for {path}"
         )
-
     return np.array(img, dtype=np.uint8)
 
 
@@ -190,8 +199,8 @@ def load_rdm(name: str) -> np.ndarray:
     Load condensed RDM vector from D_<name>.npy.
 
     Asserts that the condensed length and manifest order_hash match the current
-    state; raises RuntimeError if the manifest has been reordered since the RDM
-    was built.
+    state. Raises RuntimeError if metadata.json is absent or has no record for
+    this name (both indicate the file was not written via save_rdm()).
 
     Returns
     -------
@@ -207,21 +216,30 @@ def load_rdm(name: str) -> np.ndarray:
             f"Loaded RDM '{name}' has length {len(condensed)}, expected {_EXPECTED_LEN}"
         )
 
-    # Check order hash from metadata
+    # Enforce hash guard — both missing-metadata and missing-record are errors
     meta_path = RESULTS_DIR / "metadata.json"
-    if meta_path.exists():
-        with open(meta_path) as f:
-            records = json.load(f)
-        for r in records:
-            if r.get("name") == name:
-                stored = r.get("order_hash")
-                current = order_hash()
-                if stored and stored != current:
-                    raise RuntimeError(
-                        f"Manifest order hash mismatch for RDM '{name}': "
-                        f"stored={stored!r}, current={current!r}. "
-                        "The manifest was likely reordered after this RDM was built."
-                    )
-                break
+    if not meta_path.exists():
+        raise RuntimeError(
+            f"metadata.json not found in {RESULTS_DIR}. "
+            "Load only RDMs that were written via save_rdm()."
+        )
+    with open(meta_path) as f:
+        records = json.load(f)
+    for r in records:
+        if r.get("name") == name:
+            stored = r.get("order_hash")
+            current = order_hash()
+            if stored and stored != current:
+                raise RuntimeError(
+                    f"Manifest order hash mismatch for RDM '{name}': "
+                    f"stored={stored!r}, current={current!r}. "
+                    "The manifest was likely reordered after this RDM was built."
+                )
+            break
+    else:
+        raise RuntimeError(
+            f"No metadata record found for RDM '{name}' in {meta_path}. "
+            "Load only RDMs that were written via save_rdm()."
+        )
 
     return condensed
