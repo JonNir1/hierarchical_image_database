@@ -51,7 +51,7 @@ _CLASS_INDEX_URL = (
     "https://s3.amazonaws.com/deep-learning-models/image-models/"
     "imagenet_class_index.json"
 )
-_CLASS_INDEX_CACHE = RESULTS_DIR.parent / "imagenet_class_index.json"
+_CLASS_INDEX_CACHE = Path(__file__).parent / "imagenet_class_index.json"
 
 # Fallback distance when no WordNet path exists between two synsets
 _WN_FALLBACK_DIST = 30.0
