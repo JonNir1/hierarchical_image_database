@@ -111,6 +111,35 @@ def test_load_image_rgb_size_ok(tmp_path):
     assert arr.shape == (4, 4, 3)
 
 
+def test_load_image_rgb_background_color_invariant(tmp_path):
+    """
+    Two RGBA images identical up to background color (alpha=0) must yield
+    identical RGB arrays and therefore zero Euclidean distance.
+
+    Rationale: background pixels have alpha=0, so their stored RGB is
+    irrelevant. Both composite to white, ensuring sensory distance = 0
+    for pixels that are transparent in both images.
+    """
+    size = 4
+    # Top-left 2x2: red foreground (alpha=255) — identical in both images
+    # Bottom-right 2x2: background (alpha=0) with different stored RGB
+    def make_rgba(bg_rgb: tuple) -> Image.Image:
+        arr = np.zeros((size, size, 4), dtype=np.uint8)
+        arr[:2, :2] = (255, 0, 0, 255)        # foreground
+        arr[2:, 2:] = (*bg_rgb, 0)             # background, alpha=0
+        return Image.fromarray(arr, mode="RGBA")
+
+    p_a = tmp_path / "a.png"
+    p_b = tmp_path / "b.png"
+    make_rgba((0, 0, 0)).save(p_a)         # black stored behind alpha=0
+    make_rgba((128, 64, 200)).save(p_b)    # arbitrary color behind alpha=0
+
+    flat_a = common.load_image_rgb(p_a).flatten().astype(np.float64)
+    flat_b = common.load_image_rgb(p_b).flatten().astype(np.float64)
+
+    assert np.linalg.norm(flat_a - flat_b) == 0.0
+
+
 # ---------------------------------------------------------------------------
 # save_rdm / load_rdm
 # ---------------------------------------------------------------------------
