@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# ============================================================================
+# MATLAB job -- runs on a self-hosted runner (your lab machine).
+#
+# WHY self-hosted:
+#   MATLAB requires a license.  MathWorks' own GitHub Actions
+#   (matlab-actions/setup-matlab) work on GitHub-hosted runners but need a
+#   separate MathWorks CI/CD license (free only for public repos, paid for
+#   private repos).  A self-hosted runner uses the MATLAB already installed
+#   and licensed on your machine -- no extra cost, no extra license.
+#
+# ONE-TIME SETUP (do this once on the lab machine):
+#   1. Go to your repo on GitHub -> Settings -> Actions -> Runners
+#      -> "New self-hosted runner"
+#   2. Follow the instructions to download and configure the runner agent.
+#      The agent is a small background process (~30 MB).
+#   3. Install it as a service so it survives reboots:
+#        Windows:  ./svc.sh install   (or the PowerShell equivalent shown in the UI)
+#   4. Tag the runner with the label "matlab" (Settings -> Runners -> edit).
+#      The workflow below targets that label.
+#
+# The runner must be online when a push/PR is opened.  For a research project
+# where you push occasionally, this is usually fine.  If the runner is offline
+# the job stays "queued" and runs as soon as the machine comes back online.
+# ============================================================================
+
+jobs:
+
+  matlab-tests:
+    name: MATLAB image-processing tests
+    runs-on: [self-hosted, matlab]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run MATLAB tests
+        # runtests() chokes on paths containing '__'; use TestSuite.fromFile instead.
+        # matlab -batch exits with code 1 if the assert fails, which fails the job.
+        run: >
+          matlab -batch
+          "suite = matlab.unittest.TestSuite.fromFile('image_processing/__tests__/TestShineEqualize.m');
+           runner = matlab.unittest.TestRunner.withTextOutput;
+           results = runner.run(suite);
+           disp(results.table);
+           assert(~any([results.Failed]), 'One or more MATLAB tests failed.')"
+
+  # ==========================================================================
+  # Python and JS tests run on GitHub-hosted runners -- no license needed.
+  # ==========================================================================
+
+  python-tests:
+    name: Python SpAM-task tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pytest
+
+      - name: Run pytest
+        run: pytest SpAM_Task/__tests__/ -v
+
+  js-tests:
+    name: JS SpAM-task tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run node tests
+        run: node --test SpAM_Task/__tests__/*.test.js
