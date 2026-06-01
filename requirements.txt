@@ -1,0 +1,34 @@
+# Core data / scientific
+numpy>=2.4
+scipy>=1.17
+pandas>=3.0
+Pillow>=12.0
+
+# Machine learning / vision
+torch>=2.12
+torchvision>=0.27
+open_clip_torch>=3.3
+
+# NLP / semantics
+nltk>=3.9
+# after installing, run: python -m nltk.downloader wordnet omw-1.4
+
+# Visualisation
+plotly>=6.0
+matplotlib>=3.10
+seaborn>=0.13
+
+# Misc analysis utilities
+scikit-learn>=1.8
+scikit-image>=0.26
+tqdm>=4.67
+opencv-python>=4.13
+
+# Notebook / interactive
+jupyter
+
+# Testing
+pytest>=9.0
+
+# R bridge (used in SpAM_Simulations for smacof MDS)
+# rpy2  -- uncomment once R + smacof are configured locally

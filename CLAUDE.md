@@ -8,9 +8,20 @@ Cognitive neuroscience research project building a hierarchical image dataset (7
 
 **Status**: Simulations complete (`SpAM_Simulations/`); dataset visualization tools complete (`visualize_dataset/`); online SpAM task implemented (`SpAM_Task/`), awaiting IRB approval and OSF pre-reg submission before launch. The full analysis plan is drafted in the OSF pre-registration (see `README.md` for a short summary).
 
-## Dependencies
+## Environment
 
-No `requirements.txt` exists. Key Python packages: `numpy`, `scipy`, `scikit-learn`, `pandas`, `plotly`, `tqdm`, `opencv-python` (cv2), `ete3`, `PyQt5`, `rpy2`.
+**Python virtual environment**: `.venv/` at the repo root (do NOT create a new venv or
+install packages system-wide). Activate with `.venv\Scripts\activate` (Windows) or
+`source .venv/bin/activate` (bash). Use `.venv/Scripts/python.exe` for direct invocation.
+
+Install / update all dependencies from the repo root:
+
+```bash
+.venv/Scripts/pip install -r requirements.txt
+```
+
+**`requirements.txt`** at the repo root lists all Python dependencies. Add new packages
+there rather than installing ad hoc.
 
 R dependency (required for MDS): `smacof` — install in R with `install.packages("smacof")`. The `rpy2` bridge is loaded at import time in `SpAM_Simulations/multi_dimensional_scaling.py`, so importing that module without R/smacof configured will raise immediately.
 
