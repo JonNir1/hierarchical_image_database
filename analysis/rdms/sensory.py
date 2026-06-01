@@ -33,11 +33,14 @@ def build_sensory_rdm(variant: str) -> np.ndarray:
     """
     paths = image_paths(variant)
     print(f"[sensory] Loading {len(paths)} images for variant '{variant}' ...")
-    pixels = []
-    for p in tqdm(paths, desc=f"sens_{variant}"):
-        img = load_image_rgb(p)          # (H, W, 3) uint8
-        pixels.append(img.flatten().astype(np.float64))
-    X = np.stack(pixels)                 # (725, H*W*3)
+    # Pre-allocate: load the first image to determine flat size, then fill row-by-row.
+    # Avoids holding both the list and the stacked array in memory simultaneously.
+    n = len(paths)
+    first = load_image_rgb(paths[0]).flatten().astype(np.float64)
+    X = np.empty((n, first.size), dtype=np.float64)
+    X[0] = first
+    for i, p in enumerate(tqdm(paths[1:], desc=f"sens_{variant}"), start=1):
+        X[i] = load_image_rgb(p).flatten()
 
     print(f"[sensory] Pixel matrix {X.shape}. Computing pairwise Euclidean distances ...")
     condensed = pdist(X, metric="euclidean")

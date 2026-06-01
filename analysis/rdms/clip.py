@@ -19,11 +19,10 @@ from __future__ import annotations
 import numpy as np
 import open_clip
 import torch
-from PIL import Image as PILImage
 from scipy.spatial.distance import pdist
 from tqdm import tqdm
 
-from analysis.rdms.common import image_paths, load_image_rgb, save_rdm
+from analysis.rdms.common import image_paths, open_as_rgb_pil, save_rdm
 
 
 def build_clip_rdm(variant: str) -> np.ndarray:
@@ -49,8 +48,7 @@ def build_clip_rdm(variant: str) -> np.ndarray:
     print(f"[clip] Encoding {len(paths)} images for variant '{variant}' ...")
     embeddings = []
     for p in tqdm(paths, desc=f"clip_{variant}"):
-        img_pil = PILImage.fromarray(load_image_rgb(p))
-        tensor = preprocess(img_pil).unsqueeze(0).to(device)
+        tensor = preprocess(open_as_rgb_pil(p)).unsqueeze(0).to(device)
         with torch.no_grad():
             emb = model.encode_image(tensor)
         embeddings.append(emb.squeeze(0).cpu().float().numpy())
