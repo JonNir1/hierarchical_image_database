@@ -19,10 +19,10 @@ dataset/
 !images/**/.gitkeep
 
 # Source datasets (under source_datasets/)
-#   - We DO NOT redistribute the original image datasets — they belong to their
-#     respective owners under their own licenses. Only the directory structure
-#     and per-source attribution/PDFs are tracked, plus a .gitkeep per subdir to
-#     make the structure visible on fresh checkout.
+#   We DO NOT redistribute the original image datasets — they belong to their
+#   respective owners under their own licenses. Only the directory structure
+#   and per-source attribution/PDFs are tracked, plus a .gitkeep per subdir to
+#   make the structure visible on fresh checkout.
 source_datasets/**/*.png
 source_datasets/**/*.jpg
 source_datasets/**/*.jpeg
