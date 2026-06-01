@@ -8,16 +8,6 @@
 # Claude Code agent working directories
 .claude/
 
-# Image dataset
-#   - Canonical location: <repo>/images/{pre_shine,post_shine}/
-#   - As of this commit, image files in images/ ARE tracked (725 PNGs per variant,
-#     curated 725-image subset of the original Auerbach-Asch 754-image set). They
-#     ship to GitHub and to the Pavlovia gitlab remote alike. No more force-add
-#     needed on pavlovia_deploy.
-#   - .gitkeep stubs (if any) remain tracked via the !images/**/.gitkeep exception.
-dataset/
-!images/**/.gitkeep
-
 # Source datasets (under source_datasets/)
 #   We DO NOT redistribute the original image datasets — they belong to their
 #   respective owners under their own licenses. Only the directory structure
