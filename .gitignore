@@ -13,6 +13,7 @@
 #   respective owners under their own licenses. Only the directory structure
 #   and per-source attribution/PDFs are tracked, plus a .gitkeep per subdir to
 #   make the structure visible on fresh checkout.
+!source_datasets/**/.gitkeep
 source_datasets/**/*.png
 source_datasets/**/*.jpg
 source_datasets/**/*.jpeg
@@ -22,7 +23,6 @@ source_datasets/**/*.bmp
 source_datasets/**/*.tif
 source_datasets/**/*.tiff
 source_datasets/**/Thumbs.db
-!source_datasets/**/.gitkeep
 
 # ignore outputs and docs
 *.pkl
