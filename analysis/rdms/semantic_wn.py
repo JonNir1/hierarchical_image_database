@@ -152,12 +152,28 @@ def load_or_build_classifications() -> pd.DataFrame:
     Return the ImageNet classification DataFrame, building and caching it if
     analysis/rdms/imagenet_classifications.csv does not yet exist.
 
+    On load, validates row count and curated_path order against the current
+    manifest; raises RuntimeError if either is inconsistent (e.g. stale CSV
+    from a different manifest version).
+
     Columns: curated_path, imagenet_class_idx, imagenet_wnid,
              imagenet_class_name, wordnet_synset_name
     """
     if CLASSIFICATIONS_PATH.exists():
         print(f"[semantic_wn] Loading classification cache from {CLASSIFICATIONS_PATH}")
-        return pd.read_csv(CLASSIFICATIONS_PATH)
+        clf = pd.read_csv(CLASSIFICATIONS_PATH)
+        manifest = load_manifest()
+        if len(clf) != len(manifest):
+            raise RuntimeError(
+                f"Classification cache has {len(clf)} rows, expected {len(manifest)}. "
+                f"Delete {CLASSIFICATIONS_PATH} and re-run to rebuild."
+            )
+        if clf["curated_path"].tolist() != manifest["curated_path"].tolist():
+            raise RuntimeError(
+                f"Classification cache image order does not match current manifest. "
+                f"Delete {CLASSIFICATIONS_PATH} and re-run to rebuild."
+            )
+        return clf
     return _build_classifications_cache()
 
 
