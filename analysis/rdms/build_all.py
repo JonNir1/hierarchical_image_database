@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import sys
+import traceback
 
 # name -> (module, function, positional_args)
 _BUILDERS: dict[str, tuple[str, str, list]] = {
@@ -67,17 +69,29 @@ def main() -> None:
         targets = [t for t in targets if t not in args.skip]
 
     print(f"Targets: {targets}\n")
+    failures: list[str] = []
     for name in targets:
         module_name, func_name, func_args = _BUILDERS[name]
         print(f"{'=' * 50}")
         print(f"Building: {name}")
         print(f"{'=' * 50}")
-        mod = importlib.import_module(module_name)
-        func = getattr(mod, func_name)
-        func(*func_args)
-        print()
+        try:
+            mod = importlib.import_module(module_name)
+            func = getattr(mod, func_name)
+            func(*func_args)
+            print(f"  OK: {name}\n")
+        except Exception as exc:  # noqa: BLE001 — intentional: CLI must survive any builder error
+            print(f"  FAILED: {name}: {exc}")
+            traceback.print_exc()
+            failures.append(name)
+            print()
 
-    print("Done.")
+    print(f"{'=' * 50}")
+    if failures:
+        print(f"FAILED ({len(failures)}/{len(targets)}): {', '.join(failures)}")
+        sys.exit(1)
+    else:
+        print(f"All {len(targets)} builder(s) completed successfully.")
 
 
 if __name__ == "__main__":
