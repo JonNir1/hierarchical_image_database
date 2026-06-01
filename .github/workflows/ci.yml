@@ -75,6 +75,27 @@ jobs:
       - name: Run pytest
         run: pytest SpAM_Task/__tests__/ -v
 
+  python-analysis-tests:
+    name: Python analysis/rdms tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        # Only the subset needed by common.py and its tests;
+        # heavy deps (torch, open_clip, nltk) are not required here.
+        run: pip install pytest numpy scipy pandas Pillow
+
+      - name: Run pytest
+        run: pytest analysis/rdms/__tests__/ -v
+
   js-tests:
     name: JS SpAM-task tests
     runs-on: ubuntu-latest
