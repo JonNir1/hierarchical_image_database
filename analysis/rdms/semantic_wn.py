@@ -63,7 +63,7 @@ _WN_FALLBACK_DIST = 30.0
 
 
 def _load_class_index() -> dict[str, list[str]]:
-    """Load imagenet_class_index.json, downloading to analysis/results/ if absent."""
+    """Load imagenet_class_index.json, downloading to analysis/rdms/ if absent."""
     if not _CLASS_INDEX_CACHE.exists():
         _CLASS_INDEX_CACHE.parent.mkdir(parents=True, exist_ok=True)
         print(f"[semantic_wn] Downloading imagenet_class_index.json ...")
