@@ -239,10 +239,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         </p>
 
         <h3>Participation and Compensation</h3>
-        <p>Your participation is voluntary. You may stop at any time by returning your
-           Prolific submission; this will not affect your Prolific account in any way.<br>
-           You will receive payment from Prolific for your time. Otherwise, the experiment 
-           will not benefit you personally, but we expect the results to improve our 
+        <p>Your participation is voluntary. You may stop at any time by returning to the
+           Prolific dashboard and clicking <strong>"Stop without completing"</strong> — this
+           will not affect your Prolific account in any way.<br>
+           You will receive payment from Prolific for your time. Otherwise, the experiment
+           will not benefit you personally, but we expect the results to improve our
            understanding of human cognitive and neural function.
         </p>
       </div>`,
@@ -290,7 +291,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           <li>You are 18 years of age or older.</li>
           <li>You have read and understood the participant information on the previous page.</li>
           <li>You understand that your participation is voluntary and you may withdraw at
-              any time without penalty by returning your submission on Prolific.</li>
+              any time without penalty by returning to the Prolific dashboard and clicking
+              <strong>"Stop without completing"</strong>.</li>
           <li>You agree to participate in this study in exchange for Prolific payment.</li>
         </ul>
       </div>`,
@@ -351,8 +353,49 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Post-practice transition ---
   timeline.push({
     type:     jsPsychHtmlButtonResponse,
-    stimulus: '<p>Practice complete. The real trials begin now.</p>' +
-              '<p>Remember: close together = similar, far apart = different.</p>',
+    stimulus: '<p>Practice complete. Next you will see an example of a different kind of trial.</p>' +
+              '<p>Remember: close together = <strong>visually similar</strong>, far apart = <strong>visually different</strong>.</p>',
+    choices:  ['Continue'],
+  });
+
+  // --- Example catch trial ---
+  // Shows participants what a catch trial looks like before the real trials start.
+  // Always directs to "bottom right corner". Uses catch images; not recorded in data.
+  const catchExampleImages = catchUrls.slice(0, config.catch_trials.images_per_trial);
+  timeline.push({
+    type:    jsPsychPreload,
+    images:  catchExampleImages,
+    message: '<p>Loading images…</p>',
+    show_progress_bar: true,
+    continue_after_error: true,
+  });
+  timeline.push({
+    type:             jsPsychFreeSort,
+    stimuli:          catchExampleImages,
+    sort_area_width:  sortW,
+    sort_area_height: sortH,
+    stim_width:        stimSize,
+    stim_height:       stimSize,
+    sort_area_shape:      pluginShape,
+    stim_starts_inside:   config.display.stim_starts_inside,
+    column_spread_factor: config.display.column_spread_factor,
+    prompt: '<p style="font-size:0.9em;"><strong>EXAMPLE — not recorded.</strong><br>' +
+            '<strong>Your task:</strong> Place all images in the ' +
+            '<strong>bottom right corner</strong> of the screen.</p>',
+    counter_text_unfinished:  '',
+    counter_text_finished:    '',
+    on_finish(data) {
+      data.trial_type = 'practice_catch';
+    },
+  });
+
+  // --- Post-catch-example transition ---
+  timeline.push({
+    type:     jsPsychHtmlButtonResponse,
+    stimulus: '<p>Good. Occasionally during the experiment you will see trials like that one — ' +
+              'read the instruction carefully, as the task will differ from the main trials.</p>' +
+              '<p>The real trials begin now. Remember: close together = <strong>visually similar</strong>, ' +
+              'far apart = <strong>visually different</strong>.</p>',
     choices:  ['Begin'],
   });
 
@@ -379,8 +422,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const header_text = trial.type === 'catch'
         ? '<p style="font-size:0.9em;"><strong>Your task:</strong> Place all images in the ' +
           '<strong>' + trial.target_location + '</strong> of the screen.</p>'
-        : '<p style="font-size:0.9em;"><strong>Your task:</strong> Arrange the images by visual similarity. ' +
-          'Close together = similar &nbsp;|&nbsp; Far apart = different.</p>';
+        : '<p style="font-size:0.9em;"><strong>Your task:</strong> Arrange the images by <strong>visual</strong> similarity. ' +
+          'Close together = <strong>visually similar</strong> &nbsp;|&nbsp; Far apart = <strong>visually different</strong>.</p>';
     timeline.push({
       type:             jsPsychFreeSort,
       stimuli:          trial.images,
