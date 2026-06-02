@@ -136,7 +136,7 @@ def _git_sha() -> str:
             capture_output=True, text=True, cwd=REPO_ROOT,
         )
         return result.stdout.strip() or "unknown"
-    except Exception:
+    except (FileNotFoundError, OSError, subprocess.SubprocessError):
         return "unknown"
 
 
@@ -233,7 +233,7 @@ def load_rdm(name: str) -> np.ndarray:
         if r.get("name") == name:
             stored = r.get("order_hash")
             current = order_hash()
-            if stored and stored != current:
+            if stored is not None and stored != current:
                 raise RuntimeError(
                     f"Manifest order hash mismatch for RDM '{name}': "
                     f"stored={stored!r}, current={current!r}. "
