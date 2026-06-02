@@ -66,10 +66,10 @@ def build_km_rdm() -> np.ndarray:
     max_depth = int(depths.max())
     print(f"[semantic_km] Building LCA matrix for {n} images (max depth {max_depth}) ...")
 
-    # Build LCA matrix in O(n * max_depth):
-    # For each level l, images sharing the same path prefix of length l have
-    # LCA >= l. Overwriting with increasing l leaves each cell at the deepest
-    # common level — which is exactly the LCA depth.
+    # Build LCA matrix: for each level l, images sharing the same path prefix
+    # of length l have LCA >= l. Overwriting with increasing l leaves each cell
+    # at the deepest common level — exactly the LCA depth.
+    # Cost: O(g²) per group per level; worst-case O(n² × max_depth).
     lca_matrix = np.zeros((n, n), dtype=np.float64)
     for level in tqdm(range(1, max_depth + 1), desc="lca levels"):
         groups: dict[tuple[str, ...], list[int]] = {}

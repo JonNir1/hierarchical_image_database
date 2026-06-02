@@ -37,7 +37,7 @@ from nltk.corpus import wordnet as wn
 from nltk.corpus.reader.wordnet import WordNetError
 from tqdm import tqdm
 
-from analysis.rdms.common import RESULTS_DIR, image_paths, open_as_rgb_pil, load_manifest, save_rdm
+from analysis.rdms.common import image_paths, open_as_rgb_pil, load_manifest, save_rdm
 
 # ---------------------------------------------------------------------------
 # Paths
