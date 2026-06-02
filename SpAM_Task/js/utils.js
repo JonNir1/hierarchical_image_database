@@ -364,27 +364,32 @@ function _targetPoint(targetLocation, sortAreaWidth, sortAreaHeight) {
 }
 
 /**
- * Check whether an image cluster's centroid is close enough to the target location.
+ * Check whether EVERY image in a catch trial is within tolerance of the target
+ * location. Used for both the real-time blocking check (on_load) and the
+ * post-trial QC flag (on_finish), so both use identical criteria.
  *
- * Proximity is measured as the Euclidean distance between the centroid and the
- * target point, normalised by the sort-area diagonal — the same normalisation
- * used for pairwise distances — so the tolerance is resolution-independent.
+ * Proximity for each image is the Euclidean distance from the image position
+ * to the target point, normalised by the sort-area diagonal — same
+ * normalisation as pairwise distances — so tolerance is resolution-independent.
  *
- * @param {{x: number, y: number}} centroid  - Output of computeCentroid
- * @param {string}  targetLocation           - One of the CATCH_LOCATIONS strings
+ * @param {Array<{src: string, x: number, y: number}>} locations
+ * @param {string}  targetLocation - One of the CATCH_LOCATIONS strings
  * @param {number}  sortAreaWidth
  * @param {number}  sortAreaHeight
- * @param {number}  tolerance               - Max normalised distance (e.g. 0.20)
- * @returns {boolean}
+ * @param {number}  tolerance - Max normalised per-image distance (e.g. 0.25)
+ * @returns {boolean} true iff every image is within tolerance of the target point
  */
-function isCentroidNearTarget(centroid, targetLocation, sortAreaWidth, sortAreaHeight, tolerance) {
+function allImagesNearTarget(locations, targetLocation, sortAreaWidth, sortAreaHeight, tolerance) {
+    if (locations.length === 0) return false;
     const target   = _targetPoint(targetLocation, sortAreaWidth, sortAreaHeight);
     const diagonal = Math.sqrt(sortAreaWidth * sortAreaWidth + sortAreaHeight * sortAreaHeight);
-    const dist     = Math.sqrt(
-        (centroid.x - target.x) ** 2 +
-        (centroid.y - target.y) ** 2
-    ) / diagonal;
-    return dist <= tolerance;
+    return locations.every(loc => {
+        const dist = Math.sqrt(
+            (loc.x - target.x) ** 2 +
+            (loc.y - target.y) ** 2
+        ) / diagonal;
+        return dist <= tolerance;
+    });
 }
 
 /**

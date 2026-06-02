@@ -126,7 +126,7 @@ is substantially smaller or larger, adjust accordingly.
 | `quality_control.min_pairwise_distance_sd` | 0.04 | Main trials where all images are piled in one spot are flagged |
 | `catch_trials.cluster_max_mean` | 0.15 | Catch trial: images must be clustered (low mean distance) |
 | `catch_trials.cluster_max_sd` | 0.10 | Catch trial: cluster must be tight (low SD) |
-| `catch_trials.location_tolerance` | 0.20 | Catch trial: cluster centre must be near the instructed region |
+| `catch_trials.location_tolerance` | 0.25 | Catch trial: every individual image must be within this normalised distance of the target region |
 
 A participant is excluded in post-processing if more than 30% of their trials are flagged.
 You can leave these at their defaults for a pilot run and revisit after inspecting the data.
@@ -271,7 +271,7 @@ exception un-ignores it). Verify `index.html` is at the project root on Pavlovia
 
 **Catch trial QC flags everyone**
 : The catch-trial tolerance parameters may be too strict for your screen-size range. Try
-increasing `catch_location_tolerance` (e.g. 0.25) and `catch_cluster_max_mean` (e.g. 0.20),
+increasing `catch_location_tolerance` (e.g. 0.30) and `catch_cluster_max_mean` (e.g. 0.20),
 then re-run a pilot.
 
 **Participant sees the same images as a previous participant**

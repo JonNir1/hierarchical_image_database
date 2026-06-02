@@ -29,7 +29,7 @@ SpAM_Task/
   js/
     utils.js                ← computeLayout, hashString, seededShuffle,
                               computePairwiseDistances, computeCentroid,
-                              isCentroidNearTarget, _targetPoint, computeSD
+                              allImagesNearTarget, _targetPoint, computeSD
     trial_generator.js      ← buildTrialLists, buildCatchTrial, insertCatchTrials, CATCH_LOCATIONS
     task.js                 ← jsPsych timeline construction, saveData, Pavlovia integration
   jspsych/                      ← local copies of jsPsych core + plugins + seedrandom:
@@ -135,13 +135,11 @@ flagged.
 **Quality control â€” catch trials**: A catch trial is flagged if ANY of the following hold:
 - `mean(normalised pairwise distances) > catch_cluster_max_mean` â€” images not clustered tightly
 - `SD(normalised pairwise distances) > catch_cluster_max_sd` â€” cluster too spread
-- Centroid of placed images is farther than `catch_location_tolerance` (normalised) from the
-  target point â€” images placed in wrong region
+- Every individual image must be within `catch_location_tolerance` (normalised) of the
+  target point — if any single image is too far away, the trial is flagged
 - `rt < min_trial_rt_ms` â€” too fast
 
-`isCentroidNearTarget` computes the Euclidean distance between the image cluster centroid and
-the target corner/centre point, normalised by the sort-area diagonal â€” same normalisation used
-for pairwise distances.
+`allImagesNearTarget` checks every individual image: each must be within `tolerance` (normalised diagonal distance) of the target corner/centre point. This function is used identically by the real-time blocking check (`on_load`) and the post-trial QC flag (`on_finish`), keeping both criteria in sync.
 
 **Pavlovia saving**: On Pavlovia, the `jsPsychPavlovia` plugin (`jspsych-7-pavlovia-2022.1.1.js`)
 handles data upload; the `finish` command node is appended to the timeline and calls
@@ -160,9 +158,9 @@ handles data upload; the `finish` command node is appended to the timeline and c
 | `hashString` | `(str) ←’ number` | djb2 hash ←’ positive 32-bit int; seeds the RNG from PROLIFIC_PID |
 | `seededShuffle` | `(array, rng) ←’ array` | Fisher-Yates shuffle; non-mutating; accepts a seeded RNG function |
 | `computePairwiseDistances` | `(locations, sortW, sortH) ←’ [{src1, src2, distance}]` | All C(k,2) normalised Euclidean distances from `final_locations` |
-| `computeCentroid` | `(locations) ←’ {x, y}` | Mean (x, y) of placed images; used for catch-trial location check |
+| `computeCentroid` | `(locations) ←’ {x, y}` | Mean (x, y) of placed images; used to log centroid position in trial data |
 | `_targetPoint` | `(targetLocation, sortW, sortH) ←’ {x, y}` | Maps a CATCH_LOCATIONS string to an absolute pixel coordinate (15% from edge for corners) |
-| `isCentroidNearTarget` | `(centroid, targetLocation, sortW, sortH, tolerance) ←’ boolean` | True if centroid is within `tolerance` (normalised) of the target point |
+| `allImagesNearTarget` | `(locations, targetLocation, sortW, sortH, tolerance) ←’ boolean` | True iff every image is within `tolerance` (normalised diagonal) of the target point; used for catch-trial blocking and QC |
 | `computeSD` | `(values) ←’ number` | Sample SD (denominator nâˆ’1); returns 0 for < 2 values |
 
 ### `trial_generator.js`
@@ -262,7 +260,7 @@ browser and `generate_manifest.py` resolve them identically.
 | `images_per_trial` | 10 | Images shown per catch trial |
 | `cluster_max_mean` | 0.15 | Max mean normalised distance for catch trial to pass (cluster tightness) |
 | `cluster_max_sd` | 0.10 | Max SD of normalised distances for catch trial to pass |
-| `location_tolerance` | 0.20 | Max normalised centroidâ€“target distance for catch trial to pass |
+| `location_tolerance` | 0.25 | Max normalised per-image distance to target for catch trial to pass |
 
 ### `display`
 | Key | Default | Description |

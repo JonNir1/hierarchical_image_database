@@ -154,9 +154,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         x:   parseInt(el.style.left, 10),
         y:   parseInt(el.style.top,  10),
       }));
-      const centroid  = computeCentroid(locations);
-      const compliant = isCentroidNearTarget(
-        centroid, targetLocation, sortW, sortH,
+      const compliant = allImagesNearTarget(
+        locations, targetLocation, sortW, sortH,
         config.catch_trials.location_tolerance,
       );
       btn.disabled        = !compliant;
@@ -502,8 +501,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           // computeCentroid and isCentroidNearTarget added with new catch design.
           const centroid   = computeCentroid(data.final_locations);
           const clusterMean = distances.reduce((a, b) => a + b, 0) / (distances.length || 1);
-          const locationOk = isCentroidNearTarget(
-            centroid, trial.target_location,
+          const locationOk = allImagesNearTarget(
+            data.final_locations, trial.target_location,
             sortW, sortH,
             config.catch_trials.location_tolerance,
           );
