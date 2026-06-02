@@ -128,6 +128,46 @@ document.addEventListener('DOMContentLoaded', async () => {
   const pluginShape = config.display.sort_area_shape === 'ellipse' ? 'ellipse' : 'square';
 
   // ---------------------------------------------------------------------------
+  // Catch-trial compliance blocking
+  //   Polls image positions every 250 ms.  While the cluster centroid is not
+  //   near targetLocation the "Done" button is disabled and a warning is shown.
+  //   Called from on_load for both the example and the real catch trials.
+  // ---------------------------------------------------------------------------
+  function attachCatchCompliance(displayEl, targetLocation) {
+    const btn = displayEl.querySelector('#jspsych-free-sort-done-btn');
+    if (!btn) return () => {};
+
+    // Warning element injected immediately below the button.
+    const warning = document.createElement('p');
+    warning.id = 'catch-compliance-warning';
+    warning.style.cssText = 'color:#e05; font-size:0.85em; margin:4px 0 0; min-height:1.2em;';
+    btn.insertAdjacentElement('afterend', warning);
+
+    function check() {
+      const items = displayEl.querySelectorAll('.jspsych-free-sort-draggable');
+      if (!items.length) return;
+      const locations = Array.from(items).map(el => ({
+        src: el.dataset.src,
+        x:   parseInt(el.style.left, 10),
+        y:   parseInt(el.style.top,  10),
+      }));
+      const centroid  = computeCentroid(locations);
+      const compliant = isCentroidNearTarget(
+        centroid, targetLocation, sortW, sortH,
+        config.catch_trials.location_tolerance,
+      );
+      btn.disabled        = !compliant;
+      warning.textContent = compliant
+        ? ''
+        : 'Please follow the trial instructions before continuing.';
+    }
+
+    const timer = setInterval(check, 250);
+    check(); // immediate check so the button is blocked from the first visible frame
+    return () => clearInterval(timer);
+  }
+
+  // ---------------------------------------------------------------------------
   // 6. Trial lists
   //    buildTrialLists expects rng as a function (not a seed integer).
   //    rng must not be called between here and buildTrialLists — any prior call
@@ -240,8 +280,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         <h3>Participation and Compensation</h3>
         <p>Your participation is voluntary. You may stop at any time by returning to the
-           Prolific dashboard and clicking <strong>"Stop without completing"</strong> — this
-           will not affect your Prolific account in any way.<br>
+           Prolific dashboard and clicking <strong>"Stop without completing"</strong> &ndash;
+           this will not affect your Prolific account in any way.<br>
            You will receive payment from Prolific for your time. Otherwise, the experiment
            will not benefit you personally, but we expect the results to improve our
            understanding of human cognitive and neural function.
@@ -272,7 +312,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         <h3>Contact</h3>
         <p>For any questions, please contact:<br>
            Researcher: <a href="mailto:${c.researcher_email}" style="color:#0000FF;">${c.researcher_name}</a><br>
-           Principal Investigator: <a href="mailto:${c.pi_email}" style="color:#0000FF;">${c.pi_name}</a><br>
+           Principal Investigator: <a href="mailto:${c.pi_email}" style="color:#0000FF;">Prof. ${c.pi_name}</a><br>
            ${c.lab_name}, ${c.institution}<br>
            Tel: ${c.lab_phone}
         </p>
@@ -311,12 +351,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           <li><strong>Similar-looking</strong> images → place them <strong>close together</strong>.</li>
           <li><strong>Different-looking</strong> images → place them <strong>far apart</strong>.</li>
         </ul>
-        <p>There are no right or wrong answers — go with your first impression.</p>
-        <p>You will first do a short <strong>practice trial</strong>,
+        <p>There are no right or wrong answers &ndash; go with your first impression.</p>
+        <p>You will first do two short <strong>practice trials</strong>,
            then ${allTrials.length} real trials.</p>
         <p>Please work in <strong>fullscreen</strong>. Do not use the back button.</p>
         <p><strong>Important:</strong> Read the instruction at the top of every trial
-           carefully — the task may vary from trial to trial.</p>
+           carefully &ndash; the task may vary from trial to trial.</p>
       </div>`,
     choices: ['Start practice'],
   });
@@ -329,7 +369,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     button_label:   'Continue',
   });
 
-  // --- Practice trial ---
+  // --- Practice Experimental Trial ---
+  // Shows participants what an experimental trial looks like before the real trials start.
   timeline.push({
     type:            jsPsychFreeSort,
     stimuli:         practiceUrls.slice(0, config.design.practice_images_per_trial),
@@ -341,8 +382,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     stim_starts_inside:   config.display.stim_starts_inside,
     column_spread_factor: config.display.column_spread_factor,
     prompt: '<p style="font-size:0.9em;"><strong>Your task:</strong> Arrange these images by their ' +
-        '<strong>visual similarity.</strong><br>' +
-        'PRACTICE — this trial will <strong>not</strong> be recorded.</p>',
+        '<strong>visual similarity.</strong><br><br>' +
+        'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
     counter_text_unfinished:  '',
     counter_text_finished:    '',
     on_finish(data) {
@@ -350,28 +391,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     },
   });
 
-  // --- Post-practice transition ---
+  // --- Pre Catch-Practice Transition ---
   timeline.push({
     type:     jsPsychHtmlButtonResponse,
-    stimulus: '<p>Practice complete. Next you will see an example of a different kind of trial.</p>' +
-              '<p>Remember: close together = <strong>visually similar</strong>, far apart = <strong>visually different</strong>.</p>',
+    stimulus: '<p>Very Good!</p>' +
+              '<p>Most trials in the experiment will be similar to the one you have just seen.<br>' +
+              'However, occasionally you will see trials with unique instructions.<br>' +
+              'Read the instructions carefully, and perform the task according to them.</p>' +
+              '<p>Click on the button to see an example of a unique trial.</p>',
     choices:  ['Continue'],
   });
 
-  // --- Example catch trial ---
+  // --- Practice Catch Trial ---
   // Shows participants what a catch trial looks like before the real trials start.
-  // Always directs to "bottom right corner". Uses catch images; not recorded in data.
-  const catchExampleImages = catchUrls.slice(0, config.catch_trials.images_per_trial);
-  timeline.push({
-    type:    jsPsychPreload,
-    images:  catchExampleImages,
-    message: '<p>Loading images…</p>',
-    show_progress_bar: true,
-    continue_after_error: true,
-  });
+  // Always directs to "bottom right corner".
   timeline.push({
     type:             jsPsychFreeSort,
-    stimuli:          catchExampleImages,
+    stimuli:          catchUrls.slice(0, config.catch_trials.images_per_trial),
     sort_area_width:  sortW,
     sort_area_height: sortH,
     stim_width:        stimSize,
@@ -379,24 +415,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     sort_area_shape:      pluginShape,
     stim_starts_inside:   config.display.stim_starts_inside,
     column_spread_factor: config.display.column_spread_factor,
-    prompt: '<p style="font-size:0.9em;"><strong>EXAMPLE — not recorded.</strong><br>' +
-            '<strong>Your task:</strong> Place all images in the ' +
-            '<strong>bottom right corner</strong> of the screen.</p>',
+    prompt: '<p style="font-size:0.9em;"><strong>Your task:</strong> Place all images in the ' +
+            '<strong>bottom right corner</strong> of the screen.<br><br>' +
+            'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
     counter_text_unfinished:  '',
     counter_text_finished:    '',
+    on_load(displayEl) {
+      attachCatchCompliance(displayEl, 'bottom right corner');
+    },
     on_finish(data) {
       data.trial_type = 'practice_catch';
     },
   });
 
-  // --- Post-catch-example transition ---
+  // --- Post-practice transition ---
   timeline.push({
     type:     jsPsychHtmlButtonResponse,
-    stimulus: '<p>Good. Occasionally during the experiment you will see trials like that one — ' +
-              'read the instruction carefully, as the task will differ from the main trials.</p>' +
-              '<p>The real trials begin now. Remember: close together = <strong>visually similar</strong>, ' +
-              'far apart = <strong>visually different</strong>.</p>',
-    choices:  ['Begin'],
+    stimulus: '<p>Practice complete. The real experiment begins now.</p>' +
+              '<p>Remember: close together = <strong>visually similar</strong>, far apart = <strong>visually different</strong>.</p>',
+    choices:  ['Continue'],
   });
 
   // --- Main + catch trials ---
@@ -437,6 +474,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       prompt:                   header_text,
       counter_text_unfinished:  '',
       counter_text_finished:    '',
+      on_load: trial.type === 'catch'
+        ? function (displayEl) { attachCatchCompliance(displayEl, trial.target_location); }
+        : undefined,
       on_finish(data) {
         // QC metrics
         const pairs = computePairwiseDistances(
