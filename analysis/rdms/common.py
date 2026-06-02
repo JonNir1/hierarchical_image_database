@@ -89,11 +89,15 @@ def open_as_rgb_pil(path: Path) -> Image.Image:
     Open an image file, composite any alpha channel over white, and return a
     PIL RGB image.
 
-    Handles all PIL modes (RGB, RGBA, L, LA, P, PA, …) by converting to RGBA
-    first, which correctly applies palette lookups and transparency regardless
-    of the source mode.
+    Plain RGB images are returned directly (no conversion overhead).
+    All other modes (RGBA, L, LA, P, PA, …) are converted to RGBA first,
+    which correctly applies palette lookups and transparency, then
+    composited over a white background.
     """
-    img = Image.open(path).convert("RGBA")
+    img = Image.open(path)
+    if img.mode == "RGB":
+        return img
+    img = img.convert("RGBA")
     bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
     bg.paste(img, mask=img.split()[3])
     return bg.convert("RGB")

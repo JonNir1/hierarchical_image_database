@@ -33,12 +33,11 @@ import numpy as np
 import pandas as pd
 import torch
 from torchvision.models import resnet50, ResNet50_Weights
-from PIL import Image as PILImage
 from nltk.corpus import wordnet as wn
 from nltk.corpus.reader.wordnet import WordNetError
 from tqdm import tqdm
 
-from analysis.rdms.common import RESULTS_DIR, image_paths, load_image_rgb, load_manifest, save_rdm
+from analysis.rdms.common import RESULTS_DIR, image_paths, open_as_rgb_pil, load_manifest, save_rdm
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -98,8 +97,7 @@ def _classify_images(paths: list[Path]) -> list[int]:
 
     indices: list[int] = []
     for p in tqdm(paths, desc="ResNet50"):
-        img_pil = PILImage.fromarray(load_image_rgb(p))
-        tensor = transform(img_pil).unsqueeze(0).to(device)
+        tensor = transform(open_as_rgb_pil(p)).unsqueeze(0).to(device)
         with torch.no_grad():
             logits = model(tensor)
         indices.append(int(logits.argmax(dim=1).item()))

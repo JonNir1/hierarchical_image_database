@@ -49,9 +49,11 @@ def build_km_rdm() -> np.ndarray:
     """
     Build the Kiani-Mur tree-edge-distance RDM.
 
-    LCA matrix is built in O(n * max_depth) time by iterating directory
-    levels and grouping images that share a common prefix at each level.
-    Distance is then computed via np.add.outer (vectorised).
+    LCA matrix is built by iterating directory levels and grouping images
+    that share a common prefix at each level. Per-level cost is O(g²) for
+    a group of size g; worst case is O(n² × max_depth) but typical
+    hierarchical data is much cheaper. Distance is then computed via
+    np.add.outer (vectorised).
 
     Returns
     -------

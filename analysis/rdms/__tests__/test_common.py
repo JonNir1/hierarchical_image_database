@@ -323,12 +323,17 @@ def test_build_km_rdm_same_leaf_distance_1(patched_km):
 
 
 def test_build_km_rdm_cross_top_level(patched_km):
-    """animate vs inanimate pair has larger distance than within-animate pair."""
+    """animate vs inanimate pair has larger distance than within-animate same-leaf pair.
+
+    Condensed vector order for 4 images (0=chick1, 1=chick2, 2=fish1, 3=hammer1):
+      index 0 → (0,1) chick1 vs chick2  [same leaf]
+      index 1 → (0,2) chick1 vs fish1   [diff leaf, same top]
+      index 2 → (0,3) chick1 vs hammer1 [cross top-level]  ← this is what we test
+      index 3 → (1,2) chick2 vs fish1   [diff leaf, same top]
+    """
     condensed = km.build_km_rdm()
-    # pair (0,1): same-leaf → 1
-    # pair (0,3): animate vs inanimate → LCA depth 0 → d = 3+3 = 6 → floored at max(1,6) = 6
-    same_leaf = condensed[0]  # chick1 vs chick2
-    cross_top = condensed[3]  # chick1 vs hammer1
+    same_leaf = condensed[0]  # chick1 vs chick2  → distance 1
+    cross_top = condensed[2]  # chick1 vs hammer1 → animate vs inanimate
     assert cross_top > same_leaf
 
 
