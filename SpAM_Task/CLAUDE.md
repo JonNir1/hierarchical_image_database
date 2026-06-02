@@ -260,7 +260,7 @@ browser and `generate_manifest.py` resolve them identically.
 | `images_per_trial` | 10 | Images shown per catch trial |
 | `cluster_max_mean` | 0.15 | Max mean normalised distance for catch trial to pass (cluster tightness) |
 | `cluster_max_sd` | 0.10 | Max SD of normalised distances for catch trial to pass |
-| `location_tolerance` | 0.25 | Max normalised per-image distance to target for catch trial to pass |
+| `location_tolerance` | 0.10 | Max normalised per-image distance to target for catch trial to pass |
 
 ### `display`
 | Key | Default | Description |

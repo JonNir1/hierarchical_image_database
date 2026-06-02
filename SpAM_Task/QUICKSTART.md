@@ -126,7 +126,7 @@ is substantially smaller or larger, adjust accordingly.
 | `quality_control.min_pairwise_distance_sd` | 0.04 | Main trials where all images are piled in one spot are flagged |
 | `catch_trials.cluster_max_mean` | 0.15 | Catch trial: images must be clustered (low mean distance) |
 | `catch_trials.cluster_max_sd` | 0.10 | Catch trial: cluster must be tight (low SD) |
-| `catch_trials.location_tolerance` | 0.25 | Catch trial: every individual image must be within this normalised distance of the target region |
+| `catch_trials.location_tolerance` | 0.10 | Catch trial: every individual image must be within this normalised distance of the target region |
 
 A participant is excluded in post-processing if more than 30% of their trials are flagged.
 You can leave these at their defaults for a pilot run and revisit after inspecting the data.
