@@ -133,14 +133,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   //   near targetLocation the "Done" button is disabled and a warning is shown.
   //   Called from on_load for both the example and the real catch trials.
   // ---------------------------------------------------------------------------
-  function attachCatchCompliance(displayEl, targetLocation) {
+  // jsPsych 7 calls on_load with no arguments; the display element must be
+  // retrieved via jsPsych.getDisplayElement().
+  function attachCatchCompliance(targetLocation) {
+    const displayEl = jsPsych.getDisplayElement();
     const btn = displayEl.querySelector('#jspsych-free-sort-done-btn');
     if (!btn) return () => {};
 
     // Warning element injected immediately below the button.
     const warning = document.createElement('p');
     warning.id = 'catch-compliance-warning';
-    warning.style.cssText = 'color:#e05; font-size:0.85em; margin:4px 0 0; min-height:1.2em;';
+    warning.style.cssText = 'color:#FFD600; font-size:0.85em; margin:4px 0 0; min-height:1.2em;';
     btn.insertAdjacentElement('afterend', warning);
 
     function check() {
@@ -420,8 +423,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
     counter_text_unfinished:  '',
     counter_text_finished:    '',
-    on_load(displayEl) {
-      attachCatchCompliance(displayEl, 'bottom right corner');
+    on_load() {
+      attachCatchCompliance('bottom right corner');
     },
     on_finish(data) {
       data.trial_type = 'practice_catch';
@@ -475,7 +478,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       counter_text_unfinished:  '',
       counter_text_finished:    '',
       on_load: trial.type === 'catch'
-        ? function (displayEl) { attachCatchCompliance(displayEl, trial.target_location); }
+        ? function () { attachCatchCompliance(trial.target_location); }
         : undefined,
       on_finish(data) {
         // QC metrics
