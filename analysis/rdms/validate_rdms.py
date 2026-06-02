@@ -69,9 +69,15 @@ def check_sens(d: np.ndarray) -> None:
 
 
 def check_sens_correlation(d_pre: np.ndarray, d_post: np.ndarray) -> None:
-    """Pre- and post-SHINE sensory RDMs should be strongly correlated (same objects)."""
+    """Pre- and post-SHINE sensory RDMs should be positively correlated.
+
+    Note: SHINE equalises luminance and spatial frequency energy, so it is
+    expected to substantially reorganise pixel distances. A threshold of 0.5
+    (vs 0.9 for CLIP) reflects this: we just check the correlation is
+    meaningfully positive, not that pixel statistics are preserved.
+    """
     rho = float(spearmanr(d_pre, d_post).statistic)
-    _check(rho > 0.9, f"Spearman rho(sens_pre, sens_post) = {rho:.3f} < 0.9")
+    _check(rho > 0.5, f"Spearman rho(sens_pre, sens_post) = {rho:.3f} < 0.5")
 
 
 def check_sem_km(d: np.ndarray) -> None:
