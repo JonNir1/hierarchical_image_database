@@ -202,18 +202,23 @@ following files and place them in `SpAM_Task/jspsych/`:
 4. Complete the task end-to-end. At the end a CSV file will be downloaded automatically —
    this is your local stand-in for the Pavlovia data save.
 
-5. When you are satisfied, set `"debug": false` before deploying.
+5. When you are satisfied, set `deployment.mode` to `"pilot"` (first real-user run)
+   or `"production"` (full data collection) before deploying.
 
 ---
 
 ## Step 6 — Deploy to Pavlovia
 
-1. **Create a Pavlovia project** at [pavlovia.org](https://pavlovia.org). Push the
-   `pavlovia_deploy` branch to its GitLab remote. The branch ships `index.html` at the
-   project root (Pavlovia's required entry point), `SpAM_Task/` with the task code, and
-   the active variant's images under `images/<variant>_shine/`. Developer-only
-   directories (`SpAM_Simulations/`, `visualize_dataset/`, `analysis/`) are excluded
-   on this branch via the deploy-only `.gitignore` rules.
+1. **Create a Pavlovia project** at [pavlovia.org](https://pavlovia.org) and add it as a
+   git remote named `pavlovia`. Then push the `pavlovia_deploy` branch to it using the
+   deploy script (from the repo root, on `main`):
+   ```bash
+   bash scripts/deploy_pavlovia.sh
+   ```
+   The script rebuilds `pavlovia_deploy` from `main` and pushes it to Pavlovia. The branch
+   ships only `index.html`, `SpAM_Task/`, and `images/` — all other directories are excluded
+   automatically via an include-based `.gitignore` block appended by the script. Run the same
+   script any time you want to sync Pavlovia with `main`.
 
 2. **Activate the experiment**: switch the project status to *Piloting* for testing or
    *Running* for live data collection.
@@ -236,7 +241,8 @@ following files and place them in `SpAM_Task/jspsych/`:
    ```json
    "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=XXXXXXXX"
    ```
-5. Commit and push the updated `task_config.json` to Pavlovia, then re-activate the experiment.
+5. Commit the updated `task_config.json` to `main`, push to GitHub, then run
+   `bash scripts/deploy_pavlovia.sh` to sync Pavlovia. Re-activate the experiment afterwards.
 
 **Recommended pilot**: run 10–15 participants before launching full data collection. Inspect
 the downloaded CSVs for QC flag rates and check that the MDS output shows sensible structure.
