@@ -358,7 +358,7 @@ document.addEventListener('DOMContentLoaded', async () => {
            then ${allTrials.length} real trials.</p>
         <p>Please work in <strong>fullscreen</strong>. Do not use the back button.</p>
         <p><strong>Important:</strong> Read the instruction at the top of every trial
-           carefully &ndash; the task may vary from trial to trial.</p>
+           carefully &ndash; the task may change occasionally.</p>
       </div>`,
     choices: ['Start practice'],
   });
