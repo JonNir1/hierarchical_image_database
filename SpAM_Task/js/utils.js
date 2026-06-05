@@ -59,6 +59,7 @@ function verifyConfig(config) {
             mode:                    'string',
             debug_shine_variant:     'string',
             prolific_completion_url: 'string',
+            prolific_no_consent_url: 'string',
         },
         consent: {
             researcher_name:        'string',

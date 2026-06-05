@@ -44,7 +44,8 @@
   "deployment": {
     "mode": "debug",
     "debug_shine_variant": "pre",
-    "prolific_completion_url": ""
+    "prolific_completion_url": "",
+    "prolific_no_consent_url": ""
   },
 
   "consent": {

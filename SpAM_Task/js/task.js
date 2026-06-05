@@ -338,7 +338,20 @@ document.addEventListener('DOMContentLoaded', async () => {
           <li>You agree to participate in this study in exchange for Prolific payment.</li>
         </ul>
       </div>`,
-    choices: ['I agree to participate'],
+    choices: ['I agree to participate', 'I do not wish to participate'],
+    on_finish(data) {
+      if (data.response === 1) {
+        // Participant declined consent — redirect to Prolific no-consent URL if set,
+        // otherwise show a neutral end screen.
+        if (config.deployment.prolific_no_consent_url) {
+          window.location.href = config.deployment.prolific_no_consent_url;
+        } else {
+          jsPsych.abortExperiment(
+            '<p style="text-align:center;margin-top:20%;">You have chosen not to participate.<br>You may now close this window.</p>'
+          );
+        }
+      }
+    },
   });
 
   // --- Instructions ---
