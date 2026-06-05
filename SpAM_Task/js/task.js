@@ -193,7 +193,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Local only: download a filtered CSV and show the end screen.
     // On Pavlovia, the redirect is handled in the jsPsychPavlovia finish
     // trial's on_finish (below), which fires only after data is uploaded.
-    on_finish() {
+    on_finish: function() {
       if (isPavlovia) return;
       const csv  = jsPsych.data.get()
                      .filterCustom(d => d.trial_type.startsWith('trial_') ||
@@ -315,7 +315,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         </ul>
       </div>`,
     choices: ['I agree to participate', 'I do not wish to participate'],
-    on_finish(data) {
+    on_finish: function(data) {
       if (data.response === 1) {
         // Participant declined consent — redirect to Prolific no-consent URL if set,
         // otherwise show a neutral end screen.
@@ -377,7 +377,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
     counter_text_unfinished:  '',
     counter_text_finished:    '',
-    on_finish(data) {
+    on_finish: function(data) {
       data.trial_type = 'practice';
     },
   });
@@ -414,7 +414,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     on_load() {
       attachCatchCompliance('bottom right corner');
     },
-    on_finish(data) {
+    on_finish: function(data) {
       data.trial_type = 'practice_catch';
     },
   });
@@ -468,7 +468,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       on_load: trial.type === 'catch'
         ? function () { attachCatchCompliance(trial.target_location); }
         : undefined,
-      on_finish(data) {
+      on_finish: function(data) {
         // QC metrics
         const pairs = computePairwiseDistances(
           data.final_locations,
@@ -542,7 +542,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     timeline.push({
       type: jsPsychPavlovia,
       command: 'finish',
-      on_finish() {
+      on_finish: function() {
         document.body.innerHTML = `
           <div style="display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;">
             <div>
