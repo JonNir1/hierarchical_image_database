@@ -42,10 +42,10 @@
   },
 
   "deployment": {
-    "mode": "debug",
+    "mode": "pilot",
     "debug_shine_variant": "pre",
-    "prolific_completion_url": "",
-    "prolific_no_consent_url": ""
+    "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=C12AB9X4",
+    "prolific_no_consent_url": "https://app.prolific.com/submissions/complete?cc=CRP3B455"
   },
 
   "consent": {
