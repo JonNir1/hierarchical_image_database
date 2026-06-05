@@ -189,52 +189,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ---------------------------------------------------------------------------
   const jsPsych = initJsPsych({
     auto_preload: false, // we preload per-trial via jsPsychPreload nodes
-    on_finish:    onFinish,
-  });
 
-  // Session-level fields written to every trial row automatically.
-  // sort_area_width/height give the rectangle boundaries (top-left is always
-  // 0,0 in final_locations coords; bottom-right is sortW, sortH).
-  jsPsych.data.addProperties({
-    participant_id:   PID,
-    shine_variant:    assignedVariant,
-    sort_area_width:  sortW,
-    sort_area_height: sortH,
-  });
-
-  // ---------------------------------------------------------------------------
-  // 8. onFinish / saveData — called by jsPsych.on_finish
-  //    On Pavlovia: the jsPsychPavlovia finish node (in the timeline below)
-  //    handles saving before on_finish fires; nothing to do here except show
-  //    the end screen.
-  //    Locally: download a filtered CSV (practice trials excluded), then show
-  //    the end screen.
-  // ---------------------------------------------------------------------------
-  function showEndScreen() {
-    document.body.innerHTML = `
-      <div style="
-        display: flex; align-items: center; justify-content: center;
-        height: 100vh; text-align: center;
-      ">
-        <div>
-          <p>Press <strong>Esc</strong> to exit full screen.</p>
-          <p>You may now close this window.</p>
-        </div>
-      </div>`;
-  }
-
-  /**
-   * Save experiment data at the end of the session, then show the end screen.
-   *
-   * On Pavlovia: the `jsPsychPavlovia` finish node in the timeline handles upload
-   * before `on_finish` fires, so only the end screen is shown here.
-   *
-   * Locally: filters jsPsych data to main and catch trials (practice excluded),
-   * serialises to CSV, and triggers a browser download via a temporary <a> element.
-   * Filename format: `spam_<PID>_<timestamp>.csv`.
-   */
-  function onFinish() {
-    if (!isPavlovia) {
+    // Local only: download a filtered CSV and show the end screen.
+    // On Pavlovia, the redirect is handled in the jsPsychPavlovia finish
+    // trial's on_finish (below), which fires only after data is uploaded.
+    on_finish() {
+      if (isPavlovia) return;
       const csv  = jsPsych.data.get()
                      .filterCustom(d => d.trial_type.startsWith('trial_') ||
                                         d.trial_type.startsWith('catch_'))
@@ -248,9 +208,25 @@ document.addEventListener('DOMContentLoaded', async () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    }
-    showEndScreen();
-  }
+      document.body.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;">
+          <div>
+            <p>Press <strong>Esc</strong> to exit full screen.</p>
+            <p>You may now close this window.</p>
+          </div>
+        </div>`;
+    },
+  });
+
+  // Session-level fields written to every trial row automatically.
+  // sort_area_width/height give the rectangle boundaries (top-left is always
+  // 0,0 in final_locations coords; bottom-right is sortW, sortH).
+  jsPsych.data.addProperties({
+    participant_id:   PID,
+    shine_variant:    assignedVariant,
+    sort_area_width:  sortW,
+    sort_area_height: sortH,
+  });
 
   // ---------------------------------------------------------------------------
   // 9. Timeline
@@ -559,13 +535,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // --- Pavlovia finish (Pavlovia only) ---
+  // Saves data to Pavlovia. on_finish fires only after the upload completes,
+  // so the redirect is guaranteed to happen after data is safely stored.
   if (isPavlovia) {
+    const completionUrl = config.deployment.prolific_completion_url;
     timeline.push({
-      type:    jsPsychPavlovia,
+      type: jsPsychPavlovia,
       command: 'finish',
-      completedCallback() {
-        if (config.deployment.prolific_completion_url) {
-          window.location.href = config.deployment.prolific_completion_url;
+      on_finish() {
+        document.body.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;">
+            <div>
+              <p>Please wait. You will be redirected back to Prolific in a few moments.</p>
+              <p>If you get a pop-up warning that "data may not be saved", click "Leave" &ndash;
+                 your data has already been saved.</p>
+              ${completionUrl
+                ? `<p>If you are not redirected automatically,
+                     <a href="${completionUrl}">click here</a>.</p>`
+                : ''}
+            </div>
+          </div>`;
+        if (completionUrl) {
+          setTimeout(() => { window.location.href = completionUrl; }, 3000);
         }
       },
     });
