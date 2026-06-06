@@ -49,6 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       '  font-size: '        + disp.font_size          + ';',
       '  line-height: '      + disp.line_height        + ';',
       '}',
+      '@keyframes spam-spin { to { transform: rotate(360deg); } }',
     ].join('\n');
     document.head.appendChild(style);
   }(config.display));
@@ -522,45 +523,54 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  // --- Pavlovia finish (Pavlovia only) ---
+  // Must come BEFORE the debrief so that data is fully saved (upload + session
+  // close) before the participant can click the Prolific redirect button.
+  // on_load injects a spinner while the plugin's async API calls run; the trial
+  // ends automatically when the plugin calls end_trial() — no timeout needed.
+  if (isPavlovia) {
+    timeline.push({
+      type: jsPsychPavlovia,
+      command: 'finish',
+      on_load: function() {
+        jsPsych.getDisplayElement().innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:center;height:100vh;">
+            <div style="text-align:center;">
+              <div style="
+                width: 48px; height: 48px;
+                border: 5px solid rgba(17,17,17,0.2);
+                border-top-color: #111111;
+                border-radius: 50%;
+                animation: spam-spin 0.8s linear infinite;
+                margin: 0 auto 24px;
+              "></div>
+              <p>Saving your responses&hellip;</p>
+              <p style="font-size:0.85em; opacity:0.6;">Please do not close this window.</p>
+            </div>
+          </div>`;
+      },
+    });
+  }
+
   // --- Debrief ---
+  // On Pavlovia: shown after save completes; "Finish" redirects immediately.
+  // Locally: shown last; global on_finish downloads the CSV.
   timeline.push({
     type:     jsPsychHtmlButtonResponse,
     stimulus: `
       <div style="max-width:600px; text-align:center;">
         <h2>Thank you!</h2>
-        <p>You have completed all trials. Your responses are being saved.</p>
+        <p>You have completed all trials and your responses have been saved.</p>
         <p>Click <strong>Finish</strong> to return to Prolific and receive your completion credit.</p>
       </div>`,
     choices: ['Finish'],
+    on_finish: function() {
+      const completionUrl = config.deployment.prolific_completion_url;
+      if (isPavlovia && completionUrl) {
+        window.location.href = completionUrl;
+      }
+    },
   });
-
-  // --- Pavlovia finish (Pavlovia only) ---
-  // Saves data to Pavlovia. on_finish fires only after the upload completes,
-  // so the redirect is guaranteed to happen after data is safely stored.
-  if (isPavlovia) {
-    const completionUrl = config.deployment.prolific_completion_url;
-    timeline.push({
-      type: jsPsychPavlovia,
-      command: 'finish',
-      on_finish: function() {
-        document.body.innerHTML = `
-          <div style="display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;">
-            <div>
-              <p>Please wait. You will be redirected back to Prolific in a few moments.</p>
-              <p>If you get a pop-up warning that "data may not be saved", click "Leave" &ndash;
-                 your data has already been saved.</p>
-              ${completionUrl
-                ? `<p>If you are not redirected automatically,
-                     <a href="${completionUrl}">click here</a>.</p>`
-                : ''}
-            </div>
-          </div>`;
-        if (completionUrl) {
-          setTimeout(() => { window.location.href = completionUrl; }, 3000);
-        }
-      },
-    });
-  }
 
   // ---------------------------------------------------------------------------
   // 10. Run
