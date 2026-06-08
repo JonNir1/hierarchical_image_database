@@ -2,11 +2,17 @@
 WordNet semantic RDM: pairwise WordNet hypernym shortest-path distance.
 
 Pipeline:
-  1. Classify each pre-SHINE image with ImageNet-pretrained ResNet-50 (top-1).
+  1. Classify each pre-SHINE image with ImageNet-pretrained ResNet-50 (top-3).
+     For each image the top-3 predictions are compared against the WordNet
+     concept implied by the image's filename stem, parent directory, and their
+     compound (e.g. ball/tennis.png -> "tennis ball").  The prediction whose
+     synset is closest in the WordNet hierarchy is selected; this corrects
+     systematic ResNet errors such as butterfly images being classified as
+     hair slides.
      Results are cached in analysis/rdms/imagenet_classifications.csv (tracked
      in git) so the forward pass runs only once.
   2. Map ImageNet class index -> WordNet synset via imagenet_class_index.json
-     (downloaded automatically to analysis/results/ on first run).
+     (downloaded automatically to analysis/rdms/ on first run).
   3. Compute pairwise WordNet shortest_path_distance (cached per synset pair).
 
 Variant-agnostic: classification runs on pre-SHINE images only; the resulting
@@ -25,6 +31,7 @@ Usage (from repo root):
 from __future__ import annotations
 
 import json
+import re
 import urllib.request
 from functools import lru_cache
 from pathlib import Path
@@ -83,25 +90,66 @@ def _wn_distance(syn_a, syn_b) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Path-concept helpers (used for top-k selection)
+# ---------------------------------------------------------------------------
+
+def _path_tokens(curated_path: str) -> tuple[str, str]:
+    """Return (filename_stem, parent_dirname) for a manifest curated_path."""
+    p = Path(curated_path.replace("\\", "/"))
+    stem   = re.sub(r'\d+$', '', p.stem).lower()               # e.g. "tennis"
+    parent = p.parts[-2].lower() if len(p.parts) >= 2 else ""  # e.g. "ball"
+    return stem, parent
+
+
+def _candidate_synsets(curated_path: str) -> set:
+    """
+    All noun synsets for the filename stem, parent directory, and their two
+    compound orderings (e.g. "tennis ball" and "ball tennis").
+    """
+    stem, parent = _path_tokens(curated_path)
+    syns: set = set()
+    for w in [stem, parent, f"{parent} {stem}", f"{stem} {parent}"]:
+        w = w.strip()
+        if w:
+            syns.update(wn.synsets(w, pos=wn.NOUN))
+            syns.update(wn.synsets(w.replace(" ", "_"), pos=wn.NOUN))
+    return syns
+
+
+def _dist_to_concept(curated_path: str, syn: "wn.Synset") -> float | None:
+    """
+    Minimum WordNet path distance from any candidate concept synset
+    (stem / dirname / compound) to the given classified synset.
+    Returns None if no candidate concept has a WordNet noun synset.
+    """
+    cands = _candidate_synsets(curated_path)
+    if not cands:
+        return None
+    dists = [d for c in cands if (d := c.shortest_path_distance(syn)) is not None]
+    return min(dists) if dists else None
+
+
+# ---------------------------------------------------------------------------
 # ResNet-50 classifier
 # ---------------------------------------------------------------------------
 
 
-def _classify_images(paths: list[Path]) -> list[int]:
-    """Classify each image with ResNet-50; return list of top-1 class indices."""
+def _classify_images(paths: list[Path], k: int = 3) -> list[list[int]]:
+    """Classify each image with ResNet-50; return top-k class indices per image."""
     weights = ResNet50_Weights.IMAGENET1K_V2
     model = resnet50(weights=weights)
     model.eval()
     transform = weights.transforms()
     device = torch.device("cpu")   # 725 images is fast enough on CPU
 
-    indices: list[int] = []
-    for p in tqdm(paths, desc="ResNet50"):
+    all_indices: list[list[int]] = []
+    for p in tqdm(paths, desc=f"ResNet50 top-{k}"):
         tensor = transform(open_as_rgb_pil(p)).unsqueeze(0).to(device)
         with torch.no_grad():
             logits = model(tensor)
-        indices.append(int(logits.argmax(dim=1).item()))
-    return indices
+        topk = logits.topk(k, dim=1).indices.squeeze(0).tolist()
+        all_indices.append(topk)
+    return all_indices
 
 
 # ---------------------------------------------------------------------------
@@ -111,35 +159,61 @@ def _classify_images(paths: list[Path]) -> list[int]:
 
 def _build_classifications_cache() -> pd.DataFrame:
     """
-    Run ResNet-50 on pre-SHINE images, resolve WordNet synsets, and save to
+    Run ResNet-50 top-3 on pre-SHINE images, select the prediction whose
+    WordNet synset is closest to the filename/dirname concept, and save to
     CLASSIFICATIONS_PATH (analysis/rdms/imagenet_classifications.csv).
+
+    The 'selected_rank' column records which top-k prediction was chosen
+    (1 = top-1 was best, 2 or 3 = a lower-ranked prediction was closer to
+    the image's filename/directory concept).
 
     Returns the resulting DataFrame.
     """
     paths = image_paths("pre_shine")
-    print(f"[semantic_wn] Classifying {len(paths)} pre-SHINE images with ResNet-50 ...")
-    class_indices = _classify_images(paths)
+    print(f"[semantic_wn] Classifying {len(paths)} pre-SHINE images with ResNet-50 top-3 ...")
+    topk_indices = _classify_images(paths, k=3)
 
     class_index = _load_class_index()
-    manifest = load_manifest()[["curated_path"]]
+    manifest    = load_manifest()[["curated_path"]]
 
     records = []
-    for idx in tqdm(class_indices, desc="idx->synset"):
-        wnid, class_name = class_index[str(idx)]
-        try:
-            syn = wn.synset_from_pos_and_offset(wnid[0], int(wnid[1:]))
-            synset_name = syn.name()
-        except WordNetError:
-            synset_name = None
+    for curated_path, topk in tqdm(
+        zip(manifest["curated_path"], topk_indices), total=len(manifest),
+        desc="selecting best prediction"
+    ):
+        best_idx       = topk[0]   # fallback: top-1
+        best_rank      = 1
+        best_dist      = float("inf")
+        best_syn_name: str | None = None
+
+        for rank, idx in enumerate(topk, 1):
+            wnid, _ = class_index[str(idx)]
+            try:
+                syn  = wn.synset_from_pos_and_offset(wnid[0], int(wnid[1:]))
+                dist = _dist_to_concept(curated_path, syn)
+                if dist is not None and dist < best_dist:
+                    best_dist, best_idx, best_rank, best_syn_name = dist, idx, rank, syn.name()
+            except WordNetError:
+                pass
+
+        # If no candidate concept had a WN synset, resolve the chosen top-k synset directly
+        if best_syn_name is None:
+            wnid, _ = class_index[str(best_idx)]
+            try:
+                best_syn_name = wn.synset_from_pos_and_offset(wnid[0], int(wnid[1:])).name()
+            except WordNetError:
+                pass
+
+        wnid_best, class_name_best = class_index[str(best_idx)]
         records.append({
-            "imagenet_class_idx":  idx,
-            "imagenet_wnid":       wnid,
-            "imagenet_class_name": class_name,
-            "wordnet_synset_name": synset_name,
+            "imagenet_class_idx":  best_idx,
+            "imagenet_wnid":       wnid_best,
+            "imagenet_class_name": class_name_best,
+            "wordnet_synset_name": best_syn_name,
+            "selected_rank":       best_rank,
         })
 
-    df = pd.concat([manifest.reset_index(drop=True),
-                    pd.DataFrame(records)], axis=1)
+    df = pd.concat([manifest.reset_index(drop=True), pd.DataFrame(records)], axis=1)
     df.to_csv(CLASSIFICATIONS_PATH, index=False)
     print(f"[semantic_wn] Saved classification cache -> {CLASSIFICATIONS_PATH}")
     return df
@@ -150,12 +224,11 @@ def load_or_build_classifications() -> pd.DataFrame:
     Return the ImageNet classification DataFrame, building and caching it if
     analysis/rdms/imagenet_classifications.csv does not yet exist.
 
-    On load, validates row count and curated_path order against the current
-    manifest; raises RuntimeError if either is inconsistent (e.g. stale CSV
-    from a different manifest version).
+    On load, validates row count, curated_path order, and schema against the
+    current manifest; raises RuntimeError if anything is inconsistent.
 
     Columns: curated_path, imagenet_class_idx, imagenet_wnid,
-             imagenet_class_name, wordnet_synset_name
+             imagenet_class_name, wordnet_synset_name, selected_rank
     """
     if CLASSIFICATIONS_PATH.exists():
         print(f"[semantic_wn] Loading classification cache from {CLASSIFICATIONS_PATH}")
@@ -170,6 +243,11 @@ def load_or_build_classifications() -> pd.DataFrame:
             raise RuntimeError(
                 f"Classification cache image order does not match current manifest. "
                 f"Delete {CLASSIFICATIONS_PATH} and re-run to rebuild."
+            )
+        if "selected_rank" not in clf.columns:
+            raise RuntimeError(
+                f"Classification cache is stale (missing 'selected_rank' column from "
+                f"top-3 re-classification). Delete {CLASSIFICATIONS_PATH} and re-run."
             )
         return clf
     return _build_classifications_cache()
