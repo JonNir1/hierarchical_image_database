@@ -26,6 +26,10 @@ source_datasets/**/Thumbs.db
 # Auerbach-Asch (2023) post-SHINE images, kept only for local reference
 images/__carmel__post_shine/
 
+# Participant data (pilot + full study) — NEVER commit to any remote
+# Contains human subjects data; must remain local only.
+data/
+
 # ignore outputs and docs
 *.pkl
 *.npy
