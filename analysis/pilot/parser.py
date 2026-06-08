@@ -13,6 +13,9 @@ import json
 import warnings
 from pathlib import Path
 
+# analysis/pilot/parser.py → analysis/pilot/ → analysis/ → repo root
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
 import pandas as pd
 
 # ---------------------------------------------------------------------------
@@ -85,6 +88,8 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
         If *data_dir* exists but is not a directory.
     """
     data_dir = Path(data_dir)
+    if not data_dir.is_absolute():
+        data_dir = _REPO_ROOT / data_dir
     if not data_dir.exists():
         raise FileNotFoundError(f"Data directory not found: {data_dir}")
     if not data_dir.is_dir():
