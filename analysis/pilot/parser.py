@@ -206,7 +206,8 @@ def _load_session_trials(session_path: Path, participant: pd.Series) -> pd.DataF
     keep = [c for c in _SESSION_KEEP + ["trial_number", "n_moves"] if c in df.columns]
     df = df[keep].copy()
 
-    # Broadcast participant demographics onto every trial row
+    # Broadcast participant demographics + session filename onto every trial row
+    df["session_file"] = session_path.stem
     demo_cols = {k: participant[k] for k in participant.index if k not in ("prolific_status",)}
     for col, val in demo_cols.items():
         df[col] = val

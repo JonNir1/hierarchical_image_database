@@ -2,7 +2,15 @@
 Open per-subject trial arrangement grids in the browser.
 
 Run from repo root:
+    # all subjects
     .venv/Scripts/python analysis/pilot/show_trial_grids.py
+
+    # single subject -- pass any substring of the session filename
+    .venv/Scripts/python analysis/pilot/show_trial_grids.py 15h45
+    .venv/Scripts/python analysis/pilot/show_trial_grids.py 2026-06-05
+
+    # list available session filenames without opening anything
+    .venv/Scripts/python analysis/pilot/show_trial_grids.py --list
 """
 import sys
 import warnings
@@ -23,7 +31,25 @@ with warnings.catch_warnings(record=True) as _w:
     data = load_pilot_data("data/pilot")
 
 df = data["trials"]
+all_files = sorted(df["session_file"].unique())
 
-for pid, df_subject in df.groupby("participant_id"):
-    print(f"Opening grid for {pid} …")
-    plot_trial_grid(df_subject).show()
+if len(sys.argv) > 1 and sys.argv[1] == "--list":
+    print("Available session files:")
+    for f in all_files:
+        print(" ", f)
+    sys.exit(0)
+
+if len(sys.argv) > 1:
+    query = sys.argv[1]
+    matches = [f for f in all_files if query in f]
+    if not matches:
+        print(f"No session file contains '{query}'.")
+        print("Run with --list to see available filenames.")
+        sys.exit(1)
+    selected = matches
+else:
+    selected = all_files
+
+for session_file in selected:
+    print(f"Opening grid for {session_file} …")
+    plot_trial_grid(df[df["session_file"] == session_file]).show()
