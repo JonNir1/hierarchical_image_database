@@ -66,7 +66,11 @@ def render_trial(
         return Image.new("RGB", (output_width, output_height), _BG_COLOUR)
 
     locs = json.loads(locs_raw)
-    canvas = Image.new("RGB", (output_width, output_height), _BG_COLOUR)
+
+    # Add half-a-thumbnail of padding on every side so images placed at the
+    # canvas edge aren't clipped when centred on their coordinates.
+    pad = thumbnail_px // 2
+    canvas = Image.new("RGB", (output_width + 2 * pad, output_height + 2 * pad), _BG_COLOUR)
 
     for item in locs:
         img_path = _REPO_ROOT / item["src"].lstrip("./")
@@ -77,9 +81,9 @@ def render_trial(
 
         img.thumbnail((thumbnail_px, thumbnail_px), Image.LANCZOS)
 
-        # Map [0, 1] → output pixel coordinates, centred on the image
-        cx = round(item["x"] * output_width)
-        cy = round(item["y"] * output_height)
+        # Map [0, 1] → padded canvas pixel coordinates, centred on the image
+        cx = round(item["x"] * output_width) + pad
+        cy = round(item["y"] * output_height) + pad
         paste_x = cx - img.width // 2
         paste_y = cy - img.height // 2
 
@@ -91,7 +95,7 @@ def render_trial(
 
 def plot_trial_grid(
     df_subject: pd.DataFrame,
-    trials_per_row: int = 3,
+    trials_per_row: int = 2,
     output_width: int = 700,
     output_height: int = 530,
     thumbnail_px: int = 72,
