@@ -384,16 +384,20 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
         sigma_d = float(np.std(all_dists)) if len(all_dists) > 1 else 1.0
 
         abs_diffs = np.abs(np.array(d1) - np.array(d2))
-        # SNR = σ_d / |Δd| per pair (invert NSR so higher = better)
-        snr_vals = (sigma_d / abs_diffs[abs_diffs > 0]).tolist() if sigma_d > 0 else []
-        norm_diffs = snr_vals
+        mean_abs_diff = float(np.mean(abs_diffs))
+        sd_abs_diff = float(np.std(abs_diffs))
+        snr = sigma_d / mean_abs_diff if mean_abs_diff > 0 else np.nan
+        # Asymmetric error bars: propagate ±SD of |Δd| through the division
+        snr_hi = sigma_d / (mean_abs_diff - sd_abs_diff) if mean_abs_diff > sd_abs_diff else np.nan
+        snr_lo = sigma_d / (mean_abs_diff + sd_abs_diff) if (mean_abs_diff + sd_abs_diff) > 0 else np.nan
 
         r, _ = pearsonr(d1, d2)
         records.append({
             "label": subj_short[pid],
             "pid": pid,
-            "norm_mean": float(np.mean(norm_diffs)),
-            "norm_sd": float(np.std(norm_diffs)),
+            "snr": snr,
+            "snr_err_plus": snr_hi - snr if not np.isnan(snr_hi) else 0.0,
+            "snr_err_minus": snr - snr_lo if not np.isnan(snr_lo) else 0.0,
             "r": r,
         })
 
@@ -401,29 +405,30 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
         rows=1, cols=2,
         column_widths=[0.65, 0.35],
         subplot_titles=[
-            "Signal-to-noise ratio (σ_d / |Δd|) per subject",
+            "Signal-to-noise ratio per subject",
             "Within-subject reliability (Pearson r)",
         ],
     )
 
-    # Subplot A: per-subject mean ± SD dots (forest-plot style, no violins)
+    # Subplot A: per-subject SNR dots with asymmetric error bars (forest-plot style)
     for rec in records:
         fig.add_trace(
             go.Scatter(
-                x=[rec["norm_mean"]],
+                x=[rec["snr"]],
                 y=[rec["label"]],
                 mode="markers",
                 marker={"color": "#1a5296", "size": 8},
                 error_x={
                     "type": "data",
-                    "array": [rec["norm_sd"]],
+                    "array": [rec["snr_err_plus"]],
+                    "arrayminus": [rec["snr_err_minus"]],
                     "visible": True,
                     "color": "rgba(26,82,150,0.5)",
                     "thickness": 1.5,
                     "width": 5,
                 },
                 showlegend=False,
-                hovertemplate=f"<b>{rec['pid']}</b><br>σ/|Δd| = %{{x:.3f}}<extra></extra>",
+                hovertemplate=f"<b>{rec['pid']}</b><br>SNR = %{{x:.3f}}<extra></extra>",
             ),
             row=1, col=1,
         )
@@ -468,7 +473,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
     r_pad = max((r_max - r_min) * 0.2, 0.05)
     fig.update_yaxes(range=[r_min - r_pad, r_max + r_pad], row=1, col=2)
 
-    fig.update_xaxes(title_text="SNR (σ_d / |Δd|)", row=1, col=1)
+    fig.update_xaxes(title_text="SNR = σ_d / mean(|Δd|)", row=1, col=1)
     fig.update_yaxes(title_text="Subject", row=1, col=1)
     fig.update_yaxes(title_text="Pearson r", row=1, col=2)
     fig.update_xaxes(showticklabels=False, row=1, col=2)
