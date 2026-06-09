@@ -354,84 +354,122 @@ def fig_duration_vs_moves(df_trials: pd.DataFrame) -> go.Figure:
 
 
 def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
-    subjects = sorted(df_trials["participant_id"].unique())
+    """
+    Subplot A — normalised internal noise per subject:
+        |Δd| / σ_d, where σ_d is the SD of all pairwise distances the subject
+        produced. This is a noise-to-signal ratio: a subject who only uses
+        distances in [0.2, 0.3] (small σ_d) will score much higher than one
+        who spreads distances across [0, 1] for the same raw |Δd|.
 
-    all_abs_diffs: list[float] = []
-    all_subj_labels: list[str] = []
-    pearson_rs: list[float] = []
+    Subplot B — within-subject reliability (Pearson r between d1 and d2 of
+        repeated pairs). Scale-free complement to subplot A.
+    """
+    subjects = sorted(df_trials["participant_id"].unique())
     subj_short = {pid: f"S{i+1:02d}" for i, pid in enumerate(subjects)}
 
+    # Collect per-subject stats
+    records: list[dict] = []
     for pid in subjects:
         df_s = df_trials[df_trials["participant_id"] == pid]
         d1, d2 = _repeated_pair_distances(df_s)
         if len(d1) == 0:
             continue
-        abs_diffs = np.abs(np.array(d1) - np.array(d2)).tolist()
-        all_abs_diffs.extend(abs_diffs)
-        all_subj_labels.extend([subj_short[pid]] * len(abs_diffs))
+
+        # σ_d: SD of all pairwise distances this subject produced
+        all_dists = [
+            dist
+            for pw_json in df_s["pairwise_distances"]
+            for dist in _parse_pairwise(pw_json).values()
+        ]
+        sigma_d = float(np.std(all_dists)) if len(all_dists) > 1 else 1.0
+
+        abs_diffs = np.abs(np.array(d1) - np.array(d2))
+        norm_diffs = (abs_diffs / sigma_d).tolist() if sigma_d > 0 else abs_diffs.tolist()
+
         r, _ = pearsonr(d1, d2)
-        pearson_rs.append(r)
+        records.append({
+            "label": subj_short[pid],
+            "pid": pid,
+            "norm_mean": float(np.mean(norm_diffs)),
+            "norm_sd": float(np.std(norm_diffs)),
+            "r": r,
+        })
 
     fig = make_subplots(
         rows=1, cols=2,
         column_widths=[0.65, 0.35],
-        subplot_titles=["Within-subject |Δd| per pair", "Within-subject reliability (Pearson r)"],
+        subplot_titles=[
+            "Normalised internal noise (|Δd| / σ_d) per subject",
+            "Within-subject reliability (Pearson r)",
+        ],
     )
 
-    # Subplot A: violin (pooled) + scatter per subject
-    fig.add_trace(
-        go.Violin(
-            x=all_abs_diffs,
-            y=all_subj_labels,
-            orientation="h",
-            side="positive",
-            fillcolor="rgba(100,149,237,0.25)",
-            line_color="rgba(100,149,237,0.7)",
-            showlegend=False,
-            points=False,
-            width=0.8,
-            name="|Δd|",
-        ),
-        row=1, col=1,
-    )
-    # Per-subject mean ± SD dots
-    for i, pid in enumerate(subjects):
-        mask = [l == subj_short[pid] for l in all_subj_labels]
-        vals = [v for v, m in zip(all_abs_diffs, mask) if m]
-        if not vals:
-            continue
+    # Subplot A: per-subject mean ± SD dots (forest-plot style, no violins)
+    for rec in records:
         fig.add_trace(
             go.Scatter(
-                x=[float(np.mean(vals))],
-                y=[subj_short[pid]],
+                x=[rec["norm_mean"]],
+                y=[rec["label"]],
                 mode="markers",
-                marker={"color": "#1a5296", "size": 7},
-                error_x={"type": "data", "array": [float(np.std(vals))],
-                         "visible": True, "color": "rgba(26,82,150,0.5)", "thickness": 1.5},
+                marker={"color": "#1a5296", "size": 8},
+                error_x={
+                    "type": "data",
+                    "array": [rec["norm_sd"]],
+                    "visible": True,
+                    "color": "rgba(26,82,150,0.5)",
+                    "thickness": 1.5,
+                    "width": 5,
+                },
                 showlegend=False,
+                hovertemplate=f"<b>{rec['pid']}</b><br>|Δd|/σ = %{{x:.3f}}<extra></extra>",
             ),
             row=1, col=1,
         )
 
-    # Subplot B: box + strip of per-subject Pearson r
+    # Subplot B: box summary + individual dots with PID hover
+    rs = [rec["r"] for rec in records]
+    pids = [rec["pid"] for rec in records]
+    labels = [rec["label"] for rec in records]
+
+    # Box without individual points (we draw those manually for hover control)
     fig.add_trace(
         go.Box(
-            y=pearson_rs,
-            boxpoints="all",
-            jitter=0.4,
-            pointpos=0,
-            marker={"color": "#1a5296", "size": 8},
+            y=rs,
+            boxpoints=False,
+            marker={"color": "#1a5296"},
             line_color="#1a5296",
             fillcolor="rgba(100,149,237,0.25)",
             showlegend=False,
             name="Pearson r",
+            hoverinfo="skip",
+        ),
+        row=1, col=2,
+    )
+    # Individual dots with PID hover (manual x-jitter)
+    rng = np.random.default_rng(42)
+    x_jitter = rng.uniform(-0.15, 0.15, size=len(rs)).tolist()
+    fig.add_trace(
+        go.Scatter(
+            x=x_jitter,
+            y=rs,
+            mode="markers",
+            marker={"color": "#1a5296", "size": 9, "opacity": 0.8},
+            showlegend=False,
+            text=[f"{s} ({p})" for s, p in zip(labels, pids)],
+            hovertemplate="<b>%{text}</b><br>r = %{y:.3f}<extra></extra>",
         ),
         row=1, col=2,
     )
 
-    fig.update_xaxes(title_text="|Δd|", row=1, col=1)
+    # Y-axis range for Pearson r: auto with padding
+    r_min, r_max = min(rs), max(rs)
+    r_pad = max((r_max - r_min) * 0.2, 0.05)
+    fig.update_yaxes(range=[r_min - r_pad, r_max + r_pad], row=1, col=2)
+
+    fig.update_xaxes(title_text="|Δd| / σ_d", row=1, col=1)
     fig.update_yaxes(title_text="Subject", row=1, col=1)
-    fig.update_yaxes(title_text="Pearson r", row=1, col=2, range=[-0.1, 1.05])
+    fig.update_yaxes(title_text="Pearson r", row=1, col=2)
+    fig.update_xaxes(showticklabels=False, row=1, col=2)
     fig.update_layout(
         title="Within-subject variability and reliability of repeated pairs",
         height=500,
