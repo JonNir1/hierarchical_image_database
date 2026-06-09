@@ -182,12 +182,25 @@ def _index_session_files(data_dir: Path) -> dict[str, Path]:
 
 def _load_session_trials(session_path: Path, participant: pd.Series) -> pd.DataFrame:
     df = pd.read_csv(session_path)
+
+    # Read canvas dimensions before filtering (present on every row)
+    canvas_w = int(df["sort_area_width"].iloc[0])
+    canvas_h = int(df["sort_area_height"].iloc[0])
+
     df = df[df["trial_type"].isin(_EXPERIMENTAL_TRIAL_TYPES)].copy()
 
     # Derived columns
     df["trial_number"] = df["trial_type"].str.extract(r"trial_(\d+)").astype(int)
     df["n_moves"] = df["moves"].apply(_count_moves)
     df["rt"] = pd.to_numeric(df["rt"], errors="coerce")
+
+    # Normalise all pixel x/y coordinates to [0, 1] using this session's canvas
+    # size, so coordinates are screen-independent. sort_area is not kept.
+    for col in ("final_locations", "init_locations", "moves"):
+        if col in df.columns:
+            df[col] = df[col].apply(
+                lambda s: _normalise_locations(s, canvas_w, canvas_h)
+            )
 
     # Keep only planned session columns
     keep = [c for c in _SESSION_KEEP + ["trial_number", "n_moves"] if c in df.columns]
@@ -199,6 +212,20 @@ def _load_session_trials(session_path: Path, participant: pd.Series) -> pd.DataF
         df[col] = val
 
     return df.reset_index(drop=True)
+
+
+def _normalise_locations(locs_json: str, canvas_w: int, canvas_h: int) -> str:
+    """Normalise pixel x/y to [0, 1] in a final_locations, init_locations, or moves JSON string."""
+    if pd.isna(locs_json) or locs_json == "":
+        return locs_json
+    try:
+        items = json.loads(locs_json)
+        for item in items:
+            item["x"] = item["x"] / canvas_w
+            item["y"] = item["y"] / canvas_h
+        return json.dumps(items)
+    except (json.JSONDecodeError, TypeError, KeyError):
+        return locs_json
 
 
 def _count_moves(moves_json: str) -> int:
