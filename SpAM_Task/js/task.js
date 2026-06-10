@@ -224,6 +224,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 0,0 in final_locations coords; bottom-right is sortW, sortH).
   jsPsych.data.addProperties({
     participant_id:   PID,
+    task_version:     config.deployment.version,
+    deployment_mode:  mode,
     shine_variant:    assignedVariant,
     sort_area_width:  sortW,
     sort_area_height: sortH,
