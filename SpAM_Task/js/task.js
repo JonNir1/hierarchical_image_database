@@ -333,6 +333,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     },
   });
 
+  // --- Enter fullscreen ---
+  timeline.push({
+    type:           jsPsychFullscreen,
+    fullscreen_mode: true,
+    message:        '<p>The task will now switch to fullscreen mode.</p>',
+    button_label:   'Continue',
+  });
+
   // --- Instructions ---
   timeline.push({
     type:     jsPsychHtmlButtonResponse,
@@ -348,19 +356,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         <p>There are no right or wrong answers &ndash; go with your first impression.</p>
         <p>You will first do two short <strong>practice trials</strong>,
            then ${allTrials.length} real trials.</p>
-        <p>Please work in <strong>fullscreen</strong>. Do not use the back button.</p>
+        <p>Do not use the back button.</p>
         <p><strong>Important:</strong> Read the instruction at the top of every trial
            carefully &ndash; the task may change occasionally.</p>
       </div>`,
     choices: ['Start practice'],
-  });
-
-  // --- Enter fullscreen ---
-  timeline.push({
-    type:           jsPsychFullscreen,
-    fullscreen_mode: true,
-    message:        '<p>The task will now switch to fullscreen mode.</p>',
-    button_label:   'Continue',
   });
 
   // --- Practice Experimental Trial ---
