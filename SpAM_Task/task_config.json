@@ -42,7 +42,7 @@
   },
 
   "deployment": {
-    "version": "1.2",
+    "version": "1.3",
     "mode": "pilot",
     "debug_shine_variant": "pre",
     "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=C12AB9X4",

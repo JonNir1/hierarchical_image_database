@@ -115,12 +115,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   const practiceUrls = (manifest.practice_images || []).map(f => config.stimuli_paths.practice + '/' + f);
 
   // ---------------------------------------------------------------------------
-  // 5. Responsive layout — computed once from viewport at page-load time
+  // 5. Responsive layout
+  //    Initialised now (pre-fullscreen) so downstream code can reference the
+  //    variables; recomputed in the fullscreen trial's on_finish using the
+  //    actual fullscreen viewport dimensions.
   // ---------------------------------------------------------------------------
-  const { sortW, sortH, stimSize } = computeLayout(
+  let { sortW, sortH, stimSize } = computeLayout(
     window.innerWidth, window.innerHeight, config,
   );
-  if (mode === 'debug') console.log('[SpAM] Layout:', { sortW, sortH, stimSize });
+  if (mode === 'debug') console.log('[SpAM] Layout (pre-fullscreen):', { sortW, sortH, stimSize });
 
   // jsPsychFreeSort only recognises 'square' (rectangular) and 'ellipse'.
   // Our config uses 'rect'/'ellipse'; map here so the inside-check uses the
@@ -334,11 +337,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // --- Enter fullscreen ---
+  // on_finish recomputes layout using the actual fullscreen viewport so that
+  // sort-area dimensions reflect the full screen, not the windowed browser.
   timeline.push({
-    type:           jsPsychFullscreen,
+    type:            jsPsychFullscreen,
     fullscreen_mode: true,
-    message:        '<p>The task will now switch to fullscreen mode.</p>',
-    button_label:   'Continue',
+    message:         '<p>The task will now switch to fullscreen mode.</p>',
+    button_label:    'Continue',
+    on_finish: function() {
+      ({ sortW, sortH, stimSize } = computeLayout(
+        window.innerWidth, window.innerHeight, config,
+      ));
+      // Overwrite the sort_area dimensions logged to every trial row now that
+      // the true fullscreen viewport is known.
+      jsPsych.data.addProperties({ sort_area_width: sortW, sort_area_height: sortH });
+      if (mode === 'debug') console.log('[SpAM] Layout (post-fullscreen):', { sortW, sortH, stimSize });
+    },
   });
 
   // --- Instructions ---
