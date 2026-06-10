@@ -183,13 +183,32 @@ Single async `DOMContentLoaded` handler. Execution order:
 4. Build image URL arrays from manifest keys (`images`, `practice_images`, `catch_images`) + config paths
 5. Compute layout via `computeLayout`
 6. Build trial sequence: `buildTrialLists` ←’ `insertCatchTrials`
-7. Construct jsPsych timeline: Pavlovia init ←’ consent ←’ instructions ←’ fullscreen ←’ practice ←’ post-practice transition ←’ [preload + free-sort] Ã— n ←’ debrief ←’ Pavlovia finish
+7. Construct jsPsych timeline: Pavlovia init → consent → instructions → fullscreen → practice → post-practice transition → [preload + free-sort] × n → Pavlovia finish → debrief
 8. `jsPsych.run(timeline)`
 
-Each main/catch free-sort `on_finish` callback computes `computePairwiseDistances` + `computeSD`
-and writes `trial_type`, `trial_index`, `pairwise_distance_sd`, `pairwise_distances` (JSON),
-`qc_flag` to `data`. Catch trials additionally write `target_location`, `centroid_x/y`,
-`cluster_mean_distance`.
+**Session-level fields** (written to every row via `jsPsych.data.addProperties`):
+
+| Column | Description |
+|---|---|
+| `participant_id` | Prolific PID (or `"debug_participant"` in debug mode) |
+| `task_version` | Value of `config.deployment.version` — bump on participant-facing changes |
+| `deployment_mode` | `"debug"`, `"pilot"`, or `"production"` |
+| `shine_variant` | `"pre"` or `"post"` — which SHINE image set was shown |
+| `sort_area_width` | Actual sort arena width in px (clamped to viewport) |
+| `sort_area_height` | Actual sort arena height in px (clamped to viewport) |
+
+**Trial-level fields** (written in each free-sort `on_finish`):
+
+| Column | Trials | Description |
+|---|---|---|
+| `trial_type` | all | `"trial_N"` (main) or `"catch_N"` (catch), 1-based |
+| `trial_index` | all | 0-based position in the full trial sequence |
+| `qc_flag` | all | `true` if trial failed any QC criterion |
+| `pairwise_distances` | all | JSON array of `{src_a, src_b, distance}` objects; distances normalised by arena diagonal |
+| `catch_trial_target_location` | catch only | String describing the required corner (e.g. `"bottom right corner"`) |
+| `centroid_x` | catch only | Horizontal centroid of placed images, normalised to `[0, 1]` by `sort_area_width` |
+| `centroid_y` | catch only | Vertical centroid of placed images, normalised to `[0, 1]` by `sort_area_height` |
+| `cluster_mean_distance` | catch only | Mean of normalised pairwise distances (cluster tightness) |
 
 ---
 
@@ -281,5 +300,8 @@ browser and `generate_manifest.py` resolve them identically.
 ### `deployment`
 | Key | Default | Description |
 |---|---|---|
-| `prolific_completion_url` | `""` | Set before deploying to Prolific |
-| `debug` | `false` | Use `"debug_participant"` as PID and log extra info to console |
+| `version` | `"1.0"` | Task version string — bump on participant-facing changes; written to every output row |
+| `mode` | `"debug"` | `"debug"`: fixed PID + console logging; `"pilot"`: real users, always pre-SHINE; `"production"`: PID-hash cohort assignment |
+| `debug_shine_variant` | `"pre"` | SHINE variant used in `"debug"` mode |
+| `prolific_completion_url` | `""` | Prolific completion redirect URL — set before deploying |
+| `prolific_no_consent_url` | `""` | Prolific no-consent redirect URL — set before deploying |
