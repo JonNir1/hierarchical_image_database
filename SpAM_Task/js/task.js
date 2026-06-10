@@ -360,6 +360,37 @@ document.addEventListener('DOMContentLoaded', async () => {
         <p><strong>Important:</strong> Read the instruction at the top of every trial
            carefully &ndash; the task may change occasionally.</p>
       </div>`,
+    choices: ['Continue'],
+  });
+
+  // --- Before/After Examples ---
+  // Two side-by-side before→after screenshot pairs illustrating what a
+  // completed trial looks like.
+  timeline.push({
+    type:     jsPsychHtmlButtonResponse,
+    stimulus: `
+      <div style="max-width:960px; text-align:center;">
+        <h2>Example</h2>
+        <p>Below are two examples of completed trials.<br>
+           Images that <strong>look similar</strong> are placed <strong>close together</strong>.<br>
+           images that <strong>look different</strong> are placed <strong>far apart</strong>.</p>
+        <div style="display:flex; flex-direction:column; gap:20px; margin-top:20px;">
+          <div style="display:flex; align-items:center; justify-content:center; gap:16px;">
+            <img src="SpAM_Task/assets/examples/before1.png"
+                 style="max-width:420px; max-height:240px; border:2px solid #555;">
+            <span style="font-size:2em; flex-shrink:0;">&rarr;</span>
+            <img src="SpAM_Task/assets/examples/after1.png"
+                 style="max-width:420px; max-height:240px; border:2px solid #555;">
+          </div>
+          <div style="display:flex; align-items:center; justify-content:center; gap:16px;">
+            <img src="SpAM_Task/assets/examples/before2.png"
+                 style="max-width:420px; max-height:240px; border:2px solid #555;">
+            <span style="font-size:2em; flex-shrink:0;">&rarr;</span>
+            <img src="SpAM_Task/assets/examples/after2.png"
+                 style="max-width:420px; max-height:240px; border:2px solid #555;">
+          </div>
+        </div>
+      </div>`,
     choices: ['Start practice'],
   });
 

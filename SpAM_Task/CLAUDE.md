@@ -183,7 +183,7 @@ Single async `DOMContentLoaded` handler. Execution order:
 4. Build image URL arrays from manifest keys (`images`, `practice_images`, `catch_images`) + config paths
 5. Compute layout via `computeLayout`
 6. Build trial sequence: `buildTrialLists` ←’ `insertCatchTrials`
-7. Construct jsPsych timeline: Pavlovia init → consent → instructions → fullscreen → practice → post-practice transition → [preload + free-sort] × n → Pavlovia finish → debrief
+7. Construct jsPsych timeline: Pavlovia init → consent → fullscreen → instructions → before/after examples → practice → post-practice transition → [preload + free-sort] × n → Pavlovia finish → debrief
 8. `jsPsych.run(timeline)`
 
 **Session-level fields** (written to every row via `jsPsych.data.addProperties`):
