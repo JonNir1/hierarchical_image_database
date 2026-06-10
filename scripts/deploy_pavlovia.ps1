@@ -1,14 +1,20 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Rebuild pavlovia_deploy from main and push to Pavlovia.
+    Sync pavlovia_deploy with main and push to Pavlovia.
 
 .DESCRIPTION
+    Strategy:
+    Uses "git checkout main -- ." to sync file content from main WITHOUT
+    resetting branch history. pavlovia_deploy always fast-forwards, so
+    Pavlovia's server-side "git pull" never hits "unrelated histories".
+    No force-push needed or used.
+
     1. Fast-forwards local main from origin/main
-    2. Resets pavlovia_deploy to main
+    2. Switches to pavlovia_deploy; syncs content from main
     3. Appends the include-based Pavlovia gitignore block
     4. Removes dev-only files from the index (include-based)
-    5. Commits and force-pushes to the pavlovia remote
+    5. Commits (if anything changed) and pushes to the pavlovia remote
     6. Returns you to main
 
     Pavlovia receives only: .gitignore, index.html, SpAM_Task/, images/
@@ -43,14 +49,19 @@ Invoke-Git checkout main
 Invoke-Git pull --ff-only origin main
 
 # ---------------------------------------------------------------------------
-# 2. Rebuild pavlovia_deploy from main
+# 2. Sync content from main
+#    "git checkout main -- ." copies main's files into the index and working
+#    tree without moving the branch pointer -- pavlovia_deploy stays put and
+#    history always extends forward (no reset, no rewrite).
 # ---------------------------------------------------------------------------
-Write-Host "==> Rebuilding pavlovia_deploy from main..."
+Write-Host "==> Syncing content from main into pavlovia_deploy..."
 Invoke-Git checkout pavlovia_deploy
-Invoke-Git reset --hard main
+Invoke-Git checkout main -- .
 
 # ---------------------------------------------------------------------------
 # 3. Append Pavlovia-only gitignore block (include-based)
+#    "git checkout main -- ." restores main's .gitignore (no Pavlovia block),
+#    so we always re-append it here.
 # ---------------------------------------------------------------------------
 Write-Host "==> Appending Pavlovia-only gitignore block..."
 $PavloviaBlock = @"
@@ -81,13 +92,22 @@ if ($ToRemove) {
 
 # ---------------------------------------------------------------------------
 # 5. Commit and push
+#    Plain push (no --force): history always fast-forwards.
+#    If the push is rejected, someone pushed directly to Pavlovia GitLab --
+#    investigate before redeploying.
 # ---------------------------------------------------------------------------
 Write-Host "==> Committing..."
 Invoke-Git add .gitignore
-Invoke-Git commit -m "deploy: re-derive from main + exclude developer-only paths"
+git diff --cached --quiet
+$NothingStaged = ($LASTEXITCODE -eq 0)
+if ($NothingStaged) {
+    Write-Host "No changes since last deploy -- skipping commit."
+} else {
+    Invoke-Git commit -m "deploy: sync from main + exclude developer-only paths"
+}
 
 Write-Host "==> Pushing to Pavlovia..."
-Invoke-Git push pavlovia pavlovia_deploy:main --force-with-lease
+Invoke-Git push pavlovia pavlovia_deploy:main
 
 # ---------------------------------------------------------------------------
 # 6. Return to main
