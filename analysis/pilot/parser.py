@@ -57,6 +57,8 @@ _SESSION_KEEP = [
     "rt",
     "qc_flag",
     "shine_variant",
+    "task_version",
+    "deployment_mode",
     "moves",
     "pairwise_distances",
     "final_locations",
@@ -193,6 +195,10 @@ def _load_session_trials(session_path: Path, participant: pd.Series) -> pd.DataF
     df["trial_number"] = df["trial_type"].str.extract(r"trial_(\d+)").astype(int)
     df["n_moves"] = df["moves"].apply(_count_moves)
     df["rt"] = pd.to_numeric(df["rt"], errors="coerce")
+    # Keep task_version as a string — "1.0" would otherwise parse as float 1.0,
+    # which would corrupt versions like "1.10" → 1.1.
+    if "task_version" in df.columns:
+        df["task_version"] = df["task_version"].astype(str)
 
     # Normalise all pixel x/y coordinates to [0, 1] using this session's canvas
     # size, so coordinates are screen-independent. sort_area is not kept.
