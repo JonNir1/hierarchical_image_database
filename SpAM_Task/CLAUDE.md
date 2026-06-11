@@ -129,8 +129,10 @@ distinguished from main trials by a visible prompt and different QC logic (see b
 
 **Quality control â€” main trials**: Flag a trial if
 `SD(normalised pairwise distances) < min_pairwise_distance_sd` (all images piled up) OR
-`rt < min_trial_rt_ms` (too fast). Exclude a participant if > 30% of their main trials are
-flagged.
+`rt < min_trial_rt_ms` (too fast). The RT floor is also UI-enforced: the "Done" button is
+disabled on main trials for the first `min_trial_rt_ms` ms (live countdown shown), so the
+post-hoc flag is a safety net rather than the primary mechanism. Exclude a participant if
+> 30% of their main trials are flagged.
 
 **Quality control â€” catch trials**: A catch trial is flagged if ANY of the following hold:
 - `mean(normalised pairwise distances) > catch_cluster_max_mean` â€” images not clustered tightly
@@ -294,7 +296,7 @@ browser and `generate_manifest.py` resolve them identically.
 ### `quality_control`
 | Key | Default | Description |
 |---|---|---|
-| `min_trial_rt_ms` | 5000 | Minimum acceptable trial duration (ms) |
+| `min_trial_rt_ms` | 60000 | UI-enforced minimum on main trials: "Done" button stays disabled for this many ms (countdown shown). Post-hoc QC flags any trial shorter than this as a safety net. Not applied to practice or catch trials. |
 | `min_pairwise_distance_sd` | 0.04 | Minimum SD of normalised distances for main trial to pass |
 
 ### `deployment`

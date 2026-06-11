@@ -139,6 +139,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ---------------------------------------------------------------------------
   // jsPsych 7 calls on_load with no arguments; the display element must be
   // retrieved via jsPsych.getDisplayElement().
+  function attachTrialTimer(minMs) {
+    const displayEl = jsPsych.getDisplayElement();
+    const btn = displayEl.querySelector('#jspsych-free-sort-done-btn');
+    if (!btn) return;
+
+    const notice = document.createElement('p');
+    notice.id = 'trial-timer-notice';
+    notice.style.cssText = 'font-size:0.85em; margin:4px 0 0; min-height:1.2em;';
+    btn.insertAdjacentElement('afterend', notice);
+
+    btn.disabled = true;
+    const startTime = Date.now();
+
+    function tick() {
+      const remaining = Math.ceil((minMs - (Date.now() - startTime)) / 1000);
+      if (remaining > 0) {
+        notice.textContent = 'Please keep arranging — you can continue in ' + remaining + 's.';
+      } else {
+        btn.disabled = false;
+        notice.textContent = 'Please finish arranging the images before continuing.';
+        clearInterval(timer);
+      }
+    }
+
+    const timer = setInterval(tick, 1000);
+    tick();
+  }
+
   function attachCatchCompliance(targetLocation) {
     const displayEl = jsPsych.getDisplayElement();
     const btn = displayEl.querySelector('#jspsych-free-sort-done-btn');
@@ -515,7 +543,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       counter_text_finished:    '',
       on_load: trial.type === 'catch'
         ? function () { attachCatchCompliance(trial.target_location); }
-        : undefined,
+        : function () { attachTrialTimer(mode === 'debug' ? 5000 : config.quality_control.min_trial_rt_ms); },
       on_finish: function(data) {
         // QC metrics
         const pairs = computePairwiseDistances(
