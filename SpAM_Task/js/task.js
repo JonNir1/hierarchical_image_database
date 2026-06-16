@@ -158,7 +158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         notice.textContent = 'Please keep arranging — you can continue in ' + remaining + 's.';
       } else {
         btn.disabled = false;
-        notice.textContent = 'Please finish arranging the images before continuing.';
+        notice.textContent = 'Press the button when you are done arranging the images.';
         clearInterval(timer);
       }
     }
