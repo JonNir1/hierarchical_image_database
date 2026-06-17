@@ -653,6 +653,131 @@ def fig_demographics(df_trials: pd.DataFrame) -> go.Figure:
 
 
 # ---------------------------------------------------------------------------
+# Fig B — Temporal engagement profile (cumulative moves + move rate)
+# ---------------------------------------------------------------------------
+
+
+def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
+    """
+    Two-panel figure of temporal move patterns per cohort.
+
+    Left:  average cumulative-move curve (time fraction vs. move fraction),
+           with ±1 SE ribbon. Diagonal = uniform activity throughout the trial.
+    Right: average move rate (moves/s, 5 s bins) over absolute time, with ±1 SE
+           ribbon and a dashed reference line at 60 s (V2 timer unlock).
+    """
+    versions = _sorted_versions(df_trials)
+
+    fig = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=[
+            "Cumulative moves within trial",
+            "Move rate over absolute time",
+        ],
+        horizontal_spacing=0.14,
+    )
+
+    x_grid = np.linspace(0.0, 1.0, 300)
+    bin_s = 5
+    bin_ms = bin_s * 1000
+    max_ms = 120_000
+    bins = np.arange(0, max_ms + bin_ms, bin_ms)
+    bin_centers_s = (bins[:-1] + bins[1:]) / 2 / 1000
+
+    for v in versions:
+        vc = _vc(v)
+        vdf = df_trials[df_trials["task_version"] == v]
+
+        cum_curves: list[np.ndarray] = []
+        trial_rates: list[np.ndarray] = []
+
+        for _, row in vdf.iterrows():
+            try:
+                moves = json.loads(row["moves"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            ts = [m["t"] for m in moves if isinstance(m.get("t"), (int, float))]
+            rt = row["rt"]
+            if not ts or pd.isna(rt) or rt <= 0:
+                continue
+
+            # Cumulative curve: normalise timestamps to [0, 1] of RT
+            ts_sorted = np.minimum(np.sort(ts), rt)
+            ts_norm = np.concatenate([[0.0], ts_sorted / rt, [1.0]])
+            n = len(ts)
+            cum_y = np.concatenate([[0.0], np.arange(1, n + 1) / n, [1.0]])
+            cum_curves.append(np.interp(x_grid, ts_norm, cum_y))
+
+            # Rate histogram: moves per 5 s bin (cap at max_ms for display)
+            ts_clipped = [t for t in ts if t <= max_ms]
+            counts, _ = np.histogram(ts_clipped, bins=bins)
+            trial_rates.append(counts / bin_s)  # moves per second
+
+        if cum_curves:
+            mat = np.array(cum_curves)
+            mean_c = mat.mean(axis=0)
+            se_c = mat.std(axis=0) / np.sqrt(len(mat))
+
+            fig.add_trace(go.Scatter(
+                x=x_grid.tolist() + x_grid.tolist()[::-1],
+                y=(mean_c + se_c).tolist() + (mean_c - se_c).tolist()[::-1],
+                fill="toself", fillcolor=vc["violin"],
+                line={"width": 0}, showlegend=False,
+                legendgroup=f"v{v:g}", hoverinfo="skip",
+            ), row=1, col=1)
+            fig.add_trace(go.Scatter(
+                x=x_grid.tolist(), y=mean_c.tolist(),
+                line={"color": vc["main"], "width": 2.5},
+                name=_vlabel(v), legendgroup=f"v{v:g}",
+            ), row=1, col=1)
+
+        if trial_rates:
+            rmat = np.array(trial_rates)
+            mean_r = rmat.mean(axis=0)
+            se_r = rmat.std(axis=0) / np.sqrt(len(rmat))
+
+            fig.add_trace(go.Scatter(
+                x=bin_centers_s.tolist() + bin_centers_s.tolist()[::-1],
+                y=(mean_r + se_r).tolist() + (mean_r - se_r).tolist()[::-1],
+                fill="toself", fillcolor=vc["violin"],
+                line={"width": 0}, showlegend=False,
+                legendgroup=f"v{v:g}", hoverinfo="skip",
+            ), row=1, col=2)
+            fig.add_trace(go.Scatter(
+                x=bin_centers_s.tolist(), y=mean_r.tolist(),
+                line={"color": vc["main"], "width": 2.5},
+                name=_vlabel(v), legendgroup=f"v{v:g}", showlegend=False,
+            ), row=1, col=2)
+
+    # Diagonal reference (uniform activity throughout trial)
+    fig.add_trace(go.Scatter(
+        x=[0.0, 1.0], y=[0.0, 1.0], mode="lines",
+        line={"color": "rgba(80,80,80,0.40)", "width": 1.2, "dash": "dot"},
+        showlegend=False, hoverinfo="skip",
+    ), row=1, col=1)
+
+    # 60 s timer reference line (V2 Done-button unlock)
+    fig.add_shape(
+        type="line", x0=60, x1=60, y0=0, y1=1,
+        yref="y2 domain",
+        line={"color": "rgba(80,80,80,0.55)", "width": 1.2, "dash": "dash"},
+        row=1, col=2,
+    )
+
+    fig.update_xaxes(title_text="Time fraction (t / RT)", range=[0, 1], row=1, col=1)
+    fig.update_yaxes(title_text="Cumulative move fraction", range=[0, 1], row=1, col=1)
+    fig.update_xaxes(title_text="Time from trial start (s)", range=[0, max_ms / 1000], row=1, col=2)
+    fig.update_yaxes(title_text="Moves / s (avg. over trials)", row=1, col=2)
+    fig.update_layout(
+        title="Temporal engagement profile during trials",
+        height=450,
+        margin={"l": 70, "r": 40, "t": 80, "b": 60},
+        showlegend=True,
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # Fig C — Pairwise distance distribution (overlaid by version + optional null)
 # ---------------------------------------------------------------------------
 
