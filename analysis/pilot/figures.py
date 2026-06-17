@@ -215,6 +215,12 @@ def fig_trial_duration_per_subject(df_trials: pd.DataFrame) -> go.Figure:
             name=f"{_vlabel(v)} subject mean ± SD",
         ))
 
+    # 60 s timer reference line
+    fig.add_vline(
+        x=60,
+        line={"color": "rgba(120,120,120,0.55)", "width": 1.5, "dash": "dash"},
+    )
+
     y_range = [-0.55, len(versions) - 0.45]
     y_axis: dict = {"range": y_range}
     if multi:
@@ -659,22 +665,29 @@ def fig_demographics(df_trials: pd.DataFrame) -> go.Figure:
 
 def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
     """
-    Two-panel figure of temporal move patterns per cohort.
+    2x2 grid figure of temporal move patterns per cohort.
 
-    Left:  average cumulative-move curve (time fraction vs. move fraction),
-           with ±1 SE ribbon. Diagonal = uniform activity throughout the trial.
-    Right: average move rate (moves/s, 5 s bins) over absolute time, with ±1 SE
-           ribbon and a dashed reference line at 60 s (V2 timer unlock).
+    Top row (colspan 2): time of last move per subject — violin + dots ± SD,
+                         styled like fig_trial_duration_per_subject.
+    Bottom left:  average cumulative-move curve (time fraction vs. move fraction)
+                  with ±1 SE ribbon. Diagonal = uniform activity.
+    Bottom right: average move rate (moves/s, 5 s bins) over absolute time
+                  with ±1 SE ribbon and a 60 s reference line.
     """
     versions = _sorted_versions(df_trials)
+    n_versions = len(versions)
 
     fig = make_subplots(
-        rows=1, cols=2,
+        rows=2, cols=2,
+        specs=[[{"colspan": 2}, None], [{}, {}]],
         subplot_titles=[
+            "Time of last move per subject",
             "Cumulative moves within trial",
             "Move rate over absolute time",
         ],
-        horizontal_spacing=0.14,
+        row_heights=[0.45, 0.55],
+        vertical_spacing=0.14,
+        horizontal_spacing=0.12,
     )
 
     x_grid = np.linspace(0.0, 1.0, 300)
@@ -684,10 +697,11 @@ def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
     bins = np.arange(0, max_ms + bin_ms, bin_ms)
     bin_centers_s = (bins[:-1] + bins[1:]) / 2 / 1000
 
-    for v in versions:
+    for i, v in enumerate(versions):
         vc = _vc(v)
         vdf = df_trials[df_trials["task_version"] == v]
 
+        t_last_records: list[dict] = []
         cum_curves: list[np.ndarray] = []
         trial_rates: list[np.ndarray] = []
 
@@ -701,18 +715,63 @@ def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
             if not ts or pd.isna(rt) or rt <= 0:
                 continue
 
-            # Cumulative curve: normalise timestamps to [0, 1] of RT
+            t_last_records.append({
+                "participant_id": row["participant_id"],
+                "t_last_s": max(ts) / 1000,
+            })
+
+            # Cumulative curve
             ts_sorted = np.minimum(np.sort(ts), rt)
             ts_norm = np.concatenate([[0.0], ts_sorted / rt, [1.0]])
             n = len(ts)
             cum_y = np.concatenate([[0.0], np.arange(1, n + 1) / n, [1.0]])
             cum_curves.append(np.interp(x_grid, ts_norm, cum_y))
 
-            # Rate histogram: moves per 5 s bin (cap at max_ms for display)
+            # Rate histogram
             ts_clipped = [t for t in ts if t <= max_ms]
             counts, _ = np.histogram(ts_clipped, bins=bins)
-            trial_rates.append(counts / bin_s)  # moves per second
+            trial_rates.append(counts / bin_s)
 
+        # --- Top panel: last-move-time violin + subject dots ---
+        if t_last_records:
+            df_last = pd.DataFrame(t_last_records)
+            stats = (
+                df_last.groupby("participant_id")["t_last_s"]
+                .agg(mean="mean", std="std")
+                .reset_index()
+                .sort_values("mean")
+                .reset_index(drop=True)
+            )
+            stats["std"] = stats["std"].fillna(0)
+            y_dots = i + np.linspace(-0.15, 0.15, len(stats))
+
+            fig.add_trace(go.Violin(
+                x=df_last["t_last_s"].tolist(),
+                y0=i,
+                orientation="h",
+                side="both",
+                fillcolor=vc["violin"],
+                line_color=vc["violin_line"],
+                name=_vlabel(v),
+                showlegend=True,
+                width=0.6,
+                points=False,
+            ), row=1, col=1)
+            fig.add_trace(go.Scatter(
+                x=stats["mean"].tolist(),
+                y=y_dots.tolist(),
+                mode="markers",
+                marker={"color": vc["dot"], "size": 8, "symbol": "circle"},
+                error_x={
+                    "type": "data", "array": stats["std"].tolist(),
+                    "visible": True, "color": vc["dot_err"],
+                    "thickness": 1.5, "width": 4,
+                },
+                showlegend=False,
+                name=f"{_vlabel(v)} subject mean ± SD",
+            ), row=1, col=1)
+
+        # --- Bottom left: cumulative move curve ---
         if cum_curves:
             mat = np.array(cum_curves)
             mean_c = mat.mean(axis=0)
@@ -724,13 +783,14 @@ def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
                 fill="toself", fillcolor=vc["violin"],
                 line={"width": 0}, showlegend=False,
                 legendgroup=f"v{v:g}", hoverinfo="skip",
-            ), row=1, col=1)
+            ), row=2, col=1)
             fig.add_trace(go.Scatter(
                 x=x_grid.tolist(), y=mean_c.tolist(),
                 line={"color": vc["main"], "width": 2.5},
-                name=_vlabel(v), legendgroup=f"v{v:g}",
-            ), row=1, col=1)
+                name=_vlabel(v), legendgroup=f"v{v:g}", showlegend=False,
+            ), row=2, col=1)
 
+        # --- Bottom right: move rate over absolute time ---
         if trial_rates:
             rmat = np.array(trial_rates)
             mean_r = rmat.mean(axis=0)
@@ -742,35 +802,48 @@ def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
                 fill="toself", fillcolor=vc["violin"],
                 line={"width": 0}, showlegend=False,
                 legendgroup=f"v{v:g}", hoverinfo="skip",
-            ), row=1, col=2)
+            ), row=2, col=2)
             fig.add_trace(go.Scatter(
                 x=bin_centers_s.tolist(), y=mean_r.tolist(),
                 line={"color": vc["main"], "width": 2.5},
                 name=_vlabel(v), legendgroup=f"v{v:g}", showlegend=False,
-            ), row=1, col=2)
+            ), row=2, col=2)
 
-    # Diagonal reference (uniform activity throughout trial)
+    # Diagonal reference line (uniform activity) in cumulative panel
     fig.add_trace(go.Scatter(
         x=[0.0, 1.0], y=[0.0, 1.0], mode="lines",
         line={"color": "rgba(80,80,80,0.40)", "width": 1.2, "dash": "dot"},
         showlegend=False, hoverinfo="skip",
-    ), row=1, col=1)
+    ), row=2, col=1)
 
-    # 60 s timer reference line (V2 Done-button unlock)
-    fig.add_shape(
-        type="line", x0=60, x1=60, y0=0, y1=1,
-        yref="y2 domain",
-        line={"color": "rgba(80,80,80,0.55)", "width": 1.2, "dash": "dash"},
-        row=1, col=2,
-    )
+    # 60 s reference lines: last-move panel and rate panel
+    for r, c in [(1, 1), (2, 2)]:
+        fig.add_shape(
+            type="line", x0=60, x1=60, y0=-1000, y1=1000,
+            line={"color": "rgba(80,80,80,0.55)", "width": 1.2, "dash": "dash"},
+            row=r, col=c,
+        )
 
-    fig.update_xaxes(title_text="Time fraction (t / RT)", range=[0, 1], row=1, col=1)
-    fig.update_yaxes(title_text="Cumulative move fraction", range=[0, 1], row=1, col=1)
-    fig.update_xaxes(title_text="Time from trial start (s)", range=[0, max_ms / 1000], row=1, col=2)
-    fig.update_yaxes(title_text="Moves / s (avg. over trials)", row=1, col=2)
+    # y-axis for top panel
+    y_range = [-0.55, n_versions - 0.45]
+    if n_versions > 1:
+        fig.update_yaxes(
+            range=y_range,
+            tickvals=list(range(n_versions)),
+            ticktext=[_vlabel(v) for v in versions],
+            row=1, col=1,
+        )
+    else:
+        fig.update_yaxes(range=y_range, visible=False, row=1, col=1)
+
+    fig.update_xaxes(title_text="Time of last move (s)", row=1, col=1)
+    fig.update_xaxes(title_text="Time fraction (t / RT)", range=[0, 1], row=2, col=1)
+    fig.update_yaxes(title_text="Cumulative move fraction", range=[0, 1], row=2, col=1)
+    fig.update_xaxes(title_text="Time from trial start (s)", range=[0, max_ms / 1000], row=2, col=2)
+    fig.update_yaxes(title_text="Moves / s (avg. over trials)", row=2, col=2)
     fig.update_layout(
         title="Temporal engagement profile during trials",
-        height=450,
+        height=620,
         margin={"l": 70, "r": 40, "t": 80, "b": 60},
         showlegend=True,
     )
