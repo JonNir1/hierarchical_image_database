@@ -653,11 +653,24 @@ def fig_demographics(df_trials: pd.DataFrame) -> go.Figure:
 
 
 # ---------------------------------------------------------------------------
-# Fig C — Pairwise distance distribution (overlaid by version)
+# Fig C — Pairwise distance distribution (overlaid by version + optional null)
 # ---------------------------------------------------------------------------
 
 
-def fig_pairwise_distance_distribution(df_trials: pd.DataFrame) -> go.Figure:
+def fig_pairwise_distance_distribution(
+    df_trials: pd.DataFrame,
+    null_distribution: np.ndarray | None = None,
+) -> go.Figure:
+    """
+    Parameters
+    ----------
+    df_trials:
+        Trials DataFrame from load_pilot_data.
+    null_distribution:
+        Optional 1-D array of distances from the random-placement null
+        (e.g. from simulate_null_distances.simulate). When provided,
+        the null is overlaid as a grey histogram for visual comparison.
+    """
     versions = _sorted_versions(df_trials)
     multi = len(versions) > 1
     fig = go.Figure()
@@ -678,18 +691,27 @@ def fig_pairwise_distance_distribution(df_trials: pd.DataFrame) -> go.Figure:
             marker_color=vc["violin"],
             marker_line={"color": vc["main"], "width": 0.5},
             name=_vlabel(v) if multi else "SpAM distance",
-            opacity=0.7 if multi else 1.0,
+            opacity=0.7,
         ))
 
-    if multi:
-        fig.update_layout(barmode="overlay")
+    if null_distribution is not None:
+        fig.add_trace(go.Histogram(
+            x=null_distribution,
+            nbinsx=50,
+            histnorm="probability density",
+            marker_color="rgba(160,160,160,0.35)",
+            marker_line={"color": "rgba(100,100,100,0.8)", "width": 0.5},
+            name="Null (random placement)",
+            opacity=0.7,
+        ))
 
     fig.update_layout(
+        barmode="overlay",
         title=f"Distribution of pairwise SpAM distances (n={total_obs:,} pair observations)",
         xaxis_title="Normalised distance",
         yaxis_title="Density",
         height=400,
         margin={"l": 70, "r": 40, "t": 50, "b": 60},
-        showlegend=multi,
+        showlegend=True,
     )
     return fig
