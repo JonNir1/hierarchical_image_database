@@ -57,6 +57,8 @@ _SESSION_KEEP = [
     "rt",
     "qc_flag",
     "shine_variant",
+    "task_version",
+    "deployment_mode",
     "moves",
     "pairwise_distances",
     "final_locations",

@@ -26,6 +26,47 @@ from plotly.subplots import make_subplots
 from scipy.stats import pearsonr
 
 # ---------------------------------------------------------------------------
+# Version colour palette
+# ---------------------------------------------------------------------------
+
+_VERSION_PALETTE: dict[float, dict[str, str]] = {
+    1.0: {
+        "main":         "#1a5296",
+        "violin":       "rgba(100,149,237,0.35)",
+        "violin_line":  "rgba(100,149,237,0.9)",
+        "subj":         "rgba(100,149,237,0.2)",
+        "dot":          "rgba(30,80,160,0.9)",
+        "dot_err":      "rgba(30,80,160,0.6)",
+    },
+    2.0: {
+        "main":         "#922b21",
+        "violin":       "rgba(220,80,60,0.35)",
+        "violin_line":  "rgba(220,80,60,0.9)",
+        "subj":         "rgba(220,80,60,0.2)",
+        "dot":          "rgba(160,40,30,0.9)",
+        "dot_err":      "rgba(160,40,30,0.6)",
+    },
+}
+
+_PALETTE_FALLBACK: dict[str, str] = {
+    "main":         "#555555",
+    "violin":       "rgba(85,85,85,0.35)",
+    "violin_line":  "rgba(85,85,85,0.9)",
+    "subj":         "rgba(85,85,85,0.2)",
+    "dot":          "rgba(85,85,85,0.9)",
+    "dot_err":      "rgba(85,85,85,0.6)",
+}
+
+
+def _vc(version) -> dict[str, str]:
+    return _VERSION_PALETTE.get(float(version), _PALETTE_FALLBACK)
+
+
+def _vlabel(version) -> str:
+    return f"v{version:g}"
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -88,6 +129,10 @@ def _repeated_pair_distances(df_subject: pd.DataFrame) -> tuple[list[float], lis
     return d1, d2
 
 
+def _sorted_versions(df: pd.DataFrame) -> list[float]:
+    return sorted(df["task_version"].unique().tolist())
+
+
 # ---------------------------------------------------------------------------
 # Fig 1 — Completion status distribution
 # ---------------------------------------------------------------------------
@@ -135,40 +180,58 @@ def fig_completion_status(df_status: pd.DataFrame) -> go.Figure:
 
 
 def fig_trial_duration_per_subject(df_trials: pd.DataFrame) -> go.Figure:
-    rt_s = _rt_s(df_trials)
-    stats = _subject_stats(df_trials.assign(rt_s=rt_s), "rt_s")
-    stats = stats.sort_values("mean").reset_index(drop=True)
-    y_vals = np.linspace(-0.15, 0.15, len(stats))  # slight jitter on y
-
+    versions = _sorted_versions(df_trials)
+    multi = len(versions) > 1
     fig = go.Figure()
-    fig.add_trace(go.Violin(
-        x=rt_s,
-        orientation="h",
-        side="both",
-        fillcolor="rgba(100,149,237,0.3)",
-        line_color="rgba(100,149,237,0.8)",
-        showlegend=False,
-        name="All trials",
-        y0=0,
-        width=0.6,
-        points=False,
-    ))
-    fig.add_trace(go.Scatter(
-        x=stats["mean"],
-        y=y_vals,
-        mode="markers",
-        marker={"color": "rgba(30,80,160,0.9)", "size": 8, "symbol": "circle"},
-        error_x={"type": "data", "array": stats["std"].tolist(), "visible": True,
-                 "color": "rgba(30,80,160,0.6)", "thickness": 1.5, "width": 4},
-        showlegend=False,
-        name="Subject mean ± SD",
-    ))
+
+    for i, v in enumerate(versions):
+        vc = _vc(v)
+        vdf = df_trials[df_trials["task_version"] == v]
+        rt_s = _rt_s(vdf)
+        stats = _subject_stats(vdf.assign(rt_s=rt_s), "rt_s")
+        stats = stats.sort_values("mean").reset_index(drop=True)
+        y_dots = i + np.linspace(-0.15, 0.15, len(stats))
+
+        fig.add_trace(go.Violin(
+            x=rt_s,
+            y0=i,
+            orientation="h",
+            side="both",
+            fillcolor=vc["violin"],
+            line_color=vc["violin_line"],
+            name=_vlabel(v),
+            showlegend=multi,
+            width=0.6,
+            points=False,
+        ))
+        fig.add_trace(go.Scatter(
+            x=stats["mean"],
+            y=y_dots.tolist(),
+            mode="markers",
+            marker={"color": vc["dot"], "size": 8, "symbol": "circle"},
+            error_x={"type": "data", "array": stats["std"].tolist(), "visible": True,
+                     "color": vc["dot_err"], "thickness": 1.5, "width": 4},
+            showlegend=False,
+            name=f"{_vlabel(v)} subject mean ± SD",
+        ))
+
+    y_range = [-0.55, len(versions) - 0.45]
+    y_axis: dict = {"range": y_range}
+    if multi:
+        y_axis.update({
+            "tickvals": list(range(len(versions))),
+            "ticktext": [_vlabel(v) for v in versions],
+        })
+    else:
+        y_axis["visible"] = False
+
     fig.update_layout(
         title="Trial duration per subject",
         xaxis_title="Trial duration (s)",
-        yaxis={"visible": False, "range": [-0.5, 0.5]},
-        height=350,
-        margin={"l": 40, "r": 40, "t": 50, "b": 60},
+        yaxis=y_axis,
+        height=300 + 100 * len(versions),
+        margin={"l": 60, "r": 40, "t": 50, "b": 60},
+        showlegend=multi,
     )
     return fig
 
@@ -179,39 +242,57 @@ def fig_trial_duration_per_subject(df_trials: pd.DataFrame) -> go.Figure:
 
 
 def fig_moves_per_subject(df_trials: pd.DataFrame) -> go.Figure:
-    stats = _subject_stats(df_trials, "n_moves")
-    stats = stats.sort_values("mean").reset_index(drop=True)
-    y_vals = np.linspace(-0.15, 0.15, len(stats))
-
+    versions = _sorted_versions(df_trials)
+    multi = len(versions) > 1
     fig = go.Figure()
-    fig.add_trace(go.Violin(
-        x=df_trials["n_moves"],
-        orientation="h",
-        side="both",
-        fillcolor="rgba(180,120,200,0.3)",
-        line_color="rgba(140,80,180,0.8)",
-        showlegend=False,
-        name="All trials",
-        y0=0,
-        width=0.6,
-        points=False,
-    ))
-    fig.add_trace(go.Scatter(
-        x=stats["mean"],
-        y=y_vals,
-        mode="markers",
-        marker={"color": "rgba(100,40,140,0.9)", "size": 8, "symbol": "circle"},
-        error_x={"type": "data", "array": stats["std"].tolist(), "visible": True,
-                 "color": "rgba(100,40,140,0.6)", "thickness": 1.5, "width": 4},
-        showlegend=False,
-        name="Subject mean ± SD",
-    ))
+
+    for i, v in enumerate(versions):
+        vc = _vc(v)
+        vdf = df_trials[df_trials["task_version"] == v]
+        stats = _subject_stats(vdf, "n_moves")
+        stats = stats.sort_values("mean").reset_index(drop=True)
+        y_dots = i + np.linspace(-0.15, 0.15, len(stats))
+
+        fig.add_trace(go.Violin(
+            x=vdf["n_moves"],
+            y0=i,
+            orientation="h",
+            side="both",
+            fillcolor=vc["violin"],
+            line_color=vc["violin_line"],
+            name=_vlabel(v),
+            showlegend=multi,
+            width=0.6,
+            points=False,
+        ))
+        fig.add_trace(go.Scatter(
+            x=stats["mean"],
+            y=y_dots.tolist(),
+            mode="markers",
+            marker={"color": vc["dot"], "size": 8, "symbol": "circle"},
+            error_x={"type": "data", "array": stats["std"].tolist(), "visible": True,
+                     "color": vc["dot_err"], "thickness": 1.5, "width": 4},
+            showlegend=False,
+            name=f"{_vlabel(v)} subject mean ± SD",
+        ))
+
+    y_range = [-0.55, len(versions) - 0.45]
+    y_axis: dict = {"range": y_range}
+    if multi:
+        y_axis.update({
+            "tickvals": list(range(len(versions))),
+            "ticktext": [_vlabel(v) for v in versions],
+        })
+    else:
+        y_axis["visible"] = False
+
     fig.update_layout(
         title="Number of moves per subject",
         xaxis_title="Moves per trial",
-        yaxis={"visible": False, "range": [-0.5, 0.5]},
-        height=350,
-        margin={"l": 40, "r": 40, "t": 50, "b": 60},
+        yaxis=y_axis,
+        height=300 + 100 * len(versions),
+        margin={"l": 60, "r": 40, "t": 50, "b": 60},
+        showlegend=multi,
     )
     return fig
 
@@ -226,61 +307,67 @@ def _fig_progression(
     col: str,
     y_label: str,
     title: str,
-    color_mean: str = "#1a5296",
-    color_subj: str = "rgba(100,149,237,0.2)",
 ) -> go.Figure:
-    """Line plot of *col* over trial_number (1–10) with mean±SE + individual traces."""
+    """Line plot of *col* over trial_number with mean±SE per task_version."""
     df = df_trials.copy()
     df["_y"] = df[col]
+    versions = _sorted_versions(df)
+    multi = len(versions) > 1
 
-    # Individual subject traces
     fig = go.Figure()
-    for pid, grp in df.groupby("participant_id"):
-        grp_sorted = grp.sort_values("trial_number")
+    for v in versions:
+        vc = _vc(v)
+        vdf = df[df["task_version"] == v]
+
+        # Individual subject traces
+        for _pid, grp in vdf.groupby("participant_id"):
+            grp_sorted = grp.sort_values("trial_number")
+            fig.add_trace(go.Scatter(
+                x=grp_sorted["trial_number"],
+                y=grp_sorted["_y"],
+                mode="lines",
+                line={"color": vc["subj"], "width": 1},
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
+        # Mean ± SE
+        agg = (
+            vdf.groupby("trial_number")["_y"]
+            .agg(mean="mean", std="std", n="count")
+            .assign(se=lambda x: x["std"] / np.sqrt(x["n"]))
+            .reset_index()
+        )
+        x = agg["trial_number"].tolist()
+        mean = agg["mean"].tolist()
+        se = agg["se"].tolist()
+
         fig.add_trace(go.Scatter(
-            x=grp_sorted["trial_number"],
-            y=grp_sorted["_y"],
-            mode="lines",
-            line={"color": color_subj, "width": 1},
+            x=x + x[::-1],
+            y=[m + s for m, s in zip(mean, se)] + [m - s for m, s in zip(mean[::-1], se[::-1])],
+            fill="toself",
+            fillcolor=vc["main"],
+            opacity=0.2,
+            line={"color": "rgba(0,0,0,0)"},
             showlegend=False,
             hoverinfo="skip",
         ))
+        fig.add_trace(go.Scatter(
+            x=x,
+            y=mean,
+            mode="lines+markers",
+            line={"color": vc["main"], "width": 3},
+            marker={"size": 7, "color": vc["main"]},
+            name=f"{_vlabel(v)} mean ± SE" if multi else "Mean ± SE",
+        ))
 
-    # Mean ± SE
-    agg = (
-        df.groupby("trial_number")["_y"]
-        .agg(mean="mean", std="std", n="count")
-        .assign(se=lambda x: x["std"] / np.sqrt(x["n"]))
-        .reset_index()
-    )
-    x = agg["trial_number"].tolist()
-    mean = agg["mean"].tolist()
-    se = agg["se"].tolist()
-
-    fig.add_trace(go.Scatter(
-        x=x + x[::-1],
-        y=[m + s for m, s in zip(mean, se)] + [m - s for m, s in zip(mean[::-1], se[::-1])],
-        fill="toself",
-        fillcolor=color_mean,
-        opacity=0.2,
-        line={"color": "rgba(0,0,0,0)"},
-        showlegend=False,
-        hoverinfo="skip",
-    ))
-    fig.add_trace(go.Scatter(
-        x=x,
-        y=mean,
-        mode="lines+markers",
-        line={"color": color_mean, "width": 3},
-        marker={"size": 7, "color": color_mean},
-        name="Mean ± SE",
-    ))
     fig.update_layout(
         title=title,
         xaxis={"title": "Trial number", "tickvals": list(range(1, 11))},
         yaxis_title=y_label,
         height=400,
         margin={"l": 60, "r": 40, "t": 50, "b": 60},
+        showlegend=multi,
     )
     return fig
 
@@ -303,71 +390,72 @@ def fig_duration_progression(df_trials: pd.DataFrame) -> go.Figure:
 def fig_moves_progression(df_trials: pd.DataFrame) -> go.Figure:
     return _fig_progression(
         df_trials, "n_moves", "Moves per trial", "Number of moves over task progression",
-        color_mean="#7b2d8b",
-        color_subj="rgba(180,120,200,0.2)",
     )
 
 
 # ---------------------------------------------------------------------------
-# Fig 6 — Duration vs moves scatter (per subject)
+# Fig 6 — Duration vs moves scatter (per subject, coloured by version)
 # ---------------------------------------------------------------------------
 
 
 def fig_duration_vs_moves(df_trials: pd.DataFrame) -> go.Figure:
     df = df_trials.assign(rt_s=_rt_s(df_trials))
-    stats = (
-        df.groupby("participant_id")
-        .agg(
-            mean_rt=("rt_s", "mean"),
-            sd_rt=("rt_s", "std"),
-            mean_moves=("n_moves", "mean"),
-            sd_moves=("n_moves", "std"),
-        )
-        .reset_index()
-    )
+    versions = _sorted_versions(df)
+    multi = len(versions) > 1
 
-    fig = go.Figure(go.Scatter(
-        x=stats["mean_moves"],
-        y=stats["mean_rt"],
-        mode="markers",
-        marker={"size": 9, "color": "#1a5296", "opacity": 0.85},
-        error_x={"type": "data", "array": stats["sd_moves"].tolist(),
-                 "visible": True, "color": "rgba(26,82,150,0.4)", "thickness": 1.5},
-        error_y={"type": "data", "array": stats["sd_rt"].tolist(),
-                 "visible": True, "color": "rgba(26,82,150,0.4)", "thickness": 1.5},
-        text=stats["participant_id"],
-        hovertemplate="<b>%{text}</b><br>Moves: %{x:.1f}<br>Duration: %{y:.1f}s<extra></extra>",
-    ))
+    fig = go.Figure()
+    for v in versions:
+        vc = _vc(v)
+        vdf = df[df["task_version"] == v]
+        stats = (
+            vdf.groupby("participant_id")
+            .agg(
+                mean_rt=("rt_s", "mean"),
+                sd_rt=("rt_s", "std"),
+                mean_moves=("n_moves", "mean"),
+                sd_moves=("n_moves", "std"),
+            )
+            .reset_index()
+        )
+        fig.add_trace(go.Scatter(
+            x=stats["mean_moves"],
+            y=stats["mean_rt"],
+            mode="markers",
+            name=_vlabel(v) if multi else "subjects",
+            marker={"size": 9, "color": vc["dot"], "opacity": 0.85},
+            error_x={"type": "data", "array": stats["sd_moves"].tolist(),
+                     "visible": True, "color": vc["dot_err"], "thickness": 1.5},
+            error_y={"type": "data", "array": stats["sd_rt"].tolist(),
+                     "visible": True, "color": vc["dot_err"], "thickness": 1.5},
+            text=stats["participant_id"],
+            hovertemplate="<b>%{text}</b><br>Moves: %{x:.1f}<br>Duration: %{y:.1f}s<extra></extra>",
+        ))
+
     fig.update_layout(
         title="Trial duration vs. number of moves (per subject, mean ± SD)",
         xaxis_title="Moves per trial",
         yaxis_title="Trial duration (s)",
         height=450,
         margin={"l": 70, "r": 40, "t": 50, "b": 60},
+        showlegend=multi,
     )
     return fig
 
 
 # ---------------------------------------------------------------------------
-# Fig 7 — Within-subject variability + reliability
+# Fig 7 — Within-subject variability + reliability (coloured by version)
 # ---------------------------------------------------------------------------
 
 
 def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
     """
-    Subplot A — normalised internal noise per subject:
-        |Δd| / σ_d, where σ_d is the SD of all pairwise distances the subject
-        produced. This is a noise-to-signal ratio: a subject who only uses
-        distances in [0.2, 0.3] (small σ_d) will score much higher than one
-        who spreads distances across [0, 1] for the same raw |Δd|.
-
-    Subplot B — within-subject reliability (Pearson r between d1 and d2 of
-        repeated pairs). Scale-free complement to subplot A.
+    Subplot A — SNR per subject: σ_d / mean(|Δd|).
+    Subplot B — Within-subject reliability: Pearson r between d1 and d2 of repeated pairs.
+    Both subplots colour subjects by task_version.
     """
     subjects = sorted(df_trials["participant_id"].unique())
     subj_short = {pid: f"S{i+1:02d}" for i, pid in enumerate(subjects)}
 
-    # Collect per-subject stats
     records: list[dict] = []
     for pid in subjects:
         df_s = df_trials[df_trials["participant_id"] == pid]
@@ -375,7 +463,6 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
         if len(d1) == 0:
             continue
 
-        # σ_d: SD of all pairwise distances this subject produced
         all_dists = [
             dist
             for pw_json in df_s["pairwise_distances"]
@@ -387,19 +474,23 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
         mean_abs_diff = float(np.mean(abs_diffs))
         sd_abs_diff = float(np.std(abs_diffs))
         snr = sigma_d / mean_abs_diff if mean_abs_diff > 0 else np.nan
-        # Asymmetric error bars: propagate ±SD of |Δd| through the division
         snr_hi = sigma_d / (mean_abs_diff - sd_abs_diff) if mean_abs_diff > sd_abs_diff else np.nan
         snr_lo = sigma_d / (mean_abs_diff + sd_abs_diff) if (mean_abs_diff + sd_abs_diff) > 0 else np.nan
 
         r, _ = pearsonr(d1, d2)
+        v = float(df_s["task_version"].iloc[0])
         records.append({
-            "label": subj_short[pid],
-            "pid": pid,
-            "snr": snr,
-            "snr_err_plus": snr_hi - snr if not np.isnan(snr_hi) else 0.0,
+            "label":         subj_short[pid],
+            "pid":           pid,
+            "version":       v,
+            "snr":           snr,
+            "snr_err_plus":  snr_hi - snr if not np.isnan(snr_hi) else 0.0,
             "snr_err_minus": snr - snr_lo if not np.isnan(snr_lo) else 0.0,
-            "r": r,
+            "r":             r,
         })
+
+    versions = sorted({rec["version"] for rec in records})
+    multi = len(versions) > 1
 
     fig = make_subplots(
         rows=1, cols=2,
@@ -410,77 +501,99 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
         ],
     )
 
-    # Subplot A: per-subject SNR dots with asymmetric error bars (forest-plot style)
+    # Subplot A: forest-plot SNR dots, coloured by version
+    shown_versions_A: set[float] = set()
     for rec in records:
+        vc = _vc(rec["version"])
+        show_leg = multi and rec["version"] not in shown_versions_A
+        shown_versions_A.add(rec["version"])
         fig.add_trace(
             go.Scatter(
                 x=[rec["snr"]],
                 y=[rec["label"]],
                 mode="markers",
-                marker={"color": "#1a5296", "size": 8},
+                marker={"color": vc["dot"], "size": 8},
                 error_x={
                     "type": "data",
                     "array": [rec["snr_err_plus"]],
                     "arrayminus": [rec["snr_err_minus"]],
                     "visible": True,
-                    "color": "rgba(26,82,150,0.5)",
+                    "color": vc["dot_err"],
                     "thickness": 1.5,
                     "width": 5,
                 },
-                showlegend=False,
+                showlegend=show_leg,
+                name=_vlabel(rec["version"]) if show_leg else None,
+                legendgroup=_vlabel(rec["version"]),
                 hovertemplate=f"<b>{rec['pid']}</b><br>SNR = %{{x:.3f}}<extra></extra>",
             ),
             row=1, col=1,
         )
 
-    # Subplot B: box summary + individual dots with PID hover
-    rs = [rec["r"] for rec in records]
-    pids = [rec["pid"] for rec in records]
-    labels = [rec["label"] for rec in records]
-
-    # Box without individual points (we draw those manually for hover control)
-    fig.add_trace(
-        go.Box(
-            y=rs,
-            boxpoints=False,
-            marker={"color": "#1a5296"},
-            line_color="#1a5296",
-            fillcolor="rgba(100,149,237,0.25)",
-            showlegend=False,
-            name="Pearson r",
-            hoverinfo="skip",
-        ),
-        row=1, col=2,
-    )
-    # Individual dots with PID hover (manual x-jitter)
+    # Subplot B: one box per version + coloured dots
     rng = np.random.default_rng(42)
-    x_jitter = rng.uniform(-0.15, 0.15, size=len(rs)).tolist()
-    fig.add_trace(
-        go.Scatter(
-            x=x_jitter,
-            y=rs,
-            mode="markers",
-            marker={"color": "#1a5296", "size": 9, "opacity": 0.8},
-            showlegend=False,
-            text=[f"{s} ({p})" for s, p in zip(labels, pids)],
-            hovertemplate="<b>%{text}</b><br>r = %{y:.3f}<extra></extra>",
-        ),
-        row=1, col=2,
-    )
+    n_versions = len(versions)
+    for j, v in enumerate(versions):
+        vc = _vc(v)
+        vrecs = [rec for rec in records if rec["version"] == v]
+        rs = [rec["r"] for rec in vrecs]
+        pids = [rec["pid"] for rec in vrecs]
+        labels = [rec["label"] for rec in vrecs]
+        x_pos = j / max(n_versions - 1, 1) if n_versions > 1 else 0
 
-    # Y-axis range for Pearson r: auto with padding
-    r_min, r_max = min(rs), max(rs)
+        fig.add_trace(
+            go.Box(
+                y=rs,
+                x=[x_pos] * len(rs),
+                boxpoints=False,
+                name=_vlabel(v),
+                marker_color=vc["main"],
+                line_color=vc["main"],
+                fillcolor=vc["violin"],
+                showlegend=False,
+                legendgroup=_vlabel(v),
+                hoverinfo="skip",
+                width=0.25,
+            ),
+            row=1, col=2,
+        )
+        x_jitter = (x_pos + rng.uniform(-0.08, 0.08, size=len(rs))).tolist()
+        fig.add_trace(
+            go.Scatter(
+                x=x_jitter,
+                y=rs,
+                mode="markers",
+                marker={"color": vc["dot"], "size": 9, "opacity": 0.8},
+                showlegend=False,
+                legendgroup=_vlabel(v),
+                text=[f"{s} ({p})" for s, p in zip(labels, pids)],
+                hovertemplate="<b>%{text}</b><br>r = %{y:.3f}<extra></extra>",
+            ),
+            row=1, col=2,
+        )
+
+    all_rs = [rec["r"] for rec in records]
+    r_min, r_max = min(all_rs), max(all_rs)
     r_pad = max((r_max - r_min) * 0.2, 0.05)
     fig.update_yaxes(range=[r_min - r_pad, r_max + r_pad], row=1, col=2)
+
+    if multi and n_versions > 1:
+        fig.update_xaxes(
+            tickvals=[j / (n_versions - 1) for j in range(n_versions)],
+            ticktext=[_vlabel(v) for v in versions],
+            row=1, col=2,
+        )
+    else:
+        fig.update_xaxes(showticklabels=False, row=1, col=2)
 
     fig.update_xaxes(title_text="SNR = σ_d / mean(|Δd|)", row=1, col=1)
     fig.update_yaxes(title_text="Subject", row=1, col=1)
     fig.update_yaxes(title_text="Pearson r", row=1, col=2)
-    fig.update_xaxes(showticklabels=False, row=1, col=2)
     fig.update_layout(
         title="Within-subject variability and reliability of repeated pairs",
         height=500,
         margin={"l": 70, "r": 40, "t": 70, "b": 60},
+        showlegend=multi,
     )
     return fig
 
@@ -491,7 +604,6 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
 
 
 def fig_demographics(df_trials: pd.DataFrame) -> go.Figure:
-    # One row per subject (completed only)
     df_subj = df_trials.drop_duplicates("participant_id")
 
     fig = make_subplots(
@@ -499,14 +611,12 @@ def fig_demographics(df_trials: pd.DataFrame) -> go.Figure:
         subplot_titles=["Age distribution", "Sex", "Ethnicity", "Country of residence"],
     )
 
-    # Age histogram
     ages = df_subj["age"].dropna()
     fig.add_trace(
         go.Histogram(x=ages, nbinsx=10, marker_color="#2ecc71", showlegend=False, name="Age"),
         row=1, col=1,
     )
 
-    # Sex
     sex_counts = df_subj["sex"].dropna().value_counts()
     fig.add_trace(
         go.Bar(x=sex_counts.values.tolist(), y=sex_counts.index.tolist(),
@@ -514,7 +624,6 @@ def fig_demographics(df_trials: pd.DataFrame) -> go.Figure:
         row=1, col=2,
     )
 
-    # Ethnicity
     eth_counts = df_subj["ethnicity"].dropna().value_counts()
     fig.add_trace(
         go.Bar(x=eth_counts.values.tolist(), y=eth_counts.index.tolist(),
@@ -522,7 +631,6 @@ def fig_demographics(df_trials: pd.DataFrame) -> go.Figure:
         row=2, col=1,
     )
 
-    # Country of residence
     country_counts = df_subj["country_of_residence"].dropna().value_counts().head(10)
     fig.add_trace(
         go.Bar(x=country_counts.values.tolist(), y=country_counts.index.tolist(),
@@ -545,29 +653,43 @@ def fig_demographics(df_trials: pd.DataFrame) -> go.Figure:
 
 
 # ---------------------------------------------------------------------------
-# Fig C — Pairwise distance distribution
+# Fig C — Pairwise distance distribution (overlaid by version)
 # ---------------------------------------------------------------------------
 
 
 def fig_pairwise_distance_distribution(df_trials: pd.DataFrame) -> go.Figure:
-    all_distances: list[float] = []
-    for pw_json in df_trials["pairwise_distances"]:
-        for dist in _parse_pairwise(pw_json).values():
-            all_distances.append(dist)
+    versions = _sorted_versions(df_trials)
+    multi = len(versions) > 1
+    fig = go.Figure()
 
-    fig = go.Figure(go.Histogram(
-        x=all_distances,
-        nbinsx=50,
-        histnorm="probability density",
-        marker_color="rgba(100,149,237,0.6)",
-        marker_line={"color": "rgba(100,149,237,1.0)", "width": 0.5},
-        name="SpAM distance",
-    ))
+    total_obs = 0
+    for v in versions:
+        vc = _vc(v)
+        vdf = df_trials[df_trials["task_version"] == v]
+        dists: list[float] = []
+        for pw_json in vdf["pairwise_distances"]:
+            for dist in _parse_pairwise(pw_json).values():
+                dists.append(dist)
+        total_obs += len(dists)
+        fig.add_trace(go.Histogram(
+            x=dists,
+            nbinsx=50,
+            histnorm="probability density",
+            marker_color=vc["violin"],
+            marker_line={"color": vc["main"], "width": 0.5},
+            name=_vlabel(v) if multi else "SpAM distance",
+            opacity=0.7 if multi else 1.0,
+        ))
+
+    if multi:
+        fig.update_layout(barmode="overlay")
+
     fig.update_layout(
-        title=f"Distribution of pairwise SpAM distances (n={len(all_distances):,} pair observations)",
+        title=f"Distribution of pairwise SpAM distances (n={total_obs:,} pair observations)",
         xaxis_title="Normalised distance",
         yaxis_title="Density",
         height=400,
         margin={"l": 70, "r": 40, "t": 50, "b": 60},
+        showlegend=multi,
     )
     return fig
