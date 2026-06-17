@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from scipy.stats import pearsonr
+from scipy.stats import gaussian_kde, pearsonr
 
 # ---------------------------------------------------------------------------
 # Version colour palette
@@ -669,49 +669,122 @@ def fig_pairwise_distance_distribution(
     null_distribution:
         Optional 1-D array of distances from the random-placement null
         (e.g. from simulate_null_distances.simulate). When provided,
-        the null is overlaid as a grey histogram for visual comparison.
+        renders a two-panel figure: top panel = KDE density curves for each
+        version + null as a grey filled area; bottom panel = per-version
+        deviation from null (KDE_version − KDE_null).
     """
     versions = _sorted_versions(df_trials)
     multi = len(versions) > 1
-    fig = go.Figure()
 
+    # Collect per-version distances
+    version_dists: dict[float, list[float]] = {}
     total_obs = 0
     for v in versions:
-        vc = _vc(v)
         vdf = df_trials[df_trials["task_version"] == v]
-        dists: list[float] = []
-        for pw_json in vdf["pairwise_distances"]:
-            for dist in _parse_pairwise(pw_json).values():
-                dists.append(dist)
+        dists = [
+            dist
+            for pw_json in vdf["pairwise_distances"]
+            for dist in _parse_pairwise(pw_json).values()
+        ]
+        version_dists[v] = dists
         total_obs += len(dists)
-        fig.add_trace(go.Histogram(
-            x=dists,
-            nbinsx=50,
-            histnorm="probability density",
-            marker_color=vc["violin"],
-            marker_line={"color": vc["main"], "width": 0.5},
-            name=_vlabel(v) if multi else "SpAM distance",
-            opacity=0.7,
-        ))
 
-    if null_distribution is not None:
-        fig.add_trace(go.Histogram(
-            x=null_distribution,
-            nbinsx=50,
-            histnorm="probability density",
-            marker_color="rgba(160,160,160,0.35)",
-            marker_line={"color": "rgba(100,100,100,0.8)", "width": 0.5},
-            name="Null (random placement)",
-            opacity=0.7,
-        ))
+    # Common evaluation grid over the observed range
+    x = np.linspace(0.0, 1.0, 500)
 
-    fig.update_layout(
-        barmode="overlay",
-        title=f"Distribution of pairwise SpAM distances (n={total_obs:,} pair observations)",
-        xaxis_title="Normalised distance",
-        yaxis_title="Density",
-        height=400,
-        margin={"l": 70, "r": 40, "t": 50, "b": 60},
-        showlegend=True,
+    # KDE for each version and for the null
+    version_kde: dict[float, np.ndarray] = {
+        v: gaussian_kde(dists)(x)
+        for v, dists in version_dists.items()
+        if len(dists) > 1
+    }
+    null_kde: np.ndarray | None = (
+        gaussian_kde(null_distribution)(x) if null_distribution is not None else None
     )
+
+    two_panel = null_kde is not None
+    title = f"Distribution of pairwise SpAM distances (n={total_obs:,} pair observations)"
+
+    if two_panel:
+        fig = make_subplots(
+            rows=2, cols=1,
+            row_heights=[0.60, 0.40],
+            shared_xaxes=True,
+            vertical_spacing=0.10,
+        )
+
+        # Null filled area (bottom layer — add first so version lines render on top)
+        fig.add_trace(go.Scatter(
+            x=x.tolist(), y=null_kde.tolist(),
+            fill="tozeroy",
+            fillcolor="rgba(160,160,160,0.30)",
+            line={"color": "rgba(100,100,100,0.70)", "width": 1.5},
+            name="Null (random placement)",
+        ), row=1, col=1)
+
+        # Version KDE lines
+        for v in versions:
+            if v not in version_kde:
+                continue
+            vc = _vc(v)
+            fig.add_trace(go.Scatter(
+                x=x.tolist(), y=version_kde[v].tolist(),
+                line={"color": vc["main"], "width": 2.5},
+                name=_vlabel(v) if multi else "SpAM distance",
+                legendgroup=f"v{v:g}",
+            ), row=1, col=1)
+
+        # Bottom panel: deviation from null
+        for v in versions:
+            if v not in version_kde:
+                continue
+            vc = _vc(v)
+            dev = (version_kde[v] - null_kde).tolist()
+            fig.add_trace(go.Scatter(
+                x=x.tolist(), y=dev,
+                fill="tozeroy",
+                fillcolor=vc["violin"],
+                line={"color": vc["main"], "width": 1.5},
+                name=_vlabel(v),
+                legendgroup=f"v{v:g}",
+                showlegend=False,
+            ), row=2, col=1)
+
+        # Zero reference line in deviation panel
+        fig.add_trace(go.Scatter(
+            x=[0.0, 1.0], y=[0.0, 0.0],
+            line={"color": "rgba(80,80,80,0.55)", "width": 1.2, "dash": "dot"},
+            showlegend=False,
+        ), row=2, col=1)
+
+        fig.update_yaxes(title_text="Density", row=1, col=1)
+        fig.update_yaxes(title_text="Δ density vs null", row=2, col=1)
+        fig.update_xaxes(title_text="Normalised distance", row=2, col=1)
+        fig.update_layout(
+            title=title,
+            height=560,
+            margin={"l": 80, "r": 40, "t": 60, "b": 60},
+            showlegend=True,
+        )
+
+    else:
+        fig = go.Figure()
+        for v in versions:
+            if v not in version_kde:
+                continue
+            vc = _vc(v)
+            fig.add_trace(go.Scatter(
+                x=x.tolist(), y=version_kde[v].tolist(),
+                line={"color": vc["main"], "width": 2.5},
+                name=_vlabel(v) if multi else "SpAM distance",
+            ))
+        fig.update_layout(
+            title=title,
+            xaxis_title="Normalised distance",
+            yaxis_title="Density",
+            height=400,
+            margin={"l": 70, "r": 40, "t": 50, "b": 60},
+            showlegend=True,
+        )
+
     return fig
