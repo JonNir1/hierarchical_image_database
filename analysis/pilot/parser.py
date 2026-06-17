@@ -138,6 +138,9 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
 
     if trial_rows:
         df_trials_all = pd.concat(trial_rows, ignore_index=True)
+        # bool columns can upcast to object after concat; re-cast explicitly
+        if "qc_flag" in df_trials_all.columns:
+            df_trials_all["qc_flag"] = df_trials_all["qc_flag"].astype(bool)
     else:
         df_trials_all = pd.DataFrame()
 
@@ -193,8 +196,11 @@ def _load_session_trials(session_path: Path, participant: pd.Series) -> pd.DataF
 
     # Derived columns
     df["trial_number"] = df["trial_type"].str.extract(r"trial_(\d+)").astype(int)
-    df["n_moves"] = df["moves"].apply(_count_moves)
+    df["n_moves"] = df["moves"].apply(_count_moves).astype(int)
     df["rt"] = pd.to_numeric(df["rt"], errors="coerce")
+    # qc_flag is written by JS as lowercase "true"/"false" strings; .isin gives numpy bool dtype
+    if "qc_flag" in df.columns:
+        df["qc_flag"] = df["qc_flag"].isin([True, "true", "True", 1])
 
     # Normalise all pixel x/y coordinates to [0, 1] using this session's canvas
     # size, so coordinates are screen-independent. sort_area is not kept.
