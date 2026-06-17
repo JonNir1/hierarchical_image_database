@@ -16,7 +16,7 @@ Available targets:
     sens_pre   -- D_sens_pre.npy   (pixel Euclidean, pre-SHINE)
     sens_post  -- D_sens_post.npy  (pixel Euclidean, post-SHINE)
     sem_km     -- D_sem_km.npy     (Kiani-Mur tree-edge distance)
-    sem_wn     -- D_sem_wn.npy     (WordNet shortest-path via ResNet-50)
+    sem_wn     -- D_sem_wn.npy     (WordNet shortest-path via manifest synsets)
     clip_pre   -- D_clip_pre.npy   (CLIP ViT-B/32 cosine, pre-SHINE)
     clip_post  -- D_clip_post.npy  (CLIP ViT-B/32 cosine, post-SHINE)
 """
@@ -32,7 +32,7 @@ _BUILDERS: dict[str, tuple[str, str, list]] = {
     "sens_pre":  ("analysis.rdms.sensory",      "build_sensory_rdm",  ["pre_shine"]),
     "sens_post": ("analysis.rdms.sensory",      "build_sensory_rdm",  ["post_shine"]),
     "sem_km":    ("analysis.rdms.semantic_km",  "build_km_rdm",       []),
-    "sem_wn":    ("analysis.rdms.semantic_wn",  "build_wn_rdm",       []),
+    "sem_wn":    ("analysis.rdms.semantic_wn_dir", "build_wn_rdm",     []),
     "clip_pre":  ("analysis.rdms.clip",         "build_clip_rdm",     ["pre_shine"]),
     "clip_post": ("analysis.rdms.clip",         "build_clip_rdm",     ["post_shine"]),
 }
