@@ -816,13 +816,14 @@ def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
         showlegend=False, hoverinfo="skip",
     ), row=2, col=1)
 
-    # 60 s reference lines: last-move panel and rate panel
-    for r, c in [(1, 1), (2, 2)]:
-        fig.add_shape(
-            type="line", x0=60, x1=60, y0=-1000, y1=1000,
-            line={"color": "rgba(80,80,80,0.55)", "width": 1.2, "dash": "dash"},
-            row=r, col=c,
-        )
+    # 60 s reference lines: last-move panel (axis 1) and rate panel (axis 3).
+    # Use yref in domain coordinates so the shape spans the subplot height
+    # without polluting the y-axis autorange.
+    _ref_line = {"color": "rgba(80,80,80,0.55)", "width": 1.2, "dash": "dash"}
+    fig.add_shape(type="line", x0=60, x1=60, y0=0, y1=1,
+                  xref="x", yref="y domain", line=_ref_line)
+    fig.add_shape(type="line", x0=60, x1=60, y0=0, y1=1,
+                  xref="x3", yref="y3 domain", line=_ref_line)
 
     # y-axis for top panel
     y_range = [-0.55, n_versions - 0.45]
