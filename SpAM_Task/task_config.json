@@ -8,7 +8,7 @@
   "design": {
     "trials_per_subject":        10,
     "images_per_trial":          20,
-    "percent_images_repeated":   0.333,
+    "frac_images_repeated":   0.333,
     "practice_images_per_trial": 8
   },
 

@@ -19,7 +19,7 @@ const makeRng = (seed = 42) => {
 
 const ALL_IMAGES = Array.from({ length: 754 }, (_, i) => `img_${i}.png`);
 // r=1/3 → N = round(200 / 1.333) = 150; n_double = 200 - 150 = 50
-const CONFIG     = { design: { trials_per_subject: 10, images_per_trial: 20, percent_images_repeated: 1/3 } };
+const CONFIG     = { design: { trials_per_subject: 10, images_per_trial: 20, frac_images_repeated: 1/3 } };
 
 // ── buildTrialLists ───────────────────────────────────────────────────────────
 describe('buildTrialLists', () => {
@@ -51,7 +51,7 @@ describe('buildTrialLists', () => {
         // r=0 → N = round(6/1) = 6, but pool only has 2 images
         assert.throws(() =>
             buildTrialLists(['x.png','y.png'],
-                { design: { trials_per_subject:3, images_per_trial:2, percent_images_repeated:0 } },
+                { design: { trials_per_subject:3, images_per_trial:2, frac_images_repeated:0 } },
                 makeRng())
         );
     });

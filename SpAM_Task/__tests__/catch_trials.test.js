@@ -22,7 +22,7 @@ const CONFIG = {
     design: {
         trials_per_subject:        10,
         images_per_trial:          20,
-        percent_images_repeated:   1/3,
+        frac_images_repeated:   1/3,
     },
     catch_trials: {
         num_trials:       2,
