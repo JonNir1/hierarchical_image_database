@@ -25,7 +25,7 @@ has been done and what is pending.
       input: `images/pre_shine/`, output: `images/post_shine/`
 - [ ] Dataset manifest. `code: image_processing/build_dataset_manifest.py`.
       Build a manifest CSV with one row per image, including source attribution,
-      Kiani-Mur labels, WordNet/ImageNet labels, and a per-image **text description**
+      Kiani-Mur labels, WordNet labels, and a per-image **text description**
       (~1 sentence; consumed by SGPT in the exploratory semantic RDM step below).
       Output: `analysis/results/dataset_manifest.csv`. (Distinct from the task's `stimuli_manifest.json`.)
 - [ ] Sensory RDMs. `code: analysis/rdms/sensory.py`.
@@ -34,9 +34,10 @@ has been done and what is pending.
 - [ ] Semantic RDM (Kiani-Mur). `code: analysis/rdms/semantic_km.py`.
       Per pair: sum of mismatch indicators across the 3 KM tree levels
       (animate/inanimate, mid-level, basic). Out: `D_sem_km.npy`.
-- [ ] Semantic RDM (WordNet). `code: analysis/rdms/semantic_wn.py`.
-      Top-1 ImageNet (ResNet-50 / CLIP) classification of each image → WordNet synset →
-      shortest-path distance in the WordNet hypernym graph. Out: `D_sem_wn.npy`.
+- [ ] Semantic RDM (WordNet). `code: analysis/rdms/semantic_wn_dir.py`.
+      Synsets assigned directly from image category labels (filename stem + directory,
+      with manual overrides for polysemous cases; see `images/manifest.csv` column
+      `wn_synset_name`). Pairwise WordNet shortest-path distance. Out: `D_sem_wn.npy`.
 - [ ] Visual-semantic RDM (CLIP). `code: analysis/rdms/visual_semantic_clip.py`.
       Load OpenAI pretrained CLIP **ViT-B/32** (e.g., via `clip` or `open_clip`).
       Encode each of the 725 images via the image encoder, take the **output-layer**

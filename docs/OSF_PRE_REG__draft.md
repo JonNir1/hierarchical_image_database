@@ -72,7 +72,7 @@ We then test whether Spearman ρ between $D^{pre}_{perc}$ and $D^{pre}_{KM}$ is 
 strongest at superordinate levels and weakest at basic level (Mur 2013): $$H1b: ρ(D^{pre}_{perc}, D^{pre}_{KM}) > 0$$
 <br>
 *Exploratory Analyses for RQ1:*  
-H1c: Repeat the analysis from H1b using ImageNet+WordNet based semantic distances instead of KM graph distances.
+H1c: Repeat the analysis from H1b using WordNet-based semantic distances (synsets assigned from image category labels) instead of KM graph distances.
 The hypothesis is similar: $$H1c: ρ(D^{pre}_{perc}, D^{pre}_{WN}) > 0$$
 
 **RQ2:** Does SHINE-color preprocessing preserve that perceptual structure or distort it?
@@ -131,8 +131,8 @@ Additional reporting (following Shoham et al. 2024, Nature Human Behaviour):
   (unique-variance contribution). Fisher-z transform on correlations before any
   t-tests. FDR (Benjamini-Hochberg) across the three predictors.
 
-The same confirmatory model is also fit under $D_{sem} = D_{WN}$ (ImageNet+WordNet
-shortest path) as a registered supplementary robustness check; agreement between
+The same confirmatory model is also fit under $D_{sem} = D_{WN}$ (WordNet shortest-path
+distance, synsets from image category labels) as a registered supplementary robustness check; agreement between
 sources is informative but not required for the H3 conclusion.
 
 H3 exploratory variants (registered, not confirmatory):
@@ -238,7 +238,24 @@ intervals of 5 subjects after reaching N=75).
 ### Indices
 - Subject-level reliability index: Spearman ρ on the 50 within-subject repeated images
 - Population-level perceptual RDMs from unweighted metric MDS (`smacof` in R; binary pair weights — 1 if observed, 0 otherwise): $D^{pre}_{perc}$ and $D^{post}_{perc}$
-- Semantic distance matrices: $D_{sem}^{KM}$ (Kiani-Mur graph distance) and $D_{sem}^{WN}$ (WordNet shortest path on ImageNet labels)
+- Semantic distance matrices: $D_{sem}^{KM}$ (Kiani-Mur graph distance) and $D_{sem}^{WN}$
+  (WordNet shortest-path distance). For $D_{sem}^{WN}$, each image is assigned a WordNet
+  noun synset from its filename stem and parent directory label: e.g., `duck3.png` in a
+  `bird/` subdirectory resolves to `duck.n.01`; a `bird/` image whose filename does not
+  yield a valid synset falls back to `bird.n.01`. Manual overrides handle polysemous stems
+  where WordNet's most-frequent sense is incorrect (e.g., `screw` -> `screw.n.04` not
+  `prison_guard.n.01`; `lettuce` -> `lettuce.n.02` not `boodle.n.01`). Human-face images
+  are assigned `woman.n.01` or `man.n.01` from a gender token in the filename; human-body
+  images resolve via their category dirname (e.g., `clown.n.01`, `child.n.01`, `hand.n.01`).
+  Synset assignments are stored in `images/manifest.csv` (column `wn_synset_name`);
+  the assignment code is in `analysis/rdms/assign_wn_synsets.py`.
+  *Note on methodology change*: the original plan was to classify each image with
+  ResNet-50 and map the predicted ImageNet class to its WordNet synset. This approach was
+  abandoned because ImageNet-1K does not include person, face, or human-body categories,
+  leaving 22.5% of images (all 164 human images) unclassifiable, with fallback distances
+  that do not reflect semantic content. White/transparent backgrounds also remove contextual
+  cues that ResNet relies on. Since all images were manually curated with known category
+  labels, direct label-to-synset mapping is both more accurate and fully deterministic.
 - Sensory distance matrices: $D_{sens}^{pre}$ and $D_{sens}^{post}$ — pairwise Euclidean
   distance between flattened image vectors, before and after SHINE preprocessing,
   respectively. Captures low-level pixel info that SHINE directly manipulates.
