@@ -577,11 +577,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           data.cluster_mean_distance  = clusterMean;
           data.qc_flag = clusterMean > config.catch_trials.cluster_max_mean  ||
                          sd          > config.catch_trials.cluster_max_sd    ||
-                         !locationOk ||
-                         data.rt < config.quality_control.min_trial_rt_ms;
+                         !locationOk;
         } else {
-          data.qc_flag = sd < config.quality_control.min_pairwise_distance_sd ||
-                         data.rt < config.quality_control.min_trial_rt_ms;
+          data.qc_flag = sd < config.quality_control.min_pairwise_distance_sd;
         }
 
         data.pairwise_distances = JSON.stringify(pairs);

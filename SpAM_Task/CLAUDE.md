@@ -128,18 +128,16 @@ Catch trials detect disengaged participants who are not following instructions. 
 distinguished from main trials by a visible prompt and different QC logic (see below).
 
 **Quality control â€” main trials**: Flag a trial if
-`SD(normalised pairwise distances) < min_pairwise_distance_sd` (all images piled up) OR
-`rt < min_trial_rt_ms` (too fast). The RT floor is also UI-enforced: the "Done" button is
-disabled on main trials for the first `min_trial_rt_ms` ms (live countdown shown), so the
-post-hoc flag is a safety net rather than the primary mechanism. Exclude a participant if
-> 30% of their main trials are flagged.
+`SD(normalised pairwise distances) < min_pairwise_distance_sd` (all images piled up).
+There is no RT-based flag: the `min_trial_rt_ms` floor is UI-enforced (Done button
+disabled for that duration), so a too-fast completion is impossible. Exclude a participant
+if > 30% of their main trials are flagged.
 
 **Quality control â€” catch trials**: A catch trial is flagged if ANY of the following hold:
 - `mean(normalised pairwise distances) > catch_cluster_max_mean` â€” images not clustered tightly
 - `SD(normalised pairwise distances) > catch_cluster_max_sd` â€” cluster too spread
 - Every individual image must be within `catch_location_tolerance` (normalised) of the
   target point — if any single image is too far away, the trial is flagged
-- `rt < min_trial_rt_ms` â€” too fast
 
 `allImagesNearTarget` checks every individual image: each must be within `tolerance` (normalised diagonal distance) of the target corner/centre point. This function is used identically by the real-time blocking check (`on_load`) and the post-trial QC flag (`on_finish`), keeping both criteria in sync.
 
@@ -296,7 +294,7 @@ browser and `generate_manifest.py` resolve them identically.
 ### `quality_control`
 | Key | Default | Description |
 |---|---|---|
-| `min_trial_rt_ms` | 60000 | UI-enforced minimum on main trials: "Done" button stays disabled for this many ms (countdown shown). Post-hoc QC flags any trial shorter than this as a safety net. Not applied to practice or catch trials. |
+| `min_trial_rt_ms` | 60000 | UI-enforced minimum on main trials: "Done" button stays disabled for this many ms (countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. Not applied to practice or catch trials. |
 | `min_pairwise_distance_sd` | 0.04 | Minimum SD of normalised distances for main trial to pass |
 
 ### `deployment`

@@ -122,7 +122,7 @@ is substantially smaller or larger, adjust accordingly.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `quality_control.min_trial_rt_ms` | 60000 | UI-enforced minimum: "Done" button is disabled for this many ms on main trials (live countdown shown). Trials shorter than this threshold are also flagged post-hoc by QC. |
+| `quality_control.min_trial_rt_ms` | 60000 | UI-enforced minimum: "Done" button is disabled for this many ms on main trials (live countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. |
 | `quality_control.min_pairwise_distance_sd` | 0.04 | Main trials where all images are piled in one spot are flagged |
 | `catch_trials.cluster_max_mean` | 0.15 | Catch trial: images must be clustered (low mean distance) |
 | `catch_trials.cluster_max_sd` | 0.10 | Catch trial: cluster must be tight (low SD) |
