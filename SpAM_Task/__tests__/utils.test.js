@@ -85,7 +85,7 @@ describe('verifyConfig', () => {
         design: {
             trials_per_subject:        10,
             images_per_trial:          20,
-            percent_images_repeated:   0.333,
+            frac_images_repeated:   0.333,
             practice_images_per_trial: 8,
         },
         catch_trials: {
@@ -165,21 +165,32 @@ describe('verifyConfig', () => {
         );
     });
 
-    it('throws when percent_images_repeated is out of range', () => {
+    it('warns (not throws) when frac_images_repeated >= 0.5', () => {
         const cfg = validConfig();
-        cfg.design.percent_images_repeated = 1.5;
+        cfg.design.frac_images_repeated = 0.5;
+        const warnings = [];
+        const origWarn = console.warn;
+        console.warn = msg => warnings.push(msg);
+        assert.doesNotThrow(() => verifyConfig(cfg));
+        console.warn = origWarn;
+        assert.ok(warnings.some(w => /frac_images_repeated/.test(w) && /0\.5/.test(w)));
+    });
+
+    it('throws when frac_images_repeated is out of range', () => {
+        const cfg = validConfig();
+        cfg.design.frac_images_repeated = 1.5;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"design\.percent_images_repeated" must be in \[0, 1\]/ },
+            { message: /"design\.frac_images_repeated" must be in \[0, 1\]/ },
         );
     });
 
-    it('throws when percent_images_repeated causes N < k', () => {
+    it('throws when frac_images_repeated causes N < k', () => {
         const cfg = validConfig();
         // r=1 → N = round(10*20/2) = 100 >= 20 (passes), but with t=1, k=20:
         // Override to a pathological case: t=1, k=20, r=1 → N=round(20/2)=10 < 20
         cfg.design.trials_per_subject = 1;
-        cfg.design.percent_images_repeated = 1;
+        cfg.design.frac_images_repeated = 1;
         assert.throws(
             () => verifyConfig(cfg),
             { message: /gives only \d+ unique images/ },
