@@ -127,6 +127,7 @@ function verifyConfig(config) {
     if (!Number.isInteger(t)        || t < 1)        err('"design.trials_per_subject" must be a positive integer, got ' + t + '.');
     if (!Number.isInteger(k)        || k < 1)        err('"design.images_per_trial" must be a positive integer, got ' + k + '.');
     if (r < 0 || r > 1)                              err('"design.frac_images_repeated" must be in [0, 1], got ' + r + '.');
+    if (r >= 0.5) warn('WARNING: "design.frac_images_repeated" is ' + r + ' (>= 0.5). The greedy image-placement algorithm may fail at runtime for some participant IDs. Keep below 0.5 for reliable behaviour.');
     if (!Number.isInteger(kPractice)|| kPractice < 1)err('"design.practice_images_per_trial" must be a positive integer, got ' + kPractice + '.');
     if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"catch_trials.num_trials" must be a non-negative integer, got ' + nCatch + '.');
     if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
