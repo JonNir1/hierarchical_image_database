@@ -124,32 +124,44 @@ describe('computeCentroid', () => {
     });
 });
 
-// ── isCentroidNearTarget ──────────────────────────────────────────────────────
-describe('isCentroidNearTarget', () => {
+// ── allImagesNearTarget ───────────────────────────────────────────────────────
+// allImagesNearTarget replaced isCentroidNearTarget in f372cde: every image
+// must individually be within tolerance, not just the centroid.
+describe('allImagesNearTarget', () => {
     const TOL = 0.20;
 
-    it('centroid at exact centre passes "center"', () => {
-        const c = { x: SORT_W / 2, y: SORT_H / 2 };
-        assert.ok(isCentroidNearTarget(c, 'center', SORT_W, SORT_H, TOL));
+    // Helper: build n images all placed at (x, y).
+    const cluster = (x, y, n = 3) =>
+        Array.from({ length: n }, (_, i) => ({ src: `img_${i}.png`, x, y }));
+
+    it('all images at exact centre passes "center"', () => {
+        const locs = cluster(SORT_W / 2, SORT_H / 2);
+        assert.ok(allImagesNearTarget(locs, 'center', SORT_W, SORT_H, TOL));
     });
 
-    it('centroid far from centre fails "center"', () => {
-        const c = { x: SORT_W * 0.9, y: SORT_H * 0.9 };
-        assert.ok(!isCentroidNearTarget(c, 'center', SORT_W, SORT_H, TOL));
+    it('all images far from centre fails "center"', () => {
+        const locs = cluster(SORT_W * 0.9, SORT_H * 0.9);
+        assert.ok(!allImagesNearTarget(locs, 'center', SORT_W, SORT_H, TOL));
     });
 
-    it('centroid at exact top-left target passes "top left corner"', () => {
+    it('all images at top-left target passes "top left corner"', () => {
         // Target point is at EDGE=15% from each edge
-        const c = { x: SORT_W * 0.15, y: SORT_H * 0.15 };
-        assert.ok(isCentroidNearTarget(c, 'top left corner', SORT_W, SORT_H, TOL));
+        const locs = cluster(SORT_W * 0.15, SORT_H * 0.15);
+        assert.ok(allImagesNearTarget(locs, 'top left corner', SORT_W, SORT_H, TOL));
     });
 
-    it('centroid at centre fails "top left corner"', () => {
-        const c = { x: SORT_W / 2, y: SORT_H / 2 };
-        assert.ok(!isCentroidNearTarget(c, 'top left corner', SORT_W, SORT_H, TOL));
+    it('all images at centre fails "top left corner"', () => {
+        const locs = cluster(SORT_W / 2, SORT_H / 2);
+        assert.ok(!allImagesNearTarget(locs, 'top left corner', SORT_W, SORT_H, TOL));
     });
 
-    it('each corner target passes only when centroid is near that corner', () => {
+    it('one stray image causes failure even if others are on target', () => {
+        const locs = cluster(SORT_W * 0.15, SORT_H * 0.15);
+        locs.push({ src: 'stray.png', x: SORT_W / 2, y: SORT_H / 2 }); // far from corner
+        assert.ok(!allImagesNearTarget(locs, 'top left corner', SORT_W, SORT_H, TOL));
+    });
+
+    it('each corner target passes only when all images are near that corner', () => {
         const corners = {
             'top left corner':     { x: SORT_W * 0.15, y: SORT_H * 0.15 },
             'top right corner':    { x: SORT_W * 0.85, y: SORT_H * 0.15 },
@@ -157,16 +169,18 @@ describe('isCentroidNearTarget', () => {
             'bottom right corner': { x: SORT_W * 0.85, y: SORT_H * 0.85 },
         };
         for (const [loc, pos] of Object.entries(corners)) {
-            // Correct corner → pass
             assert.ok(
-                isCentroidNearTarget(pos, loc, SORT_W, SORT_H, TOL),
-                `Expected pass for ${loc} at its own target point`
+                allImagesNearTarget(cluster(pos.x, pos.y), loc, SORT_W, SORT_H, TOL),
+                `Expected pass for ${loc} at its own target point`,
             );
-            // Centre → fail
             assert.ok(
-                !isCentroidNearTarget({ x: SORT_W / 2, y: SORT_H / 2 }, loc, SORT_W, SORT_H, TOL),
-                `Expected fail for ${loc} when centroid is at centre`
+                !allImagesNearTarget(cluster(SORT_W / 2, SORT_H / 2), loc, SORT_W, SORT_H, TOL),
+                `Expected fail for ${loc} when images are at centre`,
             );
         }
+    });
+
+    it('returns false for empty locations array', () => {
+        assert.ok(!allImagesNearTarget([], 'center', SORT_W, SORT_H, TOL));
     });
 });
