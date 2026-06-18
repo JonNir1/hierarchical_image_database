@@ -54,6 +54,7 @@ function verifyConfig(config) {
         quality_control: {
             min_trial_rt_ms:          'number',
             min_pairwise_distance_sd: 'number',
+            min_move_item_ratio:      'number',
         },
         deployment: {
             mode:                    'string',
@@ -121,6 +122,7 @@ function verifyConfig(config) {
     const frac       = disp.image_size_fraction;
     const minRt      = qc.min_trial_rt_ms;
     const minSd      = qc.min_pairwise_distance_sd;
+    const moveRatio  = qc.min_move_item_ratio;
 
     if (!Number.isInteger(t)        || t < 1)        err('"design.trials_per_subject" must be a positive integer, got ' + t + '.');
     if (!Number.isInteger(k)        || k < 1)        err('"design.images_per_trial" must be a positive integer, got ' + k + '.');
@@ -144,8 +146,9 @@ function verifyConfig(config) {
     if (!disp.font_family.trim())      err('"display.font_family" must not be empty.');
     if (!disp.font_size.trim())        err('"display.font_size" must not be empty.');
     if (disp.line_height <= 0)         err('"display.line_height" must be > 0, got ' + disp.line_height + '.');
-    if (minRt < 0)              err('"quality_control.min_trial_rt_ms" must be >= 0, got '              + minRt + '.');
-    if (minSd <= 0 || minSd >= 1) err('"quality_control.min_pairwise_distance_sd" must be in (0, 1), got ' + minSd + '.');
+    if (minRt < 0)                    err('"quality_control.min_trial_rt_ms" must be >= 0, got '              + minRt      + '.');
+    if (minSd <= 0 || minSd >= 1)     err('"quality_control.min_pairwise_distance_sd" must be in (0, 1), got ' + minSd      + '.');
+    if (moveRatio <= 0 || moveRatio > 1) err('"quality_control.min_move_item_ratio" must be in (0, 1], got '   + moveRatio  + '.');
 
     // 2b. Deployment mode + debug variant
     const mode = config.deployment.mode;
@@ -407,4 +410,43 @@ function computeSD(values) {
     const mean = values.reduce((acc, v) => acc + v, 0) / n;
     const variance = values.reduce((acc, v) => acc + (v - mean) ** 2, 0) / (n - 1);
     return Math.sqrt(variance);
+}
+
+/**
+ * QC flag for a main (non-catch) trial.
+ * Flags if the participant barely moved items OR piled everything together.
+ *
+ * @param {number} sd          - Sample SD of normalised pairwise distances
+ * @param {number} numMoves    - Total drag-end events recorded by the plugin
+ * @param {number} numItems    - Number of stimuli in the trial
+ * @param {object} config      - Task config (reads quality_control fields)
+ * @returns {boolean} true if the trial should be flagged
+ */
+function computeMainQcFlag(sd, numMoves, numItems, config) {
+    const qc = config.quality_control;
+    const enoughMoves = numMoves >= qc.min_move_item_ratio * numItems;
+    return sd < qc.min_pairwise_distance_sd || !enoughMoves;
+}
+
+/**
+ * QC flag for a catch trial.
+ * Flags if the cluster is too spread, too distant from the target,
+ * or the participant barely moved items.
+ *
+ * @param {number}  clusterMean - Mean normalised pairwise distance
+ * @param {number}  sd          - Sample SD of normalised pairwise distances
+ * @param {boolean} locationOk  - Result of allImagesNearTarget()
+ * @param {number}  numMoves    - Total drag-end events recorded by the plugin
+ * @param {number}  numItems    - Number of stimuli in the trial
+ * @param {object}  config      - Task config (reads catch_trials + quality_control fields)
+ * @returns {boolean} true if the trial should be flagged
+ */
+function computeCatchQcFlag(clusterMean, sd, locationOk, numMoves, numItems, config) {
+    const ct = config.catch_trials;
+    const qc = config.quality_control;
+    const enoughMoves = numMoves >= qc.min_move_item_ratio * numItems;
+    return clusterMean > ct.cluster_max_mean ||
+           sd          > ct.cluster_max_sd   ||
+           !locationOk                       ||
+           !enoughMoves;
 }

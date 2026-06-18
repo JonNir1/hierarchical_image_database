@@ -82,9 +82,6 @@ describe('verifyConfig', () => {
             practice:  'practice',
             catch:     'catch',
         },
-        shine: {
-            shine_variant: 'pre',
-        },
         design: {
             trials_per_subject:        10,
             images_per_trial:          20,
@@ -107,14 +104,33 @@ describe('verifyConfig', () => {
             stim_starts_inside:   true,
             column_spread_factor: 0.3,
             image_size_fraction:  0.11,
+            background_color:     '#808080',
+            text_color:           '#111111',
+            font_family:          'sans-serif',
+            font_size:            '16px',
+            line_height:          1.6,
         },
         quality_control: {
             min_trial_rt_ms:          5000,
             min_pairwise_distance_sd: 0.04,
+            min_move_item_ratio:      0.75,
         },
         deployment: {
+            mode:                    'debug',
+            debug_shine_variant:     'pre',
             prolific_completion_url: 'https://example.com',
-            debug:                   true,
+            prolific_no_consent_url: 'https://example.com/no-consent',
+            version:                 '2.2',
+        },
+        consent: {
+            researcher_name:        'Test Researcher',
+            researcher_email:       'test@example.com',
+            pi_name:                'Test PI',
+            pi_email:               'pi@example.com',
+            lab_name:               'Test Lab',
+            lab_phone:              '+1-555-0000',
+            institution:            'Test University',
+            study_duration_minutes: 45,
         },
     });
 
@@ -189,6 +205,102 @@ describe('verifyConfig', () => {
         const cfg = validConfig();
         cfg.design.practice_images_per_trial = 25; // > images_per_trial=20
         assert.doesNotThrow(() => verifyConfig(cfg));
+    });
+
+    it('throws on missing min_move_item_ratio', () => {
+        const cfg = validConfig();
+        delete cfg.quality_control.min_move_item_ratio;
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /missing required key "quality_control\.min_move_item_ratio"/ },
+        );
+    });
+
+    it('throws when min_move_item_ratio is out of range (> 1)', () => {
+        const cfg = validConfig();
+        cfg.quality_control.min_move_item_ratio = 1.5;
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /"quality_control\.min_move_item_ratio" must be in \(0, 1\]/ },
+        );
+    });
+
+    it('throws when min_move_item_ratio is 0', () => {
+        const cfg = validConfig();
+        cfg.quality_control.min_move_item_ratio = 0;
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /"quality_control\.min_move_item_ratio" must be in \(0, 1\]/ },
+        );
+    });
+});
+
+// ── computeMainQcFlag ─────────────────────────────────────────────────────────
+describe('computeMainQcFlag', () => {
+    const cfg = {
+        quality_control: { min_pairwise_distance_sd: 0.04, min_move_item_ratio: 0.75 },
+    };
+
+    it('passes when sd is high enough and moves are sufficient', () => {
+        assert.equal(computeMainQcFlag(0.10, 15, 20, cfg), false);
+    });
+
+    it('flags when sd is below threshold (pile-up)', () => {
+        assert.equal(computeMainQcFlag(0.02, 15, 20, cfg), true);
+    });
+
+    it('flags when moves are below ratio threshold', () => {
+        // 0.75 * 20 = 15; 14 moves → flag
+        assert.equal(computeMainQcFlag(0.10, 14, 20, cfg), true);
+    });
+
+    it('passes at exactly the move threshold', () => {
+        // 0.75 * 20 = 15; exactly 15 moves → pass
+        assert.equal(computeMainQcFlag(0.10, 15, 20, cfg), false);
+    });
+
+    it('flags when both sd and moves fail', () => {
+        assert.equal(computeMainQcFlag(0.02, 5, 20, cfg), true);
+    });
+
+    it('catches threshold scales with numItems (catch trial size)', () => {
+        // 0.75 * 10 = 7.5; 7 moves → flag, 8 moves → pass
+        assert.equal(computeMainQcFlag(0.10, 7, 10, cfg), true);
+        assert.equal(computeMainQcFlag(0.10, 8, 10, cfg), false);
+    });
+});
+
+// ── computeCatchQcFlag ────────────────────────────────────────────────────────
+describe('computeCatchQcFlag', () => {
+    const cfg = {
+        catch_trials:    { cluster_max_mean: 0.15, cluster_max_sd: 0.10 },
+        quality_control: { min_move_item_ratio: 0.75 },
+    };
+
+    it('passes when all criteria are met', () => {
+        assert.equal(computeCatchQcFlag(0.10, 0.05, true, 8, 10, cfg), false);
+    });
+
+    it('flags when cluster mean is too large', () => {
+        assert.equal(computeCatchQcFlag(0.20, 0.05, true, 8, 10, cfg), true);
+    });
+
+    it('flags when cluster sd is too large', () => {
+        assert.equal(computeCatchQcFlag(0.10, 0.15, true, 8, 10, cfg), true);
+    });
+
+    it('flags when images are not near target', () => {
+        assert.equal(computeCatchQcFlag(0.10, 0.05, false, 8, 10, cfg), true);
+    });
+
+    it('flags when moves are insufficient', () => {
+        // 0.75 * 10 = 7.5; 7 moves → flag
+        assert.equal(computeCatchQcFlag(0.10, 0.05, true, 7, 10, cfg), true);
+    });
+
+    it('passes at exactly the move threshold', () => {
+        // 0.75 * 10 = 7.5; 8 moves → pass
+        assert.equal(computeCatchQcFlag(0.10, 0.05, true, 8, 10, cfg), false);
     });
 });
 

@@ -554,8 +554,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const distances = pairs.map(p => p.distance);
         const sd = computeSD(distances);
         const numMoves = data.moves.length;
-        const minMoves = config.quality_control.min_move_item_ratio * trial.images.length;
-        const enoughMoves = numMoves >= minMoves;
 
         data.num_moves = numMoves;
 
@@ -580,13 +578,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           data.centroid_x             = centroid.x / sortW;
           data.centroid_y             = centroid.y / sortH;
           data.cluster_mean_distance  = clusterMean;
-          data.qc_flag = clusterMean > config.catch_trials.cluster_max_mean  ||
-                         sd          > config.catch_trials.cluster_max_sd    ||
-                         !locationOk                                          ||
-                         !enoughMoves;
+          data.qc_flag = computeCatchQcFlag(clusterMean, sd, locationOk, numMoves, trial.images.length, config);
         } else {
-          data.qc_flag = sd < config.quality_control.min_pairwise_distance_sd ||
-                         !enoughMoves;
+          data.qc_flag = computeMainQcFlag(sd, numMoves, trial.images.length, config);
         }
 
         data.pairwise_distances = JSON.stringify(pairs);
