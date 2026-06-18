@@ -8,7 +8,7 @@
   "design": {
     "trials_per_subject":        10,
     "images_per_trial":          20,
-    "unique_images_per_subject": 150,
+    "percent_images_repeated":   0.333,
     "practice_images_per_trial": 8
   },
 
@@ -43,7 +43,7 @@
   },
 
   "deployment": {
-    "version": "2.2",
+    "version": "2.3",
     "mode": "pilot",
     "debug_shine_variant": "pre",
     "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=C12AB9X4",

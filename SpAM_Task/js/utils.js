@@ -26,7 +26,7 @@ function verifyConfig(config) {
         design: {
             trials_per_subject:        'number',
             images_per_trial:          'number',
-            unique_images_per_subject: 'number',
+            percent_images_repeated:   'number',
             practice_images_per_trial: 'number',
         },
         catch_trials: {
@@ -106,7 +106,7 @@ function verifyConfig(config) {
 
     const t          = d.trials_per_subject;
     const k          = d.images_per_trial;
-    const N          = d.unique_images_per_subject;
+    const r          = d.percent_images_repeated;
     const kPractice  = d.practice_images_per_trial;
     const nCatch     = ct.num_trials;
     const kCatch     = ct.images_per_trial;
@@ -126,7 +126,7 @@ function verifyConfig(config) {
 
     if (!Number.isInteger(t)        || t < 1)        err('"design.trials_per_subject" must be a positive integer, got ' + t + '.');
     if (!Number.isInteger(k)        || k < 1)        err('"design.images_per_trial" must be a positive integer, got ' + k + '.');
-    if (!Number.isInteger(N)        || N < 1)        err('"design.unique_images_per_subject" must be a positive integer, got ' + N + '.');
+    if (r < 0 || r > 1)                              err('"design.percent_images_repeated" must be in [0, 1], got ' + r + '.');
     if (!Number.isInteger(kPractice)|| kPractice < 1)err('"design.practice_images_per_trial" must be a positive integer, got ' + kPractice + '.');
     if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"catch_trials.num_trials" must be a non-negative integer, got ' + nCatch + '.');
     if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
@@ -163,10 +163,11 @@ function verifyConfig(config) {
     // ── Group 3: cross-parameter arithmetic ──────────────────────────────────
 
     // 3a. Trial image pool arithmetic
+    // Derived unique-image count must be at least k so each trial can be filled.
+    const N = Math.round(t * k / (1 + r));
     if (N < k)
-        err('design.unique_images_per_subject (' + N + ') must be >= design.images_per_trial (' + k + '). Each trial needs k distinct images.');
-    if (N > t * k)
-        err('design.unique_images_per_subject (' + N + ') exceeds trials_per_subject × images_per_trial (t×k = ' + (t * k) + '). Reduce N or increase t or k.');
+        err('design.percent_images_repeated (' + r + ') with t=' + t + ', k=' + k +
+            ' gives only ' + N + ' unique images — fewer than images_per_trial (' + k + '). Lower percent_images_repeated or increase trials_per_subject.');
 
     // 3b. Catch trial count
     if (nCatch >= t)

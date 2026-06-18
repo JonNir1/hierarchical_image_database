@@ -44,15 +44,16 @@ function _eligibleIndices(trials, img, k) {
 /**
  * Build per-subject trial lists with controlled image repetition.
  *
- * Each subject sees `n_unique` unique images across `t` trials of `k` images.
- * To allow within-subject reliability estimation, `n_double = t*k − n_unique`
+ * Each subject sees n_unique = round(t*k / (1 + r)) unique images across
+ * t trials of k images, where r = percent_images_repeated.
+ * To allow within-subject reliability estimation, n_double = round(r * n_unique)
  * images appear in exactly 2 trials each; the rest appear once.
  * No image ever appears more than once within a single trial.
  *
  * @param {string[]} allImages - All available image paths (from stimuli_manifest.json)
  * @param {{design: {trials_per_subject: number,
  *                   images_per_trial: number,
- *                   unique_images_per_subject: number}}} config
+ *                   percent_images_repeated: number}}} config
  * @param {function(): number} rng - Seeded RNG returning float in [0, 1)
  * @returns {string[][]} Array of `t` arrays, each containing exactly `k` image paths
  * @throws {Error} If assignment leaves any trial underfilled (indicates a config bug)
@@ -60,8 +61,9 @@ function _eligibleIndices(trials, img, k) {
 function buildTrialLists(allImages, config, rng) {
     const t        = config.design.trials_per_subject;
     const k        = config.design.images_per_trial;
-    const n_unique = config.design.unique_images_per_subject;
-    const n_double = t * k - n_unique; // images that appear in 2 trials each
+    const r        = config.design.percent_images_repeated;
+    const n_unique = Math.round(t * k / (1 + r));
+    const n_double = t * k - n_unique; // = round(r * n_unique)
 
     // Subject-specific random subset of the full image pool
     const activeSet = seededShuffle(allImages, rng).slice(0, n_unique);
@@ -79,7 +81,7 @@ function buildTrialLists(allImages, config, rng) {
         if (eligible.length < 2) {
             throw new Error(
                 `buildTrialLists: fewer than 2 eligible trials for double-image "${img}". ` +
-                'Check trials_per_subject, images_per_trial, and unique_images_per_subject.'
+                'Check trials_per_subject, images_per_trial, and percent_images_repeated.'
             );
         }
         const shuffled = seededShuffle(eligible, rng);

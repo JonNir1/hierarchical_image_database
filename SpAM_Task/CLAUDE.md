@@ -79,9 +79,9 @@ python generate_manifest.py
 ## Key Design Decisions
 
 **Stimulus assignment**: Client-side seeded RNG. Seed = `hashString(PROLIFIC_PID)` (djb2).
-Each subject sees `unique_images_per_subject=150` unique images across `t=10` trials of `k=20`
-images. `n_double = tÃ—k âˆ’ n_unique = 50` images appear in exactly 2 trials (within-subject
-reliability); 100 appear once. No image repeats within a single trial. The same `rng` instance
+Each subject sees `n_unique = round(t×k / (1+r)) = 150` unique images across `t=10` trials of `k=20`
+images, where `r = percent_images_repeated = 0.333`. `n_double = 50` images appear in exactly
+2 trials (within-subject reliability); 100 appear once. No image repeats within a single trial. The same `rng` instance
 is passed through `buildTrialLists` ←’ `insertCatchTrials` so the entire session sequence â€”
 including catch image selection and target locations â€” is fully reproducible from the PID.
 
@@ -168,7 +168,7 @@ handles data upload; the `finish` command node is appended to the timeline and c
 | Function / Constant | Description |
 |---|---|
 | `CATCH_LOCATIONS` | Array of 5 target location strings: `center` + 4 corners. Shared between trial_generator and task.js. |
-| `buildTrialLists(allImages, config, rng)` | Assigns `n_unique` images to `t` trials of `k` images each, with `n_double` images appearing in exactly 2 distinct trials. Returns `string[][]`. Throws if any trial is underfilled. |
+| `buildTrialLists(allImages, config, rng)` | Computes `n_unique = round(t×k / (1+r))` from `percent_images_repeated`; assigns images to `t` trials of `k` images each, with `n_double = t×k − n_unique` images appearing in exactly 2 distinct trials. Returns `string[][]`. Throws if any trial is underfilled. |
 | `buildCatchTrial(catchPool, config, rng)` | Samples `catch_images_per_trial` images from the catch pool and picks a target location, both via the shared RNG. Returns `{type:'catch', images, target_location}`. |
 | `insertCatchTrials(mainTrials, catchPool, config, rng)` | Interleaves `num_catch_trials` catch trials at evenly-spaced interior positions. Returns the combined sequence as `{type:'main'|'catch', images, target_location?}[]`. |
 | `_minBy(array, fn)` | Returns the element of `array` minimising `fn`. Used in single-image assignment to balance trial lengths. |
@@ -269,7 +269,7 @@ browser and `generate_manifest.py` resolve them identically.
 |---|---|---|
 | `trials_per_subject` | 10 | Number of main free-sort trials |
 | `images_per_trial` | 20 | Images shown per main trial |
-| `unique_images_per_subject` | 150 | Unique images assigned per subject |
+| `percent_images_repeated` | 0.333 | Fraction of unique images shown in 2 trials (reliability). `r=0`: no repeats; `r=1`: all images repeated. Derived: `n_unique = round(t×k / (1+r))`. |
 | `practice_images_per_trial` | 8 | Images in the (discarded) practice trial |
 
 ### `catch_trials`

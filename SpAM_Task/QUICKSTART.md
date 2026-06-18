@@ -109,13 +109,13 @@ is substantially smaller or larger, adjust accordingly.
 |---|---|---|
 | `design.trials_per_subject` | 10 | How many sorting trials each participant completes |
 | `design.images_per_trial` | 20 | How many images appear on screen per trial |
-| `design.unique_images_per_subject` | 150 | How many distinct images each participant sees |
+| `design.percent_images_repeated` | 0.333 | Fraction of unique images shown in 2 trials for within-subject reliability (`r=0`: no repeats, `r=1`: all repeated). Unique images per subject = `round(t×k / (1+r))`. |
 | `catch_trials.num_trials` | 2 | How many attention-check trials are interleaved |
 | `catch_trials.images_per_trial` | 10 | Images per catch trial |
 
 > **Coverage check**: with your chosen parameters, verify that each image will be seen by
 > enough participants for reliable averaging.
-> Expected views per image ≈ `N × unique_images_per_subject / total_images`.
+> Expected views per image ≈ `N_subjects × round(t×k / (1+r)) / total_images`.
 > Aim for at least 10–15 views per image.
 
 ### Quality control thresholds
