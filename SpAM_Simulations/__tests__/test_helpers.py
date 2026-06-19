@@ -36,6 +36,23 @@ def test_nan_asymmetric_square_raises():
         convert_to_condensed(m)
 
 
+def test_finite_asymmetric_square_raises():
+    # a finite but non-symmetric matrix must be rejected (no NaNs to mask the asymmetry)
+    m = np.array([[0.0, 1.0], [2.0, 0.0]])
+    with pytest.raises(ValueError):
+        convert_to_condensed(m)
+
+
+def test_symmetric_nan_square_passes():
+    # a symmetric NaN mask with matching finite entries is accepted
+    m = np.array([[0.0, np.nan, 3.0],
+                  [np.nan, 0.0, 5.0],
+                  [3.0, 5.0, 0.0]])
+    out = convert_to_condensed(m)
+    np.testing.assert_array_equal(np.isnan(out), [True, False, False])
+    assert out[1] == 3.0 and out[2] == 5.0
+
+
 @pytest.mark.parametrize("N", [3, 7, 12, 30])
 def test_condensed_pair_indices_match_squareform(N):
     # the helper must map every unordered pair to scipy's condensed position
