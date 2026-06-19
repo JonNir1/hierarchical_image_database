@@ -114,22 +114,30 @@ def _completed_keys(store: ResultStore) -> set:
     return keys
 
 
-def _run_single_mds(run_mds, task, sweep_config: MDSSweepConfig) -> Tuple[dict, Optional[np.ndarray]]:
-    """Run one MDS task, returning (metadata, confdist-or-None). Failures are recorded, not raised."""
+def _build_mds_payload(task, sweep_config: MDSSweepConfig) -> tuple:
+    """Build a small, picklable payload for one MDS task (for serial or worker execution)."""
     params, rep, res, ndim = task
-    meta = {**params._asdict(), "rep": rep, "ndim": ndim,
-            "niter": np.nan, "stress": np.nan, "status": "success"}
     dists, weights = _prepare_mds_inputs(res)
+    meta_base = {**params._asdict(), "rep": rep, "ndim": ndim}
+    return (meta_base, dists, weights, ndim,
+            sweep_config.max_iters, sweep_config.convergence_tol, sweep_config.precalc_init)
+
+
+def _execute_mds_payload(payload: tuple) -> Tuple[dict, Optional[np.ndarray]]:
+    """Run one MDS payload, returning (metadata, confdist-or-None). Failures are recorded, not raised.
+
+    Module-level and picklable so it can run in a joblib worker process. ``run_mds`` (and R)
+    is imported here so each worker initialises its own R instance exactly once.
+    """
+    from SpAM_Simulations.multi_dimensional_scaling import run_mds
+    meta_base, dists, weights, ndim, max_iters, tol, precalc = payload
+    meta = {**meta_base, "niter": np.nan, "stress": np.nan, "status": "success"}
     try:
-        out = run_mds(
-            dists=dists, weights=weights, ndim=ndim,
-            max_iters=sweep_config.max_iters,
-            convergence_tol=sweep_config.convergence_tol,
-            precalc_init=sweep_config.precalc_init,
-        )
+        out = run_mds(dists=dists, weights=weights, ndim=ndim,
+                      max_iters=max_iters, convergence_tol=tol, precalc_init=precalc)
     except RuntimeError as e:
         meta["status"] = "disconnected" if "connected components" in str(e) else "error"
-        logger.warning("MDS task %s failed: %s", _task_key(params, rep, ndim), e)
+        logger.warning("MDS task (ndim=%s, rep=%s) failed: %s", ndim, meta_base.get("rep"), e)
         return meta, None
     meta["niter"] = float(out["niter"])
     meta["stress"] = float(out["stress"])
@@ -142,6 +150,8 @@ def run_mds_sweep(
     sweep_config: MDSSweepConfig,
     store_path: str | Path,
     *,
+    parallel: bool = False,
+    n_jobs: Optional[int] = None,
     overwrite: bool = False,
     verbose: bool = True,
 ) -> ResultStore:
@@ -149,9 +159,13 @@ def run_mds_sweep(
 
     Results are appended to a ``ResultStore`` at ``store_path``. If a store already exists
     (and ``overwrite`` is False) the sweep resumes, skipping tasks already recorded.
-    """
-    from SpAM_Simulations.multi_dimensional_scaling import run_mds  # lazy: needs R only here
 
+    Set ``parallel=True`` to distribute the independent MDS runs across ``n_jobs`` processes
+    (default: all cores) via joblib's loky backend; results are streamed back as each worker
+    finishes, so peak memory stays bounded. MDS itself is unaffected numerically - each run is
+    independent - so the parallel path produces statistically equivalent results to serial
+    (exactness depends only on the solver's own init, not on the scheduling).
+    """
     store_path = Path(store_path)
     confdist_len = sim.num_images * (sim.num_images - 1) // 2
     if (store_path / "store_info.json").exists() and not overwrite:
@@ -161,14 +175,23 @@ def run_mds_sweep(
         store = ResultStore.create(store_path, confdist_len, _SWEEP_META_COLUMNS, overwrite=overwrite)
         completed = set()
 
-    tasks = [
-        task for task in mds_tasks(sim, sweep_config)
+    payloads = [
+        _build_mds_payload(task, sweep_config)
+        for task in mds_tasks(sim, sweep_config)
         if _task_key(task[0], task[1], task[3]) not in completed
     ]
     try:
-        for task in tqdm(tasks, desc="Running MDS", disable=not verbose):
-            meta, confdist = _run_single_mds(run_mds, task, sweep_config)
-            store.append(meta, confdist)
+        if parallel and payloads:
+            from joblib import Parallel, delayed
+            results = Parallel(n_jobs=n_jobs, return_as="generator_unordered")(
+                delayed(_execute_mds_payload)(p) for p in payloads
+            )
+            for meta, confdist in tqdm(results, total=len(payloads), desc="Running MDS", disable=not verbose):
+                store.append(meta, confdist)
+        else:
+            for payload in tqdm(payloads, desc="Running MDS", disable=not verbose):
+                meta, confdist = _execute_mds_payload(payload)
+                store.append(meta, confdist)
     finally:
         store.close()
     return store

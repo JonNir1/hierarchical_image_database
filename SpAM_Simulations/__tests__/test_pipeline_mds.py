@@ -61,6 +61,19 @@ def test_embedding_stability(tmp_path):
     assert row["mean_spearman"] > 0.5
 
 
+def test_run_mds_sweep_parallel(tmp_path):
+    sim, _ = _small_sim()
+    sweep = MDSSweepConfig(ndims=[3, 4], max_iters=150, convergence_tol=1e-5, precalc_init=False)
+    store = pipeline.run_mds_sweep(sim, sweep, tmp_path / "store", parallel=True, n_jobs=2, verbose=False)
+    df = store.metadata()
+    assert len(df) == 6  # same task set as the serial sweep
+    assert set(df["ndim"]) == {3, 4}
+    assert df["status"].isin(["success", "max_iters"]).all()
+    # every successful run stored a confdist of the right length
+    L = sim.num_images * (sim.num_images - 1) // 2
+    assert all(store.confdist(int(r)).shape == (L,) for r in df["confdist_row"] if r >= 0)
+
+
 def test_sweep_resumes(tmp_path):
     sim, _ = _small_sim()
     store_path = tmp_path / "store"
