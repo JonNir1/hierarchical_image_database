@@ -104,7 +104,10 @@ def simulate_single_subject(
     pair_rows, pair_cols = np.triu_indices(images_per_trial, k=1)
     n_pairs = pair_rows.size
     for _t in trange(num_trials, desc="Simulating trials", disable=not verbose):
-        selected_indices = np.random.choice(N, size=images_per_trial, replace=False)
+        # Draw the trial's images from the simulation's seeded Generator so the whole
+        # simulation is reproducible from its seed (the pre-refactor code used the global
+        # `np.random`, which left image selection un-seeded and non-reproducible).
+        selected_indices = rng.choice(N, size=images_per_trial, replace=False)
         cond_idx = _condensed_pair_indices(selected_indices[pair_rows], selected_indices[pair_cols], N)
         # Cast noise to float32 before adding. The scalar pre-refactor code drew noise via
         # `rng.normal(...)` (no size), which returns a Python float; NEP-50 weak promotion then

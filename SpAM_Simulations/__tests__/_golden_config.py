@@ -4,17 +4,15 @@ Both the fixture generator (`generate_golden_fixtures.py`, run once against the
 *pre-refactor* code) and the bit-exact test (`test_bit_exact.py`, run against the
 *post-refactor* code) import this module so the two cannot drift apart.
 
-Each (config, rep) entry is made independently reproducible by resetting *both*
-RNG sources before the call:
+Each (config, rep) entry is made independently reproducible by a fresh seeded
+``np.random.default_rng(rng_seed)`` Generator, which (after the reproducibility fix)
+drives BOTH the per-trial image selection (``rng.choice``) and the Gaussian
+measurement noise (``rng.normal``). ``np.random.seed(global_seed)`` is still called
+before each entry for backwards compatibility, but no longer affects the results.
 
-* ``np.random.seed(global_seed)`` governs the per-trial image selection, which the
-  current code draws from the global NumPy RNG (``np.random.choice``).
-* a fresh ``np.random.default_rng(rng_seed)`` Generator supplies the Gaussian
-  measurement noise (``rng.normal``).
-
-Isolating each entry this way means the bit-exact guarantee is tested at the level
-of ``simulate_experiment`` alone, independent of how the orchestration layer happens
-to iterate over configurations.
+Isolating each entry this way means the guarantee is tested at the level of
+``simulate_experiment`` alone, independent of how the orchestration layer happens to
+iterate over configurations.
 """
 from itertools import product
 

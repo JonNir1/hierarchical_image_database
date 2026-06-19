@@ -13,20 +13,21 @@ import pytest
 from scipy.spatial.distance import squareform
 
 import _golden_config as gc
-from SpAM_Simulations.experiment import simulate_single_subject, simulate_experiment
+from SpAM_Simulations.experiment import simulate_single_subject, simulate_experiment, ExperimentParameters
 from SpAM_Simulations.simulation import Simulation
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "golden_experiment.npz"
 
 
 def _reference_single_subject(subject_noise, num_trials, images_per_trial, gt_distances, rng):
-    """Verbatim pre-refactor scalar implementation (the bit-exact oracle)."""
+    """Scalar oracle mirroring the pre-refactor logic, with selection seeded via `rng`
+    (the applied reproducibility fix). Used to fuzz-check the vectorized implementation."""
     square_gt_distances = squareform(gt_distances)
     N = square_gt_distances.shape[0]
     observations = np.zeros_like(square_gt_distances)
     n_obs = np.zeros_like(square_gt_distances)
     for _t in range(num_trials):
-        selected_indices = np.random.choice(N, size=images_per_trial, replace=False)
+        selected_indices = rng.choice(N, size=images_per_trial, replace=False)
         for i in range(len(selected_indices)):
             for j in range(i + 1, len(selected_indices)):
                 idx_i, idx_j = selected_indices[i], selected_indices[j]
@@ -83,3 +84,24 @@ def test_vectorized_matches_reference(seed_idx):
     assert new_obs.dtype == ref_obs.dtype
     np.testing.assert_array_equal(new_obs, ref_obs)
     np.testing.assert_array_equal(new_nobs, ref_nobs)
+
+
+def test_simulation_reproducible_from_seed_only():
+    """After the reproducibility fix the result depends only on the Generator seed,
+    and is independent of the global ``np.random`` state."""
+    params = ExperimentParameters(4, 6, 8, 0.5, 1)
+    sim = Simulation.make(25, 4, seed=3)
+    gt = sim.gt_distances
+
+    np.random.seed(0)
+    _, r1 = simulate_experiment(params, gt, np.random.default_rng(99), verbose=False)
+    np.random.seed(123456)  # perturb global RNG: must not affect the result
+    _, r2 = simulate_experiment(params, gt, np.random.default_rng(99), verbose=False)
+
+    np.testing.assert_array_equal(r1.distances, r2.distances)
+    np.testing.assert_array_equal(r1.num_obs, r2.num_obs)
+    np.testing.assert_array_equal(r1.subject_noises, r2.subject_noises)
+
+    # a different seed yields a different sampling
+    _, r3 = simulate_experiment(params, gt, np.random.default_rng(100), verbose=False)
+    assert not np.array_equal(np.nan_to_num(r1.distances), np.nan_to_num(r3.distances))
