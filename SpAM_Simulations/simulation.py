@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from functools import cached_property
 from typing import List, Dict
 from itertools import product
 import pickle as pkl
@@ -72,6 +73,21 @@ class Simulation:
         gt_embeddings = rng.normal(size=(N, D)).astype(np.float32)
         return Simulation(gt_embeddings, rng, datetime.now())
 
+    @staticmethod
+    def from_embeddings(gt_embeddings: np.ndarray, seed: int = 42) -> "Simulation":
+        """Create a Simulation from a provided ground-truth embedding (e.g. real image features).
+
+        Embeddings are cast to float32 to match the random-embedding path, so downstream
+        ground-truth distances are computed at the same precision regardless of source.
+        """
+        gt_embeddings = np.asarray(gt_embeddings, dtype=np.float32)
+        if gt_embeddings.ndim != 2:
+            raise ValueError(f"`gt_embeddings` must be a 2-D (N, D) array, got shape {gt_embeddings.shape}")
+        if gt_embeddings.shape[0] <= 0 or gt_embeddings.shape[1] <= 0:
+            raise ValueError(f"`gt_embeddings` must have positive N and D, got shape {gt_embeddings.shape}")
+        rng = np.random.default_rng(seed)
+        return Simulation(gt_embeddings, rng, datetime.now())
+
     @property
     def num_images(self) -> int:
         return self.gt_embeddings.shape[0]
@@ -80,11 +96,14 @@ class Simulation:
     def gt_dimensions(self) -> int:
         return self.gt_embeddings.shape[1]
 
-    @property
+    @cached_property
     def gt_distances(self) -> np.ndarray:
         """
         Calculate the pairwise Euclidean distances between embeddings.
         Returns a N(N-1)/2 vector of distances.
+
+        Cached: embeddings are fixed for a Simulation's lifetime, so this is computed once
+        and reused across every experiment run instead of on each access.
         """
         return pdist(self.gt_embeddings, metric="euclidean").astype(np.float32)
 
@@ -97,15 +116,8 @@ class Simulation:
             self, params: ExperimentParameters, verbose: bool = True
     ) -> ExperimentResults:
         exp_params, exp_results = simulate_experiment(params, self.gt_distances, self.rng, verbose)
-        if exp_params in self._results.keys():
-            # this experiment has already been run, convert to list and append
-            existing_results = self._results[exp_params]
-            if not isinstance(existing_results, list):
-                existing_results = [existing_results]
-            existing_results.append(exp_results)
-            self._results[exp_params] = existing_results
-        else:
-            self._results[exp_params] = [exp_results]
+        # `_results` maps each parameter set to a list of repetition results; append this run.
+        self._results.setdefault(exp_params, []).append(exp_results)
         return exp_results
 
     def get_or_run_experiments(

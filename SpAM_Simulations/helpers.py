@@ -1,11 +1,15 @@
 import numpy as np
-from scipy.spatial.distance import squareform
+from scipy.spatial.distance import squareform, num_obs_y
 
 
 def convert_to_condensed(matrix: np.ndarray) -> np.ndarray:
     if matrix.ndim == 1:
-        # convert to matrix form to make sure it's square and symmetric
-        return convert_to_condensed(squareform(matrix, checks=False))
+        # A 1-D input is already condensed; a vector is a valid condensed distance matrix iff
+        # its length is a triangular number, which `num_obs_y` validates (raising otherwise).
+        # Return a copy so callers may mutate the result without touching the input, matching
+        # the copy semantics of the 2-D `squareform` path below.
+        num_obs_y(matrix)
+        return matrix.copy()
     elif matrix.ndim == 2:
         # convert to condensed form, ensuring it's square and symmetric
         if not (matrix.shape[0] == matrix.shape[1]):

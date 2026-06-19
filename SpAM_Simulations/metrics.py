@@ -26,16 +26,15 @@ def coverage(exp_results: ExperimentResults) -> dict:
     avg_pairwise_obs = np.mean(n_pairwise_obs)
     percent_pairwise_obs = np.mean(n_pairwise_obs > 0) * 100
 
-    # extract per-image statistics
-    sq_n_pairwise_obs = squareform(n_pairwise_obs, checks=False)  # convert to square form
-    n_images = sq_n_pairwise_obs.shape[0]
-    n_img_obs = np.sum(sq_n_pairwise_obs > 0, axis=0)  # count number of observed pairs for each image
+    # build the square form once and reuse it for the per-image stats and the adjacency graph
+    observed = squareform(n_pairwise_obs, checks=False) > 0  # boolean image-pair adjacency
+    n_images = observed.shape[0]
+    n_img_obs = np.sum(observed, axis=0)  # count number of observed pairs for each image
     avg_img_obs = np.mean(n_img_obs)
     percent_img_obs = np.mean(n_img_obs > 0) * 100
 
     # Calculate number of connected components in the image pair graph
-    adjacency_matrix = squareform(n_pairwise_obs > 0, checks=False).astype(int)  # convert to adjacency matrix
-    num_components, _ = connected_components(adjacency_matrix, directed=False)
+    num_components, _ = connected_components(observed.astype(int), directed=False)
     return {
         "num_images": n_images,
         "average_img_obs": avg_img_obs,
