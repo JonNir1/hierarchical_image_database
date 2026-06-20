@@ -69,6 +69,10 @@ run it under Git Bash, give the Python process a Windows-only PATH (no Unix `sh`
 `PATH="/c/Program Files/R/R-4.5.2/bin/x64:/c/Windows/System32:/c/Windows"`, so `R CMD config`
 fails fast and rpy2 falls back to `bin/x64`.
 
+`multi_dimensional_scaling.py` automatically prepends `R_HOME\bin\x64` to PATH at import time, so
+loading R packages (whose DLLs depend on `R.dll`/BLAS there) works without you editing PATH. If R
+still isn't found, set `R_HOME` explicitly.
+
 ## Tests
 
 ```
