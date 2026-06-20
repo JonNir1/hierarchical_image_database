@@ -3,7 +3,7 @@ from typing import NamedTuple, Tuple
 
 import numpy as np
 from tqdm import trange
-from scipy.spatial.distance import squareform
+from scipy.spatial.distance import num_obs_y
 
 from SpAM_Simulations.helpers import convert_to_condensed
 
@@ -42,7 +42,7 @@ def simulate_experiment(
     assert params.subjects_noise_df > 0, f"`subjects_noise_df` must be positive (got {params.subjects_noise_df})"
     # make sure distances are in condensed form
     gt_distances = convert_to_condensed(gt_distances)
-    N = squareform(gt_distances, checks=False).shape[0]
+    N = num_obs_y(gt_distances)
     assert 0 < params.images_per_trial < N, f"`images_per_trial` must be between 0 and `N`(={N})"
 
     all_observations = np.zeros_like(gt_distances)
@@ -83,26 +83,54 @@ def simulate_single_subject(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Simulates distance observations from a single subject based on ground truth distances, with added Gaussian noise.
-    Unmeasured distances are represented as 0.
+    Returns ``(observations, n_obs)`` as condensed (1-D) vectors. Unmeasured distances are represented as 0.
     """
     assert subject_noise >= 0, "`subject_noise` must be non-negative"
     assert num_trials > 0, "`num_trials` must be positive"
-    square_gt_distances = squareform(gt_distances)
-    N = square_gt_distances.shape[0]
+    if gt_distances.ndim != 1:  # accept a square matrix, but skip the copy for the common condensed case
+        gt_distances = convert_to_condensed(gt_distances)
+    N = num_obs_y(gt_distances)
     assert 0 < images_per_trial < N, "`images_per_trial` must be between 0 and `N`"
-    observations, n_obs = np.zeros_like(square_gt_distances), np.zeros_like(square_gt_distances)
+    # Work directly in condensed form: the buffers are ~half the size of the equivalent
+    # square matrices and no per-trial squareform round-trip is needed. This is bit-for-bit
+    # identical to accumulating into a square matrix and condensing afterwards, because
+    # squareform only reshapes (it performs no arithmetic).
+    observations = np.zeros_like(gt_distances)
+    n_obs = np.zeros_like(gt_distances)
+    # Pre-compute the upper-triangular pair ordering once; `np.triu_indices` enumerates
+    # pairs in the same order as `itertools.combinations(range(k), 2)`, so drawing the
+    # per-trial noise as a single block reproduces the scalar loop's RNG stream exactly:
+    # NumPy's Generator fills `normal(size=n)` from the same sequence as `n` scalar calls.
+    pair_rows, pair_cols = np.triu_indices(images_per_trial, k=1)
+    n_pairs = pair_rows.size
     for _t in trange(num_trials, desc="Simulating trials", disable=not verbose):
-        selected_indices = np.random.choice(N, size=images_per_trial, replace=False)
-        for i in range(len(selected_indices)):
-            for j in range(i + 1, len(selected_indices)):
-                idx_i, idx_j = selected_indices[i], selected_indices[j]
-                noisy_distance = square_gt_distances[idx_i, idx_j] + rng.normal(0, scale=subject_noise)
-                noisy_distance = max(0, noisy_distance)     # ensure non-negativity
-                observations[idx_i, idx_j] += noisy_distance
-                observations[idx_j, idx_i] += noisy_distance
-                n_obs[idx_i, idx_j] += 1
-                n_obs[idx_j, idx_i] += 1
-    return squareform(observations), squareform(n_obs)
+        # Draw the trial's images from the simulation's seeded Generator so the whole
+        # simulation is reproducible from its seed (the pre-refactor code used the global
+        # `np.random`, which left image selection un-seeded and non-reproducible).
+        selected_indices = rng.choice(N, size=images_per_trial, replace=False)
+        cond_idx = _condensed_pair_indices(selected_indices[pair_rows], selected_indices[pair_cols], N)
+        # Cast noise to float32 before adding. The scalar pre-refactor code drew noise via
+        # `rng.normal(...)` (no size), which returns a Python float; NEP-50 weak promotion then
+        # performs `float32 + python_float` in float32. A block draw returns a float64 array, so
+        # we must down-cast it to reproduce the original float32 arithmetic bit-for-bit.
+        noise = rng.normal(0, scale=subject_noise, size=n_pairs).astype(np.float32)
+        noisy_distances = np.maximum(0, gt_distances[cond_idx] + noise)  # ensure non-negativity
+        # Pairs within a trial are unique (distinct selected images), so each condensed index
+        # appears at most once and these assignments accumulate identically to the scalar loop.
+        observations[cond_idx] += noisy_distances
+        n_obs[cond_idx] += 1
+    return observations, n_obs
+
+
+def _condensed_pair_indices(idx_i: np.ndarray, idx_j: np.ndarray, N: int) -> np.ndarray:
+    """Map unordered image-index pairs to their position in a length-N condensed distance vector.
+
+    Matches scipy's ``squareform`` ordering: for ``lo < hi`` the condensed index is
+    ``lo*N - lo*(lo+1)//2 + (hi - lo - 1)``.
+    """
+    lo = np.minimum(idx_i, idx_j)
+    hi = np.maximum(idx_i, idx_j)
+    return lo * N - (lo * (lo + 1)) // 2 + (hi - lo - 1)
 
 
 def _draw_subject_noises(
