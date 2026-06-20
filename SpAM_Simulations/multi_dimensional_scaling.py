@@ -1,3 +1,5 @@
+import os
+import sys
 from typing import Dict, Any, Optional
 
 import numpy as np
@@ -5,12 +7,44 @@ from scipy.spatial.distance import squareform
 from scipy.sparse.csgraph import connected_components
 from sklearn.manifold import MDS
 
-import rpy2.robjects as ro
-from rpy2.robjects.packages import importr
-from rpy2.robjects import numpy2ri
-from rpy2.robjects.conversion import localconverter
 
-from SpAM_Simulations.helpers import convert_to_condensed
+def _ensure_r_dll_on_path() -> None:
+    """Put R's ``bin/x64`` directory on PATH before rpy2 initialises R (Windows only).
+
+    R package shared objects (e.g. ``stats.dll``, pulled in by ``smacof``) depend on
+    ``R.dll`` and the BLAS/LAPACK DLLs in ``R_HOME/bin/x64``. rpy2 adds that directory via
+    ``os.add_dll_directory``, but R's own dynamic loader (``inDL`` -> ``LoadLibrary``) resolves
+    dependencies through PATH, so unless ``bin/x64`` is on PATH loading a package fails with
+    "unable to load shared object ... The specified module could not be found". Adding it here
+    (before the rpy2 imports below trigger R startup) makes the import work from any shell or a
+    Jupyter kernel without the user having to edit their PATH.
+    """
+    if sys.platform != "win32":
+        return
+    import rpy2.situation  # lightweight: locates R_HOME without starting R
+    r_home = rpy2.situation.get_r_home()
+    if not r_home:
+        return
+    for sub in (os.path.join("bin", "x64"), "bin"):
+        dll_dir = os.path.join(r_home, sub)
+        if os.path.isfile(os.path.join(dll_dir, "R.dll")):
+            try:
+                os.add_dll_directory(dll_dir)
+            except (OSError, AttributeError):
+                pass
+            if dll_dir not in os.environ.get("PATH", "").split(os.pathsep):
+                os.environ["PATH"] = dll_dir + os.pathsep + os.environ.get("PATH", "")
+            break
+
+
+_ensure_r_dll_on_path()
+
+import rpy2.robjects as ro  # noqa: E402  (must follow _ensure_r_dll_on_path: importing starts R)
+from rpy2.robjects.packages import importr  # noqa: E402
+from rpy2.robjects import numpy2ri  # noqa: E402
+from rpy2.robjects.conversion import localconverter  # noqa: E402
+
+from SpAM_Simulations.helpers import convert_to_condensed  # noqa: E402
 
 
 # import the R package `smacof` for multidimensional scaling
