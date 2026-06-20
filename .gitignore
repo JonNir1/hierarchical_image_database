@@ -37,6 +37,9 @@ data/
 !SpAM_Task/task_config.json
 !SpAM_Task/stimuli_manifest.json
 
+# SpAM_Simulations MDS-sweep output store (ResultStore: meta.csv + confdists.f32)
+mds_store/
+
 # analysis outputs (RDMs, intermediate results) -- reproducible, not tracked
 analysis/results/
 *.doc
