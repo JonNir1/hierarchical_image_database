@@ -94,10 +94,14 @@ def mds_tasks(
 
 
 def _prepare_mds_inputs(res: ExperimentResults) -> Tuple[np.ndarray, np.ndarray]:
-    """Mean observed distances + a 0/1 weight mask (missing pairs get zero weight)."""
+    """Mean observed distances + a 0/1 weight mask (missing pairs get zero weight).
+
+    Both arrays are float32 - the values (distances and a 0/1 mask) need no more precision, and
+    for a large sim each pair is ``N(N-1)/2`` long, so float32 halves the per-task footprint.
+    """
     mean = _calculate_mean_distances(res)
-    weights = (~np.isnan(mean)).astype(float)
-    dists = np.nan_to_num(mean, nan=0.0)
+    weights = (~np.isnan(mean)).astype(np.float32)
+    dists = np.nan_to_num(mean, nan=0.0).astype(np.float32, copy=False)
     return dists, weights
 
 
@@ -121,6 +125,24 @@ def _build_mds_payload(task, sweep_config: MDSSweepConfig) -> tuple:
     meta_base = {**params._asdict(), "rep": rep, "ndim": ndim}
     return (meta_base, dists, weights, ndim,
             sweep_config.max_iters, sweep_config.convergence_tol, sweep_config.precalc_init)
+
+
+def _pending_tasks(sim: Simulation, sweep_config: MDSSweepConfig, completed: set):
+    """Yield the (params, rep, res, ndim) tasks not already recorded in the store."""
+    for task in mds_tasks(sim, sweep_config):
+        if _task_key(task[0], task[1], task[3]) not in completed:
+            yield task
+
+
+def _iter_pending_payloads(sim: Simulation, sweep_config: MDSSweepConfig, completed: set):
+    """Lazily build one payload per pending task.
+
+    Crucially this is a generator, not a list: each payload holds a full-length dists+weights
+    pair, so for a large sim with thousands of tasks materialising them all at once would need
+    tens of GB. Building on demand keeps only a handful resident at a time.
+    """
+    for task in _pending_tasks(sim, sweep_config, completed):
+        yield _build_mds_payload(task, sweep_config)
 
 
 def _execute_mds_payload(payload: tuple) -> Tuple[dict, Optional[np.ndarray]]:
@@ -175,21 +197,22 @@ def run_mds_sweep(
         store = ResultStore.create(store_path, confdist_len, _SWEEP_META_COLUMNS, overwrite=overwrite)
         completed = set()
 
-    payloads = [
-        _build_mds_payload(task, sweep_config)
-        for task in mds_tasks(sim, sweep_config)
-        if _task_key(task[0], task[1], task[3]) not in completed
-    ]
+    # Count pending tasks for the progress bar without building any payloads (cheap: iterating
+    # mds_tasks only yields references to the existing results, it allocates nothing).
+    total = sum(1 for _ in _pending_tasks(sim, sweep_config, completed))
+    payloads = _iter_pending_payloads(sim, sweep_config, completed)  # lazy generator
     try:
-        if parallel and payloads:
+        if parallel and total:
             from joblib import Parallel, delayed
+            # joblib pulls from the generator up to `pre_dispatch` ahead, so only a handful of
+            # payloads are resident at once; results stream back as each worker finishes.
             results = Parallel(n_jobs=n_jobs, return_as="generator_unordered")(
-                delayed(_execute_mds_payload)(p) for p in payloads
+                delayed(_execute_mds_payload)(payload) for payload in payloads
             )
-            for meta, confdist in tqdm(results, total=len(payloads), desc="Running MDS", disable=not verbose):
+            for meta, confdist in tqdm(results, total=total, desc="Running MDS", disable=not verbose):
                 store.append(meta, confdist)
         else:
-            for payload in tqdm(payloads, desc="Running MDS", disable=not verbose):
+            for payload in tqdm(payloads, total=total, desc="Running MDS", disable=not verbose):
                 meta, confdist = _execute_mds_payload(payload)
                 store.append(meta, confdist)
     finally:

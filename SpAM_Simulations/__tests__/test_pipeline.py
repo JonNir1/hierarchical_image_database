@@ -49,6 +49,42 @@ def test_coverage_table_shape_and_columns():
         assert col in df.columns
 
 
+def test_run_mds_sweep_streams_payloads_lazily(tmp_path, monkeypatch):
+    """Payloads (each a full dists+weights pair) must be built on demand and interleaved with
+    execution - not all materialised up front, which for a large sweep would need tens of GB."""
+    from SpAM_Simulations.config import MDSSweepConfig
+    cfg = SimulationConfig(n_images=30, n_dims=3, num_subjects=[10], trials_per_subject=[5],
+                           images_per_trial=[6], subjects_noise_scale=[0.5], subjects_noise_df=[1],
+                           reps=3, seed=1)
+    sim = pipeline.generate_simulation(cfg, verbose=False)
+    sweep = MDSSweepConfig(ndims=[2, 3])
+    L = sim.num_images * (sim.num_images - 1) // 2
+    n_tasks = 1 * 3 * 2  # 1 config * 3 reps * 2 dims
+
+    events = []
+    real_build = pipeline._build_mds_payload
+
+    def spy_build(task, sweep_config):
+        events.append("build")
+        return real_build(task, sweep_config)
+
+    def fake_exec(payload):
+        events.append("exec")
+        meta = {**payload[0], "niter": 1.0, "stress": 0.0, "status": "success"}
+        return meta, np.zeros(L, np.float32)
+
+    monkeypatch.setattr(pipeline, "_build_mds_payload", spy_build)
+    monkeypatch.setattr(pipeline, "_execute_mds_payload", fake_exec)
+
+    store = pipeline.run_mds_sweep(sim, sweep, tmp_path / "s", verbose=False)
+
+    assert events.count("build") == n_tasks
+    assert events.count("exec") == n_tasks
+    # streaming => build/exec alternate; the eager-list bug would emit all builds before any exec
+    assert events[:4] == ["build", "exec", "build", "exec"]
+    assert len(store) == n_tasks
+
+
 def test_stability_table_pairs():
     cfg = _config(reps=3)
     sim = pipeline.generate_simulation(cfg, verbose=False)
