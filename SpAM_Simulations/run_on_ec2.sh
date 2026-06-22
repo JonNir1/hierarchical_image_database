@@ -79,7 +79,9 @@ cat > /tmp/install_smacof.R <<RS
 options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
   paste(getRversion(), R.version[["platform"]], R.version[["arch"]], R.version[["os"]])))
 options(repos = c(P3M = "https://packagemanager.posit.co/cran/__linux__/${CRAN_CODENAME}/latest"))
-install.packages("smacof", lib = Sys.getenv("R_LIBS_USER"))
+# Also (re)install Matrix from the same snapshot: R bundles an older Matrix whose ABI can lag
+# the one lme4 (a smacof dependency) was built against, which otherwise warns at load time.
+install.packages(c("Matrix", "smacof"), lib = Sys.getenv("R_LIBS_USER"))
 RS
 Rscript --vanilla /tmp/install_smacof.R
 Rscript --vanilla -e '.libPaths(Sys.getenv("R_LIBS_USER")); library(smacof); cat("smacof OK\n")'
