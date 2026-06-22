@@ -35,7 +35,20 @@ echo ">> workdir=$WORKDIR  n_jobs=$N_JOBS  ref=$GIT_REF  -> $S3_URI"
 # --------------------------------------------------------------------------- system packages
 sudo apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  git ca-certificates curl gnupg unzip \
+  ca-certificates curl gnupg dirmngr
+
+# Install current R (4.5+) from the CRAN apt repo. Ubuntu 24.04's default r-base is 4.3, which
+# is too old for rpy2 3.6 -> at runtime it fails with "undefined symbol: R_getVar" (a symbol
+# added in R 4.5). The CRAN repo provides the latest R 4.x for this Ubuntu codename.
+curl -fsSL https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc \
+  | sudo tee /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc >/dev/null
+APT_CODENAME="$(. /etc/os-release && echo "${VERSION_CODENAME:-noble}")"
+echo "deb https://cloud.r-project.org/bin/linux/ubuntu ${APT_CODENAME}-cran40/" \
+  | sudo tee /etc/apt/sources.list.d/cran.list >/dev/null
+sudo apt-get update -y
+
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+  git unzip \
   python3 python3-venv python3-dev build-essential gfortran \
   r-base r-base-dev \
   libcurl4-openssl-dev libssl-dev libxml2-dev libblas-dev liblapack-dev \
@@ -43,6 +56,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   libpng-dev libtiff5-dev libjpeg-dev \
   libpcre2-dev liblzma-dev libbz2-dev zlib1g-dev libicu-dev libtirpc-dev
   # ^ last line: the -dev libs rpy2 needs to link its C extension against libR
+R --version | head -1   # sanity: should report 4.5.x or newer
 
 # awscli v2 (skip if the AMI already ships it)
 if ! command -v aws >/dev/null 2>&1; then
