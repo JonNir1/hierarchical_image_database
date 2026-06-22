@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 from scipy.spatial.distance import squareform
 from scipy.sparse.csgraph import connected_components
