@@ -65,6 +65,10 @@ if ! command -v aws >/dev/null 2>&1; then
 fi
 
 # --------------------------------------------------------------------------- R: smacof
+# Start from an empty library so every package matches the installed R version. (Packages built
+# for an older R left over from a previous run fail to load under a newer R with errors like
+# "undefined symbol: SETLENGTH".)
+rm -rf "$R_LIBS_USER"
 mkdir -p "$R_LIBS_USER"
 # Install from Posit Public Package Manager's PRECOMPILED Ubuntu binaries. Building smacof's
 # dependency tree (Hmisc, mice, weights, rmarkdown, ...) from source on a bare instance fails on
