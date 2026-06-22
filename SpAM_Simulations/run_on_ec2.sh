@@ -50,9 +50,19 @@ fi
 
 # --------------------------------------------------------------------------- R: smacof
 mkdir -p "$R_LIBS_USER"
-echo ">> installing R 'smacof' (compiles several deps, ~10-20 min)..."
-Rscript -e 'install.packages("smacof", lib=Sys.getenv("R_LIBS_USER"), repos="https://cloud.r-project.org")'
-Rscript -e '.libPaths(Sys.getenv("R_LIBS_USER")); library(smacof); cat("smacof OK\n")'
+# Install from Posit Public Package Manager's PRECOMPILED Ubuntu binaries. Building smacof's
+# dependency tree (Hmisc, mice, weights, rmarkdown, ...) from source on a bare instance fails on
+# missing system libraries; the binaries sidestep all of that and install in ~1-2 min.
+CRAN_CODENAME="$(. /etc/os-release && echo "${VERSION_CODENAME:-noble}")"
+echo ">> installing R 'smacof' from precompiled binaries ($CRAN_CODENAME)..."
+cat > /tmp/install_smacof.R <<RS
+options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
+  paste(getRversion(), R.version[["platform"]], R.version[["arch"]], R.version[["os"]])))
+options(repos = c(P3M = "https://packagemanager.posit.co/cran/__linux__/${CRAN_CODENAME}/latest"))
+install.packages("smacof", lib = Sys.getenv("R_LIBS_USER"))
+RS
+Rscript --vanilla /tmp/install_smacof.R
+Rscript --vanilla -e '.libPaths(Sys.getenv("R_LIBS_USER")); library(smacof); cat("smacof OK\n")'
 
 # --------------------------------------------------------------------------- sparse checkout
 # Only the SpAM_Simulations/ package is needed (the sim uses random ground truth, no data/).
