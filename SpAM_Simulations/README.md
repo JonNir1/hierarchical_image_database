@@ -9,15 +9,19 @@ under different sampling/noise regimes.
 | Module | Responsibility |
 |---|---|
 | `experiment.py` | Core simulation: `simulate_experiment` / `simulate_single_subject` (vectorized, condensed form). |
+| `design.py` | Per-subject trial allocation (`compute_design_counts`, `build_trial_lists`) for the realistic simulation, ported from `SpAM_Task`'s `buildTrialLists`. |
+| `realistic_experiment.py` | Realistic simulation: per-subject image subset + trial design (matches `SpAM_Task`), plus the within-subject SNR heuristic. |
 | `simulation.py` | `Simulation` container + ground-truth distances; `make` (random) / `from_embeddings` (real data). |
-| `metrics.py` | `coverage`, `spearman_correlation`. |
+| `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`. |
 | `helpers.py` | Distance-matrix format conversion (`convert_to_condensed`). |
 | `multi_dimensional_scaling.py` | `run_mds` - weighted SMACOF via R's `smacof` (needs R + rpy2). |
-| `config.py` | `SimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
-| `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability). |
+| `config.py` | `SimulationConfig`, `RealisticSimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
+| `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability) for both simulation types. |
 | `storage.py` | `ResultStore` - compact, streamable, resumable on-disk store for sweep results. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
-| `evaluation.ipynb` | Plotting / analysis notebook (can call the pipeline functions in its compute cells). |
+| `evaluation.ipynb` | Plotting / analysis notebook for the uniform simulation. |
+| `evaluation_realistic.ipynb` | Plotting / analysis notebook for the realistic simulation. |
+| `prepare_machine.sh`, `run_uniform_sim.sh`, `run_realistic_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
 
 ## Quick start
 
@@ -72,6 +76,123 @@ fails fast and rpy2 falls back to `bin/x64`.
 `multi_dimensional_scaling.py` automatically prepends `R_HOME\bin\x64` to PATH at import time, so
 loading R packages (whose DLLs depend on `R.dll`/BLAS there) works without you editing PATH. If R
 still isn't found, set `R_HOME` explicitly.
+
+## Running on EC2
+
+Three shell scripts handle the full-scale sweeps remotely:
+- `prepare_machine.sh` - shared provisioning (system packages, R 4.5 + `smacof`, awscli v2,
+  sparse-checkout clone of `SpAM_Simulations/`, Python venv). Sourced, not run directly.
+- `run_uniform_sim.sh` - runs the uniform (original) simulation's full-study sweep.
+- `run_realistic_sim.sh` - runs the realistic (per-subject trial design) simulation's
+  full-study sweep. Heavier than the uniform sweep - size the instance accordingly.
+
+Both entrypoints `source` `prepare_machine.sh` by relative path, so copy all three files
+together onto the instance (don't just transfer the one entrypoint you want to run).
+
+### Cookbook: allocate -> run -> verify -> terminate
+
+Known infra for this project: security group `sg-0e1f88c3d550f7154`, key pair `paf-key`
+(`.pem` kept outside the repo), IAM instance profile `spam-simulations` (has S3 access).
+
+**(0) One-time setup constants** (PowerShell):
+```powershell
+$SG_ID         = "sg-0e1f88c3d550f7154"
+$KEY_NAME      = "paf-key"
+$KEY_PATH      = "C:\Users\nirjo\Documents\projects\__secrets__\paf-key.pem"
+$IAM_PROFILE   = "spam-simulations"
+$INSTANCE_TYPE = "c7i.4xlarge"     # 16 vCPU; bump to c7i.8xlarge+ for run_realistic_sim.sh
+```
+If your ISP-assigned IP changed since the security group rule was added:
+```powershell
+$MY_IP = (Invoke-RestMethod -Uri "https://checkip.amazonaws.com").Trim()
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 22 --cidr "$MY_IP/32"
+```
+
+**(1) Find the latest Ubuntu 22.04 AMI** (no hardcoded AMI ID - avoids staleness across
+regions/updates):
+```powershell
+$AMI_ID = aws ec2 describe-images `
+  --owners 099720109477 `
+  --filters "Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*" "Name=state,Values=available" `
+  --query "sort_by(Images,&CreationDate)[-1].ImageId" --output text
+```
+
+**(2) Allocate the machine (Spot) and get its IP:**
+```powershell
+$INSTANCE_ID = aws ec2 run-instances `
+  --image-id $AMI_ID `
+  --instance-type $INSTANCE_TYPE `
+  --key-name $KEY_NAME `
+  --security-group-ids $SG_ID `
+  --iam-instance-profile Name=$IAM_PROFILE `
+  --instance-market-options '{"MarketType":"spot"}' `   # <- DROP this line for On-Demand
+  --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":100}}]' `
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=spam-ec2}]' `
+  --query "Instances[0].InstanceId" --output text
+
+aws ec2 wait instance-running --instance-ids $INSTANCE_ID
+$IP = aws ec2 describe-instances --instance-ids $INSTANCE_ID --query "Reservations[0].Instances[0].PublicIpAddress" --output text
+$IP
+```
+(100 GB root volume - the realistic sweep's `mds_store/` is larger than the uniform sweep's
+~17 GB; shrink back down for uniform-only runs if you want to save a few cents.)
+
+**(3) Transfer the scripts:**
+```powershell
+scp -i $KEY_PATH `
+  SpAM_Simulations\prepare_machine.sh `
+  SpAM_Simulations\run_uniform_sim.sh `
+  SpAM_Simulations\run_realistic_sim.sh `
+  ubuntu@${IP}:~
+```
+
+**(4) SSH in:**
+```powershell
+ssh -i $KEY_PATH ubuntu@$IP
+```
+
+**(5) On the instance - set the run-specific constants:**
+```bash
+export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
+export GIT_REF=main
+export S3_URI=s3://<your-bucket>/spam-mds/run-$(date +%Y%m%d)
+# WORKDIR, N_JOBS, R_LIBS_USER all have sane defaults (see each script's header) - override only if needed
+```
+
+**(6) Start tmux, run the sweep, log it:**
+```bash
+tmux new -s spam
+bash run_uniform_sim.sh 2>&1 | tee run.log
+# or: bash run_realistic_sim.sh 2>&1 | tee run.log
+```
+
+**(7) Detach / re-attach** (safe to close the SSH session after detaching - the script keeps
+running under tmux):
+```bash
+# detach:   Ctrl-b d
+ssh -i $KEY_PATH ubuntu@$IP    # (from a new PowerShell window, if you closed the first one)
+tmux attach -t spam
+```
+
+**(8) Monitor memory** (from a second SSH session, or split the tmux pane with `Ctrl-b %`):
+```bash
+watch -n5 free -h
+```
+For a quick peek without grabbing the tmux session, `tail -f run.log` works too.
+
+**(9) Verify the upload landed on S3** (from the instance or locally once you have `S3_URI`):
+```bash
+aws s3 ls $S3_URI/out/
+aws s3 ls $S3_URI/mds_store/
+```
+
+**(10) Terminate and confirm:**
+```powershell
+aws ec2 terminate-instances --instance-ids $INSTANCE_ID
+aws ec2 wait instance-terminated --instance-ids $INSTANCE_ID
+aws ec2 describe-instances --instance-ids $INSTANCE_ID --query "Reservations[0].Instances[0].State.Name" --output text
+# expect: terminated
+```
 
 ## Tests
 
