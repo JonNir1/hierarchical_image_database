@@ -14,6 +14,7 @@ from typing import List, Optional, Sequence
 import numpy as np
 
 from SpAM_Simulations.experiment import ExperimentParameters
+from SpAM_Simulations.realistic_experiment import RealisticExperimentParameters
 
 
 @dataclass
@@ -70,6 +71,36 @@ class SimulationConfig:
                 self.images_per_trial,
                 self.subjects_noise_scale,
                 self.subjects_noise_df,
+            )
+        ]
+
+
+@dataclass
+class RealisticSimulationConfig(SimulationConfig):
+    """``SimulationConfig`` extended with the real task's image-repetition design lever.
+
+    Adds ``frac_images_repeated`` - the fraction of each subject's active image subset
+    shown in 2 trials instead of 1, swept like the other grids (see ``design.py``). The
+    GT-source fields, ``uses_random_ground_truth``, and the GT-source validation are
+    inherited unchanged from ``SimulationConfig``.
+    """
+    frac_images_repeated: Sequence[float] = field(default_factory=tuple)
+
+    def __post_init__(self):
+        super().__post_init__()
+        if len(self.frac_images_repeated) == 0:
+            raise ValueError("parameter grid(s) must be non-empty: ['frac_images_repeated']")
+
+    def param_grid(self) -> List[RealisticExperimentParameters]:
+        return [
+            RealisticExperimentParameters(*p)
+            for p in product(
+                self.num_subjects,
+                self.trials_per_subject,
+                self.images_per_trial,
+                self.subjects_noise_scale,
+                self.subjects_noise_df,
+                self.frac_images_repeated,
             )
         ]
 

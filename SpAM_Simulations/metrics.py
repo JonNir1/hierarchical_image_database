@@ -6,7 +6,7 @@ from scipy.sparse.csgraph import connected_components
 from scipy.stats import spearmanr
 
 from SpAM_Simulations.experiment import ExperimentResults
-from SpAM_Simulations.helpers import convert_to_condensed
+from SpAM_Simulations.helpers import convert_to_condensed, mean_from_sum_and_count
 
 
 def coverage(exp_results: ExperimentResults) -> dict:
@@ -48,6 +48,23 @@ def coverage(exp_results: ExperimentResults) -> dict:
     }
 
 
+def snr_summary(exp_results) -> dict:
+    """Summary stats of a realistic experiment's per-subject SNR heuristic (`subject_snr`).
+
+    `frac_nan_snr` surfaces subjects with no within-subject-repeated pairs (SNR undefined
+    for them, see `realistic_experiment._compute_subject_snr`); mean/median are computed
+    over the remaining values (which may include `inf` for noiseless subjects).
+    :param exp_results: a `RealisticExperimentResults` (has a `subject_snr` field)
+    """
+    snr = np.asarray(exp_results.subject_snr, dtype=np.float64)
+    valid = snr[~np.isnan(snr)]
+    return {
+        "mean_snr": float(np.mean(valid)) if valid.size else np.nan,
+        "median_snr": float(np.median(valid)) if valid.size else np.nan,
+        "frac_nan_snr": float(np.mean(np.isnan(snr))),
+    }
+
+
 def spearman_correlation(exp1: ExperimentResults, exp2: ExperimentResults) -> float:
     """
     Calculates the Spearman rank correlation between the mean distances of two experiments.
@@ -68,6 +85,4 @@ def spearman_correlation(exp1: ExperimentResults, exp2: ExperimentResults) -> fl
 def _calculate_mean_distances(exp_results: ExperimentResults) -> np.ndarray:
     dists = convert_to_condensed(exp_results.distances)
     n_obs = convert_to_condensed(exp_results.num_obs)
-    with np.errstate(divide='ignore', invalid='ignore'):
-        mean_dists = np.where(n_obs > 0, dists / n_obs, np.nan)  # avoid division by zero
-    return mean_dists
+    return mean_from_sum_and_count(dists, n_obs)
