@@ -24,3 +24,9 @@ def convert_to_condensed(matrix: np.ndarray) -> np.ndarray:
         return squareform(matrix, checks=False)
     else:
         raise ValueError(f"Input must be either a 1D vector or a 2D matrix, got shape {matrix.shape}")
+
+
+def mean_from_sum_and_count(total: np.ndarray, count: np.ndarray) -> np.ndarray:
+    """Per-entry mean from accumulated sum/count arrays; NaN wherever `count` is 0."""
+    with np.errstate(divide='ignore', invalid='ignore'):
+        return np.where(count > 0, total / count, np.nan)

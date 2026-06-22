@@ -20,24 +20,29 @@ from __future__ import annotations
 import logging
 from itertools import combinations
 from pathlib import Path
-from typing import Iterator, List, Optional, Sequence, Tuple
+from typing import Iterator, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 from tqdm import tqdm
 
-from SpAM_Simulations.config import SimulationConfig, MDSSweepConfig
+from SpAM_Simulations.config import SimulationConfig, RealisticSimulationConfig, MDSSweepConfig
 from SpAM_Simulations.experiment import ExperimentParameters, ExperimentResults
-from SpAM_Simulations.metrics import coverage, spearman_correlation, _calculate_mean_distances
+from SpAM_Simulations.metrics import coverage, snr_summary, spearman_correlation, _calculate_mean_distances
 from SpAM_Simulations.simulation import Simulation
 from SpAM_Simulations.storage import ResultStore
 
 logger = logging.getLogger(__name__)
 
-_PARAM_FIELDS: List[str] = list(ExperimentParameters._fields)
-_SWEEP_META_COLUMNS: List[str] = _PARAM_FIELDS + ["rep", "ndim", "niter", "stress", "status"]
 _SUCCESS_STATUSES = ("success", "max_iters")
+
+
+def _param_type(sim: Simulation) -> type:
+    """The `ExperimentParameters`/`RealisticExperimentParameters` type this sim's results are
+    keyed by - derived from an existing result rather than assumed, so the MDS sweep below
+    works unmodified for either simulation type."""
+    return type(next(iter(sim._results)))
 
 
 # --------------------------------------------------------------------------- generation
@@ -57,11 +62,28 @@ def generate_simulation(config: SimulationConfig, verbose: bool = True) -> Simul
     return sim
 
 
+def generate_realistic_simulation(config: RealisticSimulationConfig, verbose: bool = True) -> Simulation:
+    """Same as `generate_simulation`, but for the realistic (per-subject trial design) experiment."""
+    if config.uses_random_ground_truth:
+        sim = Simulation.make(config.n_images, config.n_dims, config.seed)
+    else:
+        sim = Simulation.from_embeddings(config.gt_embeddings, config.seed)
+    schedule = config.param_grid() * config.reps
+    for params in tqdm(schedule, desc="Running experiments", disable=not verbose):
+        sim.run_realistic_experiment(params, verbose=False)
+    return sim
+
+
 # --------------------------------------------------------------------------- metric tables
 def compute_coverage_table(sim: Simulation) -> pd.DataFrame:
-    """One row per (configuration, repetition) with all coverage metrics."""
+    """One row per (configuration, repetition) with all coverage metrics.
+
+    For a realistic simulation (whose results carry a `subject_snr` field), also includes
+    the SNR summary stats from `metrics.snr_summary`.
+    """
     rows = [
-        {**params._asdict(), "rep": rep, **coverage(res)}
+        {**params._asdict(), "rep": rep, **coverage(res),
+         **(snr_summary(res) if hasattr(res, "subject_snr") else {})}
         for params, results in sim._results.items()
         for rep, res in enumerate(results)
     ]
@@ -109,11 +131,11 @@ def _task_key(params: ExperimentParameters, rep: int, ndim: int) -> tuple:
     return (*(float(v) for v in params), int(rep), int(ndim))
 
 
-def _completed_keys(store: ResultStore) -> set:
+def _completed_keys(store: ResultStore, param_type: type) -> set:
     df = store.metadata()
     keys = set()
     for _, row in df.iterrows():
-        params = ExperimentParameters(*(row[f] for f in _PARAM_FIELDS))
+        params = param_type(*(row[f] for f in param_type._fields))
         keys.add(_task_key(params, int(row["rep"]), int(row["ndim"])))
     return keys
 
@@ -190,11 +212,13 @@ def run_mds_sweep(
     """
     store_path = Path(store_path)
     confdist_len = sim.num_images * (sim.num_images - 1) // 2
+    param_type = _param_type(sim)
     if (store_path / "store_info.json").exists() and not overwrite:
         store = ResultStore.open(store_path)
-        completed = _completed_keys(store)
+        completed = _completed_keys(store, param_type)
     else:
-        store = ResultStore.create(store_path, confdist_len, _SWEEP_META_COLUMNS, overwrite=overwrite)
+        meta_columns = list(param_type._fields) + ["rep", "ndim", "niter", "stress", "status"]
+        store = ResultStore.create(store_path, confdist_len, meta_columns, overwrite=overwrite)
         completed = set()
 
     # Count pending tasks for the progress bar without building any payloads (cheap: iterating
@@ -229,11 +253,14 @@ def compute_embedding_stability(
     Groups successful results by ``group_fields`` (default: the parameters + ndim) and
     correlates the stored confdist vectors across repetitions within each group.
     """
+    df = store.metadata()
     if group_fields is None:
-        group_fields = _PARAM_FIELDS + ["ndim"]
+        # Every metadata column is a swept parameter or `ndim` except these fixed,
+        # solver-outcome columns - this works for any params type (old or realistic).
+        _non_param_columns = {"rep", "niter", "stress", "status", "confdist_row"}
+        group_fields = [c for c in df.columns if c not in _non_param_columns]
     group_fields = list(group_fields)
 
-    df = store.metadata()
     df = df[df["status"].isin(_SUCCESS_STATUSES) & (df["confdist_row"] >= 0)]
 
     rows = []
