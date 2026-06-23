@@ -36,7 +36,9 @@ REPO_URL="${REPO_URL:?set REPO_URL to your repo (https with PAT, or git@ ssh)}"
 GIT_REF="${GIT_REF:-main}"
 S3_URI="${S3_URI:?set S3_URI, e.g. s3://my-bucket/spam-mds/run1}"
 WORKDIR="${WORKDIR:-$HOME/spam_run}"
-N_JOBS="${N_JOBS:-$(nproc)}"            # MDS worker processes (default: all vCPUs)
+# MDS worker processes. All vCPUs OOM'd/SEGFAULT'd a run (each worker holds its own R/smacof
+# process, and the combined working set outgrew available memory) - default to 2/3 of them.
+N_JOBS="${N_JOBS:-$(( $(nproc) * 2 / 3 ))}"
 export R_LIBS_USER="${R_LIBS_USER:-$HOME/R/library}"
 
 # shellcheck disable=SC1091

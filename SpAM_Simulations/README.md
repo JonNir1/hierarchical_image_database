@@ -84,7 +84,8 @@ Three shell scripts handle the full-scale sweeps remotely:
   sparse-checkout clone of `SpAM_Simulations/`, Python venv). Sourced, not run directly.
 - `run_uniform_sim.sh` - runs the uniform (original) simulation's full-study sweep.
 - `run_realistic_sim.sh` - runs the realistic (per-subject trial design) simulation's
-  full-study sweep. Heavier than the uniform sweep - size the instance accordingly.
+  full-study sweep (actually fewer total MDS fits than the uniform sweep - same instance
+  type is fine for both).
 
 Both entrypoints `source` `prepare_machine.sh` by relative path, so copy all three files
 together onto the instance (don't just transfer the one entrypoint you want to run).
@@ -126,8 +127,8 @@ $INSTANCE_ID = aws ec2 run-instances `
   --key-name $KEY_NAME `
   --security-group-ids $SG_ID `
   --iam-instance-profile Name=$IAM_PROFILE `
-  --instance-market-options '{"MarketType":"spot"}' `   # <- DROP this line for On-Demand
-  --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":100}}]' `
+  --instance-market-options 'MarketType=spot' `   # <- DROP this line for On-Demand
+  --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=100}' `
   --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=spam-ec2}]' `
   --query "Instances[0].InstanceId" --output text
 
@@ -138,8 +139,15 @@ $IP
 (100 GB root volume - the realistic sweep's `mds_store/` is larger than the uniform sweep's
 ~17 GB; shrink back down for uniform-only runs if you want to save a few cents.)
 
+`--instance-market-options`/`--block-device-mappings` use AWS CLI's shorthand syntax
+(`key=value`, no JSON) rather than raw `'{"...":"..."}'` - PowerShell strips embedded double
+quotes when handing an argument to a native executable like `aws.exe`, so inline JSON like
+`'[{"DeviceName":"/dev/sda1",...}]'` arrives at the CLI with every `"` silently removed and
+fails with a JSON parse error. Shorthand syntax has no `"` characters to mangle.
+
 **(3) Transfer the scripts:**
 ```powershell
+cd C:\Users\nirjo\Documents\University\PhD\Projects\hierarchical_image_database
 scp -i $KEY_PATH `
   SpAM_Simulations\prepare_machine.sh `
   SpAM_Simulations\run_uniform_sim.sh `
@@ -156,7 +164,7 @@ ssh -i $KEY_PATH ubuntu@$IP
 ```bash
 export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
 export GIT_REF=main
-export S3_URI=s3://<your-bucket>/spam-mds/run-$(date +%Y%m%d)
+export S3_URI=s3://jon-nir/spam-mds/run-$(date +%Y%m%d)
 # WORKDIR, N_JOBS, R_LIBS_USER all have sane defaults (see each script's header) - override only if needed
 ```
 
@@ -187,7 +195,20 @@ aws s3 ls $S3_URI/out/
 aws s3 ls $S3_URI/mds_store/
 ```
 
-**(10) Terminate and confirm:**
+**(10) Manual upload to S3** (if the automatic upload in step (6) didn't run or didn't finish -
+e.g. the script crashed before reaching `upload_and_finish`):
+```bash
+cd ~/spam_run/repo   # default WORKDIR/repo - adjust if you overrode WORKDIR in step (5)
+export S3_URI=s3://jon-nir/spam-mds/run-<date-used-for-this-run>   # re-set if this is a new session
+aws s3 sync out/       "$S3_URI/out/"       --only-show-errors
+aws s3 sync mds_store/ "$S3_URI/mds_store/" --only-show-errors
+
+ls -la out/                                                       # coverage.csv, stability.csv, embedding_stability.csv
+aws s3 ls "$S3_URI/out/"                      # confirm all 3 are in S3
+aws s3 ls "$S3_URI/mds_store/"      # confirm confdists.f32 + meta.csv are in S3
+```
+
+**(11) Terminate and confirm:**
 ```powershell
 aws ec2 terminate-instances --instance-ids $INSTANCE_ID
 aws ec2 wait instance-terminated --instance-ids $INSTANCE_ID
