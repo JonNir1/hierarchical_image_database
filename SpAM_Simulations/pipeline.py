@@ -246,12 +246,14 @@ def run_mds_sweep(
 
 # --------------------------------------------------------------------------- post-MDS stability
 def compute_embedding_stability(
-    store: ResultStore, group_fields: Optional[Sequence[str]] = None
+    store: ResultStore, group_fields: Optional[Sequence[str]] = None, verbose: bool = True
 ) -> pd.DataFrame:
     """Post-MDS reliability: mean Spearman agreement of reconstructed distances across reps.
 
     Groups successful results by ``group_fields`` (default: the parameters + ndim) and
-    correlates the stored confdist vectors across repetitions within each group.
+    correlates the stored confdist vectors across repetitions within each group. Each group
+    does a few pairwise Spearman correlations over full-length confdist vectors, so for large
+    sweeps this loop can take minutes with no other output - hence the progress bar.
     """
     df = store.metadata()
     if group_fields is None:
@@ -263,8 +265,9 @@ def compute_embedding_stability(
 
     df = df[df["status"].isin(_SUCCESS_STATUSES) & (df["confdist_row"] >= 0)]
 
+    grouped = df.groupby(group_fields)
     rows = []
-    for key, grp in df.groupby(group_fields):
+    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Embedding stability", disable=not verbose):
         confdists = [store.confdist(int(r)) for r in grp["confdist_row"]]
         corrs = [spearmanr(a, b).statistic for a, b in combinations(confdists, 2)]
         key_tuple = key if isinstance(key, tuple) else (key,)
