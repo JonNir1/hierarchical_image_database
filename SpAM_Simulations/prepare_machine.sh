@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Shared EC2 provisioning logic for the SpAM MDS sweep scripts. NOT meant to be run directly -
-# source it from an entrypoint (run_uniform_sim.sh / run_realistic_sim.sh) after that entrypoint
+# source it from an entrypoint (run_task_v0_1_sim.sh / run_task_v2_3_sim.sh) after that entrypoint
 # has validated/exported REPO_URL, GIT_REF, S3_URI, WORKDIR, N_JOBS, R_LIBS_USER.
 #
 # Target: Ubuntu 22.04/24.04 (apt + CRAN). On Amazon Linux swap the apt blocks for dnf and

@@ -18,12 +18,12 @@ import plotly.express.colors as px_colors
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from SpAM_Simulations.realistic_experiment import RealisticExperimentParameters
+from SpAM_Simulations.task_v2_3_experiment import TaskV2_3ExperimentParameters
 
 # Derived from the NamedTuple (not hardcoded) so it can't drift from experiment.py/
-# realistic_experiment.py: ["num_subjects", "trials_per_subject", "images_per_trial",
+# task_v2_3_experiment.py: ["num_subjects", "trials_per_subject", "images_per_trial",
 # "subjects_noise_scale", "subjects_noise_df", "frac_images_repeated"]
-LEVER_COLUMNS = list(RealisticExperimentParameters._fields)
+LEVER_COLUMNS = list(TaskV2_3ExperimentParameters._fields)
 
 DEFAULT_STATUS_LABELS = {
     "success": "converged", "max_iters": "max_iters",
@@ -46,7 +46,7 @@ class RunData:
     embedding_stability: pd.DataFrame
     mds_meta: pd.DataFrame
     levers: Dict[str, list]
-    is_realistic: bool
+    is_task_v2_3: bool
 
 
 def load_run(run_results_dir: str | Path) -> RunData:
@@ -82,7 +82,7 @@ def load_run(run_results_dir: str | Path) -> RunData:
         embedding_stability=frames["embedding_stability"],
         mds_meta=frames["mds_meta"],
         levers=levers,
-        is_realistic="frac_images_repeated" in levers,
+        is_task_v2_3="frac_images_repeated" in levers,
     )
 
 
@@ -265,7 +265,7 @@ def available_configs(mds_meta: pd.DataFrame, secondary_levers: Sequence[str]) -
 
 def filter_to_config(df: pd.DataFrame, config: Dict[str, object]) -> pd.DataFrame:
     """Filter `df` to rows matching `config`, skipping any key not present as a column in
-    `df` (e.g. a `frac_images_repeated` key on a uniform run)."""
+    `df` (e.g. a `frac_images_repeated` key on a task-v0.1 run)."""
     mask = pd.Series(True, index=df.index)
     for col, val in config.items():
         if col in df.columns:

@@ -14,7 +14,7 @@ from typing import List, Optional, Sequence
 import numpy as np
 
 from SpAM_Simulations.experiment import ExperimentParameters
-from SpAM_Simulations.realistic_experiment import RealisticExperimentParameters
+from SpAM_Simulations.task_v2_3_experiment import TaskV2_3ExperimentParameters
 
 
 @dataclass
@@ -76,7 +76,7 @@ class SimulationConfig:
 
 
 @dataclass
-class RealisticSimulationConfig(SimulationConfig):
+class TaskV2_3SimulationConfig(SimulationConfig):
     """``SimulationConfig`` extended with the real task's image-repetition design lever.
 
     Adds ``frac_images_repeated`` - the fraction of each subject's active image subset
@@ -91,9 +91,9 @@ class RealisticSimulationConfig(SimulationConfig):
         if len(self.frac_images_repeated) == 0:
             raise ValueError("parameter grid(s) must be non-empty: ['frac_images_repeated']")
 
-    def param_grid(self) -> List[RealisticExperimentParameters]:
+    def param_grid(self) -> List[TaskV2_3ExperimentParameters]:
         return [
-            RealisticExperimentParameters(*p)
+            TaskV2_3ExperimentParameters(*p)
             for p in product(
                 self.num_subjects,
                 self.trials_per_subject,

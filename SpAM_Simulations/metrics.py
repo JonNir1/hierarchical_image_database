@@ -49,12 +49,12 @@ def coverage(exp_results: ExperimentResults) -> dict:
 
 
 def snr_summary(exp_results) -> dict:
-    """Summary stats of a realistic experiment's per-subject SNR heuristic (`subject_snr`).
+    """Summary stats of a task-v2.3 experiment's per-subject SNR heuristic (`subject_snr`).
 
     `frac_nan_snr` surfaces subjects with no within-subject-repeated pairs (SNR undefined
-    for them, see `realistic_experiment._compute_subject_snr`); mean/median are computed
+    for them, see `task_v2_3_experiment._compute_subject_snr`); mean/median are computed
     over the remaining values (which may include `inf` for noiseless subjects).
-    :param exp_results: a `RealisticExperimentResults` (has a `subject_snr` field)
+    :param exp_results: a `TaskV2_3ExperimentResults` (has a `subject_snr` field)
     """
     snr = np.asarray(exp_results.subject_snr, dtype=np.float64)
     valid = snr[~np.isnan(snr)]

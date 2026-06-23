@@ -46,7 +46,7 @@ def _build_frames(combos):
 
 
 @pytest.fixture
-def tiny_run_uniform(tmp_path):
+def tiny_run_task_v0_1(tmp_path):
     combos = [
         dict(num_subjects=n, trials_per_subject=5, images_per_trial=8,
              subjects_noise_scale=s, subjects_noise_df=1)
@@ -56,7 +56,7 @@ def tiny_run_uniform(tmp_path):
 
 
 @pytest.fixture
-def tiny_run_realistic(tmp_path):
+def tiny_run_task_v2_3(tmp_path):
     combos = [
         dict(num_subjects=n, trials_per_subject=5, images_per_trial=8,
              subjects_noise_scale=0.5, subjects_noise_df=1, frac_images_repeated=f)
@@ -70,17 +70,17 @@ def tiny_run_realistic(tmp_path):
 
 
 # --------------------------------------------------------------------- load_run
-def test_load_run_resolves_absolute_path_and_detects_uniform(tiny_run_uniform):
-    run = eh.load_run(tiny_run_uniform)
-    assert run.is_realistic is False
+def test_load_run_resolves_absolute_path_and_detects_task_v0_1(tiny_run_task_v0_1):
+    run = eh.load_run(tiny_run_task_v0_1)
+    assert run.is_task_v2_3 is False
     assert "frac_images_repeated" not in run.levers
     assert run.levers["num_subjects"] == [10, 20]
     assert len(run.coverage) == 8  # 2 num_subjects * 2 noise_scale * 2 reps
 
 
-def test_load_run_detects_realistic(tiny_run_realistic):
-    run = eh.load_run(tiny_run_realistic)
-    assert run.is_realistic is True
+def test_load_run_detects_task_v2_3(tiny_run_task_v2_3):
+    run = eh.load_run(tiny_run_task_v2_3)
+    assert run.is_task_v2_3 is True
     assert run.levers["frac_images_repeated"] == [0.0, 0.2]
 
 
@@ -115,8 +115,8 @@ def test_constants_caption_format():
 
 
 # --------------------------------------------------------------------- faceted figure builders
-def test_faceted_metric_figure_drops_constant_trace_and_captions(tiny_run_uniform):
-    run = eh.load_run(tiny_run_uniform)
+def test_faceted_metric_figure_drops_constant_trace_and_captions(tiny_run_task_v0_1):
+    run = eh.load_run(tiny_run_task_v0_1)
     summary = (
         run.coverage.groupby(["num_subjects", "trials_per_subject", "subjects_noise_scale"])
         .agg(img_mean=("img_coverage", "mean"), img_sem=("img_coverage", "sem"))
@@ -135,8 +135,8 @@ def test_faceted_metric_figure_drops_constant_trace_and_captions(tiny_run_unifor
     assert "trials_per_subject = 5" in caption_text
 
 
-def test_faceted_lever_figure_trace_count(tiny_run_uniform):
-    run = eh.load_run(tiny_run_uniform)
+def test_faceted_lever_figure_trace_count(tiny_run_task_v0_1):
+    run = eh.load_run(tiny_run_task_v0_1)
     fig = eh.faceted_lever_figure(
         run.stability, x="num_subjects", y="spearman", y_sem="spearman",
         row_by="images_per_trial", col_by="trials_per_subject",
@@ -145,9 +145,9 @@ def test_faceted_lever_figure_trace_count(tiny_run_uniform):
     assert len(fig.data) == 2  # 2 noise scales; single row/col since both are constant here
 
 
-def test_faceted_lever_figure_drops_absent_lever(tiny_run_uniform):
-    run = eh.load_run(tiny_run_uniform)
-    # frac_images_repeated isn't a column on a uniform run - must not crash, must not appear.
+def test_faceted_lever_figure_drops_absent_lever(tiny_run_task_v0_1):
+    run = eh.load_run(tiny_run_task_v0_1)
+    # frac_images_repeated isn't a column on a task-v0.1 run - must not crash, must not appear.
     fig = eh.faceted_lever_figure(
         run.stability, x="num_subjects", y="spearman", y_sem="spearman",
         trace_by=["subjects_noise_scale", "frac_images_repeated"],
@@ -156,23 +156,23 @@ def test_faceted_lever_figure_drops_absent_lever(tiny_run_uniform):
 
 
 # --------------------------------------------------------------------- available_configs / filter_to_config
-def test_available_configs_skips_absent_levers(tiny_run_uniform):
-    run = eh.load_run(tiny_run_uniform)
+def test_available_configs_skips_absent_levers(tiny_run_task_v0_1):
+    run = eh.load_run(tiny_run_task_v0_1)
     secondary = [l for l in eh.LEVER_COLUMNS if l != "num_subjects"]
     configs = eh.available_configs(run.mds_meta, secondary)
     assert "frac_images_repeated" not in configs.columns
     assert "subjects_noise_scale" in configs.columns
 
 
-def test_available_configs_includes_present_levers(tiny_run_realistic):
-    run = eh.load_run(tiny_run_realistic)
+def test_available_configs_includes_present_levers(tiny_run_task_v2_3):
+    run = eh.load_run(tiny_run_task_v2_3)
     secondary = [l for l in eh.LEVER_COLUMNS if l != "num_subjects"]
     configs = eh.available_configs(run.mds_meta, secondary)
     assert "frac_images_repeated" in configs.columns
 
 
-def test_filter_to_config_skips_absent_keys(tiny_run_uniform):
-    run = eh.load_run(tiny_run_uniform)
+def test_filter_to_config_skips_absent_keys(tiny_run_task_v0_1):
+    run = eh.load_run(tiny_run_task_v0_1)
     filtered = eh.filter_to_config(
         run.mds_meta, {"subjects_noise_scale": 0.5, "frac_images_repeated": 1 / 3}
     )
@@ -181,8 +181,8 @@ def test_filter_to_config_skips_absent_keys(tiny_run_uniform):
 
 
 # --------------------------------------------------------------------- convergence_bar_figure
-def test_convergence_bar_figure_includes_error_status(tiny_run_uniform):
-    run = eh.load_run(tiny_run_uniform)
+def test_convergence_bar_figure_includes_error_status(tiny_run_task_v0_1):
+    run = eh.load_run(tiny_run_task_v0_1)
     fig = eh.convergence_bar_figure(run.mds_meta)
     trace_names = {t.name for t in fig.data}
     assert trace_names == set(eh.DEFAULT_STATUS_LABELS.values())
@@ -191,8 +191,8 @@ def test_convergence_bar_figure_includes_error_status(tiny_run_uniform):
 
 
 # --------------------------------------------------------------------- pre_post_mds_stability_figure
-def test_pre_post_mds_stability_figure_traces(tiny_run_uniform):
-    run = eh.load_run(tiny_run_uniform)
+def test_pre_post_mds_stability_figure_traces(tiny_run_task_v0_1):
+    run = eh.load_run(tiny_run_task_v0_1)
     fig = eh.pre_post_mds_stability_figure(run.embedding_stability, run.stability)
     names = [t.name for t in fig.data]
     assert names[0] == "Pre-MDS"

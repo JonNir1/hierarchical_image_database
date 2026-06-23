@@ -12,8 +12,8 @@ from scipy.spatial.distance import pdist
 from tqdm import tqdm
 
 from SpAM_Simulations.experiment import simulate_experiment, ExperimentParameters, ExperimentResults
-from SpAM_Simulations.realistic_experiment import (
-    simulate_realistic_experiment, RealisticExperimentParameters, RealisticExperimentResults
+from SpAM_Simulations.task_v2_3_experiment import (
+    simulate_task_v2_3_experiment, TaskV2_3ExperimentParameters, TaskV2_3ExperimentResults
 )
 
 _SimulationResults = Dict[ExperimentParameters, List[ExperimentResults]]
@@ -125,11 +125,11 @@ class Simulation:
         self._results.setdefault(exp_params, []).append(exp_results)
         return exp_results
 
-    def run_realistic_experiment(
-            self, params: RealisticExperimentParameters, verbose: bool = True
-    ) -> RealisticExperimentResults:
-        """Same as `run_experiment`, but for the realistic (per-subject trial design) simulation."""
-        exp_params, exp_results = simulate_realistic_experiment(params, self.gt_distances, self.rng, verbose)
+    def run_task_v2_3_experiment(
+            self, params: TaskV2_3ExperimentParameters, verbose: bool = True
+    ) -> TaskV2_3ExperimentResults:
+        """Same as `run_experiment`, but for the task-v2.3 (per-subject trial design) simulation."""
+        exp_params, exp_results = simulate_task_v2_3_experiment(params, self.gt_distances, self.rng, verbose)
         self._results.setdefault(exp_params, []).append(exp_results)
         return exp_results
 
