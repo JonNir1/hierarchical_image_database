@@ -108,13 +108,14 @@ $MY_IP = (Invoke-RestMethod -Uri "https://checkip.amazonaws.com").Trim()
 aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 22 --cidr "$MY_IP/32"
 ```
 
-**(1) Find the latest Ubuntu 22.04 AMI** (no hardcoded AMI ID - avoids staleness across
-regions/updates):
+**(1) Find the latest Ubuntu AMI** via Canonical's official SSM parameter (no hardcoded AMI ID,
+no need to know Canonical's account ID, and no relying on AMI *naming* conventions - just the
+documented "current AMI" pointer Canonical/AWS maintain for this purpose):
 ```powershell
-$AMI_ID = aws ec2 describe-images `
-  --owners 099720109477 `
-  --filters "Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*" "Name=state,Values=available" `
-  --query "sort_by(Images,&CreationDate)[-1].ImageId" --output text
+$UBUNTU_VERSION = "24.04"     # or "22.04" - matches prepare_machine.sh's own codename fallback (noble)
+$AMI_ID = aws ssm get-parameters `
+  --names "/aws/service/canonical/ubuntu/server/$UBUNTU_VERSION/stable/current/amd64/hvm/ebs-gp3/ami-id" `
+  --query "Parameters[0].Value" --output text
 ```
 
 **(2) Allocate the machine (Spot) and get its IP:**
