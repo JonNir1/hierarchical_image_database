@@ -24,11 +24,10 @@
 #   export S3_URI=s3://<your-bucket>/spam-mds/run-$(date +%Y%m%d)
 #   bash run_realistic_sim.sh
 #
-# This grid is heavier than run_uniform_sim.sh's: 72 parameter combinations x 5 reps x 9 target
-# ndims (~3240 MDS fits, vs. ~5400 for the uniform script's larger-but-shallower grid - actual
-# wall-clock depends on per-fit cost, which is design-dependent). Size the instance and expected
-# runtime accordingly, e.g. c7i.8xlarge (32 vCPU) or larger. REMEMBER TO TERMINATE THE INSTANCE
-# WHEN DONE.
+# This grid is actually lighter than run_uniform_sim.sh's: 72 parameter combinations x 5 reps x
+# 9 target ndims = ~3240 MDS fits, vs. ~16200 for the uniform script's larger grid. Per-fit cost
+# is comparable between the two (similar n_images, same ndim range/max_iters), so c7i.4xlarge
+# (16 vCPU) is plenty here too. REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
 
 set -euo pipefail
 
