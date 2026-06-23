@@ -1,4 +1,4 @@
-"""Realistic SpAM experiment simulation, matching SpAM_Task's per-subject trial design.
+"""Task-v2.3 SpAM experiment simulation, matching SpAM_Task's per-subject trial design.
 
 Unlike `experiment.py` (which draws `images_per_trial` images uniformly at random from the
 whole pool on every trial), each subject here is first restricted to their own random
@@ -22,7 +22,7 @@ from SpAM_Simulations.design import build_trial_lists, compute_design_counts
 from SpAM_Simulations.experiment import _condensed_pair_indices, _draw_subject_noises
 from SpAM_Simulations.helpers import convert_to_condensed, mean_from_sum_and_count
 
-RealisticExperimentParameters = NamedTuple("RealisticExperimentParameters", [
+TaskV2_3ExperimentParameters = NamedTuple("TaskV2_3ExperimentParameters", [
     ("num_subjects", int),
     ("trials_per_subject", int),
     ("images_per_trial", int),
@@ -31,7 +31,7 @@ RealisticExperimentParameters = NamedTuple("RealisticExperimentParameters", [
     ("frac_images_repeated", float),
 ])
 
-RealisticExperimentResults = NamedTuple("RealisticExperimentResults", [
+TaskV2_3ExperimentResults = NamedTuple("TaskV2_3ExperimentResults", [
     ("run_time", datetime),
     ("distances", np.ndarray),
     ("num_obs", np.ndarray),
@@ -40,12 +40,12 @@ RealisticExperimentResults = NamedTuple("RealisticExperimentResults", [
 ])
 
 
-def simulate_realistic_experiment(
-        params: RealisticExperimentParameters,
+def simulate_task_v2_3_experiment(
+        params: TaskV2_3ExperimentParameters,
         gt_distances: np.ndarray,
         rng: np.random.Generator,
         verbose: bool = True,
-) -> Tuple[RealisticExperimentParameters, RealisticExperimentResults]:
+) -> Tuple[TaskV2_3ExperimentParameters, TaskV2_3ExperimentResults]:
     """
     Simulates distance observations from multiple subjects, each restricted to their own
     random `n_unique`-image subset allocated into trials per `design.build_trial_lists`.
@@ -76,7 +76,7 @@ def simulate_realistic_experiment(
         rng
     )
     for s in trange(params.num_subjects, desc="Simulating subjects", disable=not verbose):
-        observations, n_obs, snr = simulate_realistic_single_subject(
+        observations, n_obs, snr = simulate_task_v2_3_single_subject(
             subject_noise=subject_noises[s],
             t=params.trials_per_subject,
             k=params.images_per_trial,
@@ -92,13 +92,13 @@ def simulate_realistic_experiment(
     all_observations = np.where(     # ensure unmeasured distances are NaN
         all_observations > 0, all_observations, np.nan
     )
-    results = RealisticExperimentResults(
+    results = TaskV2_3ExperimentResults(
         datetime.now(), all_observations, all_n_obs.astype(np.int8), subject_noises, subject_snr
     )
     return params, results
 
 
-def simulate_realistic_single_subject(
+def simulate_task_v2_3_single_subject(
         subject_noise: float,
         t: int,
         k: int,

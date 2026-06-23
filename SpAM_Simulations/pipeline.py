@@ -27,7 +27,7 @@ import pandas as pd
 from scipy.stats import spearmanr
 from tqdm import tqdm
 
-from SpAM_Simulations.config import SimulationConfig, RealisticSimulationConfig, MDSSweepConfig
+from SpAM_Simulations.config import SimulationConfig, TaskV2_3SimulationConfig, MDSSweepConfig
 from SpAM_Simulations.experiment import ExperimentParameters, ExperimentResults
 from SpAM_Simulations.metrics import coverage, snr_summary, spearman_correlation, _calculate_mean_distances
 from SpAM_Simulations.simulation import Simulation
@@ -39,7 +39,7 @@ _SUCCESS_STATUSES = ("success", "max_iters")
 
 
 def _param_type(sim: Simulation) -> type:
-    """The `ExperimentParameters`/`RealisticExperimentParameters` type this sim's results are
+    """The `ExperimentParameters`/`TaskV2_3ExperimentParameters` type this sim's results are
     keyed by - derived from an existing result rather than assumed, so the MDS sweep below
     works unmodified for either simulation type."""
     return type(next(iter(sim._results)))
@@ -62,15 +62,15 @@ def generate_simulation(config: SimulationConfig, verbose: bool = True) -> Simul
     return sim
 
 
-def generate_realistic_simulation(config: RealisticSimulationConfig, verbose: bool = True) -> Simulation:
-    """Same as `generate_simulation`, but for the realistic (per-subject trial design) experiment."""
+def generate_task_v2_3_simulation(config: TaskV2_3SimulationConfig, verbose: bool = True) -> Simulation:
+    """Same as `generate_simulation`, but for the task-v2.3 (per-subject trial design) experiment."""
     if config.uses_random_ground_truth:
         sim = Simulation.make(config.n_images, config.n_dims, config.seed)
     else:
         sim = Simulation.from_embeddings(config.gt_embeddings, config.seed)
     schedule = config.param_grid() * config.reps
     for params in tqdm(schedule, desc="Running experiments", disable=not verbose):
-        sim.run_realistic_experiment(params, verbose=False)
+        sim.run_task_v2_3_experiment(params, verbose=False)
     return sim
 
 
@@ -78,7 +78,7 @@ def generate_realistic_simulation(config: RealisticSimulationConfig, verbose: bo
 def compute_coverage_table(sim: Simulation) -> pd.DataFrame:
     """One row per (configuration, repetition) with all coverage metrics.
 
-    For a realistic simulation (whose results carry a `subject_snr` field), also includes
+    For a task-v2.3 simulation (whose results carry a `subject_snr` field), also includes
     the SNR summary stats from `metrics.snr_summary`.
     """
     rows = [
@@ -258,7 +258,7 @@ def compute_embedding_stability(
     df = store.metadata()
     if group_fields is None:
         # Every metadata column is a swept parameter or `ndim` except these fixed,
-        # solver-outcome columns - this works for any params type (old or realistic).
+        # solver-outcome columns - this works for any params type (task-v0.1 or task-v2.3).
         _non_param_columns = {"rep", "niter", "stress", "status", "confdist_row"}
         group_fields = [c for c in df.columns if c not in _non_param_columns]
     group_fields = list(group_fields)

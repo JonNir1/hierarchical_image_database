@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# Provision an EC2 instance, run the full SpAM MDS sweep for the UNIFORM (original) simulation
+# Provision an EC2 instance, run the full SpAM MDS sweep for the TASK-V0.1 (original) simulation
 # - every trial draws images_per_trial images uniformly at random from the whole pool, no
 # per-subject trial design - and upload the results to S3.
 #
-# For the realistic, per-subject trial-design simulation, see the sibling run_realistic_sim.sh.
+# For the task-v2.3, per-subject trial-design simulation, see the sibling run_task_v2_3_sim.sh.
 # Both source the shared provisioning logic in prepare_machine.sh (must be copied alongside
 # this script - see README.md's "Running on EC2" section for the full allocate-to-terminate
 # cookbook).
@@ -21,8 +21,8 @@
 # Usage:
 #   export REPO_URL=https://github.com/<you>/hierarchical_image_database.git
 #   export GIT_REF=main
-#   export S3_URI=s3://<your-bucket>/spam-mds/run-$(date +%Y%m%d)
-#   bash run_uniform_sim.sh
+#   export S3_URI=s3://<your-bucket>/spam-simulations/task-v0.1
+#   bash run_task_v0_1_sim.sh
 #
 # Pick an instance with many vCPUs (the sweep is embarrassingly parallel), e.g. c7i.4xlarge
 # (16 vCPU). REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
@@ -32,7 +32,7 @@ set -euo pipefail
 # --------------------------------------------------------------------------- configuration
 REPO_URL="${REPO_URL:?set REPO_URL to your repo (https with PAT, or git@ ssh)}"
 GIT_REF="${GIT_REF:-main}"
-S3_URI="${S3_URI:?set S3_URI, e.g. s3://my-bucket/spam-mds/run1}"
+S3_URI="${S3_URI:?set S3_URI, e.g. s3://my-bucket/spam-simulations/run1}"
 WORKDIR="${WORKDIR:-$HOME/spam_run}"
 # MDS worker processes. All vCPUs OOM'd/SEGFAULT'd a run (each worker holds its own R/smacof
 # process, and the combined working set outgrew available memory) - default to 2/3 of them.

@@ -1,12 +1,12 @@
-"""Tests for the realistic (per-subject trial design) experiment simulation."""
+"""Tests for the task-v2.3 (per-subject trial design) experiment simulation."""
 import numpy as np
 import pytest
 
 from SpAM_Simulations.design import compute_design_counts
-from SpAM_Simulations.realistic_experiment import (
-    simulate_realistic_single_subject,
-    simulate_realistic_experiment,
-    RealisticExperimentParameters,
+from SpAM_Simulations.task_v2_3_experiment import (
+    simulate_task_v2_3_single_subject,
+    simulate_task_v2_3_experiment,
+    TaskV2_3ExperimentParameters,
     _find_candidate_repeated_pairs,
     _compute_subject_snr,
 )
@@ -22,7 +22,7 @@ def _make_params(**overrides):
         subjects_noise_scale=0.4, subjects_noise_df=3, frac_images_repeated=1 / 3,
     )
     fields.update(overrides)
-    return RealisticExperimentParameters(**fields)
+    return TaskV2_3ExperimentParameters(**fields)
 
 
 class TestFindCandidateRepeatedPairs:
@@ -81,11 +81,11 @@ class TestComputeSubjectSnr:
             _compute_subject_snr(obs, n_obs, {0: [1.0, 1.5, 2.0]})
 
 
-class TestSimulateRealisticSingleSubject:
+class TestSimulateTaskV2_3SingleSubject:
     def test_output_shapes_match_condensed_gt(self):
         sim = Simulation.make(200, 4, seed=1)
         n_unique, n_double = compute_design_counts(**TASK_DEFAULTS)
-        obs, n_obs, snr = simulate_realistic_single_subject(
+        obs, n_obs, snr = simulate_task_v2_3_single_subject(
             subject_noise=0.3, t=TASK_DEFAULTS["t"], k=TASK_DEFAULTS["k"],
             n_unique=n_unique, n_double=n_double,
             gt_distances=sim.gt_distances, rng=np.random.default_rng(0), verbose=False,
@@ -97,7 +97,7 @@ class TestSimulateRealisticSingleSubject:
     def test_noiseless_subject_has_infinite_snr(self):
         sim = Simulation.make(200, 4, seed=2)
         n_unique, n_double = compute_design_counts(**TASK_DEFAULTS)
-        _, _, snr = simulate_realistic_single_subject(
+        _, _, snr = simulate_task_v2_3_single_subject(
             subject_noise=0.0, t=TASK_DEFAULTS["t"], k=TASK_DEFAULTS["k"],
             n_unique=n_unique, n_double=n_double,
             gt_distances=sim.gt_distances, rng=np.random.default_rng(3), verbose=False,
@@ -109,7 +109,7 @@ class TestSimulateRealisticSingleSubject:
         sim = Simulation.make(60, 4, seed=4)
         n_unique, n_double = compute_design_counts(t=4, k=5, r=0.0)
         assert n_double == 0
-        _, _, snr = simulate_realistic_single_subject(
+        _, _, snr = simulate_task_v2_3_single_subject(
             subject_noise=0.3, t=4, k=5, n_unique=n_unique, n_double=n_double,
             gt_distances=sim.gt_distances, rng=np.random.default_rng(5), verbose=False,
         )
@@ -120,13 +120,13 @@ class TestSimulateRealisticSingleSubject:
         n_unique, n_double = compute_design_counts(**TASK_DEFAULTS)
 
         np.random.seed(0)
-        obs_a, nobs_a, snr_a = simulate_realistic_single_subject(
+        obs_a, nobs_a, snr_a = simulate_task_v2_3_single_subject(
             subject_noise=0.4, t=TASK_DEFAULTS["t"], k=TASK_DEFAULTS["k"],
             n_unique=n_unique, n_double=n_double,
             gt_distances=sim.gt_distances, rng=np.random.default_rng(42), verbose=False,
         )
         np.random.seed(99999)  # perturb the global RNG: must not affect the result
-        obs_b, nobs_b, snr_b = simulate_realistic_single_subject(
+        obs_b, nobs_b, snr_b = simulate_task_v2_3_single_subject(
             subject_noise=0.4, t=TASK_DEFAULTS["t"], k=TASK_DEFAULTS["k"],
             n_unique=n_unique, n_double=n_double,
             gt_distances=sim.gt_distances, rng=np.random.default_rng(42), verbose=False,
@@ -136,28 +136,28 @@ class TestSimulateRealisticSingleSubject:
         assert snr_a == snr_b
 
 
-class TestSimulateRealisticExperiment:
+class TestSimulateTaskV2_3Experiment:
     def test_reproducible_from_seed_only(self):
         sim = Simulation.make(200, 4, seed=10)
         params = _make_params()
 
         np.random.seed(0)
-        _, r1 = simulate_realistic_experiment(params, sim.gt_distances, np.random.default_rng(99), verbose=False)
+        _, r1 = simulate_task_v2_3_experiment(params, sim.gt_distances, np.random.default_rng(99), verbose=False)
         np.random.seed(123456)
-        _, r2 = simulate_realistic_experiment(params, sim.gt_distances, np.random.default_rng(99), verbose=False)
+        _, r2 = simulate_task_v2_3_experiment(params, sim.gt_distances, np.random.default_rng(99), verbose=False)
 
         np.testing.assert_array_equal(r1.distances, r2.distances)
         np.testing.assert_array_equal(r1.num_obs, r2.num_obs)
         np.testing.assert_array_equal(r1.subject_noises, r2.subject_noises)
         np.testing.assert_array_equal(r1.subject_snr, r2.subject_snr)
 
-        _, r3 = simulate_realistic_experiment(params, sim.gt_distances, np.random.default_rng(100), verbose=False)
+        _, r3 = simulate_task_v2_3_experiment(params, sim.gt_distances, np.random.default_rng(100), verbose=False)
         assert not np.array_equal(np.nan_to_num(r1.distances), np.nan_to_num(r3.distances))
 
     def test_output_shapes(self):
         sim = Simulation.make(200, 4, seed=11)
         params = _make_params(num_subjects=9)
-        _, res = simulate_realistic_experiment(params, sim.gt_distances, np.random.default_rng(1), verbose=False)
+        _, res = simulate_task_v2_3_experiment(params, sim.gt_distances, np.random.default_rng(1), verbose=False)
         assert res.distances.shape == sim.gt_distances.shape
         assert res.num_obs.shape == sim.gt_distances.shape
         assert res.subject_noises.shape == (9,)
@@ -166,14 +166,14 @@ class TestSimulateRealisticExperiment:
     def test_unmeasured_pairs_are_nan(self):
         sim = Simulation.make(200, 4, seed=12)
         params = _make_params(num_subjects=3)
-        _, res = simulate_realistic_experiment(params, sim.gt_distances, np.random.default_rng(1), verbose=False)
+        _, res = simulate_task_v2_3_experiment(params, sim.gt_distances, np.random.default_rng(1), verbose=False)
         assert np.isnan(res.distances).any()  # 3 subjects can't cover every pair of 200 images
 
     def test_rejects_n_unique_exceeding_pool(self):
         sim = Simulation.make(20, 4, seed=13)  # pool too small for the default design
         params = _make_params()
         with pytest.raises(AssertionError):
-            simulate_realistic_experiment(params, sim.gt_distances, np.random.default_rng(1), verbose=False)
+            simulate_task_v2_3_experiment(params, sim.gt_distances, np.random.default_rng(1), verbose=False)
 
     @pytest.mark.parametrize("overrides", [
         dict(num_subjects=0),
@@ -185,7 +185,7 @@ class TestSimulateRealisticExperiment:
         sim = Simulation.make(200, 4, seed=14)
         params = _make_params(**overrides)
         with pytest.raises(AssertionError):
-            simulate_realistic_experiment(params, sim.gt_distances, np.random.default_rng(1), verbose=False)
+            simulate_task_v2_3_experiment(params, sim.gt_distances, np.random.default_rng(1), verbose=False)
 
     def test_mean_snr_decreases_with_noise_scale(self):
         """Statistical sanity check (not bit-exact): more subject noise should yield a
@@ -196,7 +196,7 @@ class TestSimulateRealisticExperiment:
             vals = []
             for i in range(reps):
                 params = _make_params(num_subjects=20, subjects_noise_scale=scale, subjects_noise_df=5)
-                _, res = simulate_realistic_experiment(
+                _, res = simulate_task_v2_3_experiment(
                     params, sim.gt_distances, np.random.default_rng(seed0 + i), verbose=False
                 )
                 vals.append(np.nanmean(res.subject_snr))

@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from SpAM_Simulations.config import SimulationConfig, RealisticSimulationConfig, MDSSweepConfig
-from SpAM_Simulations.realistic_experiment import RealisticExperimentParameters
+from SpAM_Simulations.config import SimulationConfig, TaskV2_3SimulationConfig, MDSSweepConfig
+from SpAM_Simulations.task_v2_3_experiment import TaskV2_3ExperimentParameters
 
 
 def _base_grids(**over):
@@ -56,36 +56,36 @@ def test_target_dims_empty_raises():
         MDSSweepConfig(min_ndim=6).target_dims(gt_dimensions=5)
 
 
-def test_realistic_config_is_a_simulation_config():
+def test_task_v2_3_config_is_a_simulation_config():
     """Dataclass inheritance: gets the GT-source fields/validation for free."""
-    cfg = RealisticSimulationConfig(
+    cfg = TaskV2_3SimulationConfig(
         n_images=30, n_dims=4, frac_images_repeated=[1 / 3], **_base_grids()
     )
     assert isinstance(cfg, SimulationConfig)
     assert cfg.uses_random_ground_truth
 
 
-def test_realistic_config_inherits_ground_truth_validation():
+def test_task_v2_3_config_inherits_ground_truth_validation():
     with pytest.raises(ValueError):  # neither GT source
-        RealisticSimulationConfig(frac_images_repeated=[1 / 3], **_base_grids())
+        TaskV2_3SimulationConfig(frac_images_repeated=[1 / 3], **_base_grids())
     with pytest.raises(ValueError):  # both GT sources
-        RealisticSimulationConfig(
+        TaskV2_3SimulationConfig(
             n_images=10, n_dims=2, gt_embeddings=np.zeros((4, 2)),
             frac_images_repeated=[1 / 3], **_base_grids()
         )
 
 
-def test_realistic_config_rejects_empty_frac_images_repeated():
+def test_task_v2_3_config_rejects_empty_frac_images_repeated():
     with pytest.raises(ValueError):
-        RealisticSimulationConfig(n_images=10, n_dims=2, frac_images_repeated=[], **_base_grids())
+        TaskV2_3SimulationConfig(n_images=10, n_dims=2, frac_images_repeated=[], **_base_grids())
 
 
-def test_realistic_config_param_grid():
-    cfg = RealisticSimulationConfig(
+def test_task_v2_3_config_param_grid():
+    cfg = TaskV2_3SimulationConfig(
         n_images=30, n_dims=4, frac_images_repeated=[0.0, 1 / 3], **_base_grids()
     )
     grid = cfg.param_grid()
     # product: 2 (num_subjects) * 1 * 1 * 2 (noise_scale) * 1 * 2 (frac_images_repeated) = 8
     assert len(grid) == 8
-    assert all(isinstance(p, RealisticExperimentParameters) for p in grid)
+    assert all(isinstance(p, TaskV2_3ExperimentParameters) for p in grid)
     assert {p.frac_images_repeated for p in grid} == {0.0, 1 / 3}

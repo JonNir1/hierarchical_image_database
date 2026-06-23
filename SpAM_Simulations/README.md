@@ -9,19 +9,21 @@ under different sampling/noise regimes.
 | Module | Responsibility |
 |---|---|
 | `experiment.py` | Core simulation: `simulate_experiment` / `simulate_single_subject` (vectorized, condensed form). |
-| `design.py` | Per-subject trial allocation (`compute_design_counts`, `build_trial_lists`) for the realistic simulation, ported from `SpAM_Task`'s `buildTrialLists`. |
-| `realistic_experiment.py` | Realistic simulation: per-subject image subset + trial design (matches `SpAM_Task`), plus the within-subject SNR heuristic. |
+| `design.py` | Per-subject trial allocation (`compute_design_counts`, `build_trial_lists`) for the task-v2.3 simulation, ported from `SpAM_Task`'s `buildTrialLists`. |
+| `task_v2_3_experiment.py` | Task-v2.3 simulation: per-subject image subset + trial design (matches `SpAM_Task`), plus the within-subject SNR heuristic. |
 | `simulation.py` | `Simulation` container + ground-truth distances; `make` (random) / `from_embeddings` (real data). |
 | `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`. |
 | `helpers.py` | Distance-matrix format conversion (`convert_to_condensed`). |
 | `multi_dimensional_scaling.py` | `run_mds` - weighted SMACOF via R's `smacof` (needs R + rpy2). |
-| `config.py` | `SimulationConfig`, `RealisticSimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
+| `config.py` | `SimulationConfig`, `TaskV2_3SimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
 | `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability) for both simulation types. |
 | `storage.py` | `ResultStore` - compact, streamable, resumable on-disk store for sweep results. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
-| `evaluation.ipynb` | Plotting / analysis notebook for the uniform simulation. |
-| `evaluation_realistic.ipynb` | Plotting / analysis notebook for the realistic simulation. |
-| `prepare_machine.sh`, `run_uniform_sim.sh`, `run_realistic_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
+| `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb` - no simulation, no MDS, no R. |
+| `evaluation.ipynb` | Plotting / analysis notebook for the task-v0.1 simulation. |
+| `evaluation_task_v2_3.ipynb` | Plotting / analysis notebook for the task-v2.3 simulation. |
+| `evaluate_simulation.ipynb` | Read-only overview/drill-down figures for an already-completed run (task-v0.1 or task-v2.3), via `eval_helpers.py`. |
+| `prepare_machine.sh`, `run_task_v0_1_sim.sh`, `run_task_v2_3_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
 
 ## Quick start
 
@@ -82,9 +84,9 @@ still isn't found, set `R_HOME` explicitly.
 Three shell scripts handle the full-scale sweeps remotely:
 - `prepare_machine.sh` - shared provisioning (system packages, R 4.5 + `smacof`, awscli v2,
   sparse-checkout clone of `SpAM_Simulations/`, Python venv). Sourced, not run directly.
-- `run_uniform_sim.sh` - runs the uniform (original) simulation's full-study sweep.
-- `run_realistic_sim.sh` - runs the realistic (per-subject trial design) simulation's
-  full-study sweep (actually fewer total MDS fits than the uniform sweep - same instance
+- `run_task_v0_1_sim.sh` - runs the task-v0.1 (original) simulation's full-study sweep.
+- `run_task_v2_3_sim.sh` - runs the task-v2.3 (per-subject trial design) simulation's
+  full-study sweep (actually fewer total MDS fits than the task-v0.1 sweep - same instance
   type is fine for both).
 
 Both entrypoints `source` `prepare_machine.sh` by relative path, so copy all three files
@@ -136,8 +138,8 @@ aws ec2 wait instance-running --instance-ids $INSTANCE_ID
 $IP = aws ec2 describe-instances --instance-ids $INSTANCE_ID --query "Reservations[0].Instances[0].PublicIpAddress" --output text
 $IP
 ```
-(100 GB root volume - the realistic sweep's `mds_store/` is larger than the uniform sweep's
-~17 GB; shrink back down for uniform-only runs if you want to save a few cents.)
+(100 GB root volume - the task-v2.3 sweep's `mds_store/` is larger than the task-v0.1 sweep's
+~17 GB; shrink back down for task-v0.1-only runs if you want to save a few cents.)
 
 `--instance-market-options`/`--block-device-mappings` use AWS CLI's shorthand syntax
 (`key=value`, no JSON) rather than raw `'{"...":"..."}'` - PowerShell strips embedded double
@@ -150,8 +152,8 @@ fails with a JSON parse error. Shorthand syntax has no `"` characters to mangle.
 cd C:\Users\nirjo\Documents\University\PhD\Projects\hierarchical_image_database
 scp -i $KEY_PATH `
   SpAM_Simulations\prepare_machine.sh `
-  SpAM_Simulations\run_uniform_sim.sh `
-  SpAM_Simulations\run_realistic_sim.sh `
+  SpAM_Simulations\run_task_v0_1_sim.sh `
+  SpAM_Simulations\run_task_v2_3_sim.sh `
   ubuntu@${IP}:~
 ```
 
@@ -164,15 +166,15 @@ ssh -i $KEY_PATH ubuntu@$IP
 ```bash
 export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
 export GIT_REF=main
-export S3_URI=s3://jon-nir/spam-mds/run-$(date +%Y%m%d)
+export S3_URI=s3://jon-nir/spam-simulations/task-v0.1   # or .../task-v2.3, matching the script you run in step (6)
 # WORKDIR, N_JOBS, R_LIBS_USER all have sane defaults (see each script's header) - override only if needed
 ```
 
 **(6) Start tmux, run the sweep, log it:**
 ```bash
 tmux new -s spam
-bash run_uniform_sim.sh 2>&1 | tee run.log
-# or: bash run_realistic_sim.sh 2>&1 | tee run.log
+bash run_task_v0_1_sim.sh 2>&1 | tee run.log
+# or: bash run_task_v2_3_sim.sh 2>&1 | tee run.log
 ```
 
 **(7) Detach / re-attach** (safe to close the SSH session after detaching - the script keeps
@@ -199,7 +201,7 @@ aws s3 ls $S3_URI/mds_store/
 e.g. the script crashed before reaching `upload_and_finish`):
 ```bash
 cd ~/spam_run/repo   # default WORKDIR/repo - adjust if you overrode WORKDIR in step (5)
-export S3_URI=s3://jon-nir/spam-mds/run-<date-used-for-this-run>   # re-set if this is a new session
+export S3_URI=s3://jon-nir/spam-simulations/task-v0.1   # or .../task-v2.3 - re-set if this is a new session
 aws s3 sync out/       "$S3_URI/out/"       --only-show-errors
 aws s3 sync mds_store/ "$S3_URI/mds_store/" --only-show-errors
 

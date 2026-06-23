@@ -3,7 +3,7 @@
 The real task restricts each subject to a random subset of `n_unique` images (derived from
 `trials_per_subject`, `images_per_trial`, `frac_images_repeated`), with `n_double` of those
 shown in exactly two distinct trials (for within-subject reliability) and the rest in
-exactly one. This module ports that allocation algorithm to numpy so the realistic
+exactly one. This module ports that allocation algorithm to numpy so the task-v2.3
 simulation can reproduce it; it has no notion of noise or distances, only which image index
 goes into which trial.
 """
