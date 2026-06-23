@@ -100,7 +100,7 @@ $SG_ID         = "sg-0e1f88c3d550f7154"
 $KEY_NAME      = "paf-key"
 $KEY_PATH      = "C:\Users\nirjo\Documents\projects\__secrets__\paf-key.pem"
 $IAM_PROFILE   = "spam-simulations"
-$INSTANCE_TYPE = "c7i.4xlarge"     # 16 vCPU; bump to c7i.8xlarge+ for run_realistic_sim.sh
+$INSTANCE_TYPE = "c7i.4xlarge"     # 16 vCPU; fine for both scripts (realistic sweep is ~5x fewer MDS fits than uniform's)
 ```
 If your ISP-assigned IP changed since the security group rule was added:
 ```powershell
