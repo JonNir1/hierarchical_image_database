@@ -21,7 +21,7 @@
 # Usage:
 #   export REPO_URL=https://github.com/<you>/hierarchical_image_database.git
 #   export GIT_REF=main
-#   export S3_URI=s3://<your-bucket>/spam-mds/run-$(date +%Y%m%d)
+#   export S3_URI=s3://<your-bucket>/spam-simulations/run-$(date +%Y%m%d)
 #   bash run_uniform_sim.sh
 #
 # Pick an instance with many vCPUs (the sweep is embarrassingly parallel), e.g. c7i.4xlarge
@@ -32,7 +32,7 @@ set -euo pipefail
 # --------------------------------------------------------------------------- configuration
 REPO_URL="${REPO_URL:?set REPO_URL to your repo (https with PAT, or git@ ssh)}"
 GIT_REF="${GIT_REF:-main}"
-S3_URI="${S3_URI:?set S3_URI, e.g. s3://my-bucket/spam-mds/run1}"
+S3_URI="${S3_URI:?set S3_URI, e.g. s3://my-bucket/spam-simulations/run1}"
 WORKDIR="${WORKDIR:-$HOME/spam_run}"
 # MDS worker processes. All vCPUs OOM'd/SEGFAULT'd a run (each worker holds its own R/smacof
 # process, and the combined working set outgrew available memory) - default to 2/3 of them.

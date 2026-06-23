@@ -19,8 +19,10 @@ under different sampling/noise regimes.
 | `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability) for both simulation types. |
 | `storage.py` | `ResultStore` - compact, streamable, resumable on-disk store for sweep results. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
+| `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb` - no simulation, no MDS, no R. |
 | `evaluation.ipynb` | Plotting / analysis notebook for the uniform simulation. |
 | `evaluation_realistic.ipynb` | Plotting / analysis notebook for the realistic simulation. |
+| `evaluate_simulation.ipynb` | Read-only overview/drill-down figures for an already-completed run (uniform or realistic), via `eval_helpers.py`. |
 | `prepare_machine.sh`, `run_uniform_sim.sh`, `run_realistic_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
 
 ## Quick start
@@ -164,7 +166,7 @@ ssh -i $KEY_PATH ubuntu@$IP
 ```bash
 export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
 export GIT_REF=main
-export S3_URI=s3://jon-nir/spam-mds/run-$(date +%Y%m%d)
+export S3_URI=s3://jon-nir/spam-simulations/run-$(date +%Y%m%d)
 # WORKDIR, N_JOBS, R_LIBS_USER all have sane defaults (see each script's header) - override only if needed
 ```
 
@@ -199,7 +201,7 @@ aws s3 ls $S3_URI/mds_store/
 e.g. the script crashed before reaching `upload_and_finish`):
 ```bash
 cd ~/spam_run/repo   # default WORKDIR/repo - adjust if you overrode WORKDIR in step (5)
-export S3_URI=s3://jon-nir/spam-mds/run-<date-used-for-this-run>   # re-set if this is a new session
+export S3_URI=s3://jon-nir/spam-simulations/run-<date-used-for-this-run>   # re-set if this is a new session
 aws s3 sync out/       "$S3_URI/out/"       --only-show-errors
 aws s3 sync mds_store/ "$S3_URI/mds_store/" --only-show-errors
 
