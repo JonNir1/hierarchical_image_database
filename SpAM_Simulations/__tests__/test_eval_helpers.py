@@ -72,7 +72,7 @@ def tiny_run_task_v2_3(tmp_path):
 # --------------------------------------------------------------------- load_run
 def test_load_run_resolves_absolute_path_and_detects_task_v0_1(tiny_run_task_v0_1):
     run = eh.load_run(tiny_run_task_v0_1)
-    assert run.is_task_v2_3 is False
+    assert run.task_version == 0.1
     assert "frac_images_repeated" not in run.levers
     assert run.levers["num_subjects"] == [10, 20]
     assert len(run.coverage) == 8  # 2 num_subjects * 2 noise_scale * 2 reps
@@ -80,7 +80,7 @@ def test_load_run_resolves_absolute_path_and_detects_task_v0_1(tiny_run_task_v0_
 
 def test_load_run_detects_task_v2_3(tiny_run_task_v2_3):
     run = eh.load_run(tiny_run_task_v2_3)
-    assert run.is_task_v2_3 is True
+    assert run.task_version == 2.3
     assert run.levers["frac_images_repeated"] == [0.0, 0.2]
 
 
@@ -101,6 +101,18 @@ def test_load_run_missing_files_raises_naming_each(tmp_path):
     assert "meta.csv" in msg
 
 
+# --------------------------------------------------------------------- format_value
+def test_format_value_rounds_floats_to_4_sig_figs():
+    assert eh.format_value(1 / 7) == "0.1429"
+    assert eh.format_value(1 / 3) == "0.3333"
+    assert eh.format_value(0.8) == "0.8"
+
+
+def test_format_value_leaves_non_floats_alone():
+    assert eh.format_value(20) == "20"
+    assert eh.format_value("success") == "success"
+
+
 # --------------------------------------------------------------------- split_varying_constant
 def test_split_varying_constant_drops_constants_and_absent():
     df = pd.DataFrame({"a": [1, 1, 2], "b": [5, 5, 5], "rep": [0, 1, 0]})
@@ -112,6 +124,11 @@ def test_split_varying_constant_drops_constants_and_absent():
 def test_constants_caption_format():
     caption = eh.constants_caption({"trials_per_subject": 10, "subjects_noise_df": 1})
     assert caption == "trials_per_subject = 10, subjects_noise_df = 1"
+
+
+def test_constants_caption_rounds_floats():
+    caption = eh.constants_caption({"frac_images_repeated": 1 / 7})
+    assert caption == "frac_images_repeated = 0.1429"
 
 
 # --------------------------------------------------------------------- faceted figure builders
@@ -128,11 +145,12 @@ def test_faceted_metric_figure_drops_constant_trace_and_captions(tiny_run_task_v
         title="t",
     )
     # trials_per_subject is constant (=5) everywhere -> dropped from trace names and captioned;
-    # only subjects_noise_scale (2 values) varies -> 2 traces.
+    # only subjects_noise_scale (2 values) varies -> 2 traces. format_value renders 0.0 as "0".
     trace_names = {t.name for t in fig.data}
-    assert trace_names == {"subjects_noise_scale=0.0", "subjects_noise_scale=0.5"}
-    caption_text = " ".join(a.text for a in fig.layout.annotations if a.text)
-    assert "trials_per_subject = 5" in caption_text
+    assert trace_names == {"subjects_noise_scale=0", "subjects_noise_scale=0.5"}
+    # the caption is a native title.subtitle (rendered directly below the title), not a
+    # manually-positioned annotation that can drift/overlap with column titles.
+    assert "trials_per_subject = 5" in fig.layout.title.subtitle.text
 
 
 def test_faceted_lever_figure_trace_count(tiny_run_task_v0_1):
@@ -143,6 +161,23 @@ def test_faceted_lever_figure_trace_count(tiny_run_task_v0_1):
         trace_by=["subjects_noise_scale"],
     )
     assert len(fig.data) == 2  # 2 noise scales; single row/col since both are constant here
+
+
+def test_faceted_lever_figure_row_titles_on_left_rotated_bottom_to_top(tiny_run_task_v2_3):
+    run = eh.load_run(tiny_run_task_v2_3)
+    summary = (
+        run.stability.groupby(["num_subjects", "frac_images_repeated"])
+        .agg(spearman_mean=("spearman", "mean")).reset_index()
+    )
+    fig = eh.faceted_lever_figure(
+        summary, x="num_subjects", y="spearman_mean", y_sem="spearman_mean",
+        row_by="frac_images_repeated",
+    )
+    row_annotations = [a for a in fig.layout.annotations if a.text.startswith("frac_images_repeated")]
+    assert len(row_annotations) == 2  # one per distinct frac_images_repeated value
+    for ann in row_annotations:
+        assert ann.x < 0.5  # left side, not the right side make_subplots' row_titles would use
+        assert ann.textangle == -90  # rotated to read bottom-to-top, like a y-axis title
 
 
 def test_faceted_lever_figure_drops_absent_lever(tiny_run_task_v0_1):
@@ -180,6 +215,18 @@ def test_filter_to_config_skips_absent_keys(tiny_run_task_v0_1):
     assert (filtered["subjects_noise_scale"] == 0.5).all()
 
 
+def test_filter_to_config_matches_float_after_csv_roundtrip(tmp_path):
+    """Regression test: `pd.to_csv`/`pd.read_csv` does not round-trip float64 exactly (confirmed
+    - 1/7 written then read back differs in its last bit), so a hand-typed FOCUS_CONFIG literal
+    like `1 / 7` must still match via `np.isclose`, not silently miss via exact `==`."""
+    combos = [dict(num_subjects=10, trials_per_subject=5, images_per_trial=8,
+                    subjects_noise_scale=0.5, subjects_noise_df=1, frac_images_repeated=1 / 7)]
+    run_dir = _write_run(tmp_path, *_build_frames(combos))
+    run = eh.load_run(run_dir)
+    filtered = eh.filter_to_config(run.mds_meta, {"frac_images_repeated": 1 / 7})
+    assert len(filtered) > 0
+
+
 # --------------------------------------------------------------------- convergence_bar_figure
 def test_convergence_bar_figure_includes_error_status(tiny_run_task_v0_1):
     run = eh.load_run(tiny_run_task_v0_1)
@@ -188,6 +235,60 @@ def test_convergence_bar_figure_includes_error_status(tiny_run_task_v0_1):
     assert trace_names == set(eh.DEFAULT_STATUS_LABELS.values())
     colors = {t.name: t.marker.color for t in fig.data}
     assert colors["error"] == eh.DEFAULT_STATUS_COLORS["error"]
+
+
+def test_convergence_bar_figure_x_is_ndim_facet_is_num_subjects(tiny_run_task_v0_1):
+    """Matches evaluation.ipynb's original convergence plot: x=ndim (categorical), one
+    subplot per num_subjects value."""
+    run = eh.load_run(tiny_run_task_v0_1)
+    fig = eh.convergence_bar_figure(run.mds_meta)
+    assert fig.layout.xaxis.type == "category"
+    panel_titles = {a.text for a in fig.layout.annotations if a.text.startswith("num_subjects")}
+    assert panel_titles == {"num_subjects = 10", "num_subjects = 20"}
+    assert set(fig.data[0].x) == {2, 3}  # x values are ndim, not num_subjects
+
+
+def test_convergence_bar_figure_wraps_panels_at_explicit_max_cols():
+    """5 num_subjects values with an explicit max_cols=2 override -> 3 rows x 2 cols, with the
+    trailing (6th) grid cell left empty rather than crowding all 5 panels into one row."""
+    combos = [
+        dict(num_subjects=n, trials_per_subject=5, images_per_trial=8,
+             subjects_noise_scale=0.5, subjects_noise_df=1)
+        for n in (10, 20, 30, 40, 50)
+    ]
+    _, _, _, mds_meta = _build_frames(combos)
+    fig = eh.convergence_bar_figure(mds_meta, max_cols=2)
+    panel_titles = sorted(a.text for a in fig.layout.annotations if a.text.startswith("num_subjects"))
+    assert panel_titles == [f"num_subjects = {n}" for n in (10, 20, 30, 40, 50)]
+    # exactly 5 subplot axes allocated (not 6) - the trailing cell genuinely has no subplot.
+    assert len([k for k in fig.layout if k.startswith("xaxis")]) == 5
+
+
+def test_convergence_bar_figure_default_grid_is_2x2_for_4_panels():
+    """4 num_subjects values, no explicit max_cols -> a clean 2x2 grid, not a lopsided 3+1."""
+    combos = [
+        dict(num_subjects=n, trials_per_subject=5, images_per_trial=8,
+             subjects_noise_scale=0.5, subjects_noise_df=1)
+        for n in (10, 20, 30, 40)
+    ]
+    _, _, _, mds_meta = _build_frames(combos)
+    fig = eh.convergence_bar_figure(mds_meta)
+    assert len([k for k in fig.layout if k.startswith("xaxis")]) == 4
+    assert fig.get_subplot(row=2, col=2) is not None  # a true 2x2, not 4x1 or 1x4
+
+
+# --------------------------------------------------------------------- _grid_dims
+@pytest.mark.parametrize("n, expected", [
+    (1, (1, 1)), (2, (1, 2)), (3, (2, 2)), (4, (2, 2)),  # <=4 panels -> at most 2 columns
+    (5, (2, 3)), (9, (3, 3)), (12, (4, 3)),               # <=12 panels -> at most 3 columns
+    (13, (4, 4)), (16, (4, 4)),                           # >12 panels -> at most 4 columns
+])
+def test_grid_dims_default_tiers(n, expected):
+    assert eh._grid_dims(n) == expected
+
+
+def test_grid_dims_respects_explicit_override():
+    assert eh._grid_dims(5, max_cols=2) == (3, 2)
 
 
 # --------------------------------------------------------------------- pre_post_mds_stability_figure
