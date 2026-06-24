@@ -79,11 +79,13 @@ python generate_manifest.py
 ## Key Design Decisions
 
 **Stimulus assignment**: Client-side seeded RNG. Seed = `hashString(PROLIFIC_PID)` (djb2).
-Each subject sees `n_unique = round(t×k / (1+r)) = 150` unique images across `t=10` trials of `k=20`
-images, where `r = frac_images_repeated = 0.333`. `n_double = 50` images appear in exactly
-2 trials (within-subject reliability); 100 appear once. No image repeats within a single trial. The same `rng` instance
-is passed through `buildTrialLists` ←’ `insertCatchTrials` so the entire session sequence â€”
-including catch image selection and target locations â€” is fully reproducible from the PID.
+Each subject sees `n_unique = round(t_distinct×k / (1+r)) = 150` unique images across `t_distinct=10` distinct
+trials of `k=20` images, where `r = frac_images_repeated = 0.333` and `t_distinct = trials_per_subject -
+round(frac_trials_repeated × trials_per_subject)`. `n_double = 50` images appear in exactly 2 trials
+(cross-context reliability); the rest appear once. No image repeats within a single trial. The same `rng`
+instance is passed through `buildTrialLists` → `insertTrialRepeats` → `insertCatchTrials` so the entire
+session sequence — including trial-level repeats, catch image selection, and target locations — is
+fully reproducible from the PID.
 
 **Pre-loading**: `jsPsychPreload` inserted immediately before each free-sort trial â€” loads only
 that trial's images on demand, not all 150 at the start.
@@ -127,6 +129,16 @@ interior positions (e.g. trials 3 and 7 in a 10-trial sequence). Each catch tria
 Catch trials detect disengaged participants who are not following instructions. They are
 distinguished from main trials by a visible prompt and different QC logic (see below).
 
+**Trial-level repeats**: Independent of `frac_images_repeated` (which doubles individual images
+across different-composition trials), `frac_trials_repeated` repeats some whole trials verbatim
+(same k-image set, reshuffled presentation order) later in the session, for test-retest
+reliability of the arrangement response itself. `insertTrialRepeats` builds repeats only from
+trials with no `frac_images_repeated`-doubled image (so no image appears more than twice via
+either mechanism combined), and places each repeat at least `min_trial_repeat_separation` slots
+after its original. This is substitutive, not additive: `trials_per_subject` is the total main
+trial count a subject sees; some of those slots are repeats, so distinct combinations drop to
+`t_distinct`.
+
 **Quality control â€” main trials**: Flag a trial if
 `SD(normalised pairwise distances) < min_pairwise_distance_sd` (all images piled up).
 There is no RT-based flag: the `min_trial_rt_ms` floor is UI-enforced (Done button
@@ -168,9 +180,10 @@ handles data upload; the `finish` command node is appended to the timeline and c
 | Function / Constant | Description |
 |---|---|
 | `CATCH_LOCATIONS` | Array of 5 target location strings: `center` + 4 corners. Shared between trial_generator and task.js. |
-| `buildTrialLists(allImages, config, rng)` | Computes `n_unique = round(t×k / (1+r))` from `frac_images_repeated`; assigns images to `t` trials of `k` images each, with `n_double = t×k − n_unique` images appearing in exactly 2 distinct trials. Returns `string[][]`. Throws if any trial is underfilled. |
+| `buildTrialLists(allImages, config, rng)` | Computes `t_distinct = t − round(frac_trials_repeated×t)` and `n_unique = round(t_distinct×k / (1+r))` from `frac_images_repeated`; assigns images to `t_distinct` trials of `k` images each, with `n_double = t_distinct×k − n_unique` images appearing in exactly 2 distinct trials. Returns `{trials: string[][], doubleImages: Set<string>}`. Throws if any trial is underfilled. |
+| `insertTrialRepeats(trials, doubleImages, config, rng)` | Fills the remaining `t − trials.length` slots with verbatim repeats of earlier trials, drawn only from trials containing no `doubleImages` entry, placed at least `min_trial_repeat_separation` slots after their original. Returns an array of length `t`: `{images, isRepeat, repeatOfTrialId, trialId}[]`. Throws if there aren't enough singles-only trials or no placement satisfies the separation constraint. |
 | `buildCatchTrial(catchPool, config, rng)` | Samples `catch_images_per_trial` images from the catch pool and picks a target location, both via the shared RNG. Returns `{type:'catch', images, target_location}`. |
-| `insertCatchTrials(mainTrials, catchPool, config, rng)` | Interleaves `num_catch_trials` catch trials at evenly-spaced interior positions. Returns the combined sequence as `{type:'main'|'catch', images, target_location?}[]`. |
+| `insertCatchTrials(mainTrials, catchPool, config, rng)` | Interleaves `num_catch_trials` catch trials at evenly-spaced interior positions. `mainTrials` is the output of `insertTrialRepeats` (or plain `string[][]`). Returns the combined sequence as `{type:'main'|'catch', images, target_location?, isRepeat?, repeatOfTrialId?, trialId?}[]`. |
 | `_minBy(array, fn)` | Returns the element of `array` minimising `fn`. Used in single-image assignment to balance trial lengths. |
 | `_eligibleIndices(trials, img, k)` | Returns indices of trials that have room (`< k` images) and don't already contain `img`. Enforces the within-trial no-repeat constraint. |
 
@@ -182,7 +195,7 @@ Single async `DOMContentLoaded` handler. Execution order:
 3. Seed RNG: `new Math.seedrandom(hashString(PID))` â€” **no RNG calls before `buildTrialLists`**
 4. Build image URL arrays from manifest keys (`images`, `practice_images`, `catch_images`) + config paths
 5. Compute layout via `computeLayout`
-6. Build trial sequence: `buildTrialLists` ←’ `insertCatchTrials`
+6. Build trial sequence: `buildTrialLists` → `insertTrialRepeats` → `insertCatchTrials`; build a `trialId → trial_index` map for resolving repeat references
 7. Construct jsPsych timeline: Pavlovia init → consent → fullscreen → instructions → before/after examples → practice → post-practice transition → [preload + free-sort] × n → Pavlovia finish → debrief
 8. `jsPsych.run(timeline)`
 
@@ -203,6 +216,8 @@ Single async `DOMContentLoaded` handler. Execution order:
 |---|---|---|
 | `trial_type` | all | `"trial_N"` (main) or `"catch_N"` (catch), 1-based |
 | `trial_index` | all | 0-based position in the full trial sequence |
+| `is_trial_repeat` | main only | `true` if this trial is a verbatim repeat of an earlier trial (see `frac_trials_repeated`) |
+| `repeat_of_trial_index` | main only | `trial_index` of the original occurrence if `is_trial_repeat` is `true`, else `null` |
 | `qc_flag` | all | `true` if trial failed any QC criterion |
 | `pairwise_distances` | all | JSON array of `{src_a, src_b, distance}` objects; distances normalised by arena diagonal |
 | `catch_trial_target_location` | catch only | String describing the required corner (e.g. `"bottom right corner"`) |
@@ -269,7 +284,9 @@ browser and `generate_manifest.py` resolve them identically.
 |---|---|---|
 | `trials_per_subject` | 10 | Number of main free-sort trials |
 | `images_per_trial` | 20 | Images shown per main trial |
-| `frac_images_repeated` | 0.333 | Fraction of unique images shown in 2 trials (reliability). `r=0`: no repeats; `r=1`: all images repeated. Derived: `n_unique = round(t×k / (1+r))`. |
+| `frac_images_repeated` | 0.333 | Fraction of unique images shown in 2 different-composition trials (cross-context reliability). `r=0`: no repeats; `r=1`: all images repeated. Derived: `n_unique = round(t_distinct×k / (1+r))`. |
+| `frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are verbatim repeats of an earlier trial (test-retest reliability). `t_distinct = t − round(frac_trials_repeated×t)`. Repeats only draw from trials with no `frac_images_repeated`-doubled image. Keep below 0.4. |
+| `min_trial_repeat_separation` | 2 | Minimum number of other main-trial slots between an original trial and its verbatim repeat. |
 | `practice_images_per_trial` | 8 | Images in the (discarded) practice trial |
 
 ### `catch_trials`

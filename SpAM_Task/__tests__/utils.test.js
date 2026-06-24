@@ -73,6 +73,22 @@ describe('computeSD', () => {
     });
 });
 
+// ── canSatisfyTrialRepeatSeparation ────────────────────────────────────────────
+describe('canSatisfyTrialRepeatSeparation', () => {
+    it('is always satisfiable with 0 repeats', () => {
+        assert.equal(canSatisfyTrialRepeatSeparation(10, 0, 1000), true);
+    });
+    it('is satisfiable for a small separation', () => {
+        assert.equal(canSatisfyTrialRepeatSeparation(10, 2, 2), true);
+    });
+    it('is unsatisfiable once separation exceeds t', () => {
+        assert.equal(canSatisfyTrialRepeatSeparation(10, 2, 10), false);
+    });
+    it('matches the known-infeasible case from insertTrialRepeats tests (t=4, numRepeats=2, minSep=3)', () => {
+        assert.equal(canSatisfyTrialRepeatSeparation(4, 2, 3), false);
+    });
+});
+
 // ── verifyConfig ──────────────────────────────────────────────────────────────
 describe('verifyConfig', () => {
     // Minimal valid config that passes all checks.
@@ -83,10 +99,12 @@ describe('verifyConfig', () => {
             catch:     'catch',
         },
         design: {
-            trials_per_subject:        10,
-            images_per_trial:          20,
-            frac_images_repeated:   0.333,
-            practice_images_per_trial: 8,
+            trials_per_subject:          10,
+            images_per_trial:            20,
+            frac_images_repeated:        0.333,
+            frac_trials_repeated:        0,
+            min_trial_repeat_separation: 2,
+            practice_images_per_trial:   8,
         },
         catch_trials: {
             num_trials:         2,
@@ -254,6 +272,76 @@ describe('verifyConfig', () => {
         assert.throws(
             () => verifyConfig(cfg),
             { message: /"quality_control\.min_move_item_ratio" must be in \(0, 1\]/ },
+        );
+    });
+
+    it('throws when frac_trials_repeated is out of range', () => {
+        const cfg = validConfig();
+        cfg.design.frac_trials_repeated = 1;
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /"design\.frac_trials_repeated" must be in \[0, 1\)/ },
+        );
+    });
+
+    it('warns (not throws) when frac_trials_repeated >= 0.4', () => {
+        const cfg = validConfig();
+        cfg.design.frac_trials_repeated = 0.4;
+        const warnings = [];
+        const origWarn = console.warn;
+        console.warn = msg => warnings.push(msg);
+        assert.doesNotThrow(() => verifyConfig(cfg));
+        console.warn = origWarn;
+        assert.ok(warnings.some(w => /frac_trials_repeated/.test(w) && /0\.4/.test(w)));
+    });
+
+    it('throws on missing min_trial_repeat_separation', () => {
+        const cfg = validConfig();
+        delete cfg.design.min_trial_repeat_separation;
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /missing required key "design\.min_trial_repeat_separation"/ },
+        );
+    });
+
+    it('throws when min_trial_repeat_separation is not a positive integer', () => {
+        const cfg = validConfig();
+        cfg.design.min_trial_repeat_separation = 0;
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /"design\.min_trial_repeat_separation" must be a positive integer/ },
+        );
+    });
+
+    it('throws at init when min_trial_repeat_separation is too large to ever be satisfied', () => {
+        const cfg = validConfig();
+        // t=10, frac_trials_repeated=0.2 → numTrialRepeats=2; minSep=100 is
+        // impossible regardless of which trials end up singles-only.
+        cfg.design.frac_trials_repeated = 0.2;
+        cfg.design.min_trial_repeat_separation = 100;
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /design\.min_trial_repeat_separation \(100\) cannot be satisfied/ },
+        );
+    });
+
+    it('does not check min_trial_repeat_separation feasibility when frac_trials_repeated is 0', () => {
+        const cfg = validConfig();
+        // No repeat slots are ever created, so an absurd separation is moot.
+        cfg.design.frac_trials_repeated = 0;
+        cfg.design.min_trial_repeat_separation = 1000;
+        assert.doesNotThrow(() => verifyConfig(cfg));
+    });
+
+    it('accounts for frac_trials_repeated when checking frac_images_repeated gives N < k', () => {
+        const cfg = validConfig();
+        // t=10, frac_trials_repeated=0.9 → t_distinct=1; r=0.49 → N=round(20/1.49)=13 < k=20.
+        // Same t and r alone (frac_trials_repeated=0) would give t_distinct=10, N=134 — fine.
+        cfg.design.frac_trials_repeated = 0.9;
+        cfg.design.frac_images_repeated = 0.49;
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /gives only \d+ unique images/ },
         );
     });
 });

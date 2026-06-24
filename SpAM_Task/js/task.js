@@ -209,11 +209,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   //    insertCatchTrials uses the same rng instance (continued sequence) so
   //    catch location assignment is also seeded and recorded in trial data.
   // ---------------------------------------------------------------------------
-  const mainTrials = buildTrialLists(imageUrls, config, rng);
-  const allTrials  = insertCatchTrials(mainTrials, catchUrls, config, rng);
+  const { trials: distinctTrials, doubleImages } = buildTrialLists(imageUrls, config, rng);
+  const mainTrials = insertTrialRepeats(distinctTrials, doubleImages, config, rng);
+  const allTrials   = insertCatchTrials(mainTrials, catchUrls, config, rng);
+
+  // Maps each main trial's trialId to its final position in allTrials, so a
+  // repeat's repeatOfTrialId can be resolved to the original's saved trial_index.
+  const trialIdToIndex = {};
+  allTrials.forEach((trial, idx) => {
+    if (trial.type === 'main') trialIdToIndex[trial.trialId] = idx;
+  });
 
   if (mode === 'debug') {
-    console.log('[SpAM] Trial sequence:', allTrials.map((t, i) => i + ':' + t.type));
+    console.log('[SpAM] Trial sequence:', allTrials.map((t, i) => i + ':' + t.type + (t.isRepeat ? ' (repeat)' : '')));
   }
 
   // ---------------------------------------------------------------------------
@@ -563,6 +571,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           ? 'catch_' + (++catchCount)
           : 'trial_' + (++mainCount);
         data.trial_index = idx;
+
+        if (trial.type === 'main') {
+          data.is_trial_repeat     = !!trial.isRepeat;
+          data.repeat_of_trial_index = trial.isRepeat ? trialIdToIndex[trial.repeatOfTrialId] : null;
+        }
 
         if (trial.type === 'catch') {
           // Catch-trial QC: cluster tightness + centroid proximity to target.
