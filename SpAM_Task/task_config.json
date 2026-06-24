@@ -6,10 +6,12 @@
   },
 
   "design": {
-    "trials_per_subject":        10,
-    "images_per_trial":          20,
-    "frac_images_repeated":   0.333,
-    "practice_images_per_trial": 8
+    "trials_per_subject":          10,
+    "images_per_trial":            20,
+    "frac_images_repeated":     0.333,
+    "frac_trials_repeated":         0,
+    "min_trial_repeat_separation":  2,
+    "practice_images_per_trial":    8
   },
 
   "catch_trials": {
@@ -43,7 +45,7 @@
   },
 
   "deployment": {
-    "version": "2.3",
+    "version": "2.4",
     "mode": "pilot",
     "debug_shine_variant": "pre",
     "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=C12AB9X4",

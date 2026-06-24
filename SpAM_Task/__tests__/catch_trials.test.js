@@ -71,7 +71,7 @@ describe('buildCatchTrial', () => {
 // ── insertCatchTrials ─────────────────────────────────────────────────────────
 describe('insertCatchTrials', () => {
     const ALL_IMAGES = Array.from({ length: 754 }, (_, i) => `img_${i}.png`);
-    const freshMains = () => buildTrialLists(ALL_IMAGES, CONFIG, makeRng());
+    const freshMains = () => buildTrialLists(ALL_IMAGES, CONFIG, makeRng()).trials;
 
     it('combined length is numMain + numCatch', () => {
         const result = insertCatchTrials(freshMains(), CATCH_POOL, CONFIG, makeRng());
