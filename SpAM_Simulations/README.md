@@ -23,7 +23,8 @@ under different sampling/noise regimes.
 | `evaluation.ipynb` | Plotting / analysis notebook for the task-v0.1 simulation. |
 | `evaluation_task_v2_3.ipynb` | Plotting / analysis notebook for the task-v2.3 simulation. |
 | `evaluate_simulation.ipynb` | Read-only overview/drill-down figures for an already-completed run (task-v0.1 or task-v2.3), via `eval_helpers.py`. |
-| `prepare_machine.sh`, `run_task_v0_1_sim.sh`, `run_task_v2_3_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
+| `ec2/prepare_machine.sh`, `ec2/run_task_v0_1_sim.sh`, `ec2/run_task_v2_3_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
+| `sim_results/<run-name>/` | Local copy of a completed run's small files (`out/*.csv`, `mds_store/meta.csv`) downloaded from S3, e.g. `sim_results/task-v2.3/` - gitignored, consumed by `eval_helpers.py`/`evaluate_simulation.ipynb`. |
 
 ## Quick start
 
@@ -81,11 +82,11 @@ still isn't found, set `R_HOME` explicitly.
 
 ## Running on EC2
 
-Three shell scripts handle the full-scale sweeps remotely:
-- `prepare_machine.sh` - shared provisioning (system packages, R 4.5 + `smacof`, awscli v2,
+Three shell scripts, under `ec2/`, handle the full-scale sweeps remotely:
+- `ec2/prepare_machine.sh` - shared provisioning (system packages, R 4.5 + `smacof`, awscli v2,
   sparse-checkout clone of `SpAM_Simulations/`, Python venv). Sourced, not run directly.
-- `run_task_v0_1_sim.sh` - runs the task-v0.1 (original) simulation's full-study sweep.
-- `run_task_v2_3_sim.sh` - runs the task-v2.3 (per-subject trial design) simulation's
+- `ec2/run_task_v0_1_sim.sh` - runs the task-v0.1 (original) simulation's full-study sweep.
+- `ec2/run_task_v2_3_sim.sh` - runs the task-v2.3 (per-subject trial design) simulation's
   full-study sweep (actually fewer total MDS fits than the task-v0.1 sweep - same instance
   type is fine for both).
 
@@ -115,7 +116,7 @@ aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port
 no need to know Canonical's account ID, and no relying on AMI *naming* conventions - just the
 documented "current AMI" pointer Canonical/AWS maintain for this purpose):
 ```powershell
-$UBUNTU_VERSION = "24.04"     # or "22.04" - matches prepare_machine.sh's own codename fallback (noble)
+$UBUNTU_VERSION = "24.04"     # or "22.04" - matches ec2/prepare_machine.sh's own codename fallback (noble)
 $AMI_ID = aws ssm get-parameters `
   --names "/aws/service/canonical/ubuntu/server/$UBUNTU_VERSION/stable/current/amd64/hvm/ebs-gp3/ami-id" `
   --query "Parameters[0].Value" --output text
@@ -151,9 +152,9 @@ fails with a JSON parse error. Shorthand syntax has no `"` characters to mangle.
 ```powershell
 cd C:\Users\nirjo\Documents\University\PhD\Projects\hierarchical_image_database
 scp -i $KEY_PATH `
-  SpAM_Simulations\prepare_machine.sh `
-  SpAM_Simulations\run_task_v0_1_sim.sh `
-  SpAM_Simulations\run_task_v2_3_sim.sh `
+  SpAM_Simulations\ec2\prepare_machine.sh `
+  SpAM_Simulations\ec2\run_task_v0_1_sim.sh `
+  SpAM_Simulations\ec2\run_task_v2_3_sim.sh `
   ubuntu@${IP}:~
 ```
 
