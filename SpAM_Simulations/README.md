@@ -227,3 +227,12 @@ aws ec2 describe-instances --instance-ids $INSTANCE_ID --query "Reservations[0].
 
 R-dependent tests (`test_pipeline_mds.py`) auto-skip if the R bridge can't be imported; the
 rest run anywhere. With R configured the full suite is 130 tests.
+
+## Tags
+
+Named snapshots of the repo at notable `SpAM_Simulations` milestones:
+
+| Tag | Commit | Date | Marks |
+|---|---|---|---|
+| `spam-sim-pre-refactor` | `73a9b14` | 2026-06-18 | Last commit before the bit-exact vectorization + reusable pipeline/storage refactor (condensed-form simulation, ~9x speed-up; `ResultStore`; parallel MDS sweep; EC2 provisioning scripts). |
+| `sim-v2.3` | `457fa5f` | 2026-06-24 | `evaluate_simulation.ipynb` display/correctness polish (rounded lever values, float-safe `filter_to_config`, tiered subplot grid via `_grid_dims`) plus the `ec2/`/`sim_results/` directory reorg. |
