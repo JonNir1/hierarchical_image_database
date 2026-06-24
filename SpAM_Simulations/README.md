@@ -9,21 +9,23 @@ under different sampling/noise regimes.
 | Module | Responsibility |
 |---|---|
 | `experiment.py` | Core simulation: `simulate_experiment` / `simulate_single_subject` (vectorized, condensed form). |
-| `design.py` | Per-subject trial allocation (`compute_design_counts`, `build_trial_lists`) for the task-v2.3 simulation, ported from `SpAM_Task`'s `buildTrialLists`. |
+| `design.py` | Per-subject trial allocation (`compute_design_counts`, `build_trial_lists`) for the task-v2.3 simulation, plus `distinct_trial_count`/`select_repeat_trials` for task-v2.4's whole-trial repeats, ported from `SpAM_Task`'s `buildTrialLists`/`insertTrialRepeats`. |
 | `task_v2_3_experiment.py` | Task-v2.3 simulation: per-subject image subset + trial design (matches `SpAM_Task`), plus the within-subject SNR heuristic. |
+| `task_v2_4_experiment.py` | Task-v2.4 simulation: task-v2.3 design **plus** `frac_trials_repeated` whole-trial repeats (each repeat re-draws its noisy distances), yielding a per-subject test-retest reliability. Bit-exact to task-v2.3 when `frac_trials_repeated=0`. |
 | `simulation.py` | `Simulation` container + ground-truth distances; `make` (random) / `from_embeddings` (real data). |
-| `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`. |
+| `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`, `test_retest_summary`. |
 | `helpers.py` | Distance-matrix format conversion (`convert_to_condensed`). |
 | `multi_dimensional_scaling.py` | `run_mds` - weighted SMACOF via R's `smacof` (needs R + rpy2). |
-| `config.py` | `SimulationConfig`, `TaskV2_3SimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
-| `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability) for both simulation types. |
+| `config.py` | `SimulationConfig`, `TaskV2_3SimulationConfig`, `TaskV2_4SimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
+| `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability) for all simulation types. |
 | `storage.py` | `ResultStore` - compact, streamable, resumable on-disk store for sweep results. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
 | `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb` - no simulation, no MDS, no R. |
 | `evaluation.ipynb` | Plotting / analysis notebook for the task-v0.1 simulation. |
 | `evaluation_task_v2_3.ipynb` | Plotting / analysis notebook for the task-v2.3 simulation. |
-| `evaluate_simulation.ipynb` | Read-only overview/drill-down figures for an already-completed run (task-v0.1 or task-v2.3), via `eval_helpers.py`. |
-| `ec2/prepare_machine.sh`, `ec2/run_task_v0_1_sim.sh`, `ec2/run_task_v2_3_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
+| `evaluation_task_v2_4.ipynb` | Plotting / analysis notebook for the task-v2.4 simulation (adds the test-retest reliability panel). |
+| `evaluate_simulation.ipynb` | Read-only overview/drill-down figures for an already-completed run (task-v0.1/v2.3/v2.4), via `eval_helpers.py`. |
+| `ec2/prepare_machine.sh`, `ec2/run_task_v0_1_sim.sh`, `ec2/run_task_v2_3_sim.sh`, `ec2/run_task_v2_4_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
 | `sim_results/<run-name>/` | Local copy of a completed run's small files (`out/*.csv`, `mds_store/meta.csv`) downloaded from S3, e.g. `sim_results/task-v2.3/` - gitignored, consumed by `eval_helpers.py`/`evaluate_simulation.ipynb`. |
 
 ## Quick start
@@ -82,16 +84,24 @@ still isn't found, set `R_HOME` explicitly.
 
 ## Running on EC2
 
-Three shell scripts, under `ec2/`, handle the full-scale sweeps remotely:
+Four shell scripts, under `ec2/`, handle the full-scale sweeps remotely:
 - `ec2/prepare_machine.sh` - shared provisioning (system packages, R 4.5 + `smacof`, awscli v2,
   sparse-checkout clone of `SpAM_Simulations/`, Python venv). Sourced, not run directly.
 - `ec2/run_task_v0_1_sim.sh` - runs the task-v0.1 (original) simulation's full-study sweep.
 - `ec2/run_task_v2_3_sim.sh` - runs the task-v2.3 (per-subject trial design) simulation's
   full-study sweep (actually fewer total MDS fits than the task-v0.1 sweep - same instance
   type is fine for both).
+- `ec2/run_task_v2_4_sim.sh` - runs the task-v2.4 simulation's full-study sweep (task-v2.3
+  design plus the `frac_trials_repeated` whole-trial-repeat lever / test-retest reliability).
+  Its grid fixes `frac_images_repeated=0.0` and sweeps `frac_trials_repeated`, because the two
+  levers compete for the same trials: a repeat may only duplicate a singles-only trial, so at
+  `k=20` any `frac_images_repeated>0` saturates every trial with doubled images and leaves none
+  to repeat (matching the deployed `task_config.json`). The doubled-image SNR is characterised
+  by the task-v2.3 sweep instead.
 
-Both entrypoints `source` `prepare_machine.sh` by relative path, so copy all three files
-together onto the instance (don't just transfer the one entrypoint you want to run).
+All entrypoints `source` `prepare_machine.sh` by relative path, so copy `prepare_machine.sh`
+together with whichever entrypoint(s) you want onto the instance (don't transfer an entrypoint
+alone).
 
 ### Cookbook: allocate -> run -> verify -> terminate
 
@@ -155,6 +165,7 @@ scp -i $KEY_PATH `
   SpAM_Simulations\ec2\prepare_machine.sh `
   SpAM_Simulations\ec2\run_task_v0_1_sim.sh `
   SpAM_Simulations\ec2\run_task_v2_3_sim.sh `
+  SpAM_Simulations\ec2\run_task_v2_4_sim.sh `
   ubuntu@${IP}:~
 ```
 
@@ -167,7 +178,7 @@ ssh -i $KEY_PATH ubuntu@$IP
 ```bash
 export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
 export GIT_REF=main
-export S3_URI=s3://jon-nir/spam-simulations/task-v0.1   # or .../task-v2.3, matching the script you run in step (6)
+export S3_URI=s3://jon-nir/spam-simulations/task-v0.1   # or .../task-v2.3, .../task-v2.4, matching the script you run in step (6)
 # WORKDIR, N_JOBS, R_LIBS_USER all have sane defaults (see each script's header) - override only if needed
 ```
 
@@ -176,6 +187,7 @@ export S3_URI=s3://jon-nir/spam-simulations/task-v0.1   # or .../task-v2.3, matc
 tmux new -s spam
 bash run_task_v0_1_sim.sh 2>&1 | tee run.log
 # or: bash run_task_v2_3_sim.sh 2>&1 | tee run.log
+# or: bash run_task_v2_4_sim.sh 2>&1 | tee run.log
 ```
 
 **(7) Detach / re-attach** (safe to close the SSH session after detaching - the script keeps

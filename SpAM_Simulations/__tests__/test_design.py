@@ -9,7 +9,9 @@ from collections import Counter
 import numpy as np
 import pytest
 
-from SpAM_Simulations.design import build_trial_lists, compute_design_counts
+from SpAM_Simulations.design import (
+    build_trial_lists, compute_design_counts, distinct_trial_count, select_repeat_trials
+)
 
 
 @pytest.fixture
@@ -105,3 +107,74 @@ class TestBuildTrialLists:
         for trial in trials:
             counts.update(trial.tolist())
         assert all(c == 1 for c in counts.values())
+
+
+class TestDistinctTrialCount:
+    @pytest.mark.parametrize("t, fr, expected", [
+        (20, 0.0, 20),   # no repeats
+        (20, 0.1, 18),   # round(2.0) = 2 repeats
+        (10, 0.25, 8),   # round(2.5) = 2 (banker's rounding) -> 8 distinct
+        (12, 0.25, 9),   # round(3.0) = 3 repeats
+    ])
+    def test_matches_formula(self, t, fr, expected):
+        assert distinct_trial_count(t, fr) == expected
+
+    @pytest.mark.parametrize("fr", [-0.1, 1.0, 1.5])
+    def test_rejects_fr_out_of_range(self, fr):
+        with pytest.raises(AssertionError):
+            distinct_trial_count(10, fr)
+
+
+class TestSelectRepeatTrials:
+    def _singles_only_design(self, seed=3):
+        # r=0 -> every image appears once -> all trials are singles-only candidates.
+        t, k, r = 6, 5, 0.0
+        n_unique, n_double = compute_design_counts(t, k, r)
+        rng = np.random.default_rng(seed)
+        active = rng.choice(100, size=n_unique, replace=False)
+        return build_trial_lists(active, t, k, n_double, rng), rng
+
+    def test_returns_n_repeats_distinct_indices(self):
+        trials, rng = self._singles_only_design()
+        chosen = select_repeat_trials(trials, 3, rng)
+        assert len(chosen) == 3
+        assert len(set(chosen)) == 3
+        assert all(0 <= i < len(trials) for i in chosen)
+
+    def test_zero_repeats_consumes_no_rng(self):
+        # Early return on n_repeats == 0 must not advance the RNG (bit-exactness with v2.3).
+        trials, _ = self._singles_only_design()
+        rng = np.random.default_rng(123)
+        before = rng.bit_generator.state
+        assert select_repeat_trials(trials, 0, rng) == []
+        assert rng.bit_generator.state == before
+
+    def test_only_singles_only_trials_are_candidates(self):
+        # r=1/3 -> doubled images saturate the trials; with k small there may be few or no
+        # singles-only trials, and a repeat must never duplicate a trial holding a doubled image.
+        t, k, r = 4, 6, 1 / 3
+        n_unique, n_double = compute_design_counts(t, k, r)
+        rng = np.random.default_rng(5)
+        active = rng.choice(100, size=n_unique, replace=False)
+        trials = build_trial_lists(active, t, k, n_double, rng)
+        counts = Counter(int(i) for tr in trials for i in tr.tolist())
+        singles_only = {j for j, tr in enumerate(trials)
+                        if all(counts[int(i)] == 1 for i in tr.tolist())}
+        n_avail = len(singles_only)
+        if n_avail == 0:
+            with pytest.raises(RuntimeError):
+                select_repeat_trials(trials, 1, rng)
+        else:
+            chosen = select_repeat_trials(trials, n_avail, rng)
+            assert set(chosen) <= singles_only
+
+    def test_raises_when_too_few_singles_only_trials(self):
+        trials, rng = self._singles_only_design()
+        with pytest.raises(RuntimeError):
+            select_repeat_trials(trials, len(trials) + 1, rng)
+
+    def test_deterministic_with_same_seed(self):
+        trials, _ = self._singles_only_design(seed=9)
+        a = select_repeat_trials(trials, 2, np.random.default_rng(42))
+        b = select_repeat_trials(trials, 2, np.random.default_rng(42))
+        assert a == b
