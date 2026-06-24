@@ -6,16 +6,16 @@
   },
 
   "design": {
-    "trials_per_subject":          10,
-    "images_per_trial":            20,
-    "frac_images_repeated":     0.333,
-    "frac_trials_repeated":         0,
+    "trials_per_subject":           20,
+    "images_per_trial":             20,
+    "frac_images_repeated":         0.0,
+    "frac_trials_repeated":         0.1,
     "min_trial_repeat_separation":  2,
     "practice_images_per_trial":    8
   },
 
   "catch_trials": {
-    "num_trials":         2,
+    "num_trials":         4,
     "images_per_trial":   10,
     "cluster_max_mean":   0.15,
     "cluster_max_sd":     0.10,
