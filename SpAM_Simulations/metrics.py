@@ -65,6 +65,24 @@ def snr_summary(exp_results) -> dict:
     }
 
 
+def test_retest_summary(exp_results) -> dict:
+    """Summary stats of a task-v2.4 experiment's per-subject test-retest reliability.
+
+    `subject_test_retest` holds each subject's mean Spearman correlation between the original
+    and repeat presentations of their repeated trials (the `frac_trials_repeated` lever).
+    `frac_nan_test_retest` surfaces subjects with no repeated trials (reliability undefined for
+    them, see `task_v2_4_experiment._compute...`); mean/median are over the remaining values.
+    :param exp_results: a `TaskV2_4ExperimentResults` (has a `subject_test_retest` field)
+    """
+    rel = np.asarray(exp_results.subject_test_retest, dtype=np.float64)
+    valid = rel[~np.isnan(rel)]
+    return {
+        "mean_test_retest": float(np.mean(valid)) if valid.size else np.nan,
+        "median_test_retest": float(np.median(valid)) if valid.size else np.nan,
+        "frac_nan_test_retest": float(np.mean(np.isnan(rel))),
+    }
+
+
 def spearman_correlation(exp1: ExperimentResults, exp2: ExperimentResults) -> float:
     """
     Calculates the Spearman rank correlation between the mean distances of two experiments.

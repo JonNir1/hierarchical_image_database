@@ -15,6 +15,7 @@ import numpy as np
 
 from SpAM_Simulations.experiment import ExperimentParameters
 from SpAM_Simulations.task_v2_3_experiment import TaskV2_3ExperimentParameters
+from SpAM_Simulations.task_v2_4_experiment import TaskV2_4ExperimentParameters
 
 
 @dataclass
@@ -101,6 +102,40 @@ class TaskV2_3SimulationConfig(SimulationConfig):
                 self.subjects_noise_scale,
                 self.subjects_noise_df,
                 self.frac_images_repeated,
+            )
+        ]
+
+
+@dataclass
+class TaskV2_4SimulationConfig(TaskV2_3SimulationConfig):
+    """``TaskV2_3SimulationConfig`` extended with the real task's whole-trial-repeat lever.
+
+    Adds ``frac_trials_repeated`` - the fraction of each subject's ``trials_per_subject`` slots
+    shown again verbatim (test-retest reliability), swept like the other grids. Inherits
+    ``frac_images_repeated``, the GT-source fields, and all validation from
+    ``TaskV2_3SimulationConfig``.
+    """
+    frac_trials_repeated: Sequence[float] = field(default_factory=tuple)
+
+    def __post_init__(self):
+        super().__post_init__()
+        if len(self.frac_trials_repeated) == 0:
+            raise ValueError("parameter grid(s) must be non-empty: ['frac_trials_repeated']")
+        bad = [fr for fr in self.frac_trials_repeated if not (0 <= fr < 1)]
+        if bad:
+            raise ValueError(f"`frac_trials_repeated` values must be in [0, 1), got {bad}")
+
+    def param_grid(self) -> List[TaskV2_4ExperimentParameters]:
+        return [
+            TaskV2_4ExperimentParameters(*p)
+            for p in product(
+                self.num_subjects,
+                self.trials_per_subject,
+                self.images_per_trial,
+                self.subjects_noise_scale,
+                self.subjects_noise_df,
+                self.frac_images_repeated,
+                self.frac_trials_repeated,
             )
         ]
 

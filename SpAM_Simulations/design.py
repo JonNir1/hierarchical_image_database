@@ -9,9 +9,56 @@ goes into which trial.
 """
 from __future__ import annotations
 
+from collections import Counter
 from typing import List, Tuple
 
 import numpy as np
+
+
+def distinct_trial_count(t: int, fr: float) -> int:
+    """Number of genuinely distinct trials, after setting aside `frac_trials_repeated` slots.
+
+    Mirrors ``trial_generator.js``'s ``_distinctTrialCount``:
+    ``t_distinct = t - round(fr * t)``. The remaining ``round(fr * t)`` slots hold verbatim
+    repeats of earlier trials (see :func:`select_repeat_trials`), so ``t_distinct`` (not ``t``)
+    drives :func:`compute_design_counts` for the task-v2.4 simulation.
+    """
+    assert t > 0, f"`t` (trials_per_subject) must be positive (got {t})"
+    assert 0 <= fr < 1, f"`fr` (frac_trials_repeated) must be in [0, 1) (got {fr})"
+    return t - round(fr * t)
+
+
+def select_repeat_trials(trials: List[np.ndarray], n_repeats: int, rng: np.random.Generator) -> List[int]:
+    """Pick `n_repeats` distinct-trial indices to repeat verbatim, drawn from singles-only trials.
+
+    Simplified port of ``trial_generator.js``'s ``insertTrialRepeats``: repeats may only
+    duplicate a "singles-only" trial (one containing no image that appears in a second trial),
+    so no image ends up in more than 2 trials via the combination of the ``frac_images_repeated``
+    (doubled-image) and ``frac_trials_repeated`` (whole-trial) mechanisms. Trial *ordering* and
+    ``min_trial_repeat_separation`` are dropped: the slot a repeat lands in is numerically inert
+    here (per-trial noise is i.i.d.), so only *which* trials repeat matters.
+
+    A trial is singles-only iff every one of its images has a global occurrence count of 1
+    across `trials` (doubled images appear in exactly 2 trials, so any trial containing one is
+    excluded). Selection is via `rng` for reproducibility.
+
+    :raises RuntimeError: if fewer than `n_repeats` singles-only trials exist (mirrors the JS
+        feasibility error; lower frac_trials_repeated or frac_images_repeated).
+    """
+    assert n_repeats >= 0, f"`n_repeats` must be non-negative (got {n_repeats})"
+    if n_repeats == 0:
+        return []
+    img_counts = Counter(int(img) for trial in trials for img in trial.tolist())
+    candidates = [i for i, trial in enumerate(trials)
+                  if all(img_counts[int(img)] == 1 for img in trial.tolist())]
+    if len(candidates) < n_repeats:
+        raise RuntimeError(
+            f"select_repeat_trials: only {len(candidates)} singles-only trial(s) available, "
+            f"need {n_repeats} for the configured frac_trials_repeated. Lower "
+            "frac_trials_repeated or frac_images_repeated."
+        )
+    chosen = rng.permutation(np.asarray(candidates))[:n_repeats]
+    return [int(i) for i in chosen]
 
 
 def compute_design_counts(t: int, k: int, r: float) -> Tuple[int, int]:
