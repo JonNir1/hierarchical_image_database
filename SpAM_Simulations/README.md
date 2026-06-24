@@ -225,4 +225,4 @@ aws ec2 describe-instances --instance-ids $INSTANCE_ID --query "Reservations[0].
 ```
 
 R-dependent tests (`test_pipeline_mds.py`) auto-skip if the R bridge can't be imported; the
-rest run anywhere. With R configured the full suite is 55 tests.
+rest run anywhere. With R configured the full suite is 130 tests.
