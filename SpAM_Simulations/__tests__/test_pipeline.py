@@ -3,9 +3,18 @@ import numpy as np
 import pytest
 
 from SpAM_Simulations.config import (
-    SimulationConfig, TaskV2_3SimulationConfig, TaskV2_4SimulationConfig
+    SimulationConfig, TaskV2_3SimulationConfig, TaskV2_4SimulationConfig, TaskV3SimulationConfig
 )
 from SpAM_Simulations import pipeline
+
+
+def _task_v3_config(**over):
+    base = dict(n_images=120, n_dims=4, num_subjects=[15], trials_per_subject=[8],
+                images_per_trial=[6], subjects_noise_scale=[0.0, 0.5], subjects_noise_df=[1],
+                frac_trials_repeated=[0.0, 0.25], perspective_dispersion=[0.0, 0.3],
+                use_isotropic=True, reps=3, seed=7)
+    base.update(over)
+    return TaskV3SimulationConfig(**base)
 
 
 def _config(**over):
@@ -243,3 +252,68 @@ def test_task_v2_4_run_mds_sweep_store_roundtrips_seven_field_params(tmp_path, m
     # resuming finds every task already complete (the 7-field key roundtrips through the store)
     store2 = pipeline.run_mds_sweep(sim, sweep, tmp_path / "s", verbose=False)
     assert len(store2) == n_tasks
+
+
+# --------------------------------------------------------------------- task-v3 simulation
+def test_generate_task_v3_simulation_reproducible():
+    a = pipeline.generate_task_v3_simulation(_task_v3_config(), verbose=False)
+    b = pipeline.generate_task_v3_simulation(_task_v3_config(), verbose=False)
+    for params in a._results:
+        for ra, rb in zip(a._results[params], b._results[params]):
+            np.testing.assert_array_equal(np.nan_to_num(ra.distances), np.nan_to_num(rb.distances))
+            np.testing.assert_array_equal(ra.num_obs, rb.num_obs)
+            np.testing.assert_array_equal(ra.subject_test_retest, rb.subject_test_retest)
+
+
+def test_generate_task_v3_simulation_grid_and_reps():
+    cfg = _task_v3_config()
+    sim = pipeline.generate_task_v3_simulation(cfg, verbose=False)
+    assert len(sim._results) == len(cfg.param_grid())  # 2*2 = 4 configurations
+    assert all(len(v) == cfg.reps for v in sim._results.values())
+
+
+def test_task_v3_coverage_table_has_test_retest_not_snr():
+    cfg = _task_v3_config()
+    sim = pipeline.generate_task_v3_simulation(cfg, verbose=False)
+    df = pipeline.compute_coverage_table(sim)
+    assert len(df) == len(cfg.param_grid()) * cfg.reps
+    for col in ["num_subjects", "perspective_dispersion", "pair_coverage",
+                "mean_test_retest", "frac_nan_test_retest"]:
+        assert col in df.columns
+    assert "mean_snr" not in df.columns  # v3 drops the doubled-image SNR diagnostic
+    # frac_trials_repeated == 0 -> no repeats -> reliability undefined for every subject
+    no_repeat = df[df["frac_trials_repeated"] == 0.0]
+    assert (no_repeat["frac_nan_test_retest"] == 1.0).all()
+
+
+def test_task_v3_config_rejects_supplied_embeddings():
+    with pytest.raises(ValueError, match="synthetic ground truth"):
+        TaskV3SimulationConfig(
+            gt_embeddings=np.zeros((10, 3)), num_subjects=[5], trials_per_subject=[4],
+            images_per_trial=[4], subjects_noise_scale=[0.5], subjects_noise_df=[1],
+            frac_trials_repeated=[0.0], perspective_dispersion=[0.0],
+        )
+
+
+def test_task_v3_run_mds_sweep_store_roundtrips_seven_field_params(tmp_path, monkeypatch):
+    """The store derives its metadata columns from the params type, so it must handle the v3
+    tuple's perspective_dispersion field (and not the dropped frac_images_repeated)."""
+    from SpAM_Simulations.config import MDSSweepConfig
+    cfg = _task_v3_config(n_images=60, n_dims=3, num_subjects=[10], trials_per_subject=[8],
+                          images_per_trial=[6], subjects_noise_scale=[0.5], subjects_noise_df=[1],
+                          frac_trials_repeated=[0.0, 0.25], perspective_dispersion=[0.3], reps=2, seed=1)
+    sim = pipeline.generate_task_v3_simulation(cfg, verbose=False)
+    sweep = MDSSweepConfig(ndims=[2, 3])
+    L = sim.num_images * (sim.num_images - 1) // 2
+    n_tasks = 2 * 2 * 2  # 2 configs * 2 reps * 2 dims
+
+    def fake_exec(payload):
+        meta = {**payload[0], "niter": 1.0, "stress": 0.0, "status": "success"}
+        return meta, np.zeros(L, np.float32)
+
+    monkeypatch.setattr(pipeline, "_execute_mds_payload", fake_exec)
+
+    store = pipeline.run_mds_sweep(sim, sweep, tmp_path / "s", verbose=False)
+    assert len(store) == n_tasks
+    cols = store.metadata().columns
+    assert "perspective_dispersion" in cols and "frac_images_repeated" not in cols

@@ -104,3 +104,40 @@ def _calculate_mean_distances(exp_results: ExperimentResults) -> np.ndarray:
     dists = convert_to_condensed(exp_results.distances)
     n_obs = convert_to_condensed(exp_results.num_obs)
     return mean_from_sum_and_count(dists, n_obs)
+
+
+def classical_mds_eigenvalues(condensed_distances: np.ndarray) -> np.ndarray:
+    """Classical-MDS (PCoA) eigenvalues of a condensed distance vector, descending.
+
+    Double-centres the squared distance matrix and returns the eigenvalues of the resulting
+    Gram matrix - the variance carried by each principal coordinate. Missing pairs (NaN) are
+    mean-imputed first so the matrix is complete; this is a coarse diagnostic, not a fit. Used by
+    :func:`effective_rank` to check that the task-v3 aggregate spans more than the 2 dimensions of
+    any single trial's arrangement (otherwise MDS could never recover the full ground-truth space).
+    """
+    d = convert_to_condensed(condensed_distances).astype(np.float64).copy()
+    nan = np.isnan(d)
+    if nan.any():
+        d[nan] = np.nanmean(d)
+    sq = squareform(d) ** 2
+    n = sq.shape[0]
+    centring = np.eye(n) - np.ones((n, n)) / n
+    gram = -0.5 * centring @ sq @ centring
+    return np.sort(np.linalg.eigvalsh(gram))[::-1]
+
+
+def effective_rank(condensed_distances: np.ndarray) -> float:
+    """Effective rank (entropy of the normalised positive eigenvalue spectrum) of a distance set.
+
+    ``exp(-sum p_i log p_i)`` over ``p_i = lambda_i / sum(lambda)`` for the positive classical-MDS
+    eigenvalues. Equals the dimensionality for an isotropic ``k``-cube and collapses toward small
+    values for a low-rank (e.g. rank-2) configuration - so a task-v3 aggregate whose effective rank
+    rises toward the ground-truth ``D`` as subjects accumulate is direct evidence the per-trial 2-D
+    slices are tiling the full space (plan verification #4).
+    """
+    eig = classical_mds_eigenvalues(condensed_distances)
+    pos = eig[eig > 0]
+    if pos.size == 0:
+        return 0.0
+    p = pos / pos.sum()
+    return float(np.exp(-np.sum(p * np.log(p))))

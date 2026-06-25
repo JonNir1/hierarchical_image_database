@@ -74,3 +74,30 @@ def test_spearman_raises_on_insufficient_overlap():
     e = _results(obs, np.zeros(L, dtype=np.float32))
     with pytest.raises(ValueError):
         metrics.spearman_correlation(e, e)
+
+
+# --------------------------------------------------------------------- effective_rank
+def test_effective_rank_recovers_cube_dimensionality():
+    """An isotropic D-cube of points has effective rank ~ D (each axis carries equal variance)."""
+    from scipy.spatial.distance import pdist
+    rng = np.random.default_rng(0)
+    for D in (2, 4, 6):
+        pts = rng.normal(size=(300, D))
+        er = metrics.effective_rank(pdist(pts))
+        assert abs(er - D) < 0.6, f"D={D} -> effective_rank={er}"
+
+
+def test_effective_rank_low_for_rank_two_configuration():
+    """Points confined to a 2-D plane (embedded in 6-D) have effective rank ~ 2, well below 6."""
+    from scipy.spatial.distance import pdist
+    rng = np.random.default_rng(1)
+    flat = np.zeros((200, 6))
+    flat[:, :2] = rng.normal(size=(200, 2))
+    assert metrics.effective_rank(pdist(flat)) < 2.5
+
+
+def test_effective_rank_handles_missing_pairs():
+    from scipy.spatial.distance import pdist
+    d = pdist(np.random.default_rng(2).normal(size=(40, 4)))
+    d[::7] = np.nan  # scatter some unobserved pairs
+    assert metrics.effective_rank(d) > 1.0  # mean-imputes, still returns a finite rank
