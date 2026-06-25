@@ -238,7 +238,7 @@ def test_convergence_bar_figure_includes_error_status(tiny_run_task_v0_1):
 
 
 def test_convergence_bar_figure_x_is_ndim_facet_is_num_subjects(tiny_run_task_v0_1):
-    """Matches evaluation.ipynb's original convergence plot: x=ndim (categorical), one
+    """Matches evaluation_v0_1.ipynb's original convergence plot: x=ndim (categorical), one
     subplot per num_subjects value."""
     run = eh.load_run(tiny_run_task_v0_1)
     fig = eh.convergence_bar_figure(run.mds_meta)

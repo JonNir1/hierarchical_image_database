@@ -321,7 +321,7 @@ def convergence_bar_figure(
         title: str = "Convergence Status by Dimension",
 ) -> go.Figure:
     """x=ndim (categorical), bars stacked by status (success/max_iters/disconnected/error),
-    one subplot per `num_subjects` value (matching `evaluation.ipynb`'s original convergence
+    one subplot per `num_subjects` value (matching `evaluation_v0_1.ipynb`'s original convergence
     plot), laid out via `_grid_dims` rather than one ever-widening row. `mds_meta` is assumed
     already filtered to one fixed secondary-lever configuration (still varies over
     `num_subjects`/`ndim`/`rep`).

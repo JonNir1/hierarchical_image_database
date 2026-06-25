@@ -9,7 +9,7 @@ reliability, run the (resumable, optionally parallel) MDS sweep into a compact o
 ResultStore, then compute post-MDS embedding stability. The MDS sweep needs R + smacof;
 everything up to it runs without R.
 
-The heavy ``evaluation.ipynb`` keeps only plotting - it can call these same functions in
+The heavy ``evaluation_v0_1.ipynb`` keeps only plotting - it can call these same functions in
 place of its compute cells.
 """
 from __future__ import annotations

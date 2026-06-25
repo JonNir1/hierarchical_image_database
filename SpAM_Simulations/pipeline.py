@@ -1,6 +1,6 @@
 """Reusable orchestration for SpAM simulations and MDS sweeps.
 
-This module lifts the heavy compute logic out of ``evaluation.ipynb`` so a new study can be
+This module lifts the heavy compute logic out of ``evaluation_v0_1.ipynb`` so a new study can be
 run from a config instead of by editing notebook cells. The notebook keeps only the plotting.
 
 Functions:
