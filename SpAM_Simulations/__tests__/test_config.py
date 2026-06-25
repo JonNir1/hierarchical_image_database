@@ -2,8 +2,11 @@
 import numpy as np
 import pytest
 
-from SpAM_Simulations.config import SimulationConfig, TaskV2_3SimulationConfig, MDSSweepConfig
+from SpAM_Simulations.config import (
+    SimulationConfig, TaskV2_3SimulationConfig, TaskV2_4SimulationConfig, MDSSweepConfig
+)
 from SpAM_Simulations.task_v2_3_experiment import TaskV2_3ExperimentParameters
+from SpAM_Simulations.task_v2_4_experiment import TaskV2_4ExperimentParameters
 
 
 def _base_grids(**over):
@@ -89,3 +92,51 @@ def test_task_v2_3_config_param_grid():
     assert len(grid) == 8
     assert all(isinstance(p, TaskV2_3ExperimentParameters) for p in grid)
     assert {p.frac_images_repeated for p in grid} == {0.0, 1 / 3}
+
+
+def test_task_v2_4_config_is_a_task_v2_3_config():
+    """Dataclass inheritance: inherits the v2.3 levers/validation and the GT-source handling."""
+    cfg = TaskV2_4SimulationConfig(
+        n_images=30, n_dims=4, frac_images_repeated=[0.0],
+        frac_trials_repeated=[0.0, 0.2], **_base_grids()
+    )
+    assert isinstance(cfg, TaskV2_3SimulationConfig)
+    assert isinstance(cfg, SimulationConfig)
+    assert cfg.uses_random_ground_truth
+
+
+def test_task_v2_4_config_rejects_empty_frac_trials_repeated():
+    with pytest.raises(ValueError):
+        TaskV2_4SimulationConfig(
+            n_images=10, n_dims=2, frac_images_repeated=[0.0],
+            frac_trials_repeated=[], **_base_grids()
+        )
+
+
+@pytest.mark.parametrize("bad", [[1.0], [-0.1], [0.0, 1.5]])
+def test_task_v2_4_config_rejects_frac_trials_repeated_out_of_range(bad):
+    with pytest.raises(ValueError):
+        TaskV2_4SimulationConfig(
+            n_images=10, n_dims=2, frac_images_repeated=[0.0],
+            frac_trials_repeated=bad, **_base_grids()
+        )
+
+
+def test_task_v2_4_config_inherits_empty_frac_images_repeated_validation():
+    with pytest.raises(ValueError):
+        TaskV2_4SimulationConfig(
+            n_images=10, n_dims=2, frac_images_repeated=[],
+            frac_trials_repeated=[0.0], **_base_grids()
+        )
+
+
+def test_task_v2_4_config_param_grid():
+    cfg = TaskV2_4SimulationConfig(
+        n_images=30, n_dims=4, frac_images_repeated=[0.0],
+        frac_trials_repeated=[0.0, 0.2], **_base_grids()
+    )
+    grid = cfg.param_grid()
+    # product: 2 (num_subjects) * 1 * 1 * 2 (noise_scale) * 1 * 1 * 2 (frac_trials_repeated) = 8
+    assert len(grid) == 8
+    assert all(isinstance(p, TaskV2_4ExperimentParameters) for p in grid)
+    assert {p.frac_trials_repeated for p in grid} == {0.0, 0.2}

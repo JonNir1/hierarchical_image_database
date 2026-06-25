@@ -34,7 +34,7 @@ R dependency (required for MDS): `smacof` — install in R with `install.package
 Modules use the project root as the package root (no `__init__.py` files), so run scripts from the repo root:
 
 ```bash
-jupyter notebook SpAM_Simulations/evaluation.ipynb
+jupyter notebook SpAM_Simulations/evaluation_v0_1.ipynb
 jupyter notebook visualize_dataset/dataset_visualizations.ipynb
 ```
 

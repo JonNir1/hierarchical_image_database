@@ -19,12 +19,15 @@ import plotly.express.colors as px_colors
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from SpAM_Simulations.task_v2_3_experiment import TaskV2_3ExperimentParameters
+from SpAM_Simulations.task_v2_4_experiment import TaskV2_4ExperimentParameters
 
-# Derived from the NamedTuple (not hardcoded) so it can't drift from experiment.py/
-# task_v2_3_experiment.py: ["num_subjects", "trials_per_subject", "images_per_trial",
-# "subjects_noise_scale", "subjects_noise_df", "frac_images_repeated"]
-LEVER_COLUMNS = list(TaskV2_3ExperimentParameters._fields)
+# Derived from the widest experiment NamedTuple (task-v2.4) so it can't drift from
+# experiment.py/task_v2_*_experiment.py and recognises every lever any run might carry:
+# ["num_subjects", "trials_per_subject", "images_per_trial", "subjects_noise_scale",
+#  "subjects_noise_df", "frac_images_repeated", "frac_trials_repeated"]. Levers absent from a
+# given run's CSVs are filtered out wherever this list is used (via `if col in df.columns`),
+# so a task-v0.1 or task-v2.3 run simply ignores the columns it doesn't have.
+LEVER_COLUMNS = list(TaskV2_4ExperimentParameters._fields)
 
 DEFAULT_STATUS_LABELS = {
     "success": "converged", "max_iters": "max_iters",
@@ -91,7 +94,9 @@ def load_run(run_results_dir: str | Path) -> RunData:
         embedding_stability=frames["embedding_stability"],
         mds_meta=frames["mds_meta"],
         levers=levers,
-        task_version=2.3 if "frac_images_repeated" in levers else 0.1,
+        task_version=(2.4 if "frac_trials_repeated" in levers
+                      else 2.3 if "frac_images_repeated" in levers
+                      else 0.1),
     )
 
 
@@ -321,7 +326,7 @@ def convergence_bar_figure(
         title: str = "Convergence Status by Dimension",
 ) -> go.Figure:
     """x=ndim (categorical), bars stacked by status (success/max_iters/disconnected/error),
-    one subplot per `num_subjects` value (matching `evaluation.ipynb`'s original convergence
+    one subplot per `num_subjects` value (matching `evaluation_v0_1.ipynb`'s original convergence
     plot), laid out via `_grid_dims` rather than one ever-widening row. `mds_meta` is assumed
     already filtered to one fixed secondary-lever configuration (still varies over
     `num_subjects`/`ndim`/`rep`).
@@ -400,5 +405,74 @@ def pre_post_mds_stability_figure(
         title=dict(text=title),
         xaxis=dict(title=dict(text=x)), yaxis=dict(title=dict(text="Spearman R")),
         template="plotly_white", width=700, height=450,
+    )
+    return fig
+
+
+# Repetition levers, widest-first: the order also controls the slice/caption ordering below.
+REPEAT_LEVERS = ["frac_images_repeated", "frac_trials_repeated"]
+
+
+def repeat_lever_slices(df: pd.DataFrame):
+    """Yield ``(caption, sub_df)`` for each distinct combination of the *varying* repetition
+    levers present in `df` (`frac_images_repeated` / `frac_trials_repeated`).
+
+    A run where neither lever varies yields a single ``("", df)`` pair, so a caller can loop
+    uniformly across task-v0.1 (neither present), task-v2.3 (image-repeats vary), and task-v2.4
+    (trial-repeats vary, image-repeats usually fixed at 0) without special-casing - and if both
+    ever vary, it slices by their Cartesian product. This replaces the old
+    ``run.levers.get("frac_images_repeated", [None])`` loop, which silently averaged the MDS
+    panels across `frac_trials_repeated` on a task-v2.4 run.
+    """
+    varying = [c for c in REPEAT_LEVERS if c in df.columns and df[c].nunique() > 1]
+    if not varying:
+        yield "", df
+        return
+    combos = df[varying].drop_duplicates().sort_values(varying)
+    for row in combos.itertuples(index=False):
+        config = dict(zip(varying, row))
+        caption = ", ".join(f"{k}={format_value(v)}" for k, v in config.items())
+        yield caption, filter_to_config(df, config)
+
+
+def test_retest_figure(
+        coverage_df: pd.DataFrame, *, x: str = "subjects_noise_scale",
+        trace_by: str = "frac_trials_repeated",
+        title: str = "Test-Retest Reliability vs. Subject Noise",
+) -> go.Figure:
+    """Single figure: mean per-subject test-retest reliability (`mean_test_retest`, already in
+    `out/coverage.csv` for task-v2.4 runs) against `x`, one trace per `trace_by` value.
+
+    Aggregates `mean_test_retest` (mean +/- SEM) across reps and every lever other than `x`/
+    `trace_by` - an overview view, mirroring the framing of the other overview cells. Rows where
+    the reliability is undefined (the all-NaN `frac_trials_repeated == 0` slice) are dropped, so
+    they simply don't appear.
+
+    :raises ValueError: if `coverage_df` has no `mean_test_retest` column (not a task-v2.4 run).
+    """
+    if "mean_test_retest" not in coverage_df.columns:
+        raise ValueError(
+            "coverage_df has no 'mean_test_retest' column - test-retest reliability is a "
+            "task-v2.4 metric (set RUN_RESULTS_DIR to a task-v2.4 run)."
+        )
+    df = coverage_df.dropna(subset=["mean_test_retest"])
+    trace_vals = sorted(df[trace_by].unique()) if trace_by in df.columns else [None]
+    fig = go.Figure()
+    for i, tv in enumerate(trace_vals):
+        sub = df if tv is None else df[df[trace_by] == tv]
+        agg = (sub.groupby(x)["mean_test_retest"]
+               .agg(mean="mean", sem="sem").reset_index().sort_values(x))
+        name = "all" if tv is None else f"{trace_by}={format_value(tv)}"
+        fig.add_trace(go.Scatter(
+            x=agg[x], y=agg["mean"],
+            error_y=dict(type="data", array=agg["sem"].fillna(0), visible=True),
+            name=name, mode="lines+markers", line=dict(color=_PALETTE[i % len(_PALETTE)]),
+        ))
+    fig.update_layout(
+        title=dict(text=title),
+        xaxis=dict(title=dict(text=x)),
+        yaxis=dict(title=dict(text="mean test-retest Spearman r")),
+        template="plotly_white", width=700, height=450,
+        legend=dict(title=dict(text=trace_by)),
     )
     return fig

@@ -15,6 +15,9 @@ from SpAM_Simulations.experiment import simulate_experiment, ExperimentParameter
 from SpAM_Simulations.task_v2_3_experiment import (
     simulate_task_v2_3_experiment, TaskV2_3ExperimentParameters, TaskV2_3ExperimentResults
 )
+from SpAM_Simulations.task_v2_4_experiment import (
+    simulate_task_v2_4_experiment, TaskV2_4ExperimentParameters, TaskV2_4ExperimentResults
+)
 
 _SimulationResults = Dict[ExperimentParameters, List[ExperimentResults]]
 
@@ -130,6 +133,14 @@ class Simulation:
     ) -> TaskV2_3ExperimentResults:
         """Same as `run_experiment`, but for the task-v2.3 (per-subject trial design) simulation."""
         exp_params, exp_results = simulate_task_v2_3_experiment(params, self.gt_distances, self.rng, verbose)
+        self._results.setdefault(exp_params, []).append(exp_results)
+        return exp_results
+
+    def run_task_v2_4_experiment(
+            self, params: TaskV2_4ExperimentParameters, verbose: bool = True
+    ) -> TaskV2_4ExperimentResults:
+        """Same as `run_experiment`, but for the task-v2.4 simulation (v2.3 + whole-trial repeats)."""
+        exp_params, exp_results = simulate_task_v2_4_experiment(params, self.gt_distances, self.rng, verbose)
         self._results.setdefault(exp_params, []).append(exp_results)
         return exp_results
 

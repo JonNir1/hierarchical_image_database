@@ -1,4 +1,5 @@
 """Tests for eval_helpers.py - pure pandas/plotly, no R, no simulation."""
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -69,6 +70,27 @@ def tiny_run_task_v2_3(tmp_path):
     return _write_run(tmp_path, coverage, stability, embstab, mds_meta)
 
 
+@pytest.fixture
+def tiny_run_task_v2_4(tmp_path):
+    # Deployment-style v2.4 grid: frac_images_repeated fixed at 0.0 (so SNR is undefined),
+    # frac_trials_repeated swept (so test-retest is defined only for its > 0 slice).
+    combos = [
+        dict(num_subjects=n, trials_per_subject=8, images_per_trial=7,
+             subjects_noise_scale=s, subjects_noise_df=1,
+             frac_images_repeated=0.0, frac_trials_repeated=fr)
+        for n in (10, 20) for s in (0.3, 0.6) for fr in (0.0, 0.25)
+    ]
+    coverage, stability, embstab, mds_meta = _build_frames(combos)
+    coverage["mean_snr"] = np.nan
+    coverage["median_snr"] = np.nan
+    coverage["frac_nan_snr"] = 1.0
+    has_repeat = coverage["frac_trials_repeated"] > 0
+    coverage["mean_test_retest"] = np.where(has_repeat, 0.85, np.nan)
+    coverage["median_test_retest"] = coverage["mean_test_retest"]
+    coverage["frac_nan_test_retest"] = np.where(has_repeat, 0.0, 1.0)
+    return _write_run(tmp_path, coverage, stability, embstab, mds_meta)
+
+
 # --------------------------------------------------------------------- load_run
 def test_load_run_resolves_absolute_path_and_detects_task_v0_1(tiny_run_task_v0_1):
     run = eh.load_run(tiny_run_task_v0_1)
@@ -82,6 +104,19 @@ def test_load_run_detects_task_v2_3(tiny_run_task_v2_3):
     run = eh.load_run(tiny_run_task_v2_3)
     assert run.task_version == 2.3
     assert run.levers["frac_images_repeated"] == [0.0, 0.2]
+
+
+def test_load_run_detects_task_v2_4(tiny_run_task_v2_4):
+    run = eh.load_run(tiny_run_task_v2_4)
+    assert run.task_version == 2.4
+    assert run.levers["frac_trials_repeated"] == [0.0, 0.25]
+    assert run.levers["frac_images_repeated"] == [0.0]
+
+
+def test_lever_columns_include_both_repetition_levers():
+    # LEVER_COLUMNS is derived from the widest (task-v2.4) NamedTuple, so both levers are known.
+    assert "frac_images_repeated" in eh.LEVER_COLUMNS
+    assert "frac_trials_repeated" in eh.LEVER_COLUMNS
 
 
 def test_load_run_missing_dir_raises(tmp_path):
@@ -238,7 +273,7 @@ def test_convergence_bar_figure_includes_error_status(tiny_run_task_v0_1):
 
 
 def test_convergence_bar_figure_x_is_ndim_facet_is_num_subjects(tiny_run_task_v0_1):
-    """Matches evaluation.ipynb's original convergence plot: x=ndim (categorical), one
+    """Matches evaluation_v0_1.ipynb's original convergence plot: x=ndim (categorical), one
     subplot per num_subjects value."""
     run = eh.load_run(tiny_run_task_v0_1)
     fig = eh.convergence_bar_figure(run.mds_meta)
@@ -299,3 +334,42 @@ def test_pre_post_mds_stability_figure_traces(tiny_run_task_v0_1):
     assert names[0] == "Pre-MDS"
     assert fig.data[0].line.dash == "dash"
     assert set(names[1:]) == {"ndim=2", "ndim=3"}
+
+
+# --------------------------------------------------------------------- repeat_lever_slices
+def test_repeat_lever_slices_v2_4_splits_by_trial_repeats(tiny_run_task_v2_4):
+    run = eh.load_run(tiny_run_task_v2_4)
+    slices = list(eh.repeat_lever_slices(run.mds_meta))
+    captions = [c for c, _ in slices]
+    assert captions == ["frac_trials_repeated=0", "frac_trials_repeated=0.25"]
+    for _, sub in slices:  # each slice carries exactly one frac_trials_repeated value
+        assert sub["frac_trials_repeated"].nunique() == 1
+
+
+def test_repeat_lever_slices_v2_3_splits_by_image_repeats(tiny_run_task_v2_3):
+    run = eh.load_run(tiny_run_task_v2_3)
+    captions = [c for c, _ in eh.repeat_lever_slices(run.mds_meta)]
+    assert captions == ["frac_images_repeated=0", "frac_images_repeated=0.2"]
+
+
+def test_repeat_lever_slices_v0_1_is_a_single_unlabelled_slice(tiny_run_task_v0_1):
+    run = eh.load_run(tiny_run_task_v0_1)
+    slices = list(eh.repeat_lever_slices(run.mds_meta))
+    assert len(slices) == 1
+    caption, sub = slices[0]
+    assert caption == ""
+    assert len(sub) == len(run.mds_meta)
+
+
+# --------------------------------------------------------------------- test_retest_figure
+def test_test_retest_figure_drops_undefined_slice(tiny_run_task_v2_4):
+    run = eh.load_run(tiny_run_task_v2_4)
+    fig = eh.test_retest_figure(run.coverage)
+    # only the defined frac_trials_repeated=0.25 slice yields a trace; the all-NaN fr=0 slice drops
+    assert [t.name for t in fig.data] == ["frac_trials_repeated=0.25"]
+
+
+def test_test_retest_figure_raises_without_column(tiny_run_task_v2_3):
+    run = eh.load_run(tiny_run_task_v2_3)
+    with pytest.raises(ValueError, match="mean_test_retest"):
+        eh.test_retest_figure(run.coverage)
