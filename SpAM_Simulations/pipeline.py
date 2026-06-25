@@ -28,13 +28,14 @@ from scipy.stats import spearmanr
 from tqdm import tqdm
 
 from SpAM_Simulations.config import (
-    SimulationConfig, TaskV2_3SimulationConfig, TaskV2_4SimulationConfig, MDSSweepConfig
+    SimulationConfig, TaskV2_3SimulationConfig, TaskV2_4SimulationConfig, TaskV3SimulationConfig,
+    MDSSweepConfig
 )
 from SpAM_Simulations.experiment import ExperimentParameters, ExperimentResults
 from SpAM_Simulations.metrics import (
     coverage, snr_summary, test_retest_summary, spearman_correlation, _calculate_mean_distances
 )
-from SpAM_Simulations.simulation import Simulation
+from SpAM_Simulations.simulation import Simulation, build_ground_truth_embeddings
 from SpAM_Simulations.storage import ResultStore
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,24 @@ def generate_task_v2_4_simulation(config: TaskV2_4SimulationConfig, verbose: boo
     schedule = config.param_grid() * config.reps
     for params in tqdm(schedule, desc="Running experiments", disable=not verbose):
         sim.run_task_v2_4_experiment(params, verbose=False)
+    return sim
+
+
+def generate_task_v3_simulation(config: TaskV3SimulationConfig, verbose: bool = True) -> Simulation:
+    """Build a Simulation for the task-v3 generative model and run its full parameter grid.
+
+    Unlike the earlier generators, ground truth is built with an explicit eigenvalue spectrum
+    (``simulation.build_ground_truth_embeddings`` with the config's ``use_isotropic``/``decay``/
+    ``n_clusters``) so the coordinate-space observation model has a meaningful PC basis to reweight.
+    """
+    embeddings = build_ground_truth_embeddings(
+        config.n_images, config.n_dims, use_isotropic=config.use_isotropic,
+        decay=config.decay, n_clusters=config.n_clusters, seed=config.seed
+    )
+    sim = Simulation.from_embeddings(embeddings, config.seed)
+    schedule = config.param_grid() * config.reps
+    for params in tqdm(schedule, desc="Running experiments", disable=not verbose):
+        sim.run_task_v3_experiment(params, verbose=False)
     return sim
 
 

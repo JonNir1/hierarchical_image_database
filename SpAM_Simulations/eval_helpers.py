@@ -19,15 +19,16 @@ import plotly.express.colors as px_colors
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from SpAM_Simulations.task_v2_4_experiment import TaskV2_4ExperimentParameters
+from SpAM_Simulations.task_v3_experiment import TaskV3ExperimentParameters
 
-# Derived from the widest experiment NamedTuple (task-v2.4) so it can't drift from
-# experiment.py/task_v2_*_experiment.py and recognises every lever any run might carry:
+# Derived from the task-v3 experiment NamedTuple so it can't drift from task_v3_experiment.py:
 # ["num_subjects", "trials_per_subject", "images_per_trial", "subjects_noise_scale",
-#  "subjects_noise_df", "frac_images_repeated", "frac_trials_repeated"]. Levers absent from a
-# given run's CSVs are filtered out wherever this list is used (via `if col in df.columns`),
-# so a task-v0.1 or task-v2.3 run simply ignores the columns it doesn't have.
-LEVER_COLUMNS = list(TaskV2_4ExperimentParameters._fields)
+#  "subjects_noise_df", "frac_trials_repeated", "perspective_dispersion"]. This notebook/module is
+# v3-only (see load_run): the legacy frac_images_repeated lever and the doubled-image SNR diagnostic
+# are gone; older v0.1/v2.3/v2.4 runs keep their own evaluation_task_v2_*.ipynb notebooks. Levers
+# absent from a given run's CSVs are still filtered out wherever this list is used (via
+# `if col in df.columns`).
+LEVER_COLUMNS = list(TaskV3ExperimentParameters._fields)
 
 DEFAULT_STATUS_LABELS = {
     "success": "converged", "max_iters": "max_iters",
@@ -94,10 +95,43 @@ def load_run(run_results_dir: str | Path) -> RunData:
         embedding_stability=frames["embedding_stability"],
         mds_meta=frames["mds_meta"],
         levers=levers,
-        task_version=(2.4 if "frac_trials_repeated" in levers
-                      else 2.3 if "frac_images_repeated" in levers
-                      else 0.1),
+        task_version=3.0,  # this module is task-v3-only (breaking change from the multi-version loader)
     )
+
+
+def plateau_num_subjects(
+        embedding_stability_df: pd.DataFrame, *, x: str = "num_subjects",
+        y: str = "mean_spearman", group_by: Sequence[str] = ("ndim",), tol: float = 0.01,
+) -> pd.DataFrame:
+    """Smallest ``num_subjects`` whose stability is within ``tol`` of the group's asymptote.
+
+    With per-subject perspective dispersion the stability-vs-N curve saturates *below* 1.0, so the
+    old "first N above a fixed Spearman threshold" rule no longer applies - the convergence target
+    is instead the curve's own plateau. For each group (default one row per ``ndim``) this takes the
+    asymptote as the stability at the largest ``num_subjects`` and reports the smallest ``num_subjects``
+    reaching ``asymptote - tol``. Returns one row per group with ``plateau_num_subjects``,
+    ``asymptote``, and ``max_num_subjects`` (the N the asymptote was read from - if the plateau N
+    equals it, the sweep has not yet saturated and needs larger N).
+    """
+    group_by = [c for c in group_by if c in embedding_stability_df.columns]
+    rows = []
+    grouped = ([((), embedding_stability_df)] if not group_by
+               else embedding_stability_df.groupby(list(group_by)))
+    for key, grp in grouped:
+        grp = grp.dropna(subset=[y]).sort_values(x)
+        if grp.empty:
+            continue
+        asymptote = grp[y].iloc[-1]
+        reached = grp[grp[y] >= asymptote - tol]
+        plateau_n = reached[x].iloc[0] if not reached.empty else grp[x].iloc[-1]
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        rows.append({
+            **dict(zip(group_by, key_tuple)),
+            "plateau_num_subjects": int(plateau_n),
+            "asymptote": float(asymptote),
+            "max_num_subjects": int(grp[x].iloc[-1]),
+        })
+    return pd.DataFrame(rows)
 
 
 def lever_summary_table(levers: Dict[str, list]) -> go.Figure:
@@ -409,20 +443,17 @@ def pre_post_mds_stability_figure(
     return fig
 
 
-# Repetition levers, widest-first: the order also controls the slice/caption ordering below.
-REPEAT_LEVERS = ["frac_images_repeated", "frac_trials_repeated"]
+# Repetition lever(s). Task v3.0 dropped frac_images_repeated, so frac_trials_repeated (whole-trial
+# test-retest repeats) is the only one left; kept as a list so the slicing logic below is unchanged.
+REPEAT_LEVERS = ["frac_trials_repeated"]
 
 
 def repeat_lever_slices(df: pd.DataFrame):
-    """Yield ``(caption, sub_df)`` for each distinct combination of the *varying* repetition
-    levers present in `df` (`frac_images_repeated` / `frac_trials_repeated`).
+    """Yield ``(caption, sub_df)`` for each distinct value of the *varying* repetition lever present
+    in `df` (`frac_trials_repeated`).
 
-    A run where neither lever varies yields a single ``("", df)`` pair, so a caller can loop
-    uniformly across task-v0.1 (neither present), task-v2.3 (image-repeats vary), and task-v2.4
-    (trial-repeats vary, image-repeats usually fixed at 0) without special-casing - and if both
-    ever vary, it slices by their Cartesian product. This replaces the old
-    ``run.levers.get("frac_images_repeated", [None])`` loop, which silently averaged the MDS
-    panels across `frac_trials_repeated` on a task-v2.4 run.
+    A run where the lever doesn't vary yields a single ``("", df)`` pair, so a caller can loop
+    uniformly whether or not `frac_trials_repeated` is swept, without special-casing.
     """
     varying = [c for c in REPEAT_LEVERS if c in df.columns and df[c].nunique() > 1]
     if not varying:
@@ -441,19 +472,19 @@ def test_retest_figure(
         title: str = "Test-Retest Reliability vs. Subject Noise",
 ) -> go.Figure:
     """Single figure: mean per-subject test-retest reliability (`mean_test_retest`, already in
-    `out/coverage.csv` for task-v2.4 runs) against `x`, one trace per `trace_by` value.
+    `out/coverage.csv`) against `x`, one trace per `trace_by` value.
 
     Aggregates `mean_test_retest` (mean +/- SEM) across reps and every lever other than `x`/
     `trace_by` - an overview view, mirroring the framing of the other overview cells. Rows where
     the reliability is undefined (the all-NaN `frac_trials_repeated == 0` slice) are dropped, so
     they simply don't appear.
 
-    :raises ValueError: if `coverage_df` has no `mean_test_retest` column (not a task-v2.4 run).
+    :raises ValueError: if `coverage_df` has no `mean_test_retest` column.
     """
     if "mean_test_retest" not in coverage_df.columns:
         raise ValueError(
-            "coverage_df has no 'mean_test_retest' column - test-retest reliability is a "
-            "task-v2.4 metric (set RUN_RESULTS_DIR to a task-v2.4 run)."
+            "coverage_df has no 'mean_test_retest' column - test-retest reliability needs a run "
+            "with frac_trials_repeated > 0 (set RUN_RESULTS_DIR accordingly)."
         )
     df = coverage_df.dropna(subset=["mean_test_retest"])
     trace_vals = sorted(df[trace_by].unique()) if trace_by in df.columns else [None]

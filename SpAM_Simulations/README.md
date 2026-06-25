@@ -12,11 +12,12 @@ under different sampling/noise regimes.
 | `design.py` | Per-subject trial allocation (`compute_design_counts`, `build_trial_lists`) for the task-v2.3 simulation, plus `distinct_trial_count`/`select_repeat_trials` for task-v2.4's whole-trial repeats, ported from `SpAM_Task`'s `buildTrialLists`/`insertTrialRepeats`. |
 | `task_v2_3_experiment.py` | Task-v2.3 simulation: per-subject image subset + trial design (matches `SpAM_Task`), plus the within-subject SNR heuristic. |
 | `task_v2_4_experiment.py` | Task-v2.4 simulation: task-v2.3 design **plus** `frac_trials_repeated` whole-trial repeats (each repeat re-draws its noisy distances), yielding a per-subject test-retest reliability. Bit-exact to task-v2.3 when `frac_trials_repeated=0`. |
-| `simulation.py` | `Simulation` container + ground-truth distances; `make` (random) / `from_embeddings` (real data). |
-| `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`, `test_retest_summary`. |
+| `task_v3_experiment.py` | Task-v3 simulation: a **generative coordinate-space** model replacing additive-distance-noise. Per subject: a perspective weighting of the ground-truth PCs (`perspective_dispersion`) + item-level coordinate noise, projected onto a **local per-trial 2-D arrangement** (the SpAM canvas bottleneck). Drops `frac_images_repeated` (task v3.0); keeps `frac_trials_repeated` test-retest. |
+| `simulation.py` | `Simulation` container + ground-truth distances; `make` (random) / `from_embeddings` (real data) / `build_ground_truth_embeddings` (synthetic with a chosen eigenvalue spectrum for task-v3). |
+| `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`, `test_retest_summary`, `effective_rank` (classical-MDS rank of an aggregate - checks the task-v3 2-D slices span >2 dims). |
 | `helpers.py` | Distance-matrix format conversion (`convert_to_condensed`). |
 | `multi_dimensional_scaling.py` | `run_mds` - weighted SMACOF via R's `smacof` (needs R + rpy2). |
-| `config.py` | `SimulationConfig`, `TaskV2_3SimulationConfig`, `TaskV2_4SimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
+| `config.py` | `SimulationConfig`, `TaskV2_3SimulationConfig`, `TaskV2_4SimulationConfig`, `TaskV3SimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
 | `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability) for all simulation types. |
 | `storage.py` | `ResultStore` - compact, streamable, resumable on-disk store for sweep results. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
@@ -24,8 +25,8 @@ under different sampling/noise regimes.
 | `evaluation.ipynb` | Plotting / analysis notebook for the task-v0.1 simulation. |
 | `evaluation_task_v2_3.ipynb` | Plotting / analysis notebook for the task-v2.3 simulation. |
 | `evaluation_task_v2_4.ipynb` | Plotting / analysis notebook for the task-v2.4 simulation (adds the test-retest reliability panel). |
-| `evaluate_simulation.ipynb` | Read-only overview/drill-down figures for an already-completed run (task-v0.1/v2.3/v2.4), via `eval_helpers.py`. |
-| `ec2/prepare_machine.sh`, `ec2/run_task_v0_1_sim.sh`, `ec2/run_task_v2_3_sim.sh`, `ec2/run_task_v2_4_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
+| `evaluate_simulation.ipynb` | Read-only overview/drill-down figures for an already-completed **task-v3** run (incl. the plateau-N required-subjects readout), via `eval_helpers.py`. v3-only; older runs use the `evaluation*.ipynb` notebooks above. |
+| `ec2/prepare_machine.sh`, `ec2/run_task_v0_1_sim.sh`, `ec2/run_task_v2_3_sim.sh`, `ec2/run_task_v2_4_sim.sh`, `ec2/run_task_v3_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
 | `sim_results/<run-name>/` | Local copy of a completed run's small files (`out/*.csv`, `mds_store/meta.csv`) downloaded from S3, e.g. `sim_results/task-v2.3/` - gitignored, consumed by `eval_helpers.py`/`evaluate_simulation.ipynb`. |
 
 ## Quick start

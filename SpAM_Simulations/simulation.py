@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from functools import cached_property
-from typing import List, Dict
+from typing import List, Dict, Optional
 from itertools import product
 import pickle as pkl
 
@@ -18,8 +18,62 @@ from SpAM_Simulations.task_v2_3_experiment import (
 from SpAM_Simulations.task_v2_4_experiment import (
     simulate_task_v2_4_experiment, TaskV2_4ExperimentParameters, TaskV2_4ExperimentResults
 )
+from SpAM_Simulations.task_v3_experiment import (
+    simulate_task_v3_experiment, TaskV3ExperimentParameters, TaskV3ExperimentResults
+)
 
 _SimulationResults = Dict[ExperimentParameters, List[ExperimentResults]]
+
+
+def build_ground_truth_embeddings(
+        N: int,
+        D: int,
+        use_isotropic: bool = True,
+        decay: float = 0.7,
+        n_clusters: Optional[int] = None,
+        cluster_separation: float = 3.0,
+        seed: int = 42,
+) -> np.ndarray:
+    """Generate a synthetic ground-truth embedding in a PC-aligned basis.
+
+    Columns are independent with monotonically non-increasing variance, so the coordinate axes
+    *are* the principal components - this is what the task-v3 observation model reweights
+    per-subject (see ``task_v3_experiment``). The eigenvalue spectrum is the lever that decides
+    how hard each dimension is to resolve once the 2-D arrangement bottleneck is in play:
+
+    * ``use_isotropic=True``  -> all D dims have unit variance (the deliberately hard,
+      conservative "every dimension equally important" case; under the 2-D projection it is also
+      the *easiest* to span because every dim is equally likely to surface in a trial's local
+      top-2).
+    * ``use_isotropic=False`` -> per-dim std follows a geometric decay ``std_i = decay ** i``
+      (``0 < decay <= 1``), so low-variance dims rarely surface in any trial's 2-D slice and need
+      far more subjects to recover (the realistic case).
+
+    ``n_clusters`` (optional) overlays a hierarchical block structure: points are assigned to
+    ``n_clusters`` well-separated centres (separation scaled by ``cluster_separation``) with
+    within-cluster scatter following the same spectrum, mimicking the dataset's semantic
+    hierarchy. Returns an ``(N, D)`` float32 array.
+    """
+    if N <= 0:
+        raise ValueError(f"`N` must be positive (got {N})")
+    if D <= 0:
+        raise ValueError(f"`D` must be positive (got {D})")
+    if not (0 < decay <= 1):
+        raise ValueError(f"`decay` must be in (0, 1] (got {decay})")
+    if n_clusters is not None and not (0 < n_clusters <= N):
+        raise ValueError(f"`n_clusters` must be in (0, N] (got {n_clusters})")
+
+    rng = np.random.default_rng(seed)
+    std = np.ones(D, dtype=np.float64) if use_isotropic else decay ** np.arange(D, dtype=np.float64)
+
+    scatter = rng.normal(size=(N, D)) * std
+    if n_clusters is None:
+        embeddings = scatter
+    else:
+        centres = rng.normal(size=(n_clusters, D)) * std * cluster_separation
+        assignment = rng.integers(0, n_clusters, size=N)
+        embeddings = centres[assignment] + scatter
+    return embeddings.astype(np.float32)
 
 
 def create_simulation(
@@ -141,6 +195,20 @@ class Simulation:
     ) -> TaskV2_4ExperimentResults:
         """Same as `run_experiment`, but for the task-v2.4 simulation (v2.3 + whole-trial repeats)."""
         exp_params, exp_results = simulate_task_v2_4_experiment(params, self.gt_distances, self.rng, verbose)
+        self._results.setdefault(exp_params, []).append(exp_results)
+        return exp_results
+
+    def run_task_v3_experiment(
+            self, params: TaskV3ExperimentParameters, verbose: bool = True
+    ) -> TaskV3ExperimentResults:
+        """Same as `run_experiment`, but for the task-v3 simulation.
+
+        Unlike the earlier models (which consume the condensed ``gt_distances``), task-v3's
+        observation model is generative in *coordinate* space - it reweights each subject's view
+        of the PCs and projects every trial's items onto a local 2-D arrangement - so it is handed
+        ``self.gt_embeddings`` (the N x D coordinates), not the distances.
+        """
+        exp_params, exp_results = simulate_task_v3_experiment(params, self.gt_embeddings, self.rng, verbose)
         self._results.setdefault(exp_params, []).append(exp_results)
         return exp_results
 
