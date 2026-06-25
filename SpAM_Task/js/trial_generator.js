@@ -3,41 +3,6 @@
 // Requires: utils.js must be loaded before this file (uses seededShuffle).
 
 // ---------------------------------------------------------------------------
-// Private helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Return the element of `array` for which `fn(element)` is smallest.
- * @param {Array} array
- * @param {function(*): number} fn
- * @returns {*} Element with minimum fn value
- */
-function _minBy(array, fn) {
-    let best    = array[0];
-    let bestVal = fn(best);
-    for (let i = 1; i < array.length; i++) {
-        const val = fn(array[i]);
-        if (val < bestVal) { best = array[i]; bestVal = val; }
-    }
-    return best;
-}
-
-/**
- * Return the indices of trials that have room and do not already contain `img`.
- * @param {string[][]} trials
- * @param {string}     img
- * @param {number}     k     - Max images per trial
- * @returns {number[]}
- */
-function _eligibleIndices(trials, img, k) {
-    const eligible = [];
-    for (let i = 0; i < trials.length; i++) {
-        if (trials[i].length < k && trials[i].indexOf(img) === -1) eligible.push(i);
-    }
-    return eligible;
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -55,80 +20,44 @@ function _distinctTrialCount(config) {
 }
 
 /**
- * Build per-subject trial lists with controlled image repetition.
+ * Build per-subject trial lists with each image appearing in exactly one
+ * distinct trial.
  *
- * Each subject sees n_unique = round(t_distinct*k / (1 + r)) unique images across
- * t_distinct distinct trials of k images, where r = frac_images_repeated and
- * t_distinct = trials_per_subject - round(frac_trials_repeated * trials_per_subject).
- * To allow within-subject reliability estimation, n_double = round(r * n_unique)
- * images appear in exactly 2 trials each; the rest appear once.
- * No image ever appears more than once within a single trial.
+ * Each subject sees t_distinct * k unique images across t_distinct distinct
+ * trials of k images each, where t_distinct = trials_per_subject -
+ * round(frac_trials_repeated * trials_per_subject). The only way an image
+ * can ever appear more than once per subject is via a verbatim whole-trial
+ * repeat (see insertTrialRepeats), independent of this function.
  *
  * @param {string[]} allImages - All available image paths (from stimuli_manifest.json)
  * @param {{design: {trials_per_subject: number,
  *                   images_per_trial: number,
- *                   frac_images_repeated: number,
  *                   frac_trials_repeated: number}}} config
  * @param {function(): number} rng - Seeded RNG returning float in [0, 1)
- * @returns {{trials: string[][], doubleImages: Set<string>}} `t_distinct` trials of
- *          exactly `k` images each, plus the set of images appearing in 2 of them
- * @throws {Error} If assignment leaves any trial underfilled (indicates a config bug)
+ * @returns {string[][]} `t_distinct` trials of exactly `k` images each
+ * @throws {Error} If the image pool is too small to fill `t_distinct * k` slots
  */
 function buildTrialLists(allImages, config, rng) {
-    const t        = _distinctTrialCount(config);
-    const k        = config.design.images_per_trial;
-    const r        = config.design.frac_images_repeated; // keep < 0.5; greedy placement can fail above that
-    const n_unique = Math.round(t * k / (1 + r));
-    const n_double = t * k - n_unique; // = round(r * n_unique)
+    const t_distinct = _distinctTrialCount(config);
+    const k          = config.design.images_per_trial;
+    const n_needed   = t_distinct * k;
 
-    // Subject-specific random subset of the full image pool
-    const activeSet = seededShuffle(allImages, rng).slice(0, n_unique);
-
-    // Partition: first n_double images appear twice, remainder appear once
-    const doubleImages = activeSet.slice(0, n_double);
-    const singleImages = seededShuffle(activeSet.slice(n_double), rng);
-
-    // Initialise empty trial slots
-    const trials = Array.from({ length: t }, () => []);
-
-    // --- Pass 1: assign each double-image to exactly 2 distinct trials ---
-    for (const img of doubleImages) {
-        const eligible = _eligibleIndices(trials, img, k);
-        if (eligible.length < 2) {
-            throw new Error(
-                `buildTrialLists: fewer than 2 eligible trials for double-image "${img}". ` +
-                'Check trials_per_subject, images_per_trial, and frac_images_repeated.'
-            );
-        }
-        const shuffled = seededShuffle(eligible, rng);
-        trials[shuffled[0]].push(img);
-        trials[shuffled[1]].push(img);
+    if (allImages.length < n_needed) {
+        throw new Error(
+            `buildTrialLists: image pool has ${allImages.length} image(s), need ${n_needed} ` +
+            `(trials_per_subject × images_per_trial, accounting for frac_trials_repeated). ` +
+            'Add more images, or lower trials_per_subject/images_per_trial.'
+        );
     }
 
-    // --- Pass 2: assign each single-image to the least-full eligible trial ---
-    for (const img of singleImages) {
-        const eligible = _eligibleIndices(trials, img, k);
-        if (eligible.length === 0) continue; // underfill caught by validation below
-        const bestIdx = _minBy(eligible, idx => trials[idx].length);
-        trials[bestIdx].push(img);
+    // Subject-specific random subset, sliced into t_distinct trials of k images each.
+    const activeSet = seededShuffle(allImages, rng).slice(0, n_needed);
+    const trials    = [];
+    for (let i = 0; i < t_distinct; i++) {
+        trials.push(activeSet.slice(i * k, (i + 1) * k));
     }
 
-    // --- Shuffle image order within each trial ---
-    for (let i = 0; i < t; i++) {
-        trials[i] = seededShuffle(trials[i], rng);
-    }
-
-    // --- Validate ---
-    for (let i = 0; i < t; i++) {
-        if (trials[i].length < k) {
-            throw new Error(
-                `buildTrialLists: trial ${i} has ${trials[i].length} images, expected ${k}. ` +
-                'Check config parameters.'
-            );
-        }
-    }
-
-    return { trials, doubleImages: new Set(doubleImages) };
+    return trials;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,26 +67,22 @@ function buildTrialLists(allImages, config, rng) {
 /**
  * Fill the remaining `trials_per_subject - trials.length` slots with verbatim
  * repeats of earlier trials, for test-retest reliability of the arrangement
- * response itself (distinct from the cross-context reliability measured by
- * frac_images_repeated).
+ * response itself.
  *
- * Repeats are built only from "singles-only" trials (no image in
- * `doubleImages`), so no image can end up appearing in more than 2 trials
- * total via the combination of the two mechanisms. Each repeat is placed at
- * least `min_trial_repeat_separation` slots after the trial it duplicates
- * (image order is reshuffled so the repeat isn't pixel-identical to the
- * original, though the image set is).
+ * Every distinct trial is eligible to be repeated (each image already
+ * appears in exactly one distinct trial, by construction of buildTrialLists).
+ * Each repeat is placed at least `min_trial_repeat_separation` slots after
+ * the trial it duplicates (image order is reshuffled so the repeat isn't
+ * pixel-identical to the original, though the image set is).
  *
- * @param {string[][]} trials - Output of buildTrialLists (`trials` field), length t_distinct
- * @param {Set<string>} doubleImages - Output of buildTrialLists (`doubleImages` field)
+ * @param {string[][]} trials - Output of buildTrialLists, length t_distinct
  * @param {{design: {trials_per_subject: number, min_trial_repeat_separation: number}}} config
  * @param {function(): number} rng - Seeded RNG (same instance used throughout)
  * @returns {Array<{images: string[], isRepeat: boolean, repeatOfTrialId: (number|null), trialId: (number|string)}>}
  *          Array of length `trials_per_subject`
- * @throws {Error} If there aren't enough singles-only trials, or no placement
- *                 satisfies min_trial_repeat_separation
+ * @throws {Error} If no placement satisfies min_trial_repeat_separation
  */
-function insertTrialRepeats(trials, doubleImages, config, rng) {
+function insertTrialRepeats(trials, config, rng) {
     const t           = config.design.trials_per_subject;
     const numRepeats  = t - trials.length;
     const minSep      = config.design.min_trial_repeat_separation;
@@ -166,15 +91,6 @@ function insertTrialRepeats(trials, doubleImages, config, rng) {
         return trials.map((images, i) => ({ images, isRepeat: false, repeatOfTrialId: null, trialId: i }));
     }
 
-    const isSinglesOnly = idx => trials[idx].every(img => !doubleImages.has(img));
-    const candidates     = trials.map((_, i) => i).filter(isSinglesOnly);
-    if (candidates.length < numRepeats) {
-        throw new Error(
-            `insertTrialRepeats: only ${candidates.length} singles-only trial(s) available, ` +
-            `need ${numRepeats} for the configured frac_trials_repeated. Lower ` +
-            'frac_trials_repeated or frac_images_repeated.'
-        );
-    }
     // Structural layout (which of the t slots are repeats vs. distinct
     // trials) is shared with verifyConfig's static feasibility pre-check —
     // see computeRepeatLayout in utils.js.
@@ -187,11 +103,9 @@ function insertTrialRepeats(trials, doubleImages, config, rng) {
         originalPosition[distinctIdx] = pos;
     });
 
-    // Assign candidate originals to repeat slots in increasing position order
-    // (most-constrained first), enforcing min_trial_repeat_separation. Drawing
-    // from the full candidate pool here (rather than a pre-selected subset)
-    // maximises the chance an eligible original exists for every slot.
-    const remaining = seededShuffle(candidates, rng);
+    // Assign originals to repeat slots in increasing position order
+    // (most-constrained first), enforcing min_trial_repeat_separation.
+    const remaining = seededShuffle([...trials.keys()], rng);
     for (const pos of repeatPositions) {
         const eligibleIdx = remaining.findIndex(id => pos - originalPosition[id] >= minSep);
         if (eligibleIdx === -1) {

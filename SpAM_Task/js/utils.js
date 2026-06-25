@@ -76,7 +76,6 @@ function verifyConfig(config) {
         design: {
             trials_per_subject:          'number',
             images_per_trial:            'number',
-            frac_images_repeated:        'number',
             frac_trials_repeated:        'number',
             min_trial_repeat_separation: 'number',
         },
@@ -157,7 +156,6 @@ function verifyConfig(config) {
 
     const t          = d.trials_per_subject;
     const k          = d.images_per_trial;
-    const r          = d.frac_images_repeated;
     const fr         = d.frac_trials_repeated;
     const minRepSep  = d.min_trial_repeat_separation;
     const nCatch     = ct.num_trials;
@@ -178,10 +176,8 @@ function verifyConfig(config) {
 
     if (!Number.isInteger(t)        || t < 1)        err('"design.trials_per_subject" must be a positive integer, got ' + t + '.');
     if (!Number.isInteger(k)        || k < 1)        err('"design.images_per_trial" must be a positive integer, got ' + k + '.');
-    if (r < 0 || r > 1)                              err('"design.frac_images_repeated" must be in [0, 1], got ' + r + '.');
-    if (r >= 0.5) warn('WARNING: "design.frac_images_repeated" is ' + r + ' (>= 0.5). The greedy image-placement algorithm may fail at runtime for some participant IDs. Keep below 0.5 for reliable behaviour.');
     if (fr < 0 || fr >= 1)                            err('"design.frac_trials_repeated" must be in [0, 1), got ' + fr + '.');
-    if (fr >= 0.4) warn('WARNING: "design.frac_trials_repeated" is ' + fr + ' (>= 0.4). Trial-level repeats compete with "design.frac_images_repeated" for the same pool of single-occurrence trials, raising the risk that insertTrialRepeats fails at runtime for some participant IDs. Keep below 0.4 for reliable behaviour.');
+    if (fr >= 0.4) warn('WARNING: "design.frac_trials_repeated" is ' + fr + ' (>= 0.4). High values leave little room to satisfy "design.min_trial_repeat_separation", raising the risk that insertTrialRepeats fails at runtime. Keep below 0.4 for reliable behaviour.');
     if (!Number.isInteger(minRepSep) || minRepSep < 1) err('"design.min_trial_repeat_separation" must be a positive integer, got ' + minRepSep + '.');
     if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"catch_trials.num_trials" must be a non-negative integer, got ' + nCatch + '.');
     if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
@@ -217,25 +213,12 @@ function verifyConfig(config) {
 
     // ── Group 3: cross-parameter arithmetic ──────────────────────────────────
 
-    // 3a. Trial image pool arithmetic
-    // buildTrialLists generates t_distinct = t - round(frac_trials_repeated * t)
-    // distinct trials (the rest are exact repeats); the derived unique-image
-    // count must be at least k so each distinct trial can be filled.
-    const tDistinct = t - Math.round(fr * t);
-    const N = Math.round(tDistinct * k / (1 + r));
-    if (N < k)
-        err('design.frac_images_repeated (' + r + ') with t_distinct=' + tDistinct + ' (t=' + t +
-            ', frac_trials_repeated=' + fr + '), k=' + k +
-            ' gives only ' + N + ' unique images — fewer than images_per_trial (' + k + '). Lower frac_images_repeated, lower frac_trials_repeated, or increase trials_per_subject.');
-
-    // 3a (cont). min_trial_repeat_separation structural feasibility. The
-    // slot positions (which of the t main-trial slots are repeats) are fully
-    // determined by t and numTrialRepeats alone — independent of the RNG and
-    // of which trials end up singles-only — so this best-case bound (every
-    // distinct trial assumed eligible) can be checked at config-load time.
-    // Failing here means insertTrialRepeats is guaranteed to fail too;
-    // passing here does not guarantee success, since the data-dependent
-    // singles-only pool may still be too small (that remains a runtime check).
+    // 3a. min_trial_repeat_separation structural feasibility. The slot
+    // positions (which of the t main-trial slots are repeats) are fully
+    // determined by t and numTrialRepeats alone — independent of the RNG —
+    // so this can be checked at config-load time. Failing here means
+    // insertTrialRepeats is guaranteed to fail too.
+    const tDistinct       = t - Math.round(fr * t);
     const numTrialRepeats = t - tDistinct;
     if (!canSatisfyTrialRepeatSeparation(t, numTrialRepeats, minRepSep))
         err('design.min_trial_repeat_separation (' + minRepSep + ') cannot be satisfied with ' +
