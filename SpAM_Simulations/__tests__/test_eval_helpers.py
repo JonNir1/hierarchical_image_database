@@ -278,19 +278,25 @@ def test_pre_post_mds_stability_figure_traces(tiny_run):
     assert set(names[1:]) == {"ndim=2", "ndim=3"}
 
 
-# --------------------------------------------------------------------- repeat_lever_slices
-def test_repeat_lever_slices_splits_by_trial_repeats(tiny_run_swept):
-    run = eh.load_run(tiny_run_swept)
-    slices = list(eh.repeat_lever_slices(run.mds_meta))
+# --------------------------------------------------------------------- condition_slices
+def test_condition_slices_splits_by_both_condition_levers(tiny_run_swept):
+    run = eh.load_run(tiny_run_swept)  # frac_trials_repeated {0, 0.25} x perspective_dispersion {0, 0.3}
+    slices = list(eh.condition_slices(run.mds_meta))
     captions = [c for c, _ in slices]
-    assert captions == ["frac_trials_repeated=0", "frac_trials_repeated=0.25"]
-    for _, sub in slices:
+    assert captions == [
+        "frac_trials_repeated=0, perspective_dispersion=0",
+        "frac_trials_repeated=0, perspective_dispersion=0.3",
+        "frac_trials_repeated=0.25, perspective_dispersion=0",
+        "frac_trials_repeated=0.25, perspective_dispersion=0.3",
+    ]
+    for _, sub in slices:  # each slice fixes both levers -> exactly one point per (num_subjects, ndim)
         assert sub["frac_trials_repeated"].nunique() == 1
+        assert sub["perspective_dispersion"].nunique() == 1
 
 
-def test_repeat_lever_slices_single_unlabelled_when_constant(tiny_run):
-    run = eh.load_run(tiny_run)  # frac_trials_repeated constant at 0.0
-    slices = list(eh.repeat_lever_slices(run.mds_meta))
+def test_condition_slices_single_unlabelled_when_constant(tiny_run):
+    run = eh.load_run(tiny_run)  # both condition levers constant at 0.0
+    slices = list(eh.condition_slices(run.mds_meta))
     assert len(slices) == 1
     caption, sub = slices[0]
     assert caption == "" and len(sub) == len(run.mds_meta)
