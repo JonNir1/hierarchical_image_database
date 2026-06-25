@@ -231,6 +231,27 @@ aws ec2 describe-instances --instance-ids $INSTANCE_ID --query "Reservations[0].
 # expect: terminated
 ```
 
+**(12) Download the results to your local PC** for analysis with `evaluate_simulation.ipynb`.
+The notebook reads runs from `SpAM_Simulations/sim_results/<run-name>/`, where `<run-name>` is
+the `S3_URI`'s last path segment (`task-v0.1` / `task-v2.3` / `task-v2.4`). Run from the repo
+root (PowerShell):
+```powershell
+cd C:\Users\nirjo\Documents\University\PhD\Projects\hierarchical_image_database
+$RUN_NAME = "task-v2.4"                                   # match the S3_URI you uploaded to
+$S3_URI   = "s3://jon-nir/spam-simulations/$RUN_NAME"
+$DEST     = "SpAM_Simulations\sim_results\$RUN_NAME"
+
+# Pull only the small files the read-only notebook needs: out/*.csv + mds_store/meta.csv.
+aws s3 sync "$S3_URI/out/"       "$DEST\out\"       --only-show-errors
+aws s3 sync "$S3_URI/mds_store/" "$DEST\mds_store\" --exclude "confdists.f32" --only-show-errors
+# `confdists.f32` (the reconstructed embeddings) is multi-GB and is NEVER read by
+# eval_helpers.py - drop the `--exclude` only if you need it for ad-hoc analysis.
+
+Get-ChildItem -Recurse $DEST | Select-Object FullName    # expect out/{coverage,stability,embedding_stability}.csv + mds_store/meta.csv
+```
+`sim_results/` is gitignored, so these stay local. Then open
+`SpAM_Simulations/evaluate_simulation.ipynb` and set `RUN_RESULTS_DIR = "sim_results/task-v2.4"`.
+
 ## Tests
 
 ```
