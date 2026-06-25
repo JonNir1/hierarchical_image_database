@@ -443,19 +443,24 @@ def pre_post_mds_stability_figure(
     return fig
 
 
-# Repetition lever(s). Task v3.0 dropped frac_images_repeated, so frac_trials_repeated (whole-trial
-# test-retest repeats) is the only one left; kept as a list so the slicing logic below is unchanged.
-REPEAT_LEVERS = ["frac_trials_repeated"]
+# "Condition" levers sliced into separate by-dimension figures (rather than folded into a trace
+# or averaged over): each shifts the achievable stability ceiling, so pooling them would both hide
+# that effect and - where two rows land in the same (x, trace) cell - plot duplicate markers.
+# frac_trials_repeated = whole-trial test-retest repeats; perspective_dispersion = between-subject
+# disagreement. Task v3.0 dropped frac_images_repeated. Order controls caption ordering.
+CONDITION_SLICE_LEVERS = ["frac_trials_repeated", "perspective_dispersion"]
 
 
-def repeat_lever_slices(df: pd.DataFrame):
-    """Yield ``(caption, sub_df)`` for each distinct value of the *varying* repetition lever present
-    in `df` (`frac_trials_repeated`).
+def condition_slices(df: pd.DataFrame):
+    """Yield ``(caption, sub_df)`` for each distinct combination of the *varying* condition levers
+    present in `df` (`frac_trials_repeated` / `perspective_dispersion`).
 
-    A run where the lever doesn't vary yields a single ``("", df)`` pair, so a caller can loop
-    uniformly whether or not `frac_trials_repeated` is swept, without special-casing.
+    A run where none of them vary yields a single ``("", df)`` pair, so a caller can loop uniformly
+    whether or not they are swept. Slicing (one figure per combination) - rather than averaging -
+    keeps each level's ceiling distinct and avoids duplicate markers when a lever varies but isn't
+    a facet/trace dimension of the figure.
     """
-    varying = [c for c in REPEAT_LEVERS if c in df.columns and df[c].nunique() > 1]
+    varying = [c for c in CONDITION_SLICE_LEVERS if c in df.columns and df[c].nunique() > 1]
     if not varying:
         yield "", df
         return
