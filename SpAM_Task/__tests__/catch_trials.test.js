@@ -22,7 +22,6 @@ const CONFIG = {
     design: {
         trials_per_subject:        10,
         images_per_trial:          20,
-        frac_images_repeated:   1/3,
     },
     catch_trials: {
         num_trials:       2,
@@ -71,7 +70,7 @@ describe('buildCatchTrial', () => {
 // ── insertCatchTrials ─────────────────────────────────────────────────────────
 describe('insertCatchTrials', () => {
     const ALL_IMAGES = Array.from({ length: 754 }, (_, i) => `img_${i}.png`);
-    const freshMains = () => buildTrialLists(ALL_IMAGES, CONFIG, makeRng()).trials;
+    const freshMains = () => buildTrialLists(ALL_IMAGES, CONFIG, makeRng());
 
     it('combined length is numMain + numCatch', () => {
         const result = insertCatchTrials(freshMains(), CATCH_POOL, CONFIG, makeRng());

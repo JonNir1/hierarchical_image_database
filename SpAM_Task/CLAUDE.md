@@ -79,13 +79,14 @@ python generate_manifest.py
 ## Key Design Decisions
 
 **Stimulus assignment**: Client-side seeded RNG. Seed = `hashString(PROLIFIC_PID)` (djb2).
-Each subject sees `n_unique = round(t_distinct×k / (1+r)) = 150` unique images across `t_distinct=10` distinct
-trials of `k=20` images, where `r = frac_images_repeated = 0.333` and `t_distinct = trials_per_subject -
-round(frac_trials_repeated × trials_per_subject)`. `n_double = 50` images appear in exactly 2 trials
-(cross-context reliability); the rest appear once. No image repeats within a single trial. The same `rng`
-instance is passed through `buildTrialLists` → `insertTrialRepeats` → `insertCatchTrials` so the entire
-session sequence — including trial-level repeats, catch image selection, and target locations — is
-fully reproducible from the PID.
+Each subject sees `t_distinct × k` unique images across `t_distinct` distinct trials of `k`
+images each, where `t_distinct = trials_per_subject - round(frac_trials_repeated ×
+trials_per_subject)`. Every image appears in exactly one distinct trial — the only way an image
+can appear more than once per subject is via a verbatim whole-trial repeat (see "Trial-level
+repeats" below). No image repeats within a single trial. The same `rng` instance is passed
+through `buildTrialLists` → `insertTrialRepeats` → `insertCatchTrials` so the entire session
+sequence — including trial-level repeats, catch image selection, and target locations — is fully
+reproducible from the PID.
 
 **Pre-loading**: `jsPsychPreload` inserted immediately before each free-sort trial â€” loads only
 that trial's images on demand, not all 150 at the start.
@@ -129,15 +130,14 @@ interior positions (e.g. trials 3 and 7 in a 10-trial sequence). Each catch tria
 Catch trials detect disengaged participants who are not following instructions. They are
 distinguished from main trials by a visible prompt and different QC logic (see below).
 
-**Trial-level repeats**: Independent of `frac_images_repeated` (which doubles individual images
-across different-composition trials), `frac_trials_repeated` repeats some whole trials verbatim
-(same k-image set, reshuffled presentation order) later in the session, for test-retest
-reliability of the arrangement response itself. `insertTrialRepeats` builds repeats only from
-trials with no `frac_images_repeated`-doubled image (so no image appears more than twice via
-either mechanism combined), and places each repeat at least `min_trial_repeat_separation` slots
-after its original. This is substitutive, not additive: `trials_per_subject` is the total main
-trial count a subject sees; some of those slots are repeats, so distinct combinations drop to
-`t_distinct`.
+**Trial-level repeats**: `frac_trials_repeated` repeats some whole trials verbatim (same k-image
+set, reshuffled presentation order) later in the session, for test-retest reliability of the
+arrangement response itself — the only mechanism by which an image can appear more than once per
+subject. `insertTrialRepeats` may repeat any distinct trial (every distinct trial's images are,
+by construction, unique to it), and places each repeat at least `min_trial_repeat_separation`
+slots after its original. This is substitutive, not additive: `trials_per_subject` is the total
+main trial count a subject sees; some of those slots are repeats, so distinct combinations drop
+to `t_distinct`.
 
 **Quality control â€” main trials**: Flag a trial if
 `SD(normalised pairwise distances) < min_pairwise_distance_sd` (all images piled up).
@@ -180,12 +180,10 @@ handles data upload; the `finish` command node is appended to the timeline and c
 | Function / Constant | Description |
 |---|---|
 | `CATCH_LOCATIONS` | Array of 5 target location strings: `center` + 4 corners. Shared between trial_generator and task.js. |
-| `buildTrialLists(allImages, config, rng)` | Computes `t_distinct = t − round(frac_trials_repeated×t)` and `n_unique = round(t_distinct×k / (1+r))` from `frac_images_repeated`; assigns images to `t_distinct` trials of `k` images each, with `n_double = t_distinct×k − n_unique` images appearing in exactly 2 distinct trials. Returns `{trials: string[][], doubleImages: Set<string>}`. Throws if any trial is underfilled. |
-| `insertTrialRepeats(trials, doubleImages, config, rng)` | Fills the remaining `t − trials.length` slots with verbatim repeats of earlier trials, drawn only from trials containing no `doubleImages` entry, placed at least `min_trial_repeat_separation` slots after their original. Returns an array of length `t`: `{images, isRepeat, repeatOfTrialId, trialId}[]`. Throws if there aren't enough singles-only trials or no placement satisfies the separation constraint. |
+| `buildTrialLists(allImages, config, rng)` | Computes `t_distinct = t − round(frac_trials_repeated×t)`; shuffles `allImages` and slices the first `t_distinct×k` into `t_distinct` trials of `k` images each, so every image appears in exactly one distinct trial. Returns `string[][]`. Throws if the image pool is smaller than `t_distinct×k`. |
+| `insertTrialRepeats(trials, config, rng)` | Fills the remaining `t − trials.length` slots with verbatim repeats of earlier trials — any distinct trial may be repeated — placed at least `min_trial_repeat_separation` slots after their original. Returns an array of length `t`: `{images, isRepeat, repeatOfTrialId, trialId}[]`. Throws if no placement satisfies the separation constraint. |
 | `buildCatchTrial(catchPool, config, rng)` | Samples `catch_images_per_trial` images from the catch pool and picks a target location, both via the shared RNG. Returns `{type:'catch', images, target_location}`. |
 | `insertCatchTrials(mainTrials, catchPool, config, rng)` | Interleaves `num_catch_trials` catch trials at evenly-spaced interior positions. `mainTrials` is the output of `insertTrialRepeats` (or plain `string[][]`). Returns the combined sequence as `{type:'main'|'catch', images, target_location?, isRepeat?, repeatOfTrialId?, trialId?}[]`. |
-| `_minBy(array, fn)` | Returns the element of `array` minimising `fn`. Used in single-image assignment to balance trial lengths. |
-| `_eligibleIndices(trials, img, k)` | Returns indices of trials that have room (`< k` images) and don't already contain `img`. Enforces the within-trial no-repeat constraint. |
 
 ### `task.js`
 
@@ -284,16 +282,14 @@ browser and `generate_manifest.py` resolve them identically.
 |---|---|---|
 | `trials_per_subject` | 10 | Number of main free-sort trials |
 | `images_per_trial` | 20 | Images shown per main trial |
-| `frac_images_repeated` | 0.333 | Fraction of unique images shown in 2 different-composition trials (cross-context reliability). `r=0`: no repeats; `r=1`: all images repeated. Derived: `n_unique = round(t_distinct×k / (1+r))`. |
-| `frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are verbatim repeats of an earlier trial (test-retest reliability). `t_distinct = t − round(frac_trials_repeated×t)`. Repeats only draw from trials with no `frac_images_repeated`-doubled image. Keep below 0.4. |
+| `frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are verbatim repeats of an earlier trial (test-retest reliability) — the only mechanism by which an image can appear more than once per subject. `t_distinct = t − round(frac_trials_repeated×t)`. Keep below 0.4, since high values leave little room to satisfy `min_trial_repeat_separation`. |
 | `min_trial_repeat_separation` | 2 | Minimum number of other main-trial slots between an original trial and its verbatim repeat. |
-| `practice_images_per_trial` | 8 | Images in the (discarded) practice trial |
 
 ### `catch_trials`
 | Key | Default | Description |
 |---|---|---|
 | `num_trials` | 2 | Catch trials interleaved among main trials |
-| `images_per_trial` | 10 | Images shown per catch trial |
+| `images_per_trial` | 10 | Images shown per catch trial. **Dual-use**: also sizes the (discarded) practice trial — there is no separate `design.practice_images_per_trial` key. |
 | `cluster_max_mean` | 0.15 | Max mean normalised distance for catch trial to pass (cluster tightness) |
 | `cluster_max_sd` | 0.10 | Max SD of normalised distances for catch trial to pass |
 | `location_tolerance` | 0.20 | Max normalised per-image distance to target for catch trial to pass |

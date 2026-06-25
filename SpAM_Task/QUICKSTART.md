@@ -109,15 +109,14 @@ is substantially smaller or larger, adjust accordingly.
 |---|---|---|
 | `design.trials_per_subject` | 10 | How many sorting trials each participant completes |
 | `design.images_per_trial` | 20 | How many images appear on screen per trial |
-| `design.frac_images_repeated` | 0.333 | Fraction of unique images shown in 2 (different-composition) trials, for cross-context reliability (`r=0`: no repeats, `r=1`: all repeated). Unique images per subject = `round(t_distinct×k / (1+r))`. Keep below 0.5 — the greedy image-placement algorithm can fail at higher values. |
-| `design.frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are exact verbatim repeats of an earlier trial (same k images, reshuffled order), for test-retest reliability of the arrangement itself. `t_distinct = t − round(frac_trials_repeated × t)` is the number of genuinely distinct combinations generated; the remaining slots replay earlier ones. Repeats are only built from trials with no `frac_images_repeated`-doubled image, so no image appears more than twice via either mechanism combined. Keep below 0.4 — see `min_trial_repeat_separation` below. |
+| `design.frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are exact verbatim repeats of an earlier trial (same k images, reshuffled order), for test-retest reliability of the arrangement itself — the only way an image can appear more than once per subject. `t_distinct = t − round(frac_trials_repeated × t)` is the number of genuinely distinct combinations generated; the remaining slots replay earlier ones. Keep below 0.4 — see `min_trial_repeat_separation` below. |
 | `design.min_trial_repeat_separation` | 2 | Minimum number of other main-trial slots between an original trial and its verbatim repeat (prevents back-to-back identical trials). |
 | `catch_trials.num_trials` | 2 | How many attention-check trials are interleaved |
 | `catch_trials.images_per_trial` | 10 | Images per catch trial |
 
 > **Coverage check**: with your chosen parameters, verify that each image will be seen by
 > enough participants for reliable averaging.
-> Expected views per image ≈ `N_subjects × round(t_distinct×k / (1+r)) / total_images`, where
+> Expected views per image ≈ `N_subjects × (t_distinct × k) / total_images`, where
 > `t_distinct = trials_per_subject − round(frac_trials_repeated × trials_per_subject)`.
 > Aim for at least 10–15 views per image.
 

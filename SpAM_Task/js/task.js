@@ -209,8 +209,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   //    insertCatchTrials uses the same rng instance (continued sequence) so
   //    catch location assignment is also seeded and recorded in trial data.
   // ---------------------------------------------------------------------------
-  const { trials: distinctTrials, doubleImages } = buildTrialLists(imageUrls, config, rng);
-  const mainTrials = insertTrialRepeats(distinctTrials, doubleImages, config, rng);
+  const distinctTrials = buildTrialLists(imageUrls, config, rng);
+  const mainTrials = insertTrialRepeats(distinctTrials, config, rng);
   const allTrials   = insertCatchTrials(mainTrials, catchUrls, config, rng);
 
   // Maps each main trial's trialId to its final position in allTrials, so a
@@ -448,7 +448,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Shows participants what an experimental trial looks like before the real trials start.
   timeline.push({
     type:            jsPsychFreeSort,
-    stimuli:         practiceUrls.slice(0, config.design.practice_images_per_trial),
+    stimuli:         practiceUrls.slice(0, config.catch_trials.images_per_trial),
     sort_area_width:  sortW,
     sort_area_height: sortH,
     stim_width:        stimSize,

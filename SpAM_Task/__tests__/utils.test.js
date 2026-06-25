@@ -101,10 +101,8 @@ describe('verifyConfig', () => {
         design: {
             trials_per_subject:          10,
             images_per_trial:            20,
-            frac_images_repeated:        0.333,
             frac_trials_repeated:        0,
             min_trial_repeat_separation: 2,
-            practice_images_per_trial:   8,
         },
         catch_trials: {
             num_trials:         2,
@@ -183,38 +181,6 @@ describe('verifyConfig', () => {
         );
     });
 
-    it('warns (not throws) when frac_images_repeated >= 0.5', () => {
-        const cfg = validConfig();
-        cfg.design.frac_images_repeated = 0.5;
-        const warnings = [];
-        const origWarn = console.warn;
-        console.warn = msg => warnings.push(msg);
-        assert.doesNotThrow(() => verifyConfig(cfg));
-        console.warn = origWarn;
-        assert.ok(warnings.some(w => /frac_images_repeated/.test(w) && /0\.5/.test(w)));
-    });
-
-    it('throws when frac_images_repeated is out of range', () => {
-        const cfg = validConfig();
-        cfg.design.frac_images_repeated = 1.5;
-        assert.throws(
-            () => verifyConfig(cfg),
-            { message: /"design\.frac_images_repeated" must be in \[0, 1\]/ },
-        );
-    });
-
-    it('throws when frac_images_repeated causes N < k', () => {
-        const cfg = validConfig();
-        // r=1 → N = round(10*20/2) = 100 >= 20 (passes), but with t=1, k=20:
-        // Override to a pathological case: t=1, k=20, r=1 → N=round(20/2)=10 < 20
-        cfg.design.trials_per_subject = 1;
-        cfg.design.frac_images_repeated = 1;
-        assert.throws(
-            () => verifyConfig(cfg),
-            { message: /gives only \d+ unique images/ },
-        );
-    });
-
     it('throws when num_catch_trials >= trials_per_subject', () => {
         const cfg = validConfig();
         cfg.catch_trials.num_trials = 10; // equals trials_per_subject
@@ -240,12 +206,6 @@ describe('verifyConfig', () => {
             () => verifyConfig(cfg),
             { message: /"display\.sort_area_shape" must be "rect" or "ellipse"/ },
         );
-    });
-
-    it('warns (not throws) when practice_images_per_trial > images_per_trial', () => {
-        const cfg = validConfig();
-        cfg.design.practice_images_per_trial = 25; // > images_per_trial=20
-        assert.doesNotThrow(() => verifyConfig(cfg));
     });
 
     it('throws on missing min_move_item_ratio', () => {
@@ -333,17 +293,6 @@ describe('verifyConfig', () => {
         assert.doesNotThrow(() => verifyConfig(cfg));
     });
 
-    it('accounts for frac_trials_repeated when checking frac_images_repeated gives N < k', () => {
-        const cfg = validConfig();
-        // t=10, frac_trials_repeated=0.9 → t_distinct=1; r=0.49 → N=round(20/1.49)=13 < k=20.
-        // Same t and r alone (frac_trials_repeated=0) would give t_distinct=10, N=134 — fine.
-        cfg.design.frac_trials_repeated = 0.9;
-        cfg.design.frac_images_repeated = 0.49;
-        assert.throws(
-            () => verifyConfig(cfg),
-            { message: /gives only \d+ unique images/ },
-        );
-    });
 });
 
 // ── computeMainQcFlag ─────────────────────────────────────────────────────────
