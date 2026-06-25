@@ -448,7 +448,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Shows participants what an experimental trial looks like before the real trials start.
   timeline.push({
     type:            jsPsychFreeSort,
-    stimuli:         practiceUrls.slice(0, config.design.practice_images_per_trial),
+    stimuli:         practiceUrls.slice(0, config.catch_trials.images_per_trial),
     sort_area_width:  sortW,
     sort_area_height: sortH,
     stim_width:        stimSize,

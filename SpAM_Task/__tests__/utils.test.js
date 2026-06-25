@@ -104,7 +104,6 @@ describe('verifyConfig', () => {
             frac_images_repeated:        0.333,
             frac_trials_repeated:        0,
             min_trial_repeat_separation: 2,
-            practice_images_per_trial:   8,
         },
         catch_trials: {
             num_trials:         2,
@@ -240,12 +239,6 @@ describe('verifyConfig', () => {
             () => verifyConfig(cfg),
             { message: /"display\.sort_area_shape" must be "rect" or "ellipse"/ },
         );
-    });
-
-    it('warns (not throws) when practice_images_per_trial > images_per_trial', () => {
-        const cfg = validConfig();
-        cfg.design.practice_images_per_trial = 25; // > images_per_trial=20
-        assert.doesNotThrow(() => verifyConfig(cfg));
     });
 
     it('throws on missing min_move_item_ratio', () => {

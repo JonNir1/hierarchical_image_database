@@ -79,7 +79,6 @@ function verifyConfig(config) {
             frac_images_repeated:        'number',
             frac_trials_repeated:        'number',
             min_trial_repeat_separation: 'number',
-            practice_images_per_trial:   'number',
         },
         catch_trials: {
             num_trials:         'number',
@@ -161,7 +160,6 @@ function verifyConfig(config) {
     const r          = d.frac_images_repeated;
     const fr         = d.frac_trials_repeated;
     const minRepSep  = d.min_trial_repeat_separation;
-    const kPractice  = d.practice_images_per_trial;
     const nCatch     = ct.num_trials;
     const kCatch     = ct.images_per_trial;
     const catchMean  = ct.cluster_max_mean;
@@ -185,7 +183,6 @@ function verifyConfig(config) {
     if (fr < 0 || fr >= 1)                            err('"design.frac_trials_repeated" must be in [0, 1), got ' + fr + '.');
     if (fr >= 0.4) warn('WARNING: "design.frac_trials_repeated" is ' + fr + ' (>= 0.4). Trial-level repeats compete with "design.frac_images_repeated" for the same pool of single-occurrence trials, raising the risk that insertTrialRepeats fails at runtime for some participant IDs. Keep below 0.4 for reliable behaviour.');
     if (!Number.isInteger(minRepSep) || minRepSep < 1) err('"design.min_trial_repeat_separation" must be a positive integer, got ' + minRepSep + '.');
-    if (!Number.isInteger(kPractice)|| kPractice < 1)err('"design.practice_images_per_trial" must be a positive integer, got ' + kPractice + '.');
     if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"catch_trials.num_trials" must be a non-negative integer, got ' + nCatch + '.');
     if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
     if (catchMean <= 0 || catchMean >= 1) err('"catch_trials.cluster_max_mean" must be in (0, 1), got ' + catchMean + '.');
@@ -278,10 +275,6 @@ function verifyConfig(config) {
     if (rowsCatch * stimSize > minH)
         err(kCatch + ' catch images of ' + stimSize + 'px each cannot fit in a ' + colsCatch + '×' + rowsCatch +
             ' grid within the minimum sort area (' + minW + '×' + minH + 'px). Reduce display.image_size_fraction or catch_trials.images_per_trial, or increase sort area dimensions.');
-
-    // 3f. Practice image count (soft warning)
-    if (kPractice > k)
-        warn('"design.practice_images_per_trial" (' + kPractice + ') > "design.images_per_trial" (' + k + '). Practice trial will show more images than main trials.');
 
     // ── Group 4: deployment warnings ─────────────────────────────────────────
     if (mode !== 'debug') {

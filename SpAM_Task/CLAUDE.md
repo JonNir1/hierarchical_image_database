@@ -287,13 +287,12 @@ browser and `generate_manifest.py` resolve them identically.
 | `frac_images_repeated` | 0.333 | Fraction of unique images shown in 2 different-composition trials (cross-context reliability). `r=0`: no repeats; `r=1`: all images repeated. Derived: `n_unique = round(t_distinct×k / (1+r))`. |
 | `frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are verbatim repeats of an earlier trial (test-retest reliability). `t_distinct = t − round(frac_trials_repeated×t)`. Repeats only draw from trials with no `frac_images_repeated`-doubled image. Keep below 0.4. |
 | `min_trial_repeat_separation` | 2 | Minimum number of other main-trial slots between an original trial and its verbatim repeat. |
-| `practice_images_per_trial` | 8 | Images in the (discarded) practice trial |
 
 ### `catch_trials`
 | Key | Default | Description |
 |---|---|---|
 | `num_trials` | 2 | Catch trials interleaved among main trials |
-| `images_per_trial` | 10 | Images shown per catch trial |
+| `images_per_trial` | 10 | Images shown per catch trial. **Dual-use**: also sizes the (discarded) practice trial — there is no separate `design.practice_images_per_trial` key. |
 | `cluster_max_mean` | 0.15 | Max mean normalised distance for catch trial to pass (cluster tightness) |
 | `cluster_max_sd` | 0.10 | Max SD of normalised distances for catch trial to pass |
 | `location_tolerance` | 0.20 | Max normalised per-image distance to target for catch trial to pass |
