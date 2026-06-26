@@ -21,7 +21,7 @@
     Any new directory added to the repo root is automatically excluded.
 
 .EXAMPLE
-    .\scripts\deploy_pavlovia.ps1
+    .\SpAM_Task\scripts\deploy_pavlovia.ps1
 #>
 
 Set-StrictMode -Version Latest
@@ -37,8 +37,8 @@ function Invoke-Git {
     }
 }
 
-# Resolve repo root (parent of the directory containing this script)
-$RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+# Resolve repo root via git (depth-agnostic, mirrors deploy_pavlovia.sh)
+$RepoRoot = git -C (Split-Path -Parent $MyInvocation.MyCommand.Path) rev-parse --show-toplevel
 Set-Location $RepoRoot
 
 # ---------------------------------------------------------------------------

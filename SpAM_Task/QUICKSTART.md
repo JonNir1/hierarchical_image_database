@@ -213,9 +213,14 @@ following files and place them in `SpAM_Task/jspsych/`:
 
 1. **Create a Pavlovia project** at [pavlovia.org](https://pavlovia.org) and add it as a
    git remote named `pavlovia`. Then push the `pavlovia_deploy` branch to it using the
-   deploy script (from the repo root, on `main`):
+   deploy script (from anywhere inside the repo, on `main`):
    ```bash
-   bash scripts/deploy_pavlovia.sh
+   # macOS/Linux/Git Bash
+   bash SpAM_Task/scripts/deploy_pavlovia.sh
+   ```
+   ```powershell
+   # Windows PowerShell
+   .\SpAM_Task\scripts\deploy_pavlovia.ps1
    ```
    The script rebuilds `pavlovia_deploy` from `main` and pushes it to Pavlovia. The branch
    ships only `index.html`, `SpAM_Task/`, and `images/` — all other directories are excluded
@@ -244,7 +249,8 @@ following files and place them in `SpAM_Task/jspsych/`:
    "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=XXXXXXXX"
    ```
 5. Commit the updated `task_config.json` to `main`, push to GitHub, then run
-   `bash scripts/deploy_pavlovia.sh` to sync Pavlovia. Re-activate the experiment afterwards.
+   `bash SpAM_Task/scripts/deploy_pavlovia.sh` (or `.\SpAM_Task\scripts\deploy_pavlovia.ps1` on
+   Windows PowerShell) to sync Pavlovia. Re-activate the experiment afterwards.
 
 **Recommended pilot**: run 10–15 participants before launching full data collection. Inspect
 the downloaded CSVs for QC flag rates and check that the MDS output shows sensible structure.

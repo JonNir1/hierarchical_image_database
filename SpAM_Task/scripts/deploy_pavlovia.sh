@@ -2,7 +2,7 @@
 # deploy_pavlovia.sh — Sync pavlovia_deploy with main and push to Pavlovia.
 #
 # Usage (from anywhere inside the repo):
-#   bash scripts/deploy_pavlovia.sh
+#   bash SpAM_Task/scripts/deploy_pavlovia.sh
 #
 # Strategy:
 #   Uses "git checkout main -- ." to sync file content from main WITHOUT
