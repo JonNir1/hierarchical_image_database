@@ -48,7 +48,7 @@ REPO_URL="${REPO_URL:?set REPO_URL to your repo (https with PAT, or git@ ssh)}"
 GIT_REF="${GIT_REF:-main}"
 S3_URI="${S3_URI:?set S3_URI, e.g. s3://my-bucket/spam-simulations/task-v3-isotropic}"
 WORKDIR="${WORKDIR:-$HOME/spam_run}"
-USE_ISOTROPIC="${USE_ISOTROPIC:-true}"   # ground-truth spectrum: true=isotropic bound, false=realistic
+USE_ISOTROPIC="${USE_ISOTROPIC:-false}"   # ground-truth spectrum: true=isotropic bound, false=realistic
 # MDS worker processes. All vCPUs OOM'd a run (each worker holds its own R/smacof process), so
 # default to 2/3 of them.
 N_JOBS="${N_JOBS:-$(( $(nproc) * 2 / 3 ))}"
@@ -71,8 +71,8 @@ cfg = TaskV3SimulationConfig(
     images_per_trial=[20],
     subjects_noise_scale=[0.5, 0.8],
     subjects_noise_df=[1],
-    frac_trials_repeated=[0.0, 0.1, 0.2, 0.3],
-    perspective_dispersion=[0.0, 0.25, 0.5],
+    frac_trials_repeated=[0.0, 0.1, 0.15, 0.2],
+    perspective_dispersion=[0.0, 0.1, 0.25],
     use_isotropic=use_isotropic,         # set per run (see header); False also uses decay/n_clusters
     decay=0.7,
     n_clusters=None,
