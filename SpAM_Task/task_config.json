@@ -8,7 +8,7 @@
   "design": {
     "trials_per_subject":           20,
     "images_per_trial":             20,
-    "frac_trials_repeated":         0.1,
+    "frac_trials_repeated":         0.15,
     "min_trial_repeat_separation":  2
   },
 
