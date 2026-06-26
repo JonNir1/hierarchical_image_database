@@ -16,6 +16,7 @@ import numpy as np
 from SpAM_Simulations.experiment import ExperimentParameters
 from SpAM_Simulations.task_v2_3_experiment import TaskV2_3ExperimentParameters
 from SpAM_Simulations.task_v2_4_experiment import TaskV2_4ExperimentParameters
+from SpAM_Simulations.task_v3_experiment import TaskV3ExperimentParameters
 
 
 @dataclass
@@ -136,6 +137,62 @@ class TaskV2_4SimulationConfig(TaskV2_3SimulationConfig):
                 self.subjects_noise_df,
                 self.frac_images_repeated,
                 self.frac_trials_repeated,
+            )
+        ]
+
+
+@dataclass
+class TaskV3SimulationConfig(SimulationConfig):
+    """``SimulationConfig`` for the task-v3 generative (coordinate-space) model.
+
+    Inherits from the **base** config, not the v2.3/v2.4 ones, because task v3.0 drops the
+    ``frac_images_repeated`` cross-context lever entirely (see ``task_v3_experiment``). Adds:
+
+    * ``frac_trials_repeated`` - swept whole-trial-repeat fraction (test-retest reliability).
+    * ``perspective_dispersion`` - swept dispersion of each subject's per-PC weight vector
+      (between-subject "perspective" disagreement; 0 = everyone shares the ground-truth geometry).
+    * ``use_isotropic`` / ``decay`` / ``n_clusters`` - ground-truth *spectrum* controls, consumed by
+      ``simulation.build_ground_truth_embeddings`` at generation time (not swept). ``use_isotropic``
+      headlines the conservative full-rank case; ``False`` (geometric ``decay``, optional
+      hierarchical ``n_clusters``) is the realistic case.
+
+    The ground truth must be synthetic here (``n_images`` + ``n_dims``); the spectrum controls have
+    no meaning for a supplied ``gt_embeddings``.
+    """
+    frac_trials_repeated: Sequence[float] = field(default_factory=tuple)
+    perspective_dispersion: Sequence[float] = field(default_factory=tuple)
+    use_isotropic: bool = True
+    decay: float = 0.7
+    n_clusters: Optional[int] = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        empty = [name for name in ("frac_trials_repeated", "perspective_dispersion")
+                 if len(getattr(self, name)) == 0]
+        if empty:
+            raise ValueError(f"parameter grid(s) must be non-empty: {empty}")
+        bad = [fr for fr in self.frac_trials_repeated if not (0 <= fr < 1)]
+        if bad:
+            raise ValueError(f"`frac_trials_repeated` values must be in [0, 1), got {bad}")
+        if any(pd < 0 for pd in self.perspective_dispersion):
+            raise ValueError("`perspective_dispersion` values must be non-negative")
+        if not self.uses_random_ground_truth:
+            raise ValueError(
+                "TaskV3SimulationConfig requires synthetic ground truth (n_images + n_dims); the "
+                "spectrum controls (use_isotropic/decay/n_clusters) don't apply to gt_embeddings"
+            )
+
+    def param_grid(self) -> List[TaskV3ExperimentParameters]:
+        return [
+            TaskV3ExperimentParameters(*p)
+            for p in product(
+                self.num_subjects,
+                self.trials_per_subject,
+                self.images_per_trial,
+                self.subjects_noise_scale,
+                self.subjects_noise_df,
+                self.frac_trials_repeated,
+                self.perspective_dispersion,
             )
         ]
 
