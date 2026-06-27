@@ -9,7 +9,7 @@
     "trials_per_subject":           20,
     "images_per_trial":             20,
     "frac_trials_repeated":         0.15,
-    "min_trial_repeat_separation":  2
+    "min_trial_repeat_separation":  3
   },
 
   "catch_trials": {
@@ -43,7 +43,7 @@
   },
 
   "deployment": {
-    "version": "3.0",
+    "version": "3.01",
     "mode": "pilot",
     "debug_shine_variant": "pre",
     "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=C12AB9X4",
