@@ -17,12 +17,13 @@ Usage (from repo root):
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from scipy.stats import gaussian_kde, pearsonr
+from scipy.stats import gaussian_kde, spearmanr
 
 # ---------------------------------------------------------------------------
 # Version colour palette
@@ -117,16 +118,37 @@ def _parse_pairwise(pw_json: str) -> dict[tuple[str, str], float]:
     }
 
 
+def _repeated_pair_distances(df_subject: pd.DataFrame) -> tuple[list[float], list[float]]:
+    """
+    v1/v2 reliability measure: find individual image pairs that incidentally recur
+    across ≥ 2 distinct trials (a side-effect of the old unique_images_per_subject
+    design, where some images were shown in 2 of a subject's trials).
+
+    Returns (d_first, d_second) — lists of paired distance values for test-retest
+    analysis. Pairs observed > 2 times: take first two observations.
+    """
+    pair_obs: dict[tuple[str, str], list[float]] = defaultdict(list)
+    for pw_json in df_subject["pairwise_distances"]:
+        for pair, dist in _parse_pairwise(pw_json).items():
+            pair_obs[pair].append(dist)
+
+    d1, d2 = [], []
+    for obs in pair_obs.values():
+        if len(obs) >= 2:
+            d1.append(obs[0])
+            d2.append(obs[1])
+    return d1, d2
+
+
 def _repeated_trial_distances(df_subject: pd.DataFrame) -> tuple[list[float], list[float]]:
     """
-    For a single subject, match each verbatim trial repeat (is_trial_repeat=True,
-    v3+ only) to its original trial via repeat_of_trial_number, then pair up their
+    v3+ reliability measure: match each verbatim trial repeat (is_trial_repeat=True)
+    to its original trial via repeat_of_trial_number, then pair up their
     per-image-pair distances (image identity, not position, since presentation
     order is reshuffled in the repeat).
 
-    Returns (d_original, d_repeat) — lists of paired distance values for Pearson r
-    / SNR test-retest analysis. Subjects/versions with no trial repeats (e.g. v1, v2)
-    yield two empty lists.
+    Returns (d_original, d_repeat) — lists of paired distance values for test-retest
+    analysis. Subjects/versions with no trial repeats yield two empty lists.
     """
     if "is_trial_repeat" not in df_subject.columns or "repeat_of_trial_number" not in df_subject.columns:
         return [], []
@@ -148,6 +170,19 @@ def _repeated_trial_distances(df_subject: pd.DataFrame) -> tuple[list[float], li
                 d_repeat.append(dist)
 
     return d_orig, d_repeat
+
+
+def _reliability_pair_distances(df_subject: pd.DataFrame) -> tuple[list[float], list[float], str]:
+    """
+    Dispatch to whichever reliability measure has data for this subject:
+    trial repeats (v3+) if present, else incidentally-repeated image pairs (v1/v2).
+    Returns (d1, d2, measure_label).
+    """
+    d1, d2 = _repeated_trial_distances(df_subject)
+    if len(d1) > 0:
+        return d1, d2, "trial repeat"
+    d1, d2 = _repeated_pair_distances(df_subject)
+    return d1, d2, "image repeat"
 
 
 def _sorted_versions(df: pd.DataFrame) -> list[float]:
@@ -477,11 +512,16 @@ def fig_duration_vs_moves(df_trials: pd.DataFrame) -> go.Figure:
 def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
     """
     Subplot A — SNR per subject: σ_d / mean(|Δd|).
-    Subplot B — Within-subject reliability: Pearson r between d1 and d2 of repeated trials.
+    Subplot B — Within-subject reliability: Spearman r between d1 and d2 of repeated
+    image pairs (v1/v2) or repeated trials (v3+).
     Both subplots colour subjects by task_version.
 
-    "Repeated trials" = verbatim whole-trial repeats (is_trial_repeat, v3+ only);
-    subjects/versions without this mechanism (e.g. v1, v2) are omitted.
+    v1/v2 lack the whole-trial-repeat mechanism, so their reliability is measured
+    via individual image pairs that incidentally recur across distinct trials
+    (the old unique_images_per_subject design). v3+ repeats whole trials verbatim
+    instead. Both yield a (d1, d2) pair of matched distances per subject, so SNR
+    and Spearman r are computed identically once that pair is obtained — but the
+    two measures are not strictly comparable in absolute magnitude (see subtitle).
     """
     subjects = sorted(df_trials["participant_id"].unique())
     subj_short = {pid: f"S{i+1:02d}" for i, pid in enumerate(subjects)}
@@ -489,7 +529,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
     records: list[dict] = []
     for pid in subjects:
         df_s = df_trials[df_trials["participant_id"] == pid]
-        d1, d2 = _repeated_trial_distances(df_s)
+        d1, d2, measure = _reliability_pair_distances(df_s)
         if len(d1) == 0:
             continue
 
@@ -507,12 +547,13 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
         snr_hi = sigma_d / (mean_abs_diff - sd_abs_diff) if mean_abs_diff > sd_abs_diff else np.nan
         snr_lo = sigma_d / (mean_abs_diff + sd_abs_diff) if (mean_abs_diff + sd_abs_diff) > 0 else np.nan
 
-        r, _ = pearsonr(d1, d2)
+        r, _ = spearmanr(d1, d2)
         v = float(df_s["task_version"].iloc[0])
         records.append({
             "label":         subj_short[pid],
             "pid":           pid,
             "version":       v,
+            "measure":       measure,
             "snr":           snr,
             "snr_err_plus":  snr_hi - snr if not np.isnan(snr_hi) else 0.0,
             "snr_err_minus": snr - snr_lo if not np.isnan(snr_lo) else 0.0,
@@ -527,7 +568,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
         column_widths=[0.65, 0.35],
         subplot_titles=[
             "Signal-to-noise ratio per subject",
-            "Within-subject reliability (Pearson r)",
+            "Within-subject reliability (Spearman r)",
         ],
     )
 
@@ -555,7 +596,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
                 showlegend=show_leg,
                 name=_vlabel(rec["version"]) if show_leg else None,
                 legendgroup=_vlabel(rec["version"]),
-                hovertemplate=f"<b>{rec['pid']}</b><br>SNR = %{{x:.3f}}<extra></extra>",
+                hovertemplate=f"<b>{rec['pid']}</b><br>SNR = %{{x:.3f}}<br>measure: {rec['measure']}<extra></extra>",
             ),
             row=1, col=1,
         )
@@ -569,6 +610,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
         rs = [rec["r"] for rec in vrecs]
         pids = [rec["pid"] for rec in vrecs]
         labels = [rec["label"] for rec in vrecs]
+        measures = [rec["measure"] for rec in vrecs]
         x_pos = j / max(n_versions - 1, 1) if n_versions > 1 else 0
 
         fig.add_trace(
@@ -596,7 +638,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
                 marker={"color": vc["dot"], "size": 9, "opacity": 0.8},
                 showlegend=False,
                 legendgroup=_vlabel(v),
-                text=[f"{s} ({p})" for s, p in zip(labels, pids)],
+                text=[f"{s} ({p}, {m})" for s, p, m in zip(labels, pids, measures)],
                 hovertemplate="<b>%{text}</b><br>r = %{y:.3f}<extra></extra>",
             ),
             row=1, col=2,
@@ -618,11 +660,17 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
 
     fig.update_xaxes(title_text="SNR = σ_d / mean(|Δd|)", row=1, col=1)
     fig.update_yaxes(title_text="Subject", row=1, col=1)
-    fig.update_yaxes(title_text="Pearson r", row=1, col=2)
+    fig.update_yaxes(title_text="Spearman r", row=1, col=2)
     fig.update_layout(
-        title="Within-subject variability and reliability of repeated trials",
-        height=500,
-        margin={"l": 70, "r": 40, "t": 70, "b": 60},
+        title={
+            "text": (
+                "Within-subject variability and reliability"
+                "<br><sup>v1/v2 use incidentally-repeated image pairs; v3+ uses verbatim trial repeats - "
+                "the two measures are not directly comparable in absolute magnitude.</sup>"
+            ),
+        },
+        height=540,
+        margin={"l": 70, "r": 40, "t": 90, "b": 60},
         showlegend=multi,
     )
     return fig
