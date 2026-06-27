@@ -4,8 +4,9 @@ Loader for SpAM pilot data.
 Usage (from repo root):
     from analysis.pilot.parser import load_pilot_data
     data = load_pilot_data("data/pilot")
-    df_trials = data["trials"]   # one row per experimental trial, completed subjects only
-    df_status = data["status"]   # one row per participant with completion_status
+    df_trials = data["trials"]        # one row per experimental trial, completed subjects only
+    df_status = data["status"]        # one row per participant with completion_status
+    df_catch  = data["catch_trials"]  # one row per catch trial, completed subjects only
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ import pandas as pd
 
 _DEMOGRAPHICS_PREFIX = "participant_demographics"  # matches participant_demographics.csv, participant_demographics_v3.csv, ...
 _EXPERIMENTAL_TRIAL_TYPE_RE = r"^trial_\d+$"
+_CATCH_TRIAL_TYPE_RE = r"^catch_\d+$"
 
 _DEMOGRAPHICS_RENAME = {
     "Submission id": "submission_id",
@@ -67,6 +69,22 @@ _SESSION_KEEP = [
     "repeat_of_trial_number",
 ]
 
+_CATCH_SESSION_KEEP = [
+    "trial_type",
+    "rt",
+    "qc_flag",
+    "shine_variant",
+    "task_version",
+    "deployment_mode",
+    "moves",
+    "pairwise_distances",
+    "final_locations",
+    "catch_trial_target_location",
+    "centroid_x",
+    "centroid_y",
+    "cluster_mean_distance",
+]
+
 _PROLIFIC_SENTINEL = "CONSENT_REVOKED"
 _EXPIRED_SENTINEL = "DATA_EXPIRED"
 
@@ -80,9 +98,10 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
     """
     Load SpAM pilot data from *data_dir*.
 
-    Returns a dict with two keys:
-      "trials"  -- one row per experimental trial per completed participant
-      "status"  -- one row per participant with a completion_status column
+    Returns a dict with three keys:
+      "trials"       -- one row per experimental trial per completed participant
+      "status"       -- one row per participant with a completion_status column
+      "catch_trials" -- one row per catch trial per completed participant (QC validation)
 
     Raises
     ------
@@ -118,6 +137,7 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
 
     status_rows: list[dict] = []
     trial_rows: list[pd.DataFrame] = []
+    catch_rows: list[pd.DataFrame] = []
 
     for _, participant in df_demo.iterrows():
         pid = participant["participant_id"]
@@ -144,6 +164,7 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
 
         df_trials = _load_session_trials(session_path, participant)
         trial_rows.append(df_trials)
+        catch_rows.append(_load_session_catch_trials(session_path, participant))
         status_rows.append({**participant.to_dict(), "completion_status": "completed"})
 
     df_status = pd.DataFrame(status_rows).reset_index(drop=True)
@@ -163,7 +184,14 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
     else:
         df_trials_all = pd.DataFrame()
 
-    return {"trials": df_trials_all, "status": df_status}
+    if catch_rows:
+        df_catch_all = pd.concat(catch_rows, ignore_index=True)
+        if "qc_flag" in df_catch_all.columns:
+            df_catch_all["qc_flag"] = df_catch_all["qc_flag"].astype(bool)
+    else:
+        df_catch_all = pd.DataFrame()
+
+    return {"trials": df_trials_all, "status": df_status, "catch_trials": df_catch_all}
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +278,43 @@ def _load_session_trials(session_path: Path, participant: pd.Series) -> pd.DataF
     df = df[keep].copy()
 
     # Broadcast participant demographics + session filename onto every trial row
+    df["session_file"] = session_path.stem
+    demo_cols = {k: participant[k] for k in participant.index if k not in ("prolific_status",)}
+    for col, val in demo_cols.items():
+        df[col] = val
+
+    return df.reset_index(drop=True)
+
+
+def _load_session_catch_trials(session_path: Path, participant: pd.Series) -> pd.DataFrame:
+    """Catch trials, kept separate from main trials (different schema: target
+    location, centroid, cluster_mean_distance instead of trial_number/n_moves
+    progression fields). Used for validating catch_trials.* QC thresholds.
+    """
+    df = pd.read_csv(session_path)
+
+    canvas_w = int(df["sort_area_width"].iloc[0])
+    canvas_h = int(df["sort_area_height"].iloc[0])
+
+    df = df[df["trial_type"].astype(str).str.match(_CATCH_TRIAL_TYPE_RE)].copy()
+
+    df["catch_number"] = df["trial_type"].str.extract(r"catch_(\d+)").astype(int)
+    df["n_moves"] = df["moves"].apply(_count_moves).astype(int)
+    df["rt"] = pd.to_numeric(df["rt"], errors="coerce")
+    if "qc_flag" in df.columns:
+        df["qc_flag"] = df["qc_flag"].isin([True, "true", "True", 1])
+
+    for col in ("final_locations", "moves"):
+        if col in df.columns:
+            df[col] = df[col].apply(lambda s: _normalise_locations(s, canvas_w, canvas_h))
+
+    keep = [c for c in _CATCH_SESSION_KEEP + ["catch_number", "n_moves"] if c in df.columns]
+    df = df[keep].copy()
+
+    # Canvas size kept (unlike main trials) -- needed to recompute the
+    # location_tolerance check, which is not a stored field.
+    df["sort_area_width"] = canvas_w
+    df["sort_area_height"] = canvas_h
     df["session_file"] = session_path.stem
     demo_cols = {k: participant[k] for k in participant.index if k not in ("prolific_status",)}
     for col, val in demo_cols.items():
