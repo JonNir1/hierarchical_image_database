@@ -17,7 +17,6 @@ Usage (from repo root):
 from __future__ import annotations
 
 import json
-from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -45,6 +44,14 @@ _VERSION_PALETTE: dict[float, dict[str, str]] = {
         "subj":         "rgba(220,80,60,0.2)",
         "dot":          "rgba(160,40,30,0.9)",
         "dot_err":      "rgba(160,40,30,0.6)",
+    },
+    3.0: {
+        "main":         "#1e7a45",
+        "violin":       "rgba(46,160,90,0.35)",
+        "violin_line":  "rgba(46,160,90,0.9)",
+        "subj":         "rgba(46,160,90,0.2)",
+        "dot":          "rgba(20,110,60,0.9)",
+        "dot_err":      "rgba(20,110,60,0.6)",
     },
 }
 
@@ -110,23 +117,37 @@ def _parse_pairwise(pw_json: str) -> dict[tuple[str, str], float]:
     }
 
 
-def _repeated_pair_distances(df_subject: pd.DataFrame) -> tuple[list[float], list[float]]:
+def _repeated_trial_distances(df_subject: pd.DataFrame) -> tuple[list[float], list[float]]:
     """
-    For a single subject's trials, find pairs observed in ≥ 2 trials.
-    Returns (d_first, d_second) — lists of paired distance values for Pearson r.
-    Pairs observed > 2 times: take first two observations.
-    """
-    pair_obs: dict[tuple[str, str], list[float]] = defaultdict(list)
-    for pw_json in df_subject["pairwise_distances"]:
-        for pair, dist in _parse_pairwise(pw_json).items():
-            pair_obs[pair].append(dist)
+    For a single subject, match each verbatim trial repeat (is_trial_repeat=True,
+    v3+ only) to its original trial via repeat_of_trial_number, then pair up their
+    per-image-pair distances (image identity, not position, since presentation
+    order is reshuffled in the repeat).
 
-    d1, d2 = [], []
-    for obs in pair_obs.values():
-        if len(obs) >= 2:
-            d1.append(obs[0])
-            d2.append(obs[1])
-    return d1, d2
+    Returns (d_original, d_repeat) — lists of paired distance values for Pearson r
+    / SNR test-retest analysis. Subjects/versions with no trial repeats (e.g. v1, v2)
+    yield two empty lists.
+    """
+    if "is_trial_repeat" not in df_subject.columns or "repeat_of_trial_number" not in df_subject.columns:
+        return [], []
+
+    pw_by_trial_number = dict(zip(df_subject["trial_number"], df_subject["pairwise_distances"]))
+
+    d_orig: list[float] = []
+    d_repeat: list[float] = []
+    repeats = df_subject[df_subject["is_trial_repeat"] & df_subject["repeat_of_trial_number"].notna()]
+    for _, row in repeats.iterrows():
+        orig_pw_json = pw_by_trial_number.get(int(row["repeat_of_trial_number"]))
+        if orig_pw_json is None:
+            continue
+        orig_dists = _parse_pairwise(orig_pw_json)
+        repeat_dists = _parse_pairwise(row["pairwise_distances"])
+        for pair, dist in repeat_dists.items():
+            if pair in orig_dists:
+                d_orig.append(orig_dists[pair])
+                d_repeat.append(dist)
+
+    return d_orig, d_repeat
 
 
 def _sorted_versions(df: pd.DataFrame) -> list[float]:
@@ -456,8 +477,11 @@ def fig_duration_vs_moves(df_trials: pd.DataFrame) -> go.Figure:
 def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
     """
     Subplot A — SNR per subject: σ_d / mean(|Δd|).
-    Subplot B — Within-subject reliability: Pearson r between d1 and d2 of repeated pairs.
+    Subplot B — Within-subject reliability: Pearson r between d1 and d2 of repeated trials.
     Both subplots colour subjects by task_version.
+
+    "Repeated trials" = verbatim whole-trial repeats (is_trial_repeat, v3+ only);
+    subjects/versions without this mechanism (e.g. v1, v2) are omitted.
     """
     subjects = sorted(df_trials["participant_id"].unique())
     subj_short = {pid: f"S{i+1:02d}" for i, pid in enumerate(subjects)}
@@ -465,7 +489,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
     records: list[dict] = []
     for pid in subjects:
         df_s = df_trials[df_trials["participant_id"] == pid]
-        d1, d2 = _repeated_pair_distances(df_s)
+        d1, d2 = _repeated_trial_distances(df_s)
         if len(d1) == 0:
             continue
 
@@ -596,7 +620,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
     fig.update_yaxes(title_text="Subject", row=1, col=1)
     fig.update_yaxes(title_text="Pearson r", row=1, col=2)
     fig.update_layout(
-        title="Within-subject variability and reliability of repeated pairs",
+        title="Within-subject variability and reliability of repeated trials",
         height=500,
         margin={"l": 70, "r": 40, "t": 70, "b": 60},
         showlegend=multi,
