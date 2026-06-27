@@ -22,8 +22,8 @@ import pandas as pd
 # Constants
 # ---------------------------------------------------------------------------
 
-_DEMOGRAPHICS_FILE = "participant_demographics.csv"
-_EXPERIMENTAL_TRIAL_TYPES = {f"trial_{i}" for i in range(1, 11)}
+_DEMOGRAPHICS_PREFIX = "participant_demographics"  # matches participant_demographics.csv, participant_demographics_v3.csv, ...
+_EXPERIMENTAL_TRIAL_TYPE_RE = r"^trial_\d+$"
 
 _DEMOGRAPHICS_RENAME = {
     "Submission id": "submission_id",
@@ -63,6 +63,8 @@ _SESSION_KEEP = [
     "pairwise_distances",
     "final_locations",
     "init_locations",
+    "is_trial_repeat",
+    "repeat_of_trial_index",
 ]
 
 _PROLIFIC_SENTINEL = "CONSENT_REVOKED"
@@ -97,11 +99,21 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
     if not data_dir.is_dir():
         raise NotADirectoryError(f"Path is not a directory: {data_dir}")
 
-    demo_path = data_dir / _DEMOGRAPHICS_FILE
-    if not demo_path.exists():
-        raise FileNotFoundError(f"Demographics file not found: {demo_path}")
+    demo_paths = sorted(data_dir.glob(f"{_DEMOGRAPHICS_PREFIX}*.csv"))
+    if not demo_paths:
+        raise FileNotFoundError(
+            f"No demographics file found in: {data_dir} (expected {_DEMOGRAPHICS_PREFIX}*.csv)"
+        )
 
-    df_demo = _load_demographics(demo_path)
+    df_demo = pd.concat([_load_demographics(p) for p in demo_paths], ignore_index=True)
+    dup_pids = df_demo["participant_id"][df_demo["participant_id"].duplicated()]
+    if not dup_pids.empty:
+        warnings.warn(
+            f"Duplicate participant_id(s) across demographics files: {sorted(set(dup_pids))}",
+            UserWarning,
+            stacklevel=2,
+        )
+
     session_files = _index_session_files(data_dir)
 
     status_rows: list[dict] = []
@@ -141,6 +153,13 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
         # bool columns can upcast to object after concat; re-cast explicitly
         if "qc_flag" in df_trials_all.columns:
             df_trials_all["qc_flag"] = df_trials_all["qc_flag"].astype(bool)
+        if "is_trial_repeat" in df_trials_all.columns:
+            # absent entirely for v1/v2 sessions (no trial-repeat mechanism) -> False
+            df_trials_all["is_trial_repeat"] = df_trials_all["is_trial_repeat"].fillna(False).astype(bool)
+        if "repeat_of_trial_index" in df_trials_all.columns:
+            df_trials_all["repeat_of_trial_index"] = pd.to_numeric(
+                df_trials_all["repeat_of_trial_index"], errors="coerce"
+            )
     else:
         df_trials_all = pd.DataFrame()
 
@@ -173,7 +192,7 @@ def _index_session_files(data_dir: Path) -> dict[str, Path]:
     """
     index: dict[str, Path] = {}
     for csv_path in data_dir.glob("*.csv"):
-        if csv_path.name == _DEMOGRAPHICS_FILE:
+        if csv_path.stem.startswith(_DEMOGRAPHICS_PREFIX):
             continue
         try:
             # Read only the first data row to extract participant_id cheaply
@@ -192,15 +211,16 @@ def _load_session_trials(session_path: Path, participant: pd.Series) -> pd.DataF
     canvas_w = int(df["sort_area_width"].iloc[0])
     canvas_h = int(df["sort_area_height"].iloc[0])
 
-    df = df[df["trial_type"].isin(_EXPERIMENTAL_TRIAL_TYPES)].copy()
+    df = df[df["trial_type"].astype(str).str.match(_EXPERIMENTAL_TRIAL_TYPE_RE)].copy()
 
     # Derived columns
     df["trial_number"] = df["trial_type"].str.extract(r"trial_(\d+)").astype(int)
     df["n_moves"] = df["moves"].apply(_count_moves).astype(int)
     df["rt"] = pd.to_numeric(df["rt"], errors="coerce")
-    # qc_flag is written by JS as lowercase "true"/"false" strings; .isin gives numpy bool dtype
-    if "qc_flag" in df.columns:
-        df["qc_flag"] = df["qc_flag"].isin([True, "true", "True", 1])
+    # qc_flag / is_trial_repeat are written by JS as lowercase "true"/"false" strings
+    for bool_col in ("qc_flag", "is_trial_repeat"):
+        if bool_col in df.columns:
+            df[bool_col] = df[bool_col].isin([True, "true", "True", 1])
 
     # Normalise all pixel x/y coordinates to [0, 1] using this session's canvas
     # size, so coordinates are screen-independent. sort_area is not kept.
