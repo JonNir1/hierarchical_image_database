@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+#
+# Provision an EC2 instance and run the task-v3 PILOT CALIBRATION end to end (weighted-SMACOF ground
+# truth from the pooled pilot + the noise/perspective fit from the v3.0 subjects), logging the output
+# and uploading it - plus the fitted parameters and the pilot ground-truth coordinates - to S3.
+#
+# This is the calibration counterpart of the sweep scripts (run_task_v3_sim.sh etc.); it sources the
+# same prepare_machine.sh (installs R + smacof + a minimal Python env, sparse-checks-out
+# SpAM_Simulations/, and defines upload_and_finish). The HEAVY convergence sweep is a separate step -
+# feed the GT + params this produces into run_task_v3_sim.sh's config (see README "Calibrating to
+# pilot data").
+#
+# !! DATA POLICY !! The pilot CSVs are human-subjects data. They are gitignored and are NEVER in the
+# repo clone, so this script pulls them (and the stimuli manifest) from a PRIVATE S3 prefix you
+# control (PILOT_S3_URI). The raw CSVs are deleted from the instance at exit; the uploaded outputs
+# (log, fitted scalar params, aggregate GT embedding) are pilot-DERIVED - keep S3_URI private too.
+#
+# Prerequisites
+#   * The commit/branch is PUSHED to the remote (this clones from it).
+#   * You have uploaded the pilot data to a PRIVATE S3 prefix, containing BOTH:
+#       - the per-session CSVs  (e.g. data/pilot/*.csv)
+#       - stimuli_manifest.json (the 725-image manifest; gitignored, so not in the repo)
+#     e.g.:  aws s3 cp data/pilot/                 s3://<bkt>/spam-pilot/ --recursive
+#            aws s3 cp SpAM_Task/stimuli_manifest.json s3://<bkt>/spam-pilot/
+#   * S3 access via an instance IAM role (preferred) or `aws configure`.
+#
+# Usage:
+#   export REPO_URL=https://github.com/<you>/hierarchical_image_database.git
+#   export GIT_REF=main
+#   export PILOT_S3_URI=s3://<your-bucket>/spam-pilot           # PRIVATE; holds CSVs + manifest
+#   export S3_URI=s3://<your-bucket>/spam-simulations/task-v3   # PRIVATE; outputs go to <S3_URI>/calibration/
+#   bash run_calibrate_to_pilot.sh
+#
+# Calibration is light (one weighted MDS + a few hundred 11-subject sims); a small instance is fine.
+# REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
+
+set -euo pipefail
+
+# --------------------------------------------------------------------------- configuration
+REPO_URL="${REPO_URL:?set REPO_URL to your repo (https with PAT, or git@ ssh)}"
+GIT_REF="${GIT_REF:-main}"
+S3_URI="${S3_URI:?set S3_URI (PRIVATE), e.g. s3://my-bucket/spam-simulations/task-v3}"
+PILOT_S3_URI="${PILOT_S3_URI:?set PILOT_S3_URI (PRIVATE), the prefix holding data/pilot/*.csv + stimuli_manifest.json}"
+GT_METHOD="${GT_METHOD:-smacof}"   # 'smacof' (needs R, canonical) or 'classical' (no-R, provisional)
+REPS="${REPS:-5}"                  # cohorts averaged per simulated calibration point
+WORKDIR="${WORKDIR:-$HOME/spam_run}"
+N_JOBS="${N_JOBS:-$(( $(nproc) * 2 / 3 ))}"   # unused by calibration; kept for the prepare_machine contract
+export R_LIBS_USER="${R_LIBS_USER:-$HOME/R/library}"
+
+# shellcheck disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/prepare_machine.sh"
+# prepare_machine.sh leaves us in $WORKDIR/repo with the venv active, PYTHONPATH set, and out/ created.
+
+# Human-subjects data must never be left on the box - remove it on ANY exit (success or failure).
+PILOT_LOCAL="$PWD/pilot_data"
+trap 'rm -rf "$PILOT_LOCAL"' EXIT
+
+# --------------------------------------------------------------------------- fetch pilot data
+echo ">> downloading pilot data + manifest from $PILOT_S3_URI ..."
+mkdir -p "$PILOT_LOCAL"
+aws s3 sync "$PILOT_S3_URI" "$PILOT_LOCAL/" --only-show-errors
+test -f "$PILOT_LOCAL/stimuli_manifest.json" || {
+  echo "!! stimuli_manifest.json not found under $PILOT_S3_URI - upload it alongside the CSVs"; exit 1; }
+
+# --------------------------------------------------------------------------- calibrate
+echo ">> running calibration (gt-method=$GT_METHOD, reps=$REPS) ..."
+python -m SpAM_Simulations.calibrate_to_pilot \
+  --pilot-dir "$PILOT_LOCAL" \
+  --manifest "$PILOT_LOCAL/stimuli_manifest.json" \
+  --gt-method "$GT_METHOD" \
+  --reps "$REPS" \
+  --save-gt out/gt_pilot_coords.npy \
+  --save-params out/calibrated_params.json \
+  2>&1 | tee out/calibrate.log
+
+# --------------------------------------------------------------------------- upload + wrap-up
+echo ">> uploading calibration outputs to $S3_URI/calibration/ ..."
+aws s3 sync out/ "$S3_URI/calibration/" --only-show-errors   # calibrate.log + calibrated_params.json + gt_pilot_coords.npy
+
+echo ">> ALL DONE. Calibration outputs at $S3_URI/calibration/"
+echo ">>   calibrate.log            - full run log (targets, fitted params, sweep snippet)"
+echo ">>   calibrated_params.json   - {subjects_noise_scale, perspective_dispersion, n_dims, ...}"
+echo ">>   gt_pilot_coords.npy      - pilot ground-truth embedding (feed into the convergence sweep)"
+echo ">> Raw pilot CSVs removed from this instance. Keep S3_URI/PILOT_S3_URI PRIVATE (pilot-derived)."
+echo ">> !! TERMINATE THIS EC2 INSTANCE NOW to stop incurring charges !!"

@@ -29,6 +29,7 @@ under different sampling/noise regimes.
 | `evaluation_task_v2_4.ipynb` | Plotting / analysis notebook for the task-v2.4 simulation (adds the test-retest reliability panel). |
 | `evaluate_simulation.ipynb` | Read-only overview/drill-down figures for an already-completed **task-v3** run (incl. the plateau-N required-subjects readout), via `eval_helpers.py`. v3-only; older runs use the `evaluation*.ipynb` notebooks above. |
 | `ec2/prepare_machine.sh`, `ec2/run_task_v0_1_sim.sh`, `ec2/run_task_v2_3_sim.sh`, `ec2/run_task_v2_4_sim.sh`, `ec2/run_task_v3_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
+| `ec2/run_calibrate_to_pilot.sh` | EC2 entrypoint that runs the pilot calibration end-to-end (bootstrap -> fetch private pilot data -> fit -> log + params + GT uploaded to S3). See "Calibrating + sweeping on EC2". |
 | `sim_results/<run-name>/` | Local copy of a completed run's small files (`out/*.csv`, `mds_store/meta.csv`) downloaded from S3, e.g. `sim_results/task-v2.3/` - gitignored, consumed by `eval_helpers.py`/`evaluate_simulation.ipynb`. |
 
 ## Quick start
@@ -105,39 +106,47 @@ fit = pilot.calibrate(coords, v3)                              # -> {subjects_no
 > Pilot-derived artifacts (the aggregate RDM, the GT `coords`) are equally local - save them only to
 > gitignored paths.
 
-### Running the calibrated convergence sweep on EC2
+### Calibrating + sweeping on EC2
 
-Calibration itself is light (one weighted MDS + a few hundred 11-subject sims) and runs locally in
-minutes. Only the **sweep** (step D - hundreds of MDS fits across the `num_subjects` grid) wants EC2,
-exactly like `run_task_v3_sim.sh`. Because the GT is pilot-derived it cannot live in the repo, so copy
-it to the instance with `scp` (not git):
-
+**Step 1 - one-time: stage the pilot data in a PRIVATE bucket.** The pilot CSVs (human-subjects data)
+and the manifest are gitignored, so they are never in the repo clone - the calibration entrypoint
+pulls them from a private S3 prefix you control:
 ```bash
-# 1) LOCALLY: calibrate, then save the GT coords to a gitignored file
-python -m SpAM_Simulations.calibrate_to_pilot --gt-method smacof      # note the printed noise/dispersion/n_dims
-python - <<'PY'
-import numpy as np
-from SpAM_Simulations import pilot
-subs = pilot.load_pilot_subjects("data/pilot", "SpAM_Task/stimuli_manifest.json")
-coords, info = pilot.build_gt_from_pilot(subs, method="smacof")
-np.save("gt_pilot_coords.npy", coords); print("saved", coords.shape, "n_dims", info["n_dims"])
-PY
+aws s3 cp data/pilot/                     s3://<bkt>/spam-pilot/ --recursive   # session CSVs
+aws s3 cp SpAM_Task/stimuli_manifest.json s3://<bkt>/spam-pilot/               # the 725-image manifest
+```
 
-# 2) provision the instance and copy the GT over (see the cookbook below for $KEY_PATH/$PUBLIC_DNS)
-scp -i "$KEY_PATH" gt_pilot_coords.npy ubuntu@"$PUBLIC_DNS":~/spam_run/
+**Step 2 - calibrate on EC2** with the dedicated entrypoint `ec2/run_calibrate_to_pilot.sh` (it
+bootstraps via `prepare_machine.sh`, fits the parameters, tees the output to a log, and uploads the
+log + fitted params + pilot GT to `<S3_URI>/calibration/`; the raw CSVs are deleted from the box at
+exit). On a freshly-allocated instance (see the allocate cookbook above for SSH):
+```bash
+export REPO_URL=https://github.com/<you>/hierarchical_image_database.git
+export GIT_REF=main
+export PILOT_S3_URI=s3://<bkt>/spam-pilot                     # PRIVATE: CSVs + manifest
+export S3_URI=s3://<bkt>/spam-simulations/task-v3            # PRIVATE: outputs -> <S3_URI>/calibration/
+bash run_calibrate_to_pilot.sh 2>&1 | tee calibrate_run.log
+# (override GT_METHOD=classical for a no-R provisional fit, or REPS=N to average more cohorts)
+```
+This writes `calibration/{calibrate.log, calibrated_params.json, gt_pilot_coords.npy}` to S3. Calibration
+is light, so a small instance is fine - **terminate it when it finishes.**
 
-# 3) ON THE INSTANCE (R already installed by prepare_machine.sh): run the calibrated sweep
+**Step 3 - run the calibrated convergence sweep** (the heavy step - use a many-core instance, as for
+`run_task_v3_sim.sh`). Pull the two artifacts from step 2 and feed them through the normal pipeline:
+```bash
+aws s3 cp $S3_URI/calibration/gt_pilot_coords.npy   .
+aws s3 cp $S3_URI/calibration/calibrated_params.json .
 N_JOBS=$(( $(nproc) * 2 / 3 )) python - <<'PY'
-import os, numpy as np
+import os, json, numpy as np
 from SpAM_Simulations.config import TaskV3SimulationConfig, MDSSweepConfig
 from SpAM_Simulations import pipeline, eval_helpers
-coords = np.load(os.path.expanduser("~/spam_run/gt_pilot_coords.npy"))
+p = json.load(open("calibrated_params.json"))
 cfg = TaskV3SimulationConfig(
-    gt_embeddings=coords,                                  # the calibrated pilot GT
+    gt_embeddings=np.load("gt_pilot_coords.npy"),          # the calibrated pilot GT
     num_subjects=[20, 50, 100, 200, 350, 500],
     trials_per_subject=[20], images_per_trial=[20],
-    subjects_noise_scale=[<FITTED_NOISE>], subjects_noise_df=[1],   # <- from step 1's output
-    frac_trials_repeated=[0.15], perspective_dispersion=[<FITTED_DISPERSION>],
+    subjects_noise_scale=[p["subjects_noise_scale"]], subjects_noise_df=[1],
+    frac_trials_repeated=[0.15], perspective_dispersion=[p["perspective_dispersion"]],
     reps=5, seed=42,
 )
 sim   = pipeline.generate_task_v3_simulation(cfg)
@@ -147,13 +156,8 @@ es = pipeline.compute_embedding_stability(store)
 es.to_csv("out/embedding_stability.csv", index=False)
 print(eval_helpers.plateau_num_subjects(es))              # required-N per ndim
 PY
-# then upload out/ to S3 and TERMINATE the instance (cookbook below). Delete gt_pilot_coords.npy from
-# the instance afterwards - it is pilot-derived.
+# then upload out/ + mds_store/ to S3 and TERMINATE. Keep both buckets PRIVATE (pilot-derived).
 ```
-
-> Alternatively run the *whole* calibration on EC2 by `scp -r data/pilot ubuntu@$PUBLIC_DNS:~/spam_run/data/pilot`
-> first - but that puts raw human-subjects data on the cloud box; prefer calibrating locally and
-> copying only the derived GT. Either way, terminate the instance and remove the copied data when done.
 
 ## Running with R (rpy2 + smacof)
 

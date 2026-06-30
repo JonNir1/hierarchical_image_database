@@ -24,6 +24,7 @@ Reads only; writes nothing (pilot data and pilot-derived artifacts stay local).
 from __future__ import annotations
 
 import argparse
+import json
 
 import numpy as np
 
@@ -38,6 +39,10 @@ def main() -> None:
                     help="GT embedding solver; 'classical' is a no-R provisional fallback")
     ap.add_argument("--n-dims", type=int, default=None, help="override GT dimensionality")
     ap.add_argument("--reps", type=int, default=5, help="cohorts averaged per simulated point")
+    ap.add_argument("--save-gt", default=None,
+                    help="if set, np.save the pilot GT coordinates here (e.g. out/gt_pilot_coords.npy)")
+    ap.add_argument("--save-params", default=None,
+                    help="if set, write the fitted parameters as JSON here (e.g. out/calibrated_params.json)")
     args = ap.parse_args()
 
     # --- load -------------------------------------------------------------------------------
@@ -70,6 +75,15 @@ def main() -> None:
     print(f"  perspective_dispersion = {fit['perspective_dispersion']:.3f}  "
           f"(sim agreement {fit['simulated_between_agreement']:.3f} vs pilot {fit['pilot_between_agreement']:.3f})")
     print(f"  subjects_noise_df      = {fit['subjects_noise_df']}   |   n_dims = {info['n_dims']}")
+
+    # --- optional artifacts (for the downstream sweep) --------------------------------------
+    if args.save_gt:
+        np.save(args.save_gt, coords)
+        print(f"[save] GT coordinates -> {args.save_gt}  {coords.shape}")
+    if args.save_params:
+        with open(args.save_params, "w", encoding="utf-8") as fh:
+            json.dump({**fit, "n_dims": info["n_dims"], "gt_method": args.gt_method}, fh, indent=2)
+        print(f"[save] fitted parameters -> {args.save_params}")
 
     # --- D. ready-to-run convergence sweep --------------------------------------------------
     print("\n=== NEXT: calibrated convergence sweep (needs R) ===")
