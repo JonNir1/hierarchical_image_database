@@ -21,8 +21,7 @@
 #     $S3_URI/calibration/  <- OUTPUT this script writes: calibrate.log, calibrated_params.json, gt_pilot_coords.npy
 #     $S3_URI/out/          <- OUTPUT the convergence sweep writes (run_task_v3_sim.sh)
 #     $S3_URI/mds_store/
-# So there is no separate pilot URI to manage - the pilot data is found at $S3_URI/data/pilot/ by
-# default (override with PILOT_S3_URI only if your pilot data lives elsewhere).
+# So there is no separate pilot URI to manage - the pilot data is always read from $S3_URI/data/pilot/.
 #
 # Prerequisites
 #   * The commit/branch is PUSHED to the remote (this clones from it).
@@ -48,9 +47,8 @@ set -euo pipefail
 REPO_URL="${REPO_URL:?set REPO_URL to your repo (https with PAT, or git@ ssh)}"
 GIT_REF="${GIT_REF:-main}"
 S3_URI="${S3_URI:?set S3_URI (PRIVATE), e.g. s3://my-bucket/spam-simulations/task-v3}"
-# Pilot data lives at $S3_URI/data/pilot/ by convention (mirrors the local repo layout); override only
-# if it lives elsewhere.
-PILOT_S3_URI="${PILOT_S3_URI:-$S3_URI/data/pilot}"
+# Pilot data lives at $S3_URI/data/pilot/ by convention (mirrors the local repo layout).
+PILOT_S3_URI="$S3_URI/data/pilot"
 GT_METHOD="${GT_METHOD:-smacof}"   # 'smacof' (needs R, canonical) or 'classical' (no-R, provisional)
 REPS="${REPS:-5}"                  # cohorts averaged per simulated calibration point
 WORKDIR="${WORKDIR:-$HOME/spam_run}"
@@ -91,5 +89,5 @@ echo ">> ALL DONE. Calibration outputs at $S3_URI/calibration/"
 echo ">>   calibrate.log            - full run log (targets, fitted params, sweep snippet)"
 echo ">>   calibrated_params.json   - {subjects_noise_scale, perspective_dispersion, n_dims, ...}"
 echo ">>   gt_pilot_coords.npy      - pilot ground-truth embedding (feed into the convergence sweep)"
-echo ">> Raw pilot CSVs removed from this instance. Keep S3_URI/PILOT_S3_URI PRIVATE (pilot-derived)."
+echo ">> Raw pilot CSVs removed from this instance. Keep the $S3_URI prefix PRIVATE (pilot-derived)."
 echo ">> !! TERMINATE THIS EC2 INSTANCE NOW to stop incurring charges !!"
