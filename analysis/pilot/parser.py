@@ -344,3 +344,22 @@ def _count_moves(moves_json: str) -> int:
         return len(json.loads(moves_json))
     except (json.JSONDecodeError, TypeError):
         return 0
+
+
+# ---------------------------------------------------------------------------
+# Public parsing helpers (shared across figures.py and analysis notebooks)
+# ---------------------------------------------------------------------------
+
+
+def parse_pairwise_distances(pw_json: str) -> dict[tuple[str, str], float]:
+    """Parse one trial's pairwise_distances JSON into {sorted_image_pair: distance}."""
+    if pd.isna(pw_json) or pw_json == "":
+        return {}
+    try:
+        items = json.loads(pw_json)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return {
+        tuple(sorted([item["src1"], item["src2"]])): item["distance"]
+        for item in items
+    }

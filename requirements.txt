@@ -24,6 +24,7 @@ scikit-image>=0.26
 tqdm>=4.67
 opencv-python>=4.13
 joblib>=1.4          # SpAM_Simulations parallel MDS sweep (needs return_as= streaming)
+statsmodels>=0.14    # analysis/pilot multiple-comparison correction (multipletests)
 
 # Notebook / interactive
 jupyter

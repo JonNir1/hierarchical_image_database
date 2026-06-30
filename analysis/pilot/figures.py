@@ -25,6 +25,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.stats import gaussian_kde, ks_2samp, spearmanr
 
+from analysis.pilot.parser import parse_pairwise_distances
+
 # ---------------------------------------------------------------------------
 # Version colour palette
 # ---------------------------------------------------------------------------
@@ -104,20 +106,6 @@ def _subject_se(df: pd.DataFrame, col: str) -> pd.DataFrame:
     )
 
 
-def _parse_pairwise(pw_json: str) -> dict[tuple[str, str], float]:
-    """Parse one trial's pairwise_distances JSON into {sorted_pair: distance}."""
-    if pd.isna(pw_json) or pw_json == "":
-        return {}
-    try:
-        items = json.loads(pw_json)
-    except (json.JSONDecodeError, TypeError):
-        return {}
-    return {
-        tuple(sorted([item["src1"], item["src2"]])): item["distance"]
-        for item in items
-    }
-
-
 def _repeated_pair_distances(df_subject: pd.DataFrame) -> tuple[list[float], list[float]]:
     """
     v1/v2 reliability measure: find individual image pairs that incidentally recur
@@ -129,7 +117,7 @@ def _repeated_pair_distances(df_subject: pd.DataFrame) -> tuple[list[float], lis
     """
     pair_obs: dict[tuple[str, str], list[float]] = defaultdict(list)
     for pw_json in df_subject["pairwise_distances"]:
-        for pair, dist in _parse_pairwise(pw_json).items():
+        for pair, dist in parse_pairwise_distances(pw_json).items():
             pair_obs[pair].append(dist)
 
     d1, d2 = [], []
@@ -162,8 +150,8 @@ def _repeated_trial_distances(df_subject: pd.DataFrame) -> tuple[list[float], li
         orig_pw_json = pw_by_trial_number.get(int(row["repeat_of_trial_number"]))
         if orig_pw_json is None:
             continue
-        orig_dists = _parse_pairwise(orig_pw_json)
-        repeat_dists = _parse_pairwise(row["pairwise_distances"])
+        orig_dists = parse_pairwise_distances(orig_pw_json)
+        repeat_dists = parse_pairwise_distances(row["pairwise_distances"])
         for pair, dist in repeat_dists.items():
             if pair in orig_dists:
                 d_orig.append(orig_dists[pair])
@@ -536,7 +524,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
         all_dists = [
             dist
             for pw_json in df_s["pairwise_distances"]
-            for dist in _parse_pairwise(pw_json).values()
+            for dist in parse_pairwise_distances(pw_json).values()
         ]
         sigma_d = float(np.std(all_dists)) if len(all_dists) > 1 else 1.0
 
@@ -955,7 +943,7 @@ def fig_pairwise_distance_distribution(
         dists = [
             dist
             for pw_json in vdf["pairwise_distances"]
-            for dist in _parse_pairwise(pw_json).values()
+            for dist in parse_pairwise_distances(pw_json).values()
         ]
         version_dists[v] = dists
         total_obs += len(dists)
@@ -1066,6 +1054,16 @@ def fig_pairwise_distance_distribution(
 # ---------------------------------------------------------------------------
 
 
+def trial_ks_distance(pw_json: str, null_distribution: np.ndarray) -> float:
+    """KS D statistic of one trial's pairwise distances against a null distribution.
+    Shared by fig_ks_distance_per_subject and the notebook's KS-vs-null cohort test."""
+    dists = list(parse_pairwise_distances(pw_json).values())
+    if len(dists) < 2:
+        return np.nan
+    D, _ = ks_2samp(dists, null_distribution)
+    return D
+
+
 def fig_ks_distance_per_subject(
     df_trials: pd.DataFrame,
     null_distribution: np.ndarray,
@@ -1083,14 +1081,9 @@ def fig_ks_distance_per_subject(
     multi = len(versions) > 1
     fig = go.Figure()
 
-    def _trial_ks_D(pw_json):
-        dists = list(_parse_pairwise(pw_json).values())
-        if len(dists) < 2:
-            return np.nan
-        D, _ = ks_2samp(dists, null_distribution)
-        return D
-
-    df_ks = df_trials.assign(ks_D=df_trials["pairwise_distances"].apply(_trial_ks_D))
+    df_ks = df_trials.assign(
+        ks_D=df_trials["pairwise_distances"].apply(trial_ks_distance, null_distribution=null_distribution)
+    )
 
     for i, v in enumerate(versions):
         vc = _vc(v)
