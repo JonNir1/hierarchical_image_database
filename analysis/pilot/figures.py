@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from scipy.stats import gaussian_kde, spearmanr
+from scipy.stats import gaussian_kde, ks_2samp, spearmanr
 
 # ---------------------------------------------------------------------------
 # Version colour palette
@@ -1058,4 +1058,86 @@ def fig_pairwise_distance_distribution(
             showlegend=True,
         )
 
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Fig D — KS distance from null per subject (horizontal violin + dots ± SE)
+# ---------------------------------------------------------------------------
+
+
+def fig_ks_distance_per_subject(
+    df_trials: pd.DataFrame,
+    null_distribution: np.ndarray,
+) -> go.Figure:
+    """
+    Per-trial KS distance (D statistic) of pairwise distances against the
+    random-placement null, shown per subject -- same layout as
+    fig_trial_duration_per_subject / fig_moves_per_subject.
+
+    Violin: distribution of per-trial D values for each cohort.
+    Dots: per-subject mean D, with error bars = SE across that subject's
+    trials (between-trial, within-subject standard error).
+    """
+    versions = _sorted_versions(df_trials)
+    multi = len(versions) > 1
+    fig = go.Figure()
+
+    def _trial_ks_D(pw_json):
+        dists = list(_parse_pairwise(pw_json).values())
+        if len(dists) < 2:
+            return np.nan
+        D, _ = ks_2samp(dists, null_distribution)
+        return D
+
+    df_ks = df_trials.assign(ks_D=df_trials["pairwise_distances"].apply(_trial_ks_D))
+
+    for i, v in enumerate(versions):
+        vc = _vc(v)
+        vdf = df_ks[df_ks["task_version"] == v]
+        stats = _subject_se(vdf, "ks_D")
+        stats = stats.sort_values("mean").reset_index(drop=True)
+        y_dots = i + np.linspace(-0.15, 0.15, len(stats))
+
+        fig.add_trace(go.Violin(
+            x=vdf["ks_D"],
+            y0=i,
+            orientation="h",
+            side="both",
+            fillcolor=vc["violin"],
+            line_color=vc["violin_line"],
+            name=_vlabel(v),
+            showlegend=multi,
+            width=0.6,
+            points=False,
+        ))
+        fig.add_trace(go.Scatter(
+            x=stats["mean"],
+            y=y_dots.tolist(),
+            mode="markers",
+            marker={"color": vc["dot"], "size": 8, "symbol": "circle"},
+            error_x={"type": "data", "array": stats["se"].tolist(), "visible": True,
+                     "color": vc["dot_err"], "thickness": 1.5, "width": 4},
+            showlegend=False,
+            name=f"{_vlabel(v)} subject mean ± SE",
+        ))
+
+    y_range = [-0.55, len(versions) - 0.45]
+    y_axis: dict = {"range": y_range}
+    if multi:
+        y_axis.update({
+            "tickvals": list(range(len(versions))),
+            "ticktext": [_vlabel(v) for v in versions],
+        })
+    else:
+        y_axis["visible"] = False
+
+    fig.update_layout(
+        title="KS distance from null per subject",
+        xaxis_title="KS D (per trial, vs. random-placement null)",
+        yaxis=y_axis,
+        height=300 + 100 * len(versions),
+        margin={"l": 60, "r": 40, "t": 50, "b": 60},
+        showlegend=multi,
+    )
     return fig
