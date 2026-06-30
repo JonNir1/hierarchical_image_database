@@ -108,25 +108,34 @@ fit = pilot.calibrate(coords, v3)                              # -> {subjects_no
 
 ### Calibrating + sweeping on EC2
 
-**Step 1 - one-time: stage the pilot data in a PRIVATE bucket.** The pilot CSVs (human-subjects data)
-and the manifest are gitignored, so they are never in the repo clone - the calibration entrypoint
-pulls them from a private S3 prefix you control:
+Everything for a study lives under **one private `S3_URI` prefix**, by convention:
+```
+$S3_URI/pilot/        <- INPUT  you stage once: session CSVs + stimuli_manifest.json
+$S3_URI/calibration/  <- OUTPUT calibrate.log, calibrated_params.json, gt_pilot_coords.npy
+$S3_URI/out/  $S3_URI/mds_store/   <- OUTPUT of the convergence sweep
+```
+
+**Step 1 - one-time: stage the pilot data under `$S3_URI/pilot/`.** The pilot CSVs (human-subjects
+data) and the manifest are gitignored, so they are never in the repo clone - the entrypoint pulls them
+from this prefix:
 ```bash
-aws s3 cp data/pilot/                     s3://<bkt>/spam-pilot/ --recursive   # session CSVs
-aws s3 cp SpAM_Task/stimuli_manifest.json s3://<bkt>/spam-pilot/               # the 725-image manifest
+S3_URI=s3://<bkt>/spam-simulations/task-v3                    # PRIVATE
+aws s3 cp data/pilot/                     "$S3_URI/pilot/" --recursive   # session CSVs
+aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/pilot/"               # the 725-image manifest
 ```
 
 **Step 2 - calibrate on EC2** with the dedicated entrypoint `ec2/run_calibrate_to_pilot.sh` (it
-bootstraps via `prepare_machine.sh`, fits the parameters, tees the output to a log, and uploads the
-log + fitted params + pilot GT to `<S3_URI>/calibration/`; the raw CSVs are deleted from the box at
-exit). On a freshly-allocated instance (see the allocate cookbook above for SSH):
+bootstraps via `prepare_machine.sh`, reads the pilot data from `$S3_URI/pilot/`, fits the parameters,
+tees the output to a log, and uploads the log + fitted params + pilot GT to `$S3_URI/calibration/`;
+the raw CSVs are deleted from the box at exit). On a freshly-allocated instance (see the allocate
+cookbook above for SSH):
 ```bash
 export REPO_URL=https://github.com/<you>/hierarchical_image_database.git
 export GIT_REF=main
-export PILOT_S3_URI=s3://<bkt>/spam-pilot                     # PRIVATE: CSVs + manifest
-export S3_URI=s3://<bkt>/spam-simulations/task-v3            # PRIVATE: outputs -> <S3_URI>/calibration/
+export S3_URI=s3://<bkt>/spam-simulations/task-v3            # PRIVATE: pilot at $S3_URI/pilot/, outputs at $S3_URI/calibration/
 bash run_calibrate_to_pilot.sh 2>&1 | tee calibrate_run.log
-# (override GT_METHOD=classical for a no-R provisional fit, or REPS=N to average more cohorts)
+# (override GT_METHOD=classical for a no-R provisional fit, REPS=N to average more cohorts, or
+#  PILOT_S3_URI=... only if your pilot data lives outside $S3_URI/pilot/)
 ```
 This writes `calibration/{calibrate.log, calibrated_params.json, gt_pilot_coords.npy}` to S3. Calibration
 is light, so a small instance is fine - **terminate it when it finishes.**
