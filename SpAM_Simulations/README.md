@@ -135,8 +135,7 @@ export REPO_URL=https://github.com/<you>/hierarchical_image_database.git
 export GIT_REF=main
 export S3_URI=s3://<bkt>/spam-simulations/task-v3            # PRIVATE: pilot at $S3_URI/data/pilot/, outputs at $S3_URI/calibration/
 bash run_calibrate_to_pilot.sh 2>&1 | tee calibrate_run.log
-# (override GT_METHOD=classical for a no-R provisional fit, REPS=N to average more cohorts, or
-#  PILOT_S3_URI=... only if your pilot data lives outside $S3_URI/data/pilot/)
+# (override GT_METHOD=classical for a no-R provisional fit, or REPS=N to average more cohorts)
 ```
 This writes `calibration/{calibrate.log, calibrated_params.json, gt_pilot_coords.npy}` to S3. Calibration
 is light, so a small instance is fine - **terminate it when it finishes.**
