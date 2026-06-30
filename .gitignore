@@ -51,8 +51,6 @@ analysis/results/
 *.pdf
 *.csv
 !images/manifest.csv
-!analysis/rdms/imagenet_classifications.csv
-!analysis/rdms/imagenet_class_index.json
 
 # generated figures
 figures/
