@@ -176,11 +176,9 @@ class TaskV3SimulationConfig(SimulationConfig):
             raise ValueError(f"`frac_trials_repeated` values must be in [0, 1), got {bad}")
         if any(pd < 0 for pd in self.perspective_dispersion):
             raise ValueError("`perspective_dispersion` values must be non-negative")
-        if not self.uses_random_ground_truth:
-            raise ValueError(
-                "TaskV3SimulationConfig requires synthetic ground truth (n_images + n_dims); the "
-                "spectrum controls (use_isotropic/decay/n_clusters) don't apply to gt_embeddings"
-            )
+        # GT may be synthetic (n_images + n_dims, using use_isotropic/decay/n_clusters) OR a supplied
+        # `gt_embeddings` (e.g. the pilot-calibrated embedding); the base class already enforces that
+        # exactly one source is given. With gt_embeddings the spectrum controls are simply ignored.
 
     def param_grid(self) -> List[TaskV3ExperimentParameters]:
         return [

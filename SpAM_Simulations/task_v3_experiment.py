@@ -41,7 +41,7 @@ Design notes:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, NamedTuple, Tuple
+from typing import List, NamedTuple, Optional, Tuple
 
 import numpy as np
 from scipy.spatial.distance import num_obs_y, pdist
@@ -50,6 +50,7 @@ from tqdm import trange
 
 from SpAM_Simulations.design import build_trial_lists, distinct_trial_count, select_repeat_trials
 from SpAM_Simulations.experiment import _condensed_pair_indices, _draw_subject_noises
+from SpAM_Simulations.helpers import mean_from_sum_and_count
 
 TaskV3ExperimentParameters = NamedTuple("TaskV3ExperimentParameters", [
     ("num_subjects", int),
@@ -104,6 +105,7 @@ def simulate_task_v3_experiment(
         gt_embeddings: np.ndarray,
         rng: np.random.Generator,
         verbose: bool = True,
+        return_per_subject: bool = False,
 ) -> Tuple[TaskV3ExperimentParameters, TaskV3ExperimentResults]:
     """Simulate multiple subjects under the task-v3 generative (coordinate-space) model.
 
@@ -112,6 +114,11 @@ def simulate_task_v3_experiment(
     verbatim whole-trial repeats (fresh noise) for test-retest. Returns aggregate condensed mean
     distances (unmeasured pairs NaN), the per-pair observation counts, the per-subject noise levels,
     and the per-subject mean test-retest Spearman (NaN for subjects with no repeats).
+
+    With ``return_per_subject=True`` the return value gains a third element: a ``(num_subjects,
+    n_pairs)`` float32 array of each subject's own mean observed distances (NaN where unobserved).
+    Used by the pilot calibration to compute between-subject agreement on a simulated cohort with the
+    exact same estimator applied to the real subjects (see ``pilot.between_subject_agreement``).
     """
     assert params.num_subjects > 0, f"`num_subjects` must be positive (got {params.num_subjects})"
     assert params.trials_per_subject > 0, f"`trials_per_subject` must be positive (got {params.trials_per_subject})"
@@ -136,6 +143,7 @@ def simulate_task_v3_experiment(
     all_observations = np.zeros(n_pairs, dtype=np.float64)
     all_n_obs = np.zeros(n_pairs, dtype=np.float64)
     subject_test_retest = np.empty(params.num_subjects, dtype=np.float64)
+    per_subject = np.empty((params.num_subjects, n_pairs), dtype=np.float32) if return_per_subject else None
     # Item-level noise lives in coordinate space, so scale it by the coordinate spread (not the
     # distance spread the earlier models used) to keep `subjects_noise_scale` interpretable.
     subject_noises = _draw_subject_noises(
@@ -158,12 +166,16 @@ def simulate_task_v3_experiment(
         all_observations += observations
         all_n_obs += n_obs
         subject_test_retest[s] = test_retest
+        if per_subject is not None:
+            per_subject[s] = mean_from_sum_and_count(observations, n_obs).astype(np.float32)
     all_observations = np.where(  # unmeasured pairs -> NaN
         all_n_obs > 0, all_observations, np.nan
     )
     results = TaskV3ExperimentResults(
         datetime.now(), all_observations, all_n_obs.astype(np.int16), subject_noises, subject_test_retest
     )
+    if return_per_subject:
+        return params, results, per_subject
     return params, results
 
 

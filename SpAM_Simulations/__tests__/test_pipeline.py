@@ -286,11 +286,26 @@ def test_task_v3_coverage_table_has_test_retest_not_snr():
     assert (no_repeat["frac_nan_test_retest"] == 1.0).all()
 
 
-def test_task_v3_config_rejects_supplied_embeddings():
-    with pytest.raises(ValueError, match="synthetic ground truth"):
-        TaskV3SimulationConfig(
-            gt_embeddings=np.zeros((10, 3)), num_subjects=[5], trials_per_subject=[4],
-            images_per_trial=[4], subjects_noise_scale=[0.5], subjects_noise_df=[1],
+def test_task_v3_config_accepts_supplied_embeddings_and_pipeline_uses_them():
+    # the pilot-calibrated GT is fed via gt_embeddings; generation must embed those coords, not synth
+    rng = np.random.default_rng(0)
+    emb = rng.normal(size=(60, 4)).astype(np.float32)
+    cfg = TaskV3SimulationConfig(
+        gt_embeddings=emb, num_subjects=[8], trials_per_subject=[5],
+        images_per_trial=[6], subjects_noise_scale=[0.5], subjects_noise_df=[1],
+        frac_trials_repeated=[0.0], perspective_dispersion=[0.2], reps=2, seed=1,
+    )
+    assert not cfg.uses_random_ground_truth
+    sim = pipeline.generate_task_v3_simulation(cfg, verbose=False)
+    np.testing.assert_array_equal(sim.gt_embeddings, emb)  # used the supplied embedding
+
+
+def test_task_v3_config_still_requires_one_gt_source():
+    with pytest.raises(ValueError, match="exactly one"):
+        TaskV3SimulationConfig(  # both synthetic AND embeddings -> rejected by the base class
+            n_images=10, n_dims=3, gt_embeddings=np.zeros((10, 3)),
+            num_subjects=[5], trials_per_subject=[4], images_per_trial=[4],
+            subjects_noise_scale=[0.5], subjects_noise_df=[1],
             frac_trials_repeated=[0.0], perspective_dispersion=[0.0],
         )
 
