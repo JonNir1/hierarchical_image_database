@@ -13,10 +13,9 @@ Usage (from repo root):
 from __future__ import annotations
 
 import numpy as np
-from scipy.spatial.distance import pdist
 from tqdm import tqdm
 
-from analysis.rdms.common import image_paths, load_image_rgb, save_rdm
+from analysis.rdms.common import euclidean_distances, image_paths, load_image_rgb
 
 
 def build_sensory_rdm(variant: str) -> np.ndarray:
@@ -42,13 +41,11 @@ def build_sensory_rdm(variant: str) -> np.ndarray:
         X[i] = load_image_rgb(p).flatten()
 
     print(f"[sensory] Pixel matrix {X.shape}. Computing pairwise Euclidean distances ...")
-    condensed = pdist(X, metric="euclidean")
-
     short = "sens_pre" if variant == "pre_shine" else "sens_post"
-    save_rdm(
-        short,
-        condensed,
-        metric="euclidean",
+    condensed = euclidean_distances(
+        X,
+        save_result=True,
+        name=short,
         source="analysis.rdms.sensory",
         extra={"variant": variant, "pixel_matrix_shape": list(X.shape)},
     )

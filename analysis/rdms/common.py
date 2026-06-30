@@ -6,6 +6,14 @@ convention), length N*(N-1)/2 where N=725. Row/col index i corresponds to row i
 of images/manifest.csv (file order). A short hash of the manifest's curated_path
 column is stored in each RDM's metadata record and asserted on load, guaranteeing
 cross-RDM alignment (and pre/post SHINE correspondence via filename match).
+
+Embedder modules (e.g. clip.py) additionally persist the raw (N, embedding_dim)
+embedding matrix behind the RDM, via save_embeddings()/load_embeddings(), as
+E_<name>.npy + embeddings_metadata.json. Embeddings are the non-lossy artifact —
+any pairwise-distance metric can be re-derived from them without re-running the
+(expensive) encoder forward pass. euclidean_distances()/cosine_distances() are
+shared, embedder-agnostic helpers for that derivation step, with an optional
+save_result=True to persist the resulting RDM via save_rdm() in the same call.
 """
 from __future__ import annotations
 
@@ -19,6 +27,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from PIL import Image
+from scipy.spatial.distance import pdist
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -247,3 +256,197 @@ def load_rdm(name: str) -> np.ndarray:
         )
 
     return condensed
+
+
+# ---------------------------------------------------------------------------
+# Embedding save / load
+# ---------------------------------------------------------------------------
+
+
+def save_embeddings(
+    name: str,
+    embeddings: np.ndarray,
+    *,
+    source: str,
+    extra: dict | None = None,
+) -> Path:
+    """
+    Save a raw embedding matrix as analysis/results/rdms/E_<name>.npy and record
+    provenance in embeddings_metadata.json in the same directory.
+
+    Parameters
+    ----------
+    name       : file stem suffix; output is E_<name>.npy
+    embeddings : 2-D array, shape (725, embedding_dim)
+    source     : module that produced these embeddings
+    extra      : additional key-value metadata to include in the record
+
+    Returns
+    -------
+    Path of the written .npy file
+    """
+    if embeddings.ndim != 2 or embeddings.shape[0] != _EXPECTED_N:
+        raise ValueError(
+            f"Expected 2-D embedding matrix with {_EXPECTED_N} rows, "
+            f"got shape {embeddings.shape}"
+        )
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = RESULTS_DIR / f"E_{name}.npy"
+    np.save(out_path, embeddings.astype(np.float32))
+
+    # Update embeddings_metadata.json (remove stale record for same name, then append)
+    meta_path = RESULTS_DIR / "embeddings_metadata.json"
+    records: list[dict] = []
+    if meta_path.exists():
+        with open(meta_path) as f:
+            records = json.load(f)
+    records = [r for r in records if r.get("name") != name]
+    records.append({
+        "name": name,
+        "file": f"E_{name}.npy",
+        "source": source,
+        "n_images": _EXPECTED_N,
+        "embedding_dim": embeddings.shape[1],
+        "order_hash": order_hash(),
+        "git_sha": _git_sha(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **(extra or {}),
+    })
+    with open(meta_path, "w") as f:
+        json.dump(records, f, indent=2)
+
+    return out_path
+
+
+def load_embeddings(name: str) -> np.ndarray:
+    """
+    Load embedding matrix from E_<name>.npy.
+
+    Asserts that the row count and manifest order_hash match the current
+    state. Raises RuntimeError if embeddings_metadata.json is absent or has
+    no record for this name (both indicate the file was not written via
+    save_embeddings()).
+
+    Returns
+    -------
+    np.ndarray, 2-D float32 matrix, shape (725, embedding_dim)
+    """
+    path = RESULTS_DIR / f"E_{name}.npy"
+    if not path.exists():
+        raise FileNotFoundError(f"Embeddings not found: {path}")
+
+    embeddings = np.load(path)
+    if embeddings.ndim != 2 or embeddings.shape[0] != _EXPECTED_N:
+        raise ValueError(
+            f"Loaded embeddings '{name}' have shape {embeddings.shape}, "
+            f"expected ({_EXPECTED_N}, *)"
+        )
+
+    # Enforce hash guard — both missing-metadata and missing-record are errors
+    meta_path = RESULTS_DIR / "embeddings_metadata.json"
+    if not meta_path.exists():
+        raise RuntimeError(
+            f"embeddings_metadata.json not found in {RESULTS_DIR}. "
+            "Load only embeddings that were written via save_embeddings()."
+        )
+    with open(meta_path) as f:
+        records = json.load(f)
+    for r in records:
+        if r.get("name") == name:
+            stored = r.get("order_hash")
+            current = order_hash()
+            if stored is not None and stored != current:
+                raise RuntimeError(
+                    f"Manifest order hash mismatch for embeddings '{name}': "
+                    f"stored={stored!r}, current={current!r}. "
+                    "The manifest was likely reordered after these embeddings were built."
+                )
+            break
+    else:
+        raise RuntimeError(
+            f"No metadata record found for embeddings '{name}' in {meta_path}. "
+            "Load only embeddings that were written via save_embeddings()."
+        )
+
+    return embeddings
+
+
+# ---------------------------------------------------------------------------
+# Shared pairwise-distance helpers (cross-embedder)
+# ---------------------------------------------------------------------------
+
+
+def _pairwise_distances(
+    embeddings: np.ndarray,
+    *,
+    metric: str,
+    save_result: bool,
+    name: str | None,
+    source: str | None,
+    extra: dict | None,
+) -> np.ndarray:
+    if embeddings.ndim != 2:
+        raise ValueError(f"Expected 2-D embedding matrix, got shape {embeddings.shape}")
+    condensed = pdist(embeddings, metric=metric)
+    if save_result:
+        if name is None or source is None:
+            raise ValueError("name and source are required when save_result=True")
+        save_rdm(name, condensed, metric=metric, source=source, extra=extra)
+    return condensed
+
+
+def euclidean_distances(
+    embeddings: np.ndarray,
+    *,
+    save_result: bool = False,
+    name: str | None = None,
+    source: str | None = None,
+    extra: dict | None = None,
+) -> np.ndarray:
+    """
+    Condensed pairwise Euclidean distance vector over an (N, D) embedding matrix.
+
+    Parameters
+    ----------
+    embeddings  : 2-D array, shape (725, D) — any embedder's feature matrix
+    save_result : if True, persist the result via save_rdm() as D_<name>.npy
+                  (requires `name` and `source`)
+    name, source, extra : forwarded to save_rdm() when save_result=True
+
+    Returns
+    -------
+    np.ndarray, 1-D condensed vector, length 262_450
+    """
+    return _pairwise_distances(
+        embeddings, metric="euclidean",
+        save_result=save_result, name=name, source=source, extra=extra,
+    )
+
+
+def cosine_distances(
+    embeddings: np.ndarray,
+    *,
+    save_result: bool = False,
+    name: str | None = None,
+    source: str | None = None,
+    extra: dict | None = None,
+) -> np.ndarray:
+    """
+    Condensed pairwise cosine distance vector (1 - cosine similarity) over an
+    (N, D) embedding matrix.
+
+    Parameters
+    ----------
+    embeddings  : 2-D array, shape (725, D) — any embedder's feature matrix
+    save_result : if True, persist the result via save_rdm() as D_<name>.npy
+                  (requires `name` and `source`)
+    name, source, extra : forwarded to save_rdm() when save_result=True
+
+    Returns
+    -------
+    np.ndarray, 1-D condensed vector, length 262_450
+    """
+    return _pairwise_distances(
+        embeddings, metric="cosine",
+        save_result=save_result, name=name, source=source, extra=extra,
+    )
