@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from PIL import Image
-from scipy.spatial.distance import squareform
+from scipy.spatial.distance import pdist, squareform
 
 import analysis.rdms.common as common
 
@@ -214,6 +214,143 @@ def test_load_hash_mismatch_raises(patched_results):
 
 
 # ---------------------------------------------------------------------------
+# save_embeddings / load_embeddings
+# ---------------------------------------------------------------------------
+
+def test_save_embeddings_creates_npy(patched_results):
+    E = np.random.rand(_N, 8)
+    common.save_embeddings("myemb", E, source="tests")
+    assert (patched_results / "E_myemb.npy").exists()
+
+
+def test_save_load_embeddings_roundtrip(patched_results):
+    E = np.random.rand(_N, 8)
+    common.save_embeddings("rt", E, source="tests")
+    loaded = common.load_embeddings("rt")
+    # save_embeddings casts to float32 — compare with reduced precision
+    np.testing.assert_array_almost_equal(E, loaded, decimal=5)
+
+
+def test_save_embeddings_creates_metadata(patched_results):
+    E = np.random.rand(_N, 8)
+    common.save_embeddings("meta", E, source="tests", extra={"variant": "pre_shine"})
+    records = json.loads((patched_results / "embeddings_metadata.json").read_text())
+    assert any(r["name"] == "meta" for r in records)
+    r = next(r for r in records if r["name"] == "meta")
+    assert r["embedding_dim"] == 8
+    assert r["variant"] == "pre_shine"
+    assert "order_hash" in r
+    assert "timestamp" in r
+
+
+def test_save_embeddings_overwrites_existing_record(patched_results):
+    """Re-saving the same name replaces the metadata record (no duplicates)."""
+    e1 = np.ones((_N, 4))
+    e2 = np.zeros((_N, 4))
+    common.save_embeddings("dup", e1, source="A")
+    common.save_embeddings("dup", e2, source="B")
+    records = json.loads((patched_results / "embeddings_metadata.json").read_text())
+    matches = [r for r in records if r["name"] == "dup"]
+    assert len(matches) == 1
+    assert matches[0]["source"] == "B"
+
+
+def test_save_embeddings_wrong_row_count_raises(patched_results):
+    bad = np.random.rand(_N + 1, 4)
+    with pytest.raises(ValueError, match="rows"):
+        common.save_embeddings("bad", bad, source="tests")
+
+
+def test_load_embeddings_missing_raises(patched_results):
+    with pytest.raises(FileNotFoundError):
+        common.load_embeddings("nonexistent")
+
+
+def test_load_embeddings_missing_metadata_raises(patched_results):
+    """load_embeddings raises RuntimeError when embeddings_metadata.json is absent."""
+    E = np.random.rand(_N, 4)
+    np.save(patched_results / "E_orphan.npy", E)
+    with pytest.raises(RuntimeError, match="embeddings_metadata.json not found"):
+        common.load_embeddings("orphan")
+
+
+def test_load_embeddings_missing_record_raises(patched_results):
+    common.save_embeddings("other", np.random.rand(_N, 4), source="tests")
+    np.save(patched_results / "E_unrecorded.npy", np.random.rand(_N, 4))
+    with pytest.raises(RuntimeError, match="No metadata record"):
+        common.load_embeddings("unrecorded")
+
+
+def test_load_embeddings_hash_mismatch_raises(patched_results):
+    """Tampered order_hash in embeddings_metadata.json -> RuntimeError on load."""
+    E = np.random.rand(_N, 4)
+    common.save_embeddings("guarded", E, source="tests")
+    meta_path = patched_results / "embeddings_metadata.json"
+    records = json.loads(meta_path.read_text())
+    for r in records:
+        if r["name"] == "guarded":
+            r["order_hash"] = "deadbeef00000000"
+    meta_path.write_text(json.dumps(records))
+    with pytest.raises(RuntimeError, match="order hash mismatch"):
+        common.load_embeddings("guarded")
+
+
+# ---------------------------------------------------------------------------
+# euclidean_distances / cosine_distances
+# ---------------------------------------------------------------------------
+
+def test_euclidean_distances_matches_pdist(patched_results):
+    E = np.random.rand(_N, 5)
+    condensed = common.euclidean_distances(E)
+    np.testing.assert_array_almost_equal(condensed, pdist(E, metric="euclidean"))
+
+
+def test_cosine_distances_matches_pdist(patched_results):
+    E = np.random.rand(_N, 5)
+    condensed = common.cosine_distances(E)
+    np.testing.assert_array_almost_equal(condensed, pdist(E, metric="cosine"))
+
+
+def test_euclidean_distances_identical_rows_zero(patched_results):
+    E = np.tile(np.array([1.0, 2.0, 3.0]), (_N, 1))
+    condensed = common.euclidean_distances(E)
+    np.testing.assert_array_almost_equal(condensed, 0.0)
+
+
+def test_distances_default_does_not_save(patched_results):
+    """save_result defaults to False — no D_*.npy written, no name/source required."""
+    E = np.random.rand(_N, 5)
+    common.euclidean_distances(E)
+    common.cosine_distances(E)
+    assert list(patched_results.glob("D_*.npy")) == []
+
+
+def test_distances_save_result_requires_name_and_source(patched_results):
+    E = np.random.rand(_N, 5)
+    with pytest.raises(ValueError, match="name and source"):
+        common.euclidean_distances(E, save_result=True)
+
+
+def test_distances_save_result_writes_loadable_rdm(patched_results):
+    E = np.random.rand(_N, 5)
+    condensed = common.cosine_distances(E, save_result=True, name="emb_rdm", source="tests")
+    loaded = common.load_rdm("emb_rdm")
+    np.testing.assert_array_equal(condensed, loaded)
+
+
+def test_distances_save_result_records_metric_and_extra(patched_results):
+    E = np.random.rand(_N, 5)
+    common.euclidean_distances(
+        E, save_result=True, name="emb_rdm2", source="tests",
+        extra={"variant": "pre_shine"},
+    )
+    records = json.loads((patched_results / "metadata.json").read_text())
+    r = next(r for r in records if r["name"] == "emb_rdm2")
+    assert r["metric"] == "euclidean"
+    assert r["variant"] == "pre_shine"
+
+
+# ---------------------------------------------------------------------------
 # squareform round-trip invariants
 # ---------------------------------------------------------------------------
 
@@ -375,7 +512,7 @@ def patched_sensory(tmp_path, monkeypatch):
         paths.append(p)
 
     monkeypatch.setattr(sensory_mod, "image_paths", lambda variant: paths)
-    monkeypatch.setattr(sensory_mod, "save_rdm", lambda *a, **kw: None)
+    monkeypatch.setattr(common, "save_rdm", lambda *a, **kw: None)
     return paths
 
 
@@ -394,6 +531,6 @@ def test_sensory_identical_images_zero_distance(tmp_path, monkeypatch):
     p = tmp_path / "same.png"
     Image.fromarray(np.full((8, 8, 3), 128, dtype=np.uint8)).save(p)
     monkeypatch.setattr(sensory_mod, "image_paths", lambda variant: [p, p])
-    monkeypatch.setattr(sensory_mod, "save_rdm", lambda *a, **kw: None)
+    monkeypatch.setattr(common, "save_rdm", lambda *a, **kw: None)
     condensed = sensory_mod.build_sensory_rdm("pre_shine")
     assert condensed[0] == 0.0

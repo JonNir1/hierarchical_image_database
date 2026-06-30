@@ -17,8 +17,8 @@ Available targets:
     sens_post  -- D_sens_post.npy  (pixel Euclidean, post-SHINE)
     sem_km     -- D_sem_km.npy     (Kiani-Mur tree-edge distance)
     sem_wn     -- D_sem_wn.npy     (WordNet shortest-path via manifest synsets)
-    clip_pre   -- D_clip_pre.npy   (CLIP ViT-B/32 cosine, pre-SHINE)
-    clip_post  -- D_clip_post.npy  (CLIP ViT-B/32 cosine, post-SHINE)
+    clip_pre   -- E_clip_pre.npy + D_clip_pre.npy   (CLIP ViT-B/32 cosine, pre-SHINE)
+    clip_post  -- E_clip_post.npy + D_clip_post.npy (CLIP ViT-B/32 cosine, post-SHINE)
 """
 from __future__ import annotations
 

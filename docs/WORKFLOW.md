@@ -12,6 +12,15 @@ has been done and what is pending.
   - bootstrap = 5k subject-resamples
   - permutation = 10k shuffles
   - Gromov-δ subsample = 10⁵ 4-tuples
+- **Embedders** (CLIP now; VGG-16 and SGPT planned, see Phase 0) persist their raw
+  `(725, embedding_dim)` feature matrix as `E_<name>.npy` via `common.save_embeddings()`,
+  separately from the derived `D_<name>.npy` condensed-distance RDM. Embeddings are
+  the non-lossy artifact (re-deriving a distance metric doesn't require re-running
+  the encoder); distances are computed from them via the shared, embedder-agnostic
+  `common.euclidean_distances()` / `common.cosine_distances()` helpers, with
+  `save_result=True` persisting the RDM in the same call. `analysis/rdms/sensory.py`
+  (raw pixels, not a learned embedder) uses `euclidean_distances()` for the same
+  reason but does not persist its pixel matrix — at 175×175×3 it would dwarf the RDM.
 
 ---
 
@@ -38,23 +47,27 @@ has been done and what is pending.
       Synsets assigned directly from image category labels (filename stem + directory,
       with manual overrides for polysemous cases; see `images/manifest.csv` column
       `wn_synset_name`). Pairwise WordNet shortest-path distance. Out: `D_sem_wn.npy`.
-- [ ] Visual-semantic RDM (CLIP). `code: analysis/rdms/visual_semantic_clip.py`.
-      Load OpenAI pretrained CLIP **ViT-B/32** (e.g., via `clip` or `open_clip`).
+- [ ] Visual-semantic RDM (CLIP). `code: analysis/rdms/clip.py`.
+      Load OpenAI pretrained CLIP **ViT-B/32** (via `open_clip`).
       Encode each of the 725 images via the image encoder, take the **output-layer**
-      embedding (Shoham et al. 2024 spec). Pairwise **cosine** distance → condensed.
-      Run separately for pre-SHINE and post-SHINE images.
-      Out: `D_clip_pre.npy`, `D_clip_post.npy`.
+      embedding (Shoham et al. 2024 spec). Embeddings are persisted first, then
+      collapsed to pairwise **cosine** distance via the shared `cosine_distances()`
+      helper (see "Embedders" convention below). Run separately for pre-SHINE and
+      post-SHINE images.
+      Out: `E_clip_pre.npy`, `E_clip_post.npy` (raw embeddings),
+      `D_clip_pre.npy`, `D_clip_post.npy` (condensed RDM).
 - [ ] (Exploratory) High-level visual RDM (VGG-16). `code: analysis/rdms/visual_vgg.py`.
       Load ImageNet-pretrained VGG-16 from `torchvision`. Forward-pass each image and
       extract **FC7 penultimate-layer** activations (Shoham et al. 2024 spec).
-      Pairwise **cosine** distance. Run pre and post SHINE.
-      Out: `D_vgg_pre.npy`, `D_vgg_post.npy`.
+      Pairwise **cosine** distance via `cosine_distances()`. Run pre and post SHINE.
+      Out: `E_vgg_pre.npy`, `E_vgg_post.npy`, `D_vgg_pre.npy`, `D_vgg_post.npy`.
 - [ ] (Exploratory) SGPT-based semantic RDM. `code: analysis/rdms/semantic_sgpt.py`.
       Requires per-image text descriptions in the dataset manifest (Shoham et al.
       used first-paragraph Wikipedia / dictionary definitions). Encode each description
       with **SGPT-1.3B-msmarco-mean-tokens** (bi-encoder), take output layer.
-      Pairwise **cosine** distance. Variant-agnostic — one RDM, used for both cohorts.
-      Out: `D_sem_sgpt.npy`.
+      Pairwise **cosine** distance via `cosine_distances()`. Variant-agnostic — one
+      RDM, used for both cohorts.
+      Out: `E_sem_sgpt.npy`, `D_sem_sgpt.npy`.
 - [ ] SHINE manipulation check. `code: analysis/rdms/manip_check.ipynb`.
       Verify `D_sens_post` has much lower variance in luminance + color-histogram
       moments than `D_sens_pre`. If not, abort and re-run SHINE.

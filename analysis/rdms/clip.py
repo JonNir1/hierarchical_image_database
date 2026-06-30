@@ -5,8 +5,10 @@ Uses OpenAI pretrained CLIP ViT-B/32 via open_clip.
 Embeddings are taken from the image encoder output layer (following Shoham et al. 2024).
 
 Outputs (to analysis/results/rdms/):
-    D_clip_pre.npy   -- pre-SHINE images
-    D_clip_post.npy  -- post-SHINE images
+    E_clip_pre.npy   -- pre-SHINE image embeddings  (725, embedding_dim)
+    E_clip_post.npy  -- post-SHINE image embeddings (725, embedding_dim)
+    D_clip_pre.npy   -- pre-SHINE pairwise cosine-distance RDM
+    D_clip_post.npy  -- post-SHINE pairwise cosine-distance RDM
 
 Requires:
     pip install open_clip_torch
@@ -19,15 +21,17 @@ from __future__ import annotations
 import numpy as np
 import open_clip
 import torch
-from scipy.spatial.distance import pdist
 from tqdm import tqdm
 
-from analysis.rdms.common import image_paths, open_as_rgb_pil, save_rdm
+from analysis.rdms.common import cosine_distances, image_paths, open_as_rgb_pil, save_embeddings
 
 
 def build_clip_rdm(variant: str) -> np.ndarray:
     """
     Build the CLIP visual-semantic RDM for the given SHINE variant.
+
+    Encodes all images once, persists the raw embedding matrix, then derives
+    the pairwise cosine-distance RDM from those embeddings.
 
     Parameters
     ----------
@@ -54,22 +58,20 @@ def build_clip_rdm(variant: str) -> np.ndarray:
         embeddings.append(emb.squeeze(0).cpu().float().numpy())
 
     E = np.stack(embeddings)   # (725, embedding_dim)
-    print(f"[clip] Embedding matrix {E.shape}. Computing pairwise cosine distances ...")
-    # pdist with 'cosine' = 1 - cos_similarity; handles normalisation internally
-    condensed = pdist(E, metric="cosine")
-
     short = "clip_pre" if variant == "pre_shine" else "clip_post"
-    save_rdm(
-        short,
-        condensed,
-        metric="cosine",
+    meta = {"variant": variant, "model": "ViT-B-32", "pretrained": "openai"}
+
+    print(f"[clip] Embedding matrix {E.shape}. Saving embeddings ...")
+    save_embeddings(short, E, source="analysis.rdms.clip", extra=meta)
+    print(f"[clip] Saved E_{short}.npy")
+
+    print("[clip] Computing pairwise cosine distances ...")
+    condensed = cosine_distances(
+        E,
+        save_result=True,
+        name=short,
         source="analysis.rdms.clip",
-        extra={
-            "variant": variant,
-            "model": "ViT-B-32",
-            "pretrained": "openai",
-            "embedding_dim": E.shape[1],
-        },
+        extra={**meta, "embedding_dim": E.shape[1]},
     )
     print(f"[clip] Saved D_{short}.npy  (length {len(condensed)})")
     return condensed
