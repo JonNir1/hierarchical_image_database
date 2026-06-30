@@ -15,27 +15,28 @@
 # from the instance at exit; the uploaded outputs (log, fitted scalar params, aggregate GT embedding)
 # are pilot-DERIVED - keep the whole S3_URI prefix PRIVATE.
 #
-# CONVENTION - everything for a study lives under one S3_URI prefix:
-#     $S3_URI/pilot/        <- INPUT  you stage once: the per-session CSVs + stimuli_manifest.json
+# CONVENTION - everything for a study lives under one S3_URI prefix (pilot path mirrors the local
+# repo layout, data/pilot/):
+#     $S3_URI/data/pilot/   <- INPUT  you stage once: the per-session CSVs + stimuli_manifest.json
 #     $S3_URI/calibration/  <- OUTPUT this script writes: calibrate.log, calibrated_params.json, gt_pilot_coords.npy
 #     $S3_URI/out/          <- OUTPUT the convergence sweep writes (run_task_v3_sim.sh)
 #     $S3_URI/mds_store/
-# So there is no separate pilot URI to manage - the pilot data is found at $S3_URI/pilot/ by default
-# (override with PILOT_S3_URI only if your pilot data lives elsewhere).
+# So there is no separate pilot URI to manage - the pilot data is found at $S3_URI/data/pilot/ by
+# default (override with PILOT_S3_URI only if your pilot data lives elsewhere).
 #
 # Prerequisites
 #   * The commit/branch is PUSHED to the remote (this clones from it).
-#   * You have staged the pilot data under $S3_URI/pilot/ (a PRIVATE prefix), containing BOTH:
+#   * You have staged the pilot data under $S3_URI/data/pilot/ (a PRIVATE prefix), containing BOTH:
 #       - the per-session CSVs  (e.g. data/pilot/*.csv)
 #       - stimuli_manifest.json (the 725-image manifest; gitignored, so not in the repo)
-#     e.g.:  aws s3 cp data/pilot/                 "$S3_URI/pilot/" --recursive
-#            aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/pilot/"
+#     e.g.:  aws s3 cp data/pilot/                 "$S3_URI/data/pilot/" --recursive
+#            aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/pilot/"
 #   * S3 access via an instance IAM role (preferred) or `aws configure`.
 #
 # Usage:
 #   export REPO_URL=https://github.com/<you>/hierarchical_image_database.git
 #   export GIT_REF=main
-#   export S3_URI=s3://<your-bucket>/spam-simulations/task-v3   # PRIVATE; pilot at <S3_URI>/pilot/, outputs at <S3_URI>/calibration/
+#   export S3_URI=s3://<your-bucket>/spam-simulations/task-v3   # PRIVATE; pilot at <S3_URI>/data/pilot/, outputs at <S3_URI>/calibration/
 #   bash run_calibrate_to_pilot.sh
 #
 # Calibration is light (one weighted MDS + a few hundred 11-subject sims); a small instance is fine.
@@ -47,8 +48,9 @@ set -euo pipefail
 REPO_URL="${REPO_URL:?set REPO_URL to your repo (https with PAT, or git@ ssh)}"
 GIT_REF="${GIT_REF:-main}"
 S3_URI="${S3_URI:?set S3_URI (PRIVATE), e.g. s3://my-bucket/spam-simulations/task-v3}"
-# Pilot data lives at $S3_URI/pilot/ by convention (CSVs + manifest); override only if it lives elsewhere.
-PILOT_S3_URI="${PILOT_S3_URI:-$S3_URI/pilot}"
+# Pilot data lives at $S3_URI/data/pilot/ by convention (mirrors the local repo layout); override only
+# if it lives elsewhere.
+PILOT_S3_URI="${PILOT_S3_URI:-$S3_URI/data/pilot}"
 GT_METHOD="${GT_METHOD:-smacof}"   # 'smacof' (needs R, canonical) or 'classical' (no-R, provisional)
 REPS="${REPS:-5}"                  # cohorts averaged per simulated calibration point
 WORKDIR="${WORKDIR:-$HOME/spam_run}"
