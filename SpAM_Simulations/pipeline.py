@@ -98,10 +98,13 @@ def generate_task_v3_simulation(config: TaskV3SimulationConfig, verbose: bool = 
     (``simulation.build_ground_truth_embeddings`` with the config's ``use_isotropic``/``decay``/
     ``n_clusters``) so the coordinate-space observation model has a meaningful PC basis to reweight.
     """
-    embeddings = build_ground_truth_embeddings(
-        config.n_images, config.n_dims, use_isotropic=config.use_isotropic,
-        decay=config.decay, n_clusters=config.n_clusters, seed=config.seed
-    )
+    if config.uses_random_ground_truth:
+        embeddings = build_ground_truth_embeddings(
+            config.n_images, config.n_dims, use_isotropic=config.use_isotropic,
+            decay=config.decay, n_clusters=config.n_clusters, seed=config.seed
+        )
+    else:
+        embeddings = config.gt_embeddings  # e.g. the pilot-calibrated embedding
     sim = Simulation.from_embeddings(embeddings, config.seed)
     schedule = config.param_grid() * config.reps
     for params in tqdm(schedule, desc="Running experiments", disable=not verbose):

@@ -1,0 +1,390 @@
+"""Read-only ingestion of SpAM pilot data and calibration of the task-v3 simulation to it.
+
+The task-v3 simulation has two free internals - ``subjects_noise_scale`` (within-subject
+measurement noise) and ``perspective_dispersion`` (between-subject disagreement) - plus a ground-
+truth geometry. This module anchors all three to the real pilot:
+
+* **Ground truth** is the weighted-MDS embedding of *all* pooled pilot subjects (see
+  :func:`pilot_aggregate` + ``multi_dimensional_scaling.run_mds``); its spectrum and cluster
+  structure are inherited, so the synthetic ``decay``/``n_clusters`` knobs become moot.
+* **Noise** is pinned by within-subject **test-retest** reliability (the v3.0 whole-trial repeats),
+  which is *perspective-invariant* - a subject's perspective is fixed across their original and
+  repeat presentations, so only measurement noise differs (see :func:`within_subject_test_retest`).
+* **Perspective** is then pinned by **between-subject agreement** (:func:`between_subject_agreement`)
+  with noise held fixed.
+
+Identifiability is therefore sequential and clean: test-retest -> noise, then agreement -> dispersion.
+
+Nothing here writes pilot data or pilot-derived artifacts; ``data/pilot/`` is human-subjects data and
+must stay local (never committed). Distances are read straight from each session CSV's
+``pairwise_distances`` column (already canvas-diagonal-normalised in [0, 1], so comparable across
+subjects' screen sizes).
+"""
+from __future__ import annotations
+
+import glob
+import json
+import os
+import re
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
+import pandas as pd
+from scipy.sparse.csgraph import connected_components
+from scipy.spatial.distance import squareform
+from scipy.stats import spearmanr
+
+from SpAM_Simulations.experiment import _condensed_pair_indices
+
+# A pilot stimulus path is ``./images/<variant>_shine/<relpath>``; the manifest lists ``<relpath>``.
+_IMG_PREFIX = re.compile(r"^\./images/[^/]+/")
+
+
+def load_manifest(manifest_path: str) -> Tuple[List[str], Dict[str, int]]:
+    """Return the manifest's ordered object-image list and a ``{relpath: index}`` map (0..N-1).
+
+    The ordering is the canonical image index used everywhere downstream (and matches the index a
+    ground-truth embedding's rows must follow).
+    """
+    with open(manifest_path, encoding="utf-8") as fh:
+        images = json.load(fh)["images"]
+    return images, {rel: i for i, rel in enumerate(images)}
+
+
+def _src_to_relpath(src: str) -> str:
+    """``./images/pre_shine/animate/.../fox1.png`` -> ``animate/.../fox1.png``."""
+    return _IMG_PREFIX.sub("", src)
+
+
+@dataclass
+class PilotSubject:
+    """One completed pilot session, reduced to what calibration needs."""
+    participant_id: str
+    task_version: str
+    n_images: int
+    distances: np.ndarray          # condensed (N(N-1)/2,), per-pair mean distance, NaN = unobserved
+    n_obs: np.ndarray              # condensed, integer observation count per pair
+    retest_pairs: List[Tuple[np.ndarray, np.ndarray]] = field(default_factory=list)
+    qc_flag_rate: float = 0.0      # fraction of this subject's main trials flagged by the task QC
+
+    def num_observed_pairs(self) -> int:
+        return int(np.count_nonzero(self.n_obs))
+
+
+def _trial_pair_distances(pairwise_json: str, rel2idx: Dict[str, int]) -> Dict[int, float]:
+    """Parse one trial's ``pairwise_distances`` into ``{condensed_pair_index: distance}``."""
+    out: Dict[int, float] = {}
+    N = len(rel2idx)
+    for d in json.loads(pairwise_json or "[]"):
+        a = rel2idx[_src_to_relpath(d.get("src1") or d["src_a"])]
+        b = rel2idx[_src_to_relpath(d.get("src2") or d["src_b"])]
+        cond = int(_condensed_pair_indices(np.array([a]), np.array([b]), N)[0])
+        out[cond] = float(d["distance"])
+    return out
+
+
+def load_pilot_subject(csv_path: str, rel2idx: Dict[str, int]) -> Optional[PilotSubject]:
+    """Load one session CSV into a :class:`PilotSubject`, or ``None`` if it has no main trials.
+
+    Accumulates each main trial's normalised pairwise distances into a per-subject condensed
+    sum/count (a verbatim trial repeat adds a second observation of the same pairs, so the stored
+    value is their mean). Repeat trials are also aligned to their originals (via
+    ``repeat_of_trial_index``) to give the within-subject test-retest pairs.
+    """
+    df = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
+    if df.empty or "trial_type" not in df.columns or "pairwise_distances" not in df.columns:
+        return None  # aborted session (consent-only / no free-sort trials written)
+    main = df[df["trial_type"].str.startswith("trial_", na=False)]
+    if main.empty:
+        return None
+    N = len(rel2idx)
+    n_pairs = N * (N - 1) // 2
+    total = np.zeros(n_pairs, dtype=np.float64)
+    count = np.zeros(n_pairs, dtype=np.int32)
+
+    by_index: Dict[int, Dict[int, float]] = {}
+    flagged = 0
+    for _, row in main.iterrows():
+        pairs = _trial_pair_distances(row["pairwise_distances"], rel2idx)
+        by_index[int(row["trial_index"])] = pairs
+        idx = np.fromiter(pairs.keys(), dtype=np.int64, count=len(pairs))
+        total[idx] += np.fromiter(pairs.values(), dtype=np.float64, count=len(pairs))
+        count[idx] += 1
+        if str(row.get("qc_flag", "")).lower() == "true":
+            flagged += 1
+
+    retest: List[Tuple[np.ndarray, np.ndarray]] = []
+    for _, row in main.iterrows():
+        if str(row.get("is_trial_repeat", "")).lower() != "true":
+            continue
+        orig_idx = row.get("repeat_of_trial_index")
+        if orig_idx in ("", "null", None) or int(orig_idx) not in by_index:
+            continue
+        rep = by_index[int(row["trial_index"])]
+        orig = by_index[int(orig_idx)]
+        shared = sorted(set(rep) & set(orig))  # same image set -> same pair keys
+        if len(shared) >= 2:
+            retest.append((np.array([orig[c] for c in shared]), np.array([rep[c] for c in shared])))
+
+    distances = np.where(count > 0, total / np.maximum(count, 1), np.nan).astype(np.float32)
+    return PilotSubject(
+        participant_id=main["participant_id"].iloc[0],
+        task_version=main["task_version"].iloc[0],
+        n_images=N,
+        distances=distances,
+        n_obs=count,
+        retest_pairs=retest,
+        qc_flag_rate=flagged / len(main),
+    )
+
+
+def load_pilot_subjects(
+        pilot_dir: str,
+        manifest_path: str,
+        versions: Optional[Sequence[str]] = None,
+        apply_qc: bool = False,
+        qc_max_flag_rate: float = 0.30,
+) -> List[PilotSubject]:
+    """Load every completed session under ``pilot_dir`` (optionally filtered by ``task_version``).
+
+    ``apply_qc=False`` by default (use every completed session); set ``True`` to drop subjects whose
+    main-trial ``qc_flag`` rate exceeds ``qc_max_flag_rate`` - available only as a robustness check.
+    """
+    _, rel2idx = load_manifest(manifest_path)
+    subjects: List[PilotSubject] = []
+    for path in sorted(glob.glob(os.path.join(pilot_dir, "*.csv"))):
+        subj = load_pilot_subject(path, rel2idx)
+        if subj is None:
+            continue
+        if versions is not None and subj.task_version not in versions:
+            continue
+        if apply_qc and subj.qc_flag_rate > qc_max_flag_rate:
+            continue
+        subjects.append(subj)
+    return subjects
+
+
+# --------------------------------------------------------------------------- observables
+def within_subject_test_retest(subject: PilotSubject) -> float:
+    """Mean Spearman correlation between this subject's repeat trials and their originals.
+
+    NaN if the subject has no (non-degenerate) repeats. This is exactly the statistic the task-v3
+    simulation reports as ``subject_test_retest``, so the same target is comparable between the two.
+    """
+    corrs = [spearmanr(o, r).statistic for o, r in subject.retest_pairs
+             if np.ptp(o) > 0 and np.ptp(r) > 0]
+    return float(np.nanmean(corrs)) if corrs else np.nan
+
+
+def cohort_test_retest(subjects: Sequence[PilotSubject]) -> float:
+    """Median within-subject test-retest across a cohort (NaN-subjects ignored)."""
+    vals = [within_subject_test_retest(s) for s in subjects]
+    vals = [v for v in vals if not np.isnan(v)]
+    return float(np.median(vals)) if vals else np.nan
+
+
+def between_subject_agreement(distances: np.ndarray, min_overlap: int = 20) -> dict:
+    """Mean dyadic inter-subject Spearman over jointly-observed pairs.
+
+    ``distances`` is a ``(num_subjects, n_pairs)`` array (NaN = unobserved) - works identically for a
+    pilot cohort (stack ``subject.distances``) and a simulated cohort
+    (``simulate_task_v3_experiment(..., return_per_subject=True)``). For every subject pair it
+    correlates the two distance vectors over the pairs *both* observed, keeping only dyads with at
+    least ``min_overlap`` shared pairs (each subject sees a different random image subset, so overlap
+    is sparse). Returns the mean/SEM agreement plus diagnostics on how many dyads/how much overlap
+    backed the estimate.
+    """
+    S = distances.shape[0]
+    observed = ~np.isnan(distances)
+    corrs, overlaps = [], []
+    for a in range(S):
+        for b in range(a + 1, S):
+            mask = observed[a] & observed[b]
+            k = int(mask.sum())
+            if k < min_overlap:
+                continue
+            va, vb = distances[a, mask], distances[b, mask]
+            if np.ptp(va) == 0 or np.ptp(vb) == 0:
+                continue
+            corrs.append(spearmanr(va, vb).statistic)
+            overlaps.append(k)
+    return {
+        "mean_agreement": float(np.mean(corrs)) if corrs else np.nan,
+        "sem_agreement": float(np.std(corrs, ddof=1) / np.sqrt(len(corrs))) if len(corrs) > 1 else np.nan,
+        "n_dyads": len(corrs),
+        "median_overlap": float(np.median(overlaps)) if overlaps else 0.0,
+    }
+
+
+def stack_distances(subjects: Sequence[PilotSubject]) -> np.ndarray:
+    """``(num_subjects, n_pairs)`` matrix of per-subject mean distances (NaN = unobserved)."""
+    return np.vstack([s.distances for s in subjects])
+
+
+# --------------------------------------------------------------------------- aggregate / GT
+def pilot_aggregate(subjects: Sequence[PilotSubject]) -> Tuple[np.ndarray, np.ndarray]:
+    """Pool subjects into ``(mean_distances, weights)`` ready for ``run_mds``.
+
+    ``mean_distances`` is the per-pair mean over all subjects' observations (0 where unobserved);
+    ``weights`` is the matching 0/1 observed mask. **Raises ``RuntimeError`` if the observed-pair
+    graph is disconnected** - we never run MDS on a partial graph or silently subset to a component
+    (mirrors ``multi_dimensional_scaling.run_mds``'s own guard). A disconnected graph means the pilot
+    coverage is insufficient; collect more sessions.
+    """
+    if not subjects:
+        raise ValueError("no subjects to aggregate")
+    n_pairs = subjects[0].distances.shape[0]
+    total = np.zeros(n_pairs, dtype=np.float64)
+    count = np.zeros(n_pairs, dtype=np.int64)
+    for s in subjects:
+        obs = s.n_obs > 0
+        total[obs] += np.nan_to_num(s.distances[obs]) * s.n_obs[obs]
+        count += s.n_obs
+    weights = (count > 0).astype(np.float32)
+    n_components = connected_components(squareform(weights), directed=False, return_labels=False)
+    if n_components > 1:
+        observed_frac = float(weights.mean())
+        raise RuntimeError(
+            f"pilot observed-pair graph has {n_components} connected components "
+            f"(only {observed_frac:.1%} of pairs observed). Refusing to run MDS on a partial graph - "
+            "collect more pilot sessions for full connectivity."
+        )
+    mean_distances = np.where(count > 0, total / np.maximum(count, 1), 0.0).astype(np.float32)
+    return mean_distances, weights
+
+
+# --------------------------------------------------------------------------- GT embedding
+def _classical_embed(condensed: np.ndarray, ndim: int) -> np.ndarray:
+    """Classical-MDS (PCoA) coordinates: double-centre the squared distances, keep top-`ndim`."""
+    sq = squareform(condensed).astype(np.float64) ** 2
+    n = sq.shape[0]
+    centring = np.eye(n) - np.ones((n, n)) / n
+    gram = -0.5 * centring @ sq @ centring
+    vals, vecs = np.linalg.eigh(gram)
+    idx = np.argsort(vals)[::-1][:ndim]
+    return (vecs[:, idx] * np.sqrt(np.clip(vals[idx], 0, None))).astype(np.float32)
+
+
+def choose_n_dims(eigenvalues: np.ndarray, var_threshold: float = 0.9, cap: int = 15) -> int:
+    """Smallest dimensionality whose positive eigenvalues explain >= `var_threshold` (capped)."""
+    pos = eigenvalues[eigenvalues > 0]
+    cum = np.cumsum(pos) / pos.sum()
+    return int(min(cap, np.searchsorted(cum, var_threshold) + 1))
+
+
+def build_gt_from_pilot(
+        subjects: Sequence[PilotSubject], n_dims: Optional[int] = None, method: str = "smacof",
+) -> Tuple[np.ndarray, dict]:
+    """Pooled-pilot ground-truth coordinates for the calibration simulation.
+
+    Aggregates all subjects (raises on a disconnected graph), reads the eigenspectrum to pick
+    ``n_dims`` (if not given), and embeds:
+
+    * ``method="smacof"`` - weighted SMACOF via ``multi_dimensional_scaling.run_mds`` (needs R/rpy2;
+      uses the 0/1 weights so unobserved pairs don't bias the fit). The canonical path.
+    * ``method="classical"`` - numpy classical MDS on the mean-imputed aggregate (no R). A
+      **provisional** path for environments without R; the spectrum head matches, the tail is rougher.
+
+    Returns ``(coords[N, n_dims] float32, info)``.
+    """
+    from SpAM_Simulations.metrics import classical_mds_eigenvalues
+    dists, weights = pilot_aggregate(subjects)  # raises if disconnected
+    imputed = dists.copy()
+    imputed[weights == 0] = dists[weights > 0].mean()
+    eig = classical_mds_eigenvalues(imputed)
+    if n_dims is None:
+        n_dims = choose_n_dims(eig)
+    if method == "smacof":
+        from SpAM_Simulations.multi_dimensional_scaling import run_mds  # lazy: imports R
+        out = run_mds(dists=dists, weights=weights, ndim=n_dims)
+        coords = np.asarray(out["conf"], dtype=np.float32)
+    elif method == "classical":
+        coords = _classical_embed(imputed, n_dims)
+    else:
+        raise ValueError(f"method must be 'smacof' or 'classical', got {method!r}")
+    info = {"n_dims": n_dims, "method": method, "n_subjects": len(subjects),
+            "observed_frac": float(weights.mean()), "eigenvalues": eig[:n_dims + 5]}
+    return coords, info
+
+
+# --------------------------------------------------------------------------- calibration
+def _simulated_targets(
+        gt_embeddings: np.ndarray, noise_scale: float, dispersion: float,
+        num_subjects: int, trials_per_subject: int, images_per_trial: int,
+        frac_trials_repeated: float, reps: int, seed: int, min_overlap: int,
+) -> Tuple[float, float]:
+    """Run the matched simulation and return ``(median_test_retest, mean_between_agreement)``.
+
+    Averaged over ``reps`` independent cohorts for stability (the cohort is only ``num_subjects``).
+    """
+    from SpAM_Simulations.task_v3_experiment import (
+        simulate_task_v3_experiment, TaskV3ExperimentParameters,
+    )
+    params = TaskV3ExperimentParameters(
+        num_subjects=num_subjects, trials_per_subject=trials_per_subject,
+        images_per_trial=images_per_trial, subjects_noise_scale=noise_scale,
+        subjects_noise_df=1, frac_trials_repeated=frac_trials_repeated,
+        perspective_dispersion=dispersion,
+    )
+    trs, agrs = [], []
+    for r in range(reps):
+        rng = np.random.default_rng(seed + r)
+        _, res, per_subject = simulate_task_v3_experiment(
+            params, gt_embeddings, rng, verbose=False, return_per_subject=True
+        )
+        trs.append(float(np.nanmedian(res.subject_test_retest)))
+        agrs.append(between_subject_agreement(per_subject, min_overlap=min_overlap)["mean_agreement"])
+    return float(np.nanmedian(trs)), float(np.nanmean(agrs))
+
+
+def _fit_1d(target: float, evaluate, grid: np.ndarray) -> float:
+    """Pick the grid value whose ``evaluate(x)`` is closest to ``target`` (monotone-agnostic)."""
+    vals = np.array([evaluate(x) for x in grid], dtype=np.float64)
+    return float(grid[int(np.nanargmin(np.abs(vals - target)))])
+
+
+def calibrate(
+        gt_embeddings: np.ndarray,
+        pilot_v3_subjects: Sequence[PilotSubject],
+        *,
+        trials_per_subject: int = 20,
+        images_per_trial: int = 20,
+        frac_trials_repeated: float = 0.15,
+        noise_grid: Sequence[float] = tuple(np.round(np.arange(0.25, 8.01, 0.25), 2)),
+        dispersion_grid: Sequence[float] = tuple(np.round(np.arange(0.0, 2.01, 0.1), 2)),
+        reps: int = 5,
+        min_overlap: int = 20,
+        seed: int = 0,
+) -> dict:
+    """Fit ``(subjects_noise_scale, perspective_dispersion)`` so the matched simulation reproduces the
+    pilot's within-subject test-retest and between-subject agreement.
+
+    Sequential because test-retest is perspective-invariant: (1) fit noise to the pilot's median
+    test-retest at ``dispersion=0``; (2) with noise fixed, fit dispersion to the pilot's between-
+    subject agreement. The matched simulation mirrors the v3.0 design (``num_subjects = len(pilot)``,
+    20 trials of 20, 3 repeats). ``gt_embeddings`` should be the pooled-pilot weighted-MDS embedding.
+    """
+    num_subjects = len(pilot_v3_subjects)
+    target_tr = cohort_test_retest(pilot_v3_subjects)
+    target_agr = between_subject_agreement(stack_distances(pilot_v3_subjects), min_overlap)["mean_agreement"]
+
+    def common(noise, disp):
+        return _simulated_targets(
+            gt_embeddings, noise, disp, num_subjects, trials_per_subject, images_per_trial,
+            frac_trials_repeated, reps, seed, min_overlap,
+        )
+
+    fitted_noise = _fit_1d(target_tr, lambda x: common(x, 0.0)[0], np.asarray(noise_grid))
+    fitted_disp = _fit_1d(target_agr, lambda x: common(fitted_noise, x)[1], np.asarray(dispersion_grid))
+    sim_tr, sim_agr = common(fitted_noise, fitted_disp)
+    return {
+        "subjects_noise_scale": fitted_noise,
+        "perspective_dispersion": fitted_disp,
+        "subjects_noise_df": 1,
+        "pilot_test_retest": target_tr,
+        "pilot_between_agreement": target_agr,
+        "simulated_test_retest": sim_tr,
+        "simulated_between_agreement": sim_agr,
+        "num_subjects": num_subjects,
+    }

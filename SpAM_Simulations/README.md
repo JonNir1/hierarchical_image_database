@@ -20,6 +20,8 @@ under different sampling/noise regimes.
 | `config.py` | `SimulationConfig`, `TaskV2_3SimulationConfig`, `TaskV2_4SimulationConfig`, `TaskV3SimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
 | `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability) for all simulation types. |
 | `storage.py` | `ResultStore` - compact, streamable, resumable on-disk store for sweep results. |
+| `pilot.py` | **Read-only** pilot ingestion + calibration: load `data/pilot/` CSVs, the test-retest / between-subject-agreement observables, the pooled-pilot GT embedding, and `calibrate` (fits `subjects_noise_scale` + `perspective_dispersion`). See "Calibrating to pilot data" below. |
+| `calibrate_to_pilot.py` | One-command end-to-end calibration script (`python -m SpAM_Simulations.calibrate_to_pilot`). |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
 | `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb` - no simulation, no MDS, no R. |
 | `evaluation.ipynb` | Plotting / analysis notebook for the task-v0.1 simulation. |
@@ -58,6 +60,100 @@ Or run the bundled example: `python -m SpAM_Simulations.example_pipeline` (from 
   processes (joblib/loky), streaming results to disk so peak memory stays bounded.
 - `ResultStore` keeps a human-readable `meta.csv` plus a flat float32 `confdists.f32`
   (memory-mapped on read), replacing the old multi-GB append-only pickle.
+
+## Calibrating to pilot data
+
+By default the task-v3 simulation's internals are *guessed*: `subjects_noise_scale` is scaled to the
+synthetic GT signal, but `perspective_dispersion` and the GT-geometry knobs (`decay`/`n_clusters`)
+have no anchor - so the absolute required-N is only as meaningful as those guesses. `pilot.py` anchors
+all of them to real pilot data, turning the estimate from "as a function of guessed internals" into a
+calibrated number.
+
+**The idea (three anchors).** The pilot CSVs (`data/pilot/`, one per session) give three observables:
+1. **Ground-truth geometry** - pool *all* completed pilot subjects into one aggregate RDM and run
+   weighted SMACOF -> the recovered embedding *is* the GT (it inherits the real eigenvalue spectrum
+   and cluster structure, so `decay`/`n_clusters` become moot; `n_dims` is read from the spectrum).
+2. **`subjects_noise_scale`** is pinned by within-subject **test-retest** (the v3.0 whole-trial
+   repeats). Test-retest is *perspective-invariant* - a subject's perspective is identical across
+   their original and repeat trials, only the noise re-draws - so it isolates measurement noise.
+3. **`perspective_dispersion`** is then pinned by **between-subject agreement**, with noise held fixed.
+
+Identifiability is therefore sequential and clean: test-retest -> noise, then agreement -> dispersion.
+
+**Run it (local, R-enabled machine):**
+```bash
+# from the repo root; reads data/pilot/ (never writes/commits it)
+python -m SpAM_Simulations.calibrate_to_pilot --gt-method smacof
+```
+Output: the pilot targets, the fitted `subjects_noise_scale` / `perspective_dispersion` / `n_dims`,
+and a ready-to-paste calibrated `TaskV3SimulationConfig` for the convergence sweep. Pass
+`--gt-method classical` for a **no-R provisional** GT (numpy classical MDS) - useful to smoke-test the
+pipeline, but it mean-imputes unobserved pairs so the numbers are unreliable; use SMACOF for real.
+
+**Building blocks** (all in `SpAM_Simulations/pilot.py`, all read-only):
+```python
+from SpAM_Simulations import pilot
+subs = pilot.load_pilot_subjects("data/pilot", "SpAM_Task/stimuli_manifest.json")
+v3   = [s for s in subs if s.task_version == "3.0"]            # matched 20x20 design, 3 repeats
+print(pilot.cohort_test_retest(v3))                            # noise target (median Spearman)
+print(pilot.between_subject_agreement(pilot.stack_distances(v3)))  # dispersion target
+coords, info = pilot.build_gt_from_pilot(subs, method="smacof")    # calibrated GT (raises if graph disconnected)
+fit = pilot.calibrate(coords, v3)                              # -> {subjects_noise_scale, perspective_dispersion, ...}
+```
+
+> **Data policy.** `data/pilot/` is human-subjects data: gitignored, **never committed or pushed**.
+> Pilot-derived artifacts (the aggregate RDM, the GT `coords`) are equally local - save them only to
+> gitignored paths.
+
+### Running the calibrated convergence sweep on EC2
+
+Calibration itself is light (one weighted MDS + a few hundred 11-subject sims) and runs locally in
+minutes. Only the **sweep** (step D - hundreds of MDS fits across the `num_subjects` grid) wants EC2,
+exactly like `run_task_v3_sim.sh`. Because the GT is pilot-derived it cannot live in the repo, so copy
+it to the instance with `scp` (not git):
+
+```bash
+# 1) LOCALLY: calibrate, then save the GT coords to a gitignored file
+python -m SpAM_Simulations.calibrate_to_pilot --gt-method smacof      # note the printed noise/dispersion/n_dims
+python - <<'PY'
+import numpy as np
+from SpAM_Simulations import pilot
+subs = pilot.load_pilot_subjects("data/pilot", "SpAM_Task/stimuli_manifest.json")
+coords, info = pilot.build_gt_from_pilot(subs, method="smacof")
+np.save("gt_pilot_coords.npy", coords); print("saved", coords.shape, "n_dims", info["n_dims"])
+PY
+
+# 2) provision the instance and copy the GT over (see the cookbook below for $KEY_PATH/$PUBLIC_DNS)
+scp -i "$KEY_PATH" gt_pilot_coords.npy ubuntu@"$PUBLIC_DNS":~/spam_run/
+
+# 3) ON THE INSTANCE (R already installed by prepare_machine.sh): run the calibrated sweep
+N_JOBS=$(( $(nproc) * 2 / 3 )) python - <<'PY'
+import os, numpy as np
+from SpAM_Simulations.config import TaskV3SimulationConfig, MDSSweepConfig
+from SpAM_Simulations import pipeline, eval_helpers
+coords = np.load(os.path.expanduser("~/spam_run/gt_pilot_coords.npy"))
+cfg = TaskV3SimulationConfig(
+    gt_embeddings=coords,                                  # the calibrated pilot GT
+    num_subjects=[20, 50, 100, 200, 350, 500],
+    trials_per_subject=[20], images_per_trial=[20],
+    subjects_noise_scale=[<FITTED_NOISE>], subjects_noise_df=[1],   # <- from step 1's output
+    frac_trials_repeated=[0.15], perspective_dispersion=[<FITTED_DISPERSION>],
+    reps=5, seed=42,
+)
+sim   = pipeline.generate_task_v3_simulation(cfg)
+store = pipeline.run_mds_sweep(sim, MDSSweepConfig(min_ndim=2), "mds_store",
+                               parallel=True, n_jobs=int(os.environ["N_JOBS"]))
+es = pipeline.compute_embedding_stability(store)
+es.to_csv("out/embedding_stability.csv", index=False)
+print(eval_helpers.plateau_num_subjects(es))              # required-N per ndim
+PY
+# then upload out/ to S3 and TERMINATE the instance (cookbook below). Delete gt_pilot_coords.npy from
+# the instance afterwards - it is pilot-derived.
+```
+
+> Alternatively run the *whole* calibration on EC2 by `scp -r data/pilot ubuntu@$PUBLIC_DNS:~/spam_run/data/pilot`
+> first - but that puts raw human-subjects data on the cloud box; prefer calibrating locally and
+> copying only the derived GT. Either way, terminate the instance and remove the copied data when done.
 
 ## Running with R (rpy2 + smacof)
 
