@@ -15,16 +15,18 @@ truth geometry. This module anchors all three to the real pilot:
 
 Identifiability is therefore sequential and clean: test-retest -> noise, then agreement -> dispersion.
 
+Session loading and completion filtering are delegated to ``analysis.pilot.parser`` (the canonical
+pilot loader: ``load_pilot_data`` returns a demographics-filtered tidy trials frame, and
+``parse_pairwise_distances`` parses the per-trial JSON); this module only reduces those trials to the
+condensed per-pair distances the calibration needs.
+
 Nothing here writes pilot data or pilot-derived artifacts; ``data/pilot/`` is human-subjects data and
-must stay local (never committed). Distances are read straight from each session CSV's
-``pairwise_distances`` column (already canvas-diagonal-normalised in [0, 1], so comparable across
-subjects' screen sizes).
+must stay local (never committed). Distances come straight from each trial's ``pairwise_distances``
+(already canvas-diagonal-normalised in [0, 1], so comparable across subjects' screen sizes).
 """
 from __future__ import annotations
 
-import glob
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -35,6 +37,7 @@ from scipy.sparse.csgraph import connected_components
 from scipy.spatial.distance import squareform
 from scipy.stats import spearmanr
 
+from analysis.pilot.parser import load_pilot_data, parse_pairwise_distances
 from SpAM_Simulations.experiment import _condensed_pair_indices
 
 # A pilot stimulus path is ``./images/<variant>_shine/<relpath>``; the manifest lists ``<relpath>``.
@@ -61,7 +64,7 @@ def _src_to_relpath(src: str) -> str:
 class PilotSubject:
     """One completed pilot session, reduced to what calibration needs."""
     participant_id: str
-    task_version: str
+    task_version: float
     n_images: int
     distances: np.ndarray          # condensed (N(N-1)/2,), per-pair mean distance, NaN = unobserved
     n_obs: np.ndarray              # condensed, integer observation count per pair
@@ -72,59 +75,53 @@ class PilotSubject:
         return int(np.count_nonzero(self.n_obs))
 
 
-def _trial_pair_distances(pairwise_json: str, rel2idx: Dict[str, int]) -> Dict[int, float]:
-    """Parse one trial's ``pairwise_distances`` into ``{condensed_pair_index: distance}``."""
-    out: Dict[int, float] = {}
-    N = len(rel2idx)
-    for d in json.loads(pairwise_json or "[]"):
-        a = rel2idx[_src_to_relpath(d.get("src1") or d["src_a"])]
-        b = rel2idx[_src_to_relpath(d.get("src2") or d["src_b"])]
-        cond = int(_condensed_pair_indices(np.array([a]), np.array([b]), N)[0])
-        out[cond] = float(d["distance"])
-    return out
+def _pair_condensed_indices(pairwise_json: str, rel2idx: Dict[str, int]) -> Dict[int, float]:
+    """One trial's ``pairwise_distances`` -> ``{condensed_pair_index: distance}`` on the manifest space.
 
-
-def load_pilot_subject(csv_path: str, rel2idx: Dict[str, int]) -> Optional[PilotSubject]:
-    """Load one session CSV into a :class:`PilotSubject`, or ``None`` if it has no main trials.
-
-    Accumulates each main trial's normalised pairwise distances into a per-subject condensed
-    sum/count (a verbatim trial repeat adds a second observation of the same pairs, so the stored
-    value is their mean). Repeat trials are also aligned to their originals (via
-    ``repeat_of_trial_number``, matched against each row's ``trial_N`` number) to give the
-    within-subject test-retest pairs.
+    Reuses ``analysis.pilot.parser.parse_pairwise_distances`` (which returns ``{(src1, src2): dist}``
+    keyed by image path) and maps each path onto the manifest index, then to its condensed position.
     """
-    df = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
-    if df.empty or "trial_type" not in df.columns or "pairwise_distances" not in df.columns:
-        return None  # aborted session (consent-only / no free-sort trials written)
-    main = df[df["trial_type"].str.startswith("trial_", na=False)]
-    if main.empty:
-        return None
+    items = parse_pairwise_distances(pairwise_json)
+    if not items:
+        return {}
+    N = len(rel2idx)
+    (paths, dists) = zip(*items.items())
+    a = np.fromiter((rel2idx[_src_to_relpath(s1)] for s1, _ in paths), dtype=np.int64, count=len(paths))
+    b = np.fromiter((rel2idx[_src_to_relpath(s2)] for _, s2 in paths), dtype=np.int64, count=len(paths))
+    cond = _condensed_pair_indices(a, b, N)
+    return {int(c): float(d) for c, d in zip(cond, dists)}
+
+
+def subject_from_trials(trials: pd.DataFrame, rel2idx: Dict[str, int]) -> PilotSubject:
+    """Build one :class:`PilotSubject` from a single participant's rows of the parser ``trials`` frame.
+
+    ``trials`` is one participant's slice of ``analysis.pilot.parser.load_pilot_data(...)["trials"]``
+    (columns ``pairwise_distances``, ``trial_number``, ``is_trial_repeat``, ``repeat_of_trial_number``,
+    ``qc_flag``, ``task_version``, ``participant_id``). Each trial's normalised pairwise distances are
+    accumulated into a per-subject condensed sum/count (a verbatim repeat adds a second observation of
+    the same pairs, so the stored value is their mean); repeat trials are aligned to their originals
+    (via ``repeat_of_trial_number`` in ``trial_number`` space) to give the test-retest pairs.
+    """
     N = len(rel2idx)
     n_pairs = N * (N - 1) // 2
     total = np.zeros(n_pairs, dtype=np.float64)
     count = np.zeros(n_pairs, dtype=np.int32)
 
     by_trial_number: Dict[int, Dict[int, float]] = {}
-    flagged = 0
-    for _, row in main.iterrows():
-        pairs = _trial_pair_distances(row["pairwise_distances"], rel2idx)
-        trial_number = int(str(row["trial_type"]).rsplit("_", 1)[-1])
-        by_trial_number[trial_number] = pairs
-        idx = np.fromiter(pairs.keys(), dtype=np.int64, count=len(pairs))
-        total[idx] += np.fromiter(pairs.values(), dtype=np.float64, count=len(pairs))
-        count[idx] += 1
-        if str(row.get("qc_flag", "")).lower() == "true":
-            flagged += 1
+    for _, row in trials.iterrows():
+        pairs = _pair_condensed_indices(row["pairwise_distances"], rel2idx)
+        by_trial_number[int(row["trial_number"])] = pairs
+        if pairs:
+            idx = np.fromiter(pairs.keys(), dtype=np.int64, count=len(pairs))
+            total[idx] += np.fromiter(pairs.values(), dtype=np.float64, count=len(pairs))
+            count[idx] += 1
 
     retest: List[Tuple[np.ndarray, np.ndarray]] = []
-    for _, row in main.iterrows():
-        if str(row.get("is_trial_repeat", "")).lower() != "true":
+    for _, row in trials[trials["is_trial_repeat"].astype(bool)].iterrows():
+        orig_num = row["repeat_of_trial_number"]
+        if pd.isna(orig_num) or int(orig_num) not in by_trial_number:
             continue
-        orig_num = row.get("repeat_of_trial_number")
-        if orig_num in ("", "null", None) or int(orig_num) not in by_trial_number:
-            continue
-        trial_number = int(str(row["trial_type"]).rsplit("_", 1)[-1])
-        rep = by_trial_number[trial_number]
+        rep = by_trial_number[int(row["trial_number"])]
         orig = by_trial_number[int(orig_num)]
         shared = sorted(set(rep) & set(orig))  # same image set -> same pair keys
         if len(shared) >= 2:
@@ -132,34 +129,39 @@ def load_pilot_subject(csv_path: str, rel2idx: Dict[str, int]) -> Optional[Pilot
 
     distances = np.where(count > 0, total / np.maximum(count, 1), np.nan).astype(np.float32)
     return PilotSubject(
-        participant_id=main["participant_id"].iloc[0],
-        task_version=main["task_version"].iloc[0],
+        participant_id=str(trials["participant_id"].iloc[0]),
+        task_version=float(trials["task_version"].iloc[0]),
         n_images=N,
         distances=distances,
         n_obs=count,
         retest_pairs=retest,
-        qc_flag_rate=flagged / len(main),
+        qc_flag_rate=float(trials["qc_flag"].astype(bool).mean()),
     )
 
 
 def load_pilot_subjects(
         pilot_dir: str,
         manifest_path: str,
-        versions: Optional[Sequence[str]] = None,
+        versions: Optional[Sequence[float]] = None,
         apply_qc: bool = False,
         qc_max_flag_rate: float = 0.30,
 ) -> List[PilotSubject]:
-    """Load every completed session under ``pilot_dir`` (optionally filtered by ``task_version``).
+    """Load the completed pilot subjects under ``pilot_dir`` (optionally filtered by ``task_version``).
 
-    ``apply_qc=False`` by default (use every completed session); set ``True`` to drop subjects whose
-    main-trial ``qc_flag`` rate exceeds ``qc_max_flag_rate`` - available only as a robustness check.
+    Delegates all session/CSV handling and completion filtering to
+    ``analysis.pilot.parser.load_pilot_data`` (demographics-aware: consent-revoked and
+    erroneous-completion participants are already excluded), then reduces each participant's trials to
+    a :class:`PilotSubject` on the manifest index space. ``versions`` compares against the float
+    ``task_version`` (e.g. ``[3.0]``). ``apply_qc=False`` by default; set ``True`` to additionally drop
+    subjects whose ``qc_flag`` rate exceeds ``qc_max_flag_rate`` (a robustness check).
     """
     _, rel2idx = load_manifest(manifest_path)
+    trials = load_pilot_data(pilot_dir)["trials"]
+    if trials.empty:
+        return []
     subjects: List[PilotSubject] = []
-    for path in sorted(glob.glob(os.path.join(pilot_dir, "*.csv"))):
-        subj = load_pilot_subject(path, rel2idx)
-        if subj is None:
-            continue
+    for _, group in trials.groupby("participant_id", sort=False):
+        subj = subject_from_trials(group, rel2idx)
         if versions is not None and subj.task_version not in versions:
             continue
         if apply_qc and subj.qc_flag_rate > qc_max_flag_rate:
