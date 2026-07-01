@@ -120,7 +120,7 @@ $S3_URI/out/  $S3_URI/mds_store/   <- OUTPUT of the convergence sweep
 data) and the manifest are gitignored, so they are never in the repo clone - the entrypoint pulls them
 from this prefix:
 ```bash
-S3_URI=s3://<bkt>/spam-simulations/task-v3                    # PRIVATE
+S3_URI=S3_URI=s3://jon-nir/spam-simulations/task-v3
 aws s3 cp data/pilot/                     "$S3_URI/data/pilot/" --recursive   # session CSVs
 aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/pilot/"               # the 725-image manifest
 ```
@@ -131,9 +131,9 @@ parameters, tees the output to a log, and uploads the log + fitted params + pilo
 `$S3_URI/calibration/`; the raw CSVs are deleted from the box at exit). On a freshly-allocated instance
 (see the allocate cookbook above for SSH):
 ```bash
-export REPO_URL=https://github.com/<you>/hierarchical_image_database.git
+export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
 export GIT_REF=main
-export S3_URI=s3://<bkt>/spam-simulations/task-v3            # PRIVATE: pilot at $S3_URI/data/pilot/, outputs at $S3_URI/calibration/
+export S3_URI=s3://jon-nir/spam-simulations/task-v3            # PRIVATE: pilot at $S3_URI/data/pilot/, outputs at $S3_URI/calibration/
 bash run_calibrate_to_pilot.sh 2>&1 | tee calibrate_run.log
 # (override GT_METHOD=classical for a no-R provisional fit, or REPS=N to average more cohorts)
 ```
