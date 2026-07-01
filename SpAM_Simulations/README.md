@@ -4,35 +4,10 @@ Simulate SpAM experiments (noisy subject distance judgements over a ground-truth
 and reconstruct them with weighted MDS, to evaluate how well MDS recovers the latent space
 under different sampling/noise regimes.
 
-## Modules
-
-| Module | Responsibility |
-|---|---|
-| `experiment.py` | Core simulation: `simulate_experiment` / `simulate_single_subject` (vectorized, condensed form). |
-| `design.py` | Per-subject trial allocation (`compute_design_counts`, `build_trial_lists`) for the task-v2.3 simulation, plus `distinct_trial_count`/`select_repeat_trials` for task-v2.4's whole-trial repeats, ported from `SpAM_Task`'s `buildTrialLists`/`insertTrialRepeats`. |
-| `task_v2_3_experiment.py` | Task-v2.3 simulation: per-subject image subset + trial design (matches `SpAM_Task`), plus the within-subject SNR heuristic. |
-| `task_v2_4_experiment.py` | Task-v2.4 simulation: task-v2.3 design **plus** `frac_trials_repeated` whole-trial repeats (each repeat re-draws its noisy distances), yielding a per-subject test-retest reliability. Bit-exact to task-v2.3 when `frac_trials_repeated=0`. |
-| `task_v3_experiment.py` | Task-v3 simulation: a **generative coordinate-space** model replacing additive-distance-noise. Per subject: a perspective weighting of the ground-truth PCs (`perspective_dispersion`) + item-level coordinate noise, projected onto a **local per-trial 2-D arrangement** (the SpAM canvas bottleneck). Drops `frac_images_repeated` (task v3.0); keeps `frac_trials_repeated` test-retest. |
-| `simulation.py` | `Simulation` container + ground-truth distances; `make` (random) / `from_embeddings` (real data) / `build_ground_truth_embeddings` (synthetic with a chosen eigenvalue spectrum for task-v3). |
-| `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`, `test_retest_summary`, `effective_rank` (classical-MDS rank of an aggregate - checks the task-v3 2-D slices span >2 dims). |
-| `helpers.py` | Distance-matrix format conversion (`convert_to_condensed`). |
-| `multi_dimensional_scaling.py` | `run_mds` - weighted SMACOF via R's `smacof` (needs R + rpy2). |
-| `config.py` | `SimulationConfig`, `TaskV2_3SimulationConfig`, `TaskV2_4SimulationConfig`, `TaskV3SimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
-| `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability) for all simulation types. |
-| `storage.py` | `ResultStore` - compact, streamable, resumable on-disk store for sweep results. |
-| `pilot.py` | **Read-only** pilot ingestion + calibration: load `data/pilot/` CSVs, the test-retest / between-subject-agreement observables, the pooled-pilot GT embedding, and `calibrate` (fits `subjects_noise_scale` + `perspective_dispersion`). See "Calibrating to pilot data" below. |
-| `calibrate_to_pilot.py` | One-command end-to-end calibration script (`python -m SpAM_Simulations.calibrate_to_pilot`). |
-| `example_pipeline.py` | Minimal runnable end-to-end example. |
-| `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb` - no simulation, no MDS, no R. |
-| `evaluation.ipynb` | Plotting / analysis notebook for the task-v0.1 simulation. |
-| `evaluation_task_v2_3.ipynb` | Plotting / analysis notebook for the task-v2.3 simulation. |
-| `evaluation_task_v2_4.ipynb` | Plotting / analysis notebook for the task-v2.4 simulation (adds the test-retest reliability panel). |
-| `evaluate_simulation.ipynb` | Read-only overview/drill-down figures for an already-completed **task-v3** run (incl. the plateau-N required-subjects readout), via `eval_helpers.py`. v3-only; older runs use the `evaluation*.ipynb` notebooks above. |
-| `ec2/prepare_machine.sh`, `ec2/run_task_v0_1_sim.sh`, `ec2/run_task_v2_3_sim.sh`, `ec2/run_task_v2_4_sim.sh`, `ec2/run_task_v3_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
-| `ec2/run_calibrate_to_pilot.sh` | EC2 entrypoint that runs the pilot calibration end-to-end (bootstrap -> fetch private pilot data -> fit -> log + params + GT uploaded to S3). See "Calibrating + sweeping on EC2". |
-| `sim_results/<run-name>/` | Local copy of a completed run's small files (`out/*.csv`, `mds_store/meta.csv`) downloaded from S3, e.g. `sim_results/task-v2.3/` - gitignored, consumed by `eval_helpers.py`/`evaluate_simulation.ipynb`. |
-
 ## Quick start
+
+`pipeline.generate_simulation` and the coverage/stability tables need no R; only
+`run_mds_sweep` (the weighted-SMACOF reconstruction step) requires R + `smacof`.
 
 ```python
 from SpAM_Simulations.config import SimulationConfig, MDSSweepConfig
@@ -62,6 +37,37 @@ Or run the bundled example: `python -m SpAM_Simulations.example_pipeline` (from 
 - `ResultStore` keeps a human-readable `meta.csv` plus a flat float32 `confdists.f32`
   (memory-mapped on read), replacing the old multi-GB append-only pickle.
 
+For real pilot data instead of synthetic, see *Calibrating to pilot data* below. For
+large-scale sweeps, see *Running on EC2* below.
+
+## Modules
+
+| Module | Responsibility |
+|---|---|
+| `experiment.py` | Core simulation: `simulate_experiment` / `simulate_single_subject` (vectorized, condensed form). |
+| `design.py` | Per-subject trial allocation (`compute_design_counts`, `build_trial_lists`) for the task-v2.3 simulation, plus `distinct_trial_count`/`select_repeat_trials` for task-v2.4's whole-trial repeats, ported from `SpAM_Task`'s `buildTrialLists`/`insertTrialRepeats`. |
+| `task_v2_3_experiment.py` | Task-v2.3 simulation: per-subject image subset + trial design (matches `SpAM_Task`), plus the within-subject SNR heuristic. |
+| `task_v2_4_experiment.py` | Task-v2.4 simulation: task-v2.3 design **plus** `frac_trials_repeated` whole-trial repeats (each repeat re-draws its noisy distances), yielding a per-subject test-retest reliability. Bit-exact to task-v2.3 when `frac_trials_repeated=0`. |
+| `task_v3_experiment.py` | Task-v3 simulation: a **generative coordinate-space** model replacing additive-distance-noise. Per subject: a perspective weighting of the ground-truth PCs (`perspective_dispersion`) + item-level coordinate noise, projected onto a **local per-trial 2-D arrangement** (the SpAM canvas bottleneck). Drops `frac_images_repeated` (task v3.0); keeps `frac_trials_repeated` test-retest. |
+| `simulation.py` | `Simulation` container + ground-truth distances; `make` (random) / `from_embeddings` (real data) / `build_ground_truth_embeddings` (synthetic with a chosen eigenvalue spectrum for task-v3). |
+| `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`, `test_retest_summary`, `effective_rank` (classical-MDS rank of an aggregate - checks the task-v3 2-D slices span >2 dims). |
+| `helpers.py` | Distance-matrix format conversion (`convert_to_condensed`). |
+| `multi_dimensional_scaling.py` | `run_mds` - weighted SMACOF via R's `smacof` (needs R + rpy2). |
+| `config.py` | `SimulationConfig`, `TaskV2_3SimulationConfig`, `TaskV2_4SimulationConfig`, `TaskV3SimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
+| `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability) for all simulation types. |
+| `storage.py` | `ResultStore` - compact, streamable, resumable on-disk store for sweep results. |
+| `pilot.py` | **Read-only** pilot ingestion + calibration: load `data/pilot/` CSVs, the test-retest / between-subject-agreement observables, the pooled-pilot GT embedding, and `calibrate` (fits `subjects_noise_scale` + `perspective_dispersion`). See "Calibrating to pilot data" below. |
+| `calibrate_to_pilot.py` | One-command end-to-end calibration script (`python -m SpAM_Simulations.calibrate_to_pilot`). |
+| `example_pipeline.py` | Minimal runnable end-to-end example. |
+| `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb` - no simulation, no MDS, no R. |
+| `evaluation.ipynb` | Plotting / analysis notebook for the task-v0.1 simulation. |
+| `evaluation_task_v2_3.ipynb` | Plotting / analysis notebook for the task-v2.3 simulation. |
+| `evaluation_task_v2_4.ipynb` | Plotting / analysis notebook for the task-v2.4 simulation (adds the test-retest reliability panel). |
+| `evaluate_simulation.ipynb` | Read-only overview/drill-down figures for an already-completed **task-v3** run (incl. the plateau-N required-subjects readout), via `eval_helpers.py`. v3-only; older runs use the `evaluation*.ipynb` notebooks above. |
+| `ec2/prepare_machine.sh`, `ec2/run_task_v0_1_sim.sh`, `ec2/run_task_v2_3_sim.sh`, `ec2/run_task_v2_4_sim.sh`, `ec2/run_task_v3_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
+| `ec2/run_calibrate_to_pilot.sh` | EC2 entrypoint that runs the pilot calibration end-to-end (bootstrap -> fetch private pilot data -> fit -> log + params + GT uploaded to S3). See "Calibrating + sweeping on EC2". |
+| `sim_results/<run-name>/` | Local copy of a completed run's small files (`out/*.csv`, `mds_store/meta.csv`) downloaded from S3, e.g. `sim_results/task-v2.3/` - gitignored, consumed by `eval_helpers.py`/`evaluate_simulation.ipynb`. |
+
 ## Calibrating to pilot data
 
 By default the task-v3 simulation's internals are *guessed*: `subjects_noise_scale` is scaled to the
@@ -82,7 +88,7 @@ calibrated number.
 Identifiability is therefore sequential and clean: test-retest -> noise, then agreement -> dispersion.
 
 **Run it (local, R-enabled machine):**
-```bash
+```powershell
 # from the repo root; reads data/pilot/ (never writes/commits it)
 python -m SpAM_Simulations.calibrate_to_pilot --gt-method smacof
 ```
@@ -119,8 +125,8 @@ $S3_URI/out/  $S3_URI/mds_store/   <- OUTPUT of the convergence sweep
 **Step 1 - one-time: stage the pilot data under `$S3_URI/data/pilot/`.** The pilot CSVs (human-subjects
 data) and the manifest are gitignored, so they are never in the repo clone - the entrypoint pulls them
 from this prefix:
-```bash
-S3_URI=S3_URI=s3://jon-nir/spam-simulations/task-v3
+```powershell
+$S3_URI = "s3://jon-nir/spam-simulations/task-v3"
 aws s3 cp data/pilot/                     "$S3_URI/data/pilot/" --recursive   # session CSVs
 aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/pilot/"               # the 725-image manifest
 ```
@@ -129,7 +135,8 @@ aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/pilot/"               # 
 bootstraps via `prepare_machine.sh`, reads the pilot data from `$S3_URI/data/pilot/`, fits the
 parameters, tees the output to a log, and uploads the log + fitted params + pilot GT to
 `$S3_URI/calibration/`; the raw CSVs are deleted from the box at exit). On a freshly-allocated instance
-(see the allocate cookbook above for SSH):
+(see the full allocate -> run -> verify -> terminate Cookbook under "Running on EC2" below for how to
+allocate the instance and SSH in):
 ```bash
 export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
 export GIT_REF=main
@@ -214,6 +221,11 @@ together with whichever entrypoint(s) you want onto the instance (don't transfer
 alone).
 
 ### Cookbook: allocate -> run -> verify -> terminate
+
+This Cookbook is also referenced by *Calibrating to pilot data* above for the
+calibrate-then-sweep workflow (steps (0)-(4) get you to an SSH prompt on a fresh
+instance; then run the calibration/sweep commands from that section instead of
+tmux-ing a sweep script directly).
 
 Known infra for this project: security group `sg-0e1f88c3d550f7154`, key pair `paf-key`
 (`.pem` kept outside the repo), IAM instance profile `spam-simulations` (has S3 access).
