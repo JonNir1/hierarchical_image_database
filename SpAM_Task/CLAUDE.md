@@ -219,6 +219,7 @@ Single async `DOMContentLoaded` handler. Execution order:
 |---|---|---|
 | `trial_type` | all | `"trial_N"` (main) or `"catch_N"` (catch), 1-based |
 | `trial_index` | all | 0-based position in the full trial sequence |
+| `num_moves` | all | Total drag-end events recorded by the free-sort plugin (`data.moves.length`); used by the `min_move_item_ratio` QC flag |
 | `is_trial_repeat` | main only | `true` if this trial is a verbatim repeat of an earlier trial (see `frac_trials_repeated`) |
 | `repeat_of_trial_number` | main only | The original occurrence's trial number (the `N` in its `trial_N` value) if `is_trial_repeat` is `true`, else `null`. Directly comparable to `trial_type`/`trial_number` — no re-indexing needed. |
 | `qc_flag` | all | `true` if trial failed any QC criterion |
