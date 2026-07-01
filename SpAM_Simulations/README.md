@@ -122,14 +122,19 @@ $S3_URI/calibration/  <- OUTPUT calibrate.log, calibrated_params.json, gt_pilot_
 $S3_URI/out/  $S3_URI/mds_store/   <- OUTPUT of the convergence sweep
 ```
 
-**Step 1 - one-time: stage the pilot data under `$S3_URI/data/pilot/`.** The pilot CSVs (human-subjects
+**Step 0 - one-time: copy pilot data to S3 bucket**<br>
+The pilot CSVs (human-subjects
 data) and the manifest are gitignored, so they are never in the repo clone - the entrypoint pulls them
-from this prefix:
+to the subdirectory `$S3_URI/data/pilot/`:
 ```powershell
 $S3_URI = "s3://jon-nir/spam-simulations/task-v3"
 aws s3 cp data/pilot/                     "$S3_URI/data/pilot/" --recursive   # session CSVs
 aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/pilot/"               # the 725-image manifest
 ```
+
+**Step 1: initialize EC2**<br>
+Provision a new EC2 instance and copy the `ec2/` scripts to it, by following steps 0-4 in the "Running on EC2 / 
+Cookbook" section below.
 
 **Step 2 - calibrate on EC2** with the dedicated entrypoint `ec2/run_calibrate_to_pilot.sh` (it
 bootstraps via `prepare_machine.sh`, reads the pilot data from `$S3_URI/data/pilot/`, fits the
@@ -176,7 +181,6 @@ PY
 ```
 
 ## Running with R (rpy2 + smacof)
-
 `multi_dimensional_scaling.py` imports R at load time. R 4.5 + the `smacof` package are
 required. On Windows without Rtools, `R CMD config` cannot run; rpy2 must fall back to the
 DLL in `R_HOME/bin/x64`. That fallback only triggers when the `config` subprocess fails
@@ -232,6 +236,7 @@ Known infra for this project: security group `sg-0e1f88c3d550f7154`, key pair `p
 
 **(0) One-time setup constants** (PowerShell):
 ```powershell
+$S3_URI        = "s3://jon-nir/spam-simulations/task-v3"
 $SG_ID         = "sg-0e1f88c3d550f7154"
 $KEY_NAME      = "paf-key"
 $KEY_PATH      = "C:\Users\nirjo\Documents\projects\__secrets__\paf-key.pem"
@@ -283,12 +288,7 @@ fails with a JSON parse error. Shorthand syntax has no `"` characters to mangle.
 **(3) Transfer the scripts:**
 ```powershell
 cd C:\Users\nirjo\Documents\University\PhD\Projects\hierarchical_image_database
-scp -i $KEY_PATH `
-  SpAM_Simulations\ec2\prepare_machine.sh `
-  SpAM_Simulations\ec2\run_task_v0_1_sim.sh `
-  SpAM_Simulations\ec2\run_task_v2_3_sim.sh `
-  SpAM_Simulations\ec2\run_task_v2_4_sim.sh `
-  ubuntu@${IP}:~
+scp -i $KEY_PATH SpAM_Simulations\ec2\*.sh ubuntu@${IP}:~   # copy all EC2 scripts to home dir
 ```
 
 **(4) SSH in:**
