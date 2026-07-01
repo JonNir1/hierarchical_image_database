@@ -139,8 +139,11 @@ slots after its original. This is substitutive, not additive: `trials_per_subjec
 main trial count a subject sees; some of those slots are repeats, so distinct combinations drop
 to `t_distinct`.
 
-**Quality control â€” main trials**: Flag a trial if
-`SD(normalised pairwise distances) < min_pairwise_distance_sd` (all images piled up).
+**Quality control â€” main trials**: Flag a trial if ANY of the following hold:
+- `SD(normalised pairwise distances) < min_pairwise_distance_sd` â€” all images piled up
+- `num_moves < min_move_item_ratio Ã— numItems` â€” too few drag-end events for the number of
+  images shown, indicating the participant barely engaged with the trial
+
 There is no RT-based flag: the `min_trial_rt_ms` floor is UI-enforced (Done button
 disabled for that duration), so a too-fast completion is impossible. Exclude a participant
 if > 30% of their main trials are flagged.
@@ -150,6 +153,8 @@ if > 30% of their main trials are flagged.
 - `SD(normalised pairwise distances) > catch_cluster_max_sd` â€” cluster too spread
 - Every individual image must be within `catch_location_tolerance` (normalised) of the
   target point — if any single image is too far away, the trial is flagged
+- `num_moves < min_move_item_ratio Ã— numItems` â€” too few drag-end events for the number of
+  images shown
 
 `allImagesNearTarget` checks every individual image: each must be within `tolerance` (normalised diagonal distance) of the target corner/centre point. This function is used identically by the real-time blocking check (`on_load`) and the post-trial QC flag (`on_finish`), keeping both criteria in sync.
 
@@ -309,6 +314,7 @@ browser and `generate_manifest.py` resolve them identically.
 |---|---|---|
 | `min_trial_rt_ms` | 60000 | UI-enforced minimum on main trials: "Done" button stays disabled for this many ms (countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. Not applied to practice or catch trials. |
 | `min_pairwise_distance_sd` | 0.04 | Minimum SD of normalised distances for main trial to pass |
+| `min_move_item_ratio` | 0.75 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a trial to pass, on both main and catch trials. Flags participants who place few or no images. |
 
 ### `deployment`
 | Key | Default | Description |

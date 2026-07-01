@@ -126,6 +126,7 @@ is substantially smaller or larger, adjust accordingly.
 |---|---|---|
 | `quality_control.min_trial_rt_ms` | 60000 | UI-enforced minimum: "Done" button is disabled for this many ms on main trials (live countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. |
 | `quality_control.min_pairwise_distance_sd` | 0.04 | Main trials where all images are piled in one spot are flagged |
+| `quality_control.min_move_item_ratio` | 0.75 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a trial to pass; flags trials (main or catch) where the participant barely engaged |
 | `catch_trials.cluster_max_mean` | 0.15 | Catch trial: images must be clustered (low mean distance) |
 | `catch_trials.cluster_max_sd` | 0.10 | Catch trial: cluster must be tight (low SD) |
 | `catch_trials.location_tolerance` | 0.20 | Catch trial: every individual image must be within this normalised distance of the target region |
