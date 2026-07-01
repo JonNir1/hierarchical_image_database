@@ -8,12 +8,22 @@ contains "male" as a substring, so order of the two checks matters), and a
 regression test asserting assign_all() reproduces the committed
 images/manifest.csv:wn_synset_name column exactly (guards against silent
 future drift in STEM_OVERRIDES / STEM_BLACKLIST / rule ordering).
+
+Requires nltk + the WordNet corpus (`nltk.download('wordnet')`), which are not
+installed in the lightweight `python-analysis-tests` CI job (see
+.github/workflows/ci.yml) -- this whole module is skipped there rather than
+failing collection.
 """
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
-from analysis.rdms.assign_wn_synsets import _parse_path, assign_all, assign_synset
+nltk = pytest.importorskip(
+    "nltk", reason="assign_wn_synsets requires nltk + the WordNet corpus"
+)
+
+from analysis.rdms.assign_wn_synsets import _parse_path, assign_all, assign_synset  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
