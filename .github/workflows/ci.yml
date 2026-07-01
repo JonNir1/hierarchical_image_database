@@ -76,7 +76,7 @@ jobs:
         run: pytest SpAM_Task/__tests__/ -v
 
   python-analysis-tests:
-    name: Python analysis/rdms tests
+    name: Python analysis/rdms + analysis/pilot tests
     runs-on: ubuntu-latest
 
     steps:
@@ -89,12 +89,36 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        # Only the subset needed by common.py and its tests;
+        # Only the subset needed by common.py / analysis.pilot.parser and their tests;
         # heavy deps (torch, open_clip, nltk) are not required here.
         run: pip install pytest numpy scipy pandas Pillow
 
       - name: Run pytest
-        run: pytest analysis/rdms/__tests__/ -v
+        run: pytest analysis/rdms/__tests__/ analysis/pilot/__tests__/ -v
+
+  python-simulations-tests:
+    name: Python SpAM-simulations tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        # Only the subset needed by SpAM_Simulations and its tests. scikit-learn
+        # is required because multi_dimensional_scaling.py imports sklearn.manifold.MDS
+        # at module level (before its rpy2 import); without it here, the R/rpy2-dependent
+        # MDS tests would self-skip for the wrong reason (missing sklearn instead of
+        # missing R). torch/nltk are not needed.
+        run: pip install pytest numpy scipy pandas tqdm plotly scikit-learn
+
+      - name: Run pytest
+        run: pytest SpAM_Simulations/__tests__/ -v
 
   js-tests:
     name: JS SpAM-task tests
