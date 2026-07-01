@@ -554,7 +554,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       counter_text_finished:    '',
       on_load: trial.type === 'catch'
         ? function () { attachCatchCompliance(trial.target_location); }
-        : function () { attachTrialTimer(mode === 'debug' ? 5000 : config.quality_control.min_trial_rt_ms); },
+        : function () { attachTrialTimer(mode === 'debug' ? 5000 : config.design.min_trial_duration_ms); },
       on_finish: function(data) {
         // QC metrics
         const pairs = computePairwiseDistances(

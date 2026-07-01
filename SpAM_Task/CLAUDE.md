@@ -109,7 +109,7 @@ columns, limiting `sortW` to at most `viewportW / (1 + column_spread_factor)` (�
 viewport at the default `column_spread_factor: 1.0`). This wastes screen space and produces a
 small arena on any normal monitor. The SpAM literature (Goldstone 1994, Bracci et al. 2019)
 arranges stimuli randomly *within* the arena from the start; disengagement is detected via the
-`min_trial_rt_ms` floor and the interleaved catch trials, not by a staging zone. Setting
+`min_trial_duration_ms` floor and the interleaved catch trials, not by a staging zone. Setting
 `stim_starts_inside: true` allows the arena to fill up to 85% of the viewport width (limited
 only by `sort_area_width`), giving a substantially larger working space. `column_spread_factor`
 is kept at 1.0 in the config for forward-compatibility if this decision is ever revisited, but
@@ -144,7 +144,7 @@ to `t_distinct`.
 - `num_moves < min_move_item_ratio Ã— numItems` â€” too few drag-end events for the number of
   images shown, indicating the participant barely engaged with the trial
 
-There is no RT-based flag: the `min_trial_rt_ms` floor is UI-enforced (Done button
+There is no RT-based flag: the `min_trial_duration_ms` floor is UI-enforced (Done button
 disabled for that duration), so a too-fast completion is impossible. Exclude a participant
 if > 30% of their main trials are flagged.
 
@@ -289,6 +289,7 @@ browser and `generate_manifest.py` resolve them identically.
 | `images_per_trial` | 20 | Images shown per main trial |
 | `frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are verbatim repeats of an earlier trial (test-retest reliability) — the only mechanism by which an image can appear more than once per subject. `t_distinct = t − round(frac_trials_repeated×t)`. Keep below 0.4, since high values leave little room to satisfy `min_trial_repeat_separation`. |
 | `min_trial_repeat_separation` | 3 | Minimum number of other main-trial slots between an original trial and its verbatim repeat. |
+| `min_trial_duration_ms` | 60000 | UI-enforced minimum on main trials: "Done" button stays disabled for this many ms (countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. Not applied to practice or catch trials. |
 
 ### `catch_trials`
 | Key | Default | Description |
@@ -312,7 +313,6 @@ browser and `generate_manifest.py` resolve them identically.
 ### `quality_control`
 | Key | Default | Description |
 |---|---|---|
-| `min_trial_rt_ms` | 60000 | UI-enforced minimum on main trials: "Done" button stays disabled for this many ms (countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. Not applied to practice or catch trials. |
 | `min_pairwise_distance_sd` | 0.04 | Minimum SD of normalised distances for main trial to pass |
 | `min_move_item_ratio` | 0.75 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a trial to pass, on both main and catch trials. Flags participants who place few or no images. |
 

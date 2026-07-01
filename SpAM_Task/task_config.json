@@ -9,7 +9,8 @@
     "trials_per_subject":           20,
     "images_per_trial":             20,
     "frac_trials_repeated":         0.15,
-    "min_trial_repeat_separation":  3
+    "min_trial_repeat_separation":  3,
+    "min_trial_duration_ms":        60000
   },
 
   "catch_trials": {
@@ -37,13 +38,12 @@
   },
 
   "quality_control": {
-    "min_trial_rt_ms":          60000,
     "min_pairwise_distance_sd": 0.04,
     "min_move_item_ratio":      0.75
   },
 
   "deployment": {
-    "version": "3.04",
+    "version": "3.05",
     "mode": "pilot",
     "debug_shine_variant": "pre",
     "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=C12AB9X4",

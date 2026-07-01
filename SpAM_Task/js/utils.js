@@ -78,6 +78,7 @@ function verifyConfig(config) {
             images_per_trial:            'number',
             frac_trials_repeated:        'number',
             min_trial_repeat_separation: 'number',
+            min_trial_duration_ms:       'number',
         },
         catch_trials: {
             num_trials:         'number',
@@ -102,7 +103,6 @@ function verifyConfig(config) {
             line_height:          'number',
         },
         quality_control: {
-            min_trial_rt_ms:          'number',
             min_pairwise_distance_sd: 'number',
             min_move_item_ratio:      'number',
         },
@@ -158,6 +158,7 @@ function verifyConfig(config) {
     const k          = d.images_per_trial;
     const fr         = d.frac_trials_repeated;
     const minRepSep  = d.min_trial_repeat_separation;
+    const minDur     = d.min_trial_duration_ms;
     const nCatch     = ct.num_trials;
     const kCatch     = ct.images_per_trial;
     const catchMean  = ct.cluster_max_mean;
@@ -170,7 +171,6 @@ function verifyConfig(config) {
     const shape      = disp.sort_area_shape;
     const spread     = disp.column_spread_factor;
     const frac       = disp.image_size_fraction;
-    const minRt      = qc.min_trial_rt_ms;
     const minSd      = qc.min_pairwise_distance_sd;
     const moveRatio  = qc.min_move_item_ratio;
 
@@ -179,6 +179,7 @@ function verifyConfig(config) {
     if (fr < 0 || fr >= 1)                            err('"design.frac_trials_repeated" must be in [0, 1), got ' + fr + '.');
     if (fr >= 0.4) warn('WARNING: "design.frac_trials_repeated" is ' + fr + ' (>= 0.4). High values leave little room to satisfy "design.min_trial_repeat_separation", raising the risk that insertTrialRepeats fails at runtime. Keep below 0.4 for reliable behaviour.');
     if (!Number.isInteger(minRepSep) || minRepSep < 1) err('"design.min_trial_repeat_separation" must be a positive integer, got ' + minRepSep + '.');
+    if (minDur < 0) err('"design.min_trial_duration_ms" must be >= 0, got ' + minDur + '.');
     if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"catch_trials.num_trials" must be a non-negative integer, got ' + nCatch + '.');
     if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
     if (catchMean <= 0 || catchMean >= 1) err('"catch_trials.cluster_max_mean" must be in (0, 1), got ' + catchMean + '.');
@@ -197,7 +198,6 @@ function verifyConfig(config) {
     if (!disp.font_family.trim())      err('"display.font_family" must not be empty.');
     if (!disp.font_size.trim())        err('"display.font_size" must not be empty.');
     if (disp.line_height <= 0)         err('"display.line_height" must be > 0, got ' + disp.line_height + '.');
-    if (minRt < 0)                    err('"quality_control.min_trial_rt_ms" must be >= 0, got '              + minRt      + '.');
     if (minSd <= 0 || minSd >= 1)     err('"quality_control.min_pairwise_distance_sd" must be in (0, 1), got ' + minSd      + '.');
     if (moveRatio <= 0 || moveRatio > 1) err('"quality_control.min_move_item_ratio" must be in (0, 1], got '   + moveRatio  + '.');
 
