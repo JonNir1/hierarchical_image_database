@@ -133,8 +133,8 @@ aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/pilot/"               # 
 ```
 
 **Step 1: initialize EC2**<br>
-Provision a new EC2 instance and copy the `ec2/` scripts to it, by following steps 0-4 in the "Running on EC2 / 
-Cookbook" section below.
+Provision a new EC2 instance and copy the `ec2/` scripts to it, by following steps 0-4 in the
+["Running on EC2 / Cookbook"](#cookbook-allocate---run---verify---terminate) section below.
 
 **Step 2 - calibrate on EC2** with the dedicated entrypoint `ec2/run_calibrate_to_pilot.sh` (it
 bootstraps via `prepare_machine.sh`, reads the pilot data from `$S3_URI/data/pilot/`, fits the
