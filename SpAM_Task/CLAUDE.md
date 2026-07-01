@@ -288,7 +288,7 @@ browser and `generate_manifest.py` resolve them identically.
 | `trials_per_subject` | 10 | Number of main free-sort trials |
 | `images_per_trial` | 20 | Images shown per main trial |
 | `frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are verbatim repeats of an earlier trial (test-retest reliability) — the only mechanism by which an image can appear more than once per subject. `t_distinct = t − round(frac_trials_repeated×t)`. Keep below 0.4, since high values leave little room to satisfy `min_trial_repeat_separation`. |
-| `min_trial_repeat_separation` | 2 | Minimum number of other main-trial slots between an original trial and its verbatim repeat. |
+| `min_trial_repeat_separation` | 3 | Minimum number of other main-trial slots between an original trial and its verbatim repeat. |
 
 ### `catch_trials`
 | Key | Default | Description |
