@@ -110,7 +110,8 @@ is substantially smaller or larger, adjust accordingly.
 | `design.trials_per_subject` | 10 | How many sorting trials each participant completes |
 | `design.images_per_trial` | 20 | How many images appear on screen per trial |
 | `design.frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are exact verbatim repeats of an earlier trial (same k images, reshuffled order), for test-retest reliability of the arrangement itself — the only way an image can appear more than once per subject. `t_distinct = t − round(frac_trials_repeated × t)` is the number of genuinely distinct combinations generated; the remaining slots replay earlier ones. Keep below 0.4 — see `min_trial_repeat_separation` below. |
-| `design.min_trial_repeat_separation` | 2 | Minimum number of other main-trial slots between an original trial and its verbatim repeat (prevents back-to-back identical trials). |
+| `design.min_trial_repeat_separation` | 3 | Minimum number of other main-trial slots between an original trial and its verbatim repeat (prevents back-to-back identical trials). |
+| `design.min_trial_duration_ms` | 60000 | UI-enforced minimum: "Done" button is disabled for this many ms on main trials (live countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. |
 | `catch_trials.num_trials` | 2 | How many attention-check trials are interleaved |
 | `catch_trials.images_per_trial` | 10 | Images per catch trial |
 
@@ -124,8 +125,8 @@ is substantially smaller or larger, adjust accordingly.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `quality_control.min_trial_rt_ms` | 60000 | UI-enforced minimum: "Done" button is disabled for this many ms on main trials (live countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. |
 | `quality_control.min_pairwise_distance_sd` | 0.04 | Main trials where all images are piled in one spot are flagged |
+| `quality_control.min_move_item_ratio` | 0.75 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a trial to pass; flags trials (main or catch) where the participant barely engaged |
 | `catch_trials.cluster_max_mean` | 0.15 | Catch trial: images must be clustered (low mean distance) |
 | `catch_trials.cluster_max_sd` | 0.10 | Catch trial: cluster must be tight (low SD) |
 | `catch_trials.location_tolerance` | 0.20 | Catch trial: every individual image must be within this normalised distance of the target region |

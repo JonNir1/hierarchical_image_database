@@ -103,6 +103,7 @@ describe('verifyConfig', () => {
             images_per_trial:            20,
             frac_trials_repeated:        0,
             min_trial_repeat_separation: 2,
+            min_trial_duration_ms:       5000,
         },
         catch_trials: {
             num_trials:         2,
@@ -127,7 +128,6 @@ describe('verifyConfig', () => {
             line_height:          1.6,
         },
         quality_control: {
-            min_trial_rt_ms:          5000,
             min_pairwise_distance_sd: 0.04,
             min_move_item_ratio:      0.75,
         },

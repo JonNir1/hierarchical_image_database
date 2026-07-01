@@ -213,11 +213,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const mainTrials = insertTrialRepeats(distinctTrials, config, rng);
   const allTrials   = insertCatchTrials(mainTrials, catchUrls, config, rng);
 
-  // Maps each main trial's trialId to its final position in allTrials, so a
-  // repeat's repeatOfTrialId can be resolved to the original's saved trial_index.
-  const trialIdToIndex = {};
-  allTrials.forEach((trial, idx) => {
-    if (trial.type === 'main') trialIdToIndex[trial.trialId] = idx;
+  // Maps each main trial's trialId to its 1-based trial number in the
+  // "trial_N" numbering scheme (main trials only, matching trial_type), so a
+  // repeat's repeatOfTrialId can be resolved directly to a value comparable
+  // to trial_type without any downstream re-indexing.
+  const trialIdToTrialNumber = {};
+  let trialNumberCounter = 0;
+  allTrials.forEach((trial) => {
+    if (trial.type === 'main') trialIdToTrialNumber[trial.trialId] = ++trialNumberCounter;
   });
 
   if (mode === 'debug') {
@@ -551,7 +554,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       counter_text_finished:    '',
       on_load: trial.type === 'catch'
         ? function () { attachCatchCompliance(trial.target_location); }
-        : function () { attachTrialTimer(mode === 'debug' ? 5000 : config.quality_control.min_trial_rt_ms); },
+        : function () { attachTrialTimer(mode === 'debug' ? 5000 : config.design.min_trial_duration_ms); },
       on_finish: function(data) {
         // QC metrics
         const pairs = computePairwiseDistances(
@@ -573,8 +576,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         data.trial_index = idx;
 
         if (trial.type === 'main') {
-          data.is_trial_repeat     = !!trial.isRepeat;
-          data.repeat_of_trial_index = trial.isRepeat ? trialIdToIndex[trial.repeatOfTrialId] : null;
+          data.is_trial_repeat       = !!trial.isRepeat;
+          data.repeat_of_trial_number = trial.isRepeat ? trialIdToTrialNumber[trial.repeatOfTrialId] : null;
         }
 
         if (trial.type === 'catch') {

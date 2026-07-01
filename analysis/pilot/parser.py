@@ -240,16 +240,6 @@ def _load_session_trials(session_path: Path, participant: pd.Series) -> pd.DataF
     canvas_h = int(df["sort_area_height"].iloc[0])
 
     main_mask = df["trial_type"].astype(str).str.match(_EXPERIMENTAL_TRIAL_TYPE_RE)
-
-    # repeat_of_trial_index (v3+) references trial_index, the 0-based position in
-    # the FULL sequence (main + catch interleaved) -- not comparable to trial_number.
-    # Resolve it to the original's trial_number here, while trial_index is still
-    # available, so downstream code can match repeats purely in trial_number space.
-    trial_number_by_index: dict[int, int] = {}
-    if "trial_index" in df.columns:
-        trial_numbers = df.loc[main_mask, "trial_type"].str.extract(r"trial_(\d+)")[0].astype(int)
-        trial_number_by_index = dict(zip(df.loc[main_mask, "trial_index"], trial_numbers))
-
     df = df[main_mask].copy()
 
     # Derived columns
@@ -260,10 +250,12 @@ def _load_session_trials(session_path: Path, participant: pd.Series) -> pd.DataF
     for bool_col in ("qc_flag", "is_trial_repeat"):
         if bool_col in df.columns:
             df[bool_col] = df[bool_col].isin([True, "true", "True", 1])
-    if "repeat_of_trial_index" in df.columns:
+    # repeat_of_trial_number (v3.03+) is written directly in trial_number space
+    # (1-based, main trials only) -- no re-indexing needed on read.
+    if "repeat_of_trial_number" in df.columns:
         df["repeat_of_trial_number"] = pd.to_numeric(
-            df["repeat_of_trial_index"], errors="coerce"
-        ).map(trial_number_by_index)
+            df["repeat_of_trial_number"], errors="coerce"
+        )
 
     # Normalise all pixel x/y coordinates to [0, 1] using this session's canvas
     # size, so coordinates are screen-independent. sort_area is not kept.
@@ -363,3 +355,83 @@ def parse_pairwise_distances(pw_json: str) -> dict[tuple[str, str], float]:
         tuple(sorted([item["src1"], item["src2"]])): item["distance"]
         for item in items
     }
+
+
+def _trial_image_set(pw_json: str) -> frozenset[str]:
+    """Union of images referenced in a trial's pairwise_distances JSON."""
+    images: set[str] = set()
+    for a, b in parse_pairwise_distances(pw_json):
+        images.add(a)
+        images.add(b)
+    return frozenset(images)
+
+
+def validate_trial_repeat_image_sets(df_trials: pd.DataFrame) -> pd.DataFrame:
+    """
+    Sanity-check the ``is_trial_repeat`` / ``repeat_of_trial_number`` mechanism: for every
+    trial flagged as a verbatim repeat, match it (within the same session) to the trial
+    numbered ``repeat_of_trial_number`` and verify both show the same set of images -- the
+    invariant ``insertTrialRepeats`` (SpAM_Task/js/trial_generator.js) is meant to guarantee.
+
+    Image sets are derived from each trial's ``pairwise_distances`` column (the union of
+    ``src1``/``src2`` across all pairs), not stored directly as a column.
+
+    Returns one row per repeat trial found, with columns: participant_id, session_file,
+    trial_number, repeat_of_trial_number, images_match, n_images_original, n_images_repeat.
+    Never raises on a mismatch -- inspect the `images_match` column, or use
+    `report["images_match"].all()` for a single pass/fail check.
+    """
+    required = {"participant_id", "session_file", "trial_number", "is_trial_repeat",
+                "repeat_of_trial_number", "pairwise_distances"}
+    missing = required - set(df_trials.columns)
+    if missing:
+        raise KeyError(f"validate_trial_repeat_image_sets: df_trials missing column(s): {sorted(missing)}")
+
+    rows = []
+    for (pid, session), group in df_trials.groupby(["participant_id", "session_file"]):
+        images_by_number = {
+            int(row["trial_number"]): _trial_image_set(row["pairwise_distances"])
+            for _, row in group.iterrows()
+        }
+        repeats = group[group["is_trial_repeat"] & group["repeat_of_trial_number"].notna()]
+        for _, row in repeats.iterrows():
+            trial_num = int(row["trial_number"])
+            orig_num  = int(row["repeat_of_trial_number"])
+            orig_images = images_by_number.get(orig_num)
+            rep_images  = images_by_number.get(trial_num)
+            rows.append({
+                "participant_id":          pid,
+                "session_file":            session,
+                "trial_number":            trial_num,
+                "repeat_of_trial_number":  orig_num,
+                "images_match":            orig_images is not None and orig_images == rep_images,
+                "n_images_original":       len(orig_images) if orig_images is not None else 0,
+                "n_images_repeat":         len(rep_images)  if rep_images  is not None else 0,
+            })
+
+    return pd.DataFrame(rows, columns=[
+        "participant_id", "session_file", "trial_number", "repeat_of_trial_number",
+        "images_match", "n_images_original", "n_images_repeat",
+    ])
+
+
+if __name__ == "__main__":
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        description="Validate that trial-repeat pairs (is_trial_repeat / "
+                    "repeat_of_trial_number) share the same image set.",
+    )
+    ap.add_argument("data_dir", nargs="?", default="data/pilot",
+                     help="Pilot data directory (default: data/pilot)")
+    args = ap.parse_args()
+
+    report = validate_trial_repeat_image_sets(load_pilot_data(args.data_dir)["trials"])
+    if report.empty:
+        print("No trial repeats found.")
+    else:
+        print(report.to_string(index=False))
+        n_bad = int((~report["images_match"]).sum())
+        print(f"\n{len(report)} repeat trial(s) checked, {n_bad} mismatch(es).")
+        if n_bad:
+            raise SystemExit(1)

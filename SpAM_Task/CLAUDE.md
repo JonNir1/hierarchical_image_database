@@ -109,7 +109,7 @@ columns, limiting `sortW` to at most `viewportW / (1 + column_spread_factor)` (�
 viewport at the default `column_spread_factor: 1.0`). This wastes screen space and produces a
 small arena on any normal monitor. The SpAM literature (Goldstone 1994, Bracci et al. 2019)
 arranges stimuli randomly *within* the arena from the start; disengagement is detected via the
-`min_trial_rt_ms` floor and the interleaved catch trials, not by a staging zone. Setting
+`min_trial_duration_ms` floor and the interleaved catch trials, not by a staging zone. Setting
 `stim_starts_inside: true` allows the arena to fill up to 85% of the viewport width (limited
 only by `sort_area_width`), giving a substantially larger working space. `column_spread_factor`
 is kept at 1.0 in the config for forward-compatibility if this decision is ever revisited, but
@@ -139,9 +139,12 @@ slots after its original. This is substitutive, not additive: `trials_per_subjec
 main trial count a subject sees; some of those slots are repeats, so distinct combinations drop
 to `t_distinct`.
 
-**Quality control â€” main trials**: Flag a trial if
-`SD(normalised pairwise distances) < min_pairwise_distance_sd` (all images piled up).
-There is no RT-based flag: the `min_trial_rt_ms` floor is UI-enforced (Done button
+**Quality control â€” main trials**: Flag a trial if ANY of the following hold:
+- `SD(normalised pairwise distances) < min_pairwise_distance_sd` â€” all images piled up
+- `num_moves < min_move_item_ratio Ã— numItems` â€” too few drag-end events for the number of
+  images shown, indicating the participant barely engaged with the trial
+
+There is no RT-based flag: the `min_trial_duration_ms` floor is UI-enforced (Done button
 disabled for that duration), so a too-fast completion is impossible. Exclude a participant
 if > 30% of their main trials are flagged.
 
@@ -150,6 +153,8 @@ if > 30% of their main trials are flagged.
 - `SD(normalised pairwise distances) > catch_cluster_max_sd` â€” cluster too spread
 - Every individual image must be within `catch_location_tolerance` (normalised) of the
   target point — if any single image is too far away, the trial is flagged
+- `num_moves < min_move_item_ratio Ã— numItems` â€” too few drag-end events for the number of
+  images shown
 
 `allImagesNearTarget` checks every individual image: each must be within `tolerance` (normalised diagonal distance) of the target corner/centre point. This function is used identically by the real-time blocking check (`on_load`) and the post-trial QC flag (`on_finish`), keeping both criteria in sync.
 
@@ -193,7 +198,7 @@ Single async `DOMContentLoaded` handler. Execution order:
 3. Seed RNG: `new Math.seedrandom(hashString(PID))` â€” **no RNG calls before `buildTrialLists`**
 4. Build image URL arrays from manifest keys (`images`, `practice_images`, `catch_images`) + config paths
 5. Compute layout via `computeLayout`
-6. Build trial sequence: `buildTrialLists` → `insertTrialRepeats` → `insertCatchTrials`; build a `trialId → trial_index` map for resolving repeat references
+6. Build trial sequence: `buildTrialLists` → `insertTrialRepeats` → `insertCatchTrials`; build a `trialId → trial_number` map (1-based, main trials only, matching `trial_type`'s numbering) for resolving repeat references
 7. Construct jsPsych timeline: Pavlovia init → consent → fullscreen → instructions → before/after examples → practice → post-practice transition → [preload + free-sort] × n → Pavlovia finish → debrief
 8. `jsPsych.run(timeline)`
 
@@ -214,8 +219,9 @@ Single async `DOMContentLoaded` handler. Execution order:
 |---|---|---|
 | `trial_type` | all | `"trial_N"` (main) or `"catch_N"` (catch), 1-based |
 | `trial_index` | all | 0-based position in the full trial sequence |
+| `num_moves` | all | Total drag-end events recorded by the free-sort plugin (`data.moves.length`); used by the `min_move_item_ratio` QC flag |
 | `is_trial_repeat` | main only | `true` if this trial is a verbatim repeat of an earlier trial (see `frac_trials_repeated`) |
-| `repeat_of_trial_index` | main only | `trial_index` of the original occurrence if `is_trial_repeat` is `true`, else `null` |
+| `repeat_of_trial_number` | main only | The original occurrence's trial number (the `N` in its `trial_N` value) if `is_trial_repeat` is `true`, else `null`. Directly comparable to `trial_type`/`trial_number` — no re-indexing needed. |
 | `qc_flag` | all | `true` if trial failed any QC criterion |
 | `pairwise_distances` | all | JSON array of `{src_a, src_b, distance}` objects; distances normalised by arena diagonal |
 | `catch_trial_target_location` | catch only | String describing the required corner (e.g. `"bottom right corner"`) |
@@ -283,7 +289,8 @@ browser and `generate_manifest.py` resolve them identically.
 | `trials_per_subject` | 10 | Number of main free-sort trials |
 | `images_per_trial` | 20 | Images shown per main trial |
 | `frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are verbatim repeats of an earlier trial (test-retest reliability) — the only mechanism by which an image can appear more than once per subject. `t_distinct = t − round(frac_trials_repeated×t)`. Keep below 0.4, since high values leave little room to satisfy `min_trial_repeat_separation`. |
-| `min_trial_repeat_separation` | 2 | Minimum number of other main-trial slots between an original trial and its verbatim repeat. |
+| `min_trial_repeat_separation` | 3 | Minimum number of other main-trial slots between an original trial and its verbatim repeat. |
+| `min_trial_duration_ms` | 60000 | UI-enforced minimum on main trials: "Done" button stays disabled for this many ms (countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. Not applied to practice or catch trials. |
 
 ### `catch_trials`
 | Key | Default | Description |
@@ -307,8 +314,8 @@ browser and `generate_manifest.py` resolve them identically.
 ### `quality_control`
 | Key | Default | Description |
 |---|---|---|
-| `min_trial_rt_ms` | 60000 | UI-enforced minimum on main trials: "Done" button stays disabled for this many ms (countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. Not applied to practice or catch trials. |
 | `min_pairwise_distance_sd` | 0.04 | Minimum SD of normalised distances for main trial to pass |
+| `min_move_item_ratio` | 0.75 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a trial to pass, on both main and catch trials. Flags participants who place few or no images. |
 
 ### `deployment`
 | Key | Default | Description |
