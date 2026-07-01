@@ -240,16 +240,6 @@ def _load_session_trials(session_path: Path, participant: pd.Series) -> pd.DataF
     canvas_h = int(df["sort_area_height"].iloc[0])
 
     main_mask = df["trial_type"].astype(str).str.match(_EXPERIMENTAL_TRIAL_TYPE_RE)
-
-    # repeat_of_trial_index (v3+) references trial_index, the 0-based position in
-    # the FULL sequence (main + catch interleaved) -- not comparable to trial_number.
-    # Resolve it to the original's trial_number here, while trial_index is still
-    # available, so downstream code can match repeats purely in trial_number space.
-    trial_number_by_index: dict[int, int] = {}
-    if "trial_index" in df.columns:
-        trial_numbers = df.loc[main_mask, "trial_type"].str.extract(r"trial_(\d+)")[0].astype(int)
-        trial_number_by_index = dict(zip(df.loc[main_mask, "trial_index"], trial_numbers))
-
     df = df[main_mask].copy()
 
     # Derived columns
@@ -260,10 +250,12 @@ def _load_session_trials(session_path: Path, participant: pd.Series) -> pd.DataF
     for bool_col in ("qc_flag", "is_trial_repeat"):
         if bool_col in df.columns:
             df[bool_col] = df[bool_col].isin([True, "true", "True", 1])
-    if "repeat_of_trial_index" in df.columns:
+    # repeat_of_trial_number (v3.03+) is written directly in trial_number space
+    # (1-based, main trials only) -- no re-indexing needed on read.
+    if "repeat_of_trial_number" in df.columns:
         df["repeat_of_trial_number"] = pd.to_numeric(
-            df["repeat_of_trial_index"], errors="coerce"
-        ).map(trial_number_by_index)
+            df["repeat_of_trial_number"], errors="coerce"
+        )
 
     # Normalise all pixel x/y coordinates to [0, 1] using this session's canvas
     # size, so coordinates are screen-independent. sort_area is not kept.

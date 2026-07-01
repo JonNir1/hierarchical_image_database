@@ -30,20 +30,24 @@ def _pairwise(images, dists):
 
 
 def _write_session(tmp_path, name, participant, trials, version="3.0"):
-    """`trials`: list of dicts {images, dists, is_repeat?, repeat_of?}. Writes a minimal session CSV."""
+    """`trials`: list of dicts {images, dists, is_repeat?, repeat_of?}. Writes a minimal session CSV.
+
+    `repeat_of`, when given, is the 1-based trial number (the `N` in `trial_N`) of the
+    original occurrence -- matching `repeat_of_trial_number`'s trial-number space.
+    """
     import csv
-    cols = ["trial_type", "trial_index", "participant_id", "task_version",
-            "is_trial_repeat", "repeat_of_trial_index", "qc_flag", "pairwise_distances"]
+    cols = ["trial_type", "participant_id", "task_version",
+            "is_trial_repeat", "repeat_of_trial_number", "qc_flag", "pairwise_distances"]
     p = tmp_path / name
     with open(p, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=cols)
         w.writeheader()
         for ti, t in enumerate(trials):
             w.writerow({
-                "trial_type": f"trial_{ti + 1}", "trial_index": ti,
+                "trial_type": f"trial_{ti + 1}",
                 "participant_id": participant, "task_version": version,
                 "is_trial_repeat": str(t.get("is_repeat", False)).lower(),
-                "repeat_of_trial_index": t.get("repeat_of", "null"),
+                "repeat_of_trial_number": t.get("repeat_of", "null"),
                 "qc_flag": str(t.get("qc", False)).lower(),
                 "pairwise_distances": _pairwise(t["images"], t["dists"]),
             })
@@ -81,7 +85,7 @@ def test_repeat_trial_averaged_and_aligned(tmp_path):
     rep = {(0, 1): 0.4, (0, 2): 0.5, (1, 2): 0.7}
     trials = [
         {"images": ["a.png", "b.png", "c.png"], "dists": base},
-        {"images": ["a.png", "b.png", "c.png"], "dists": rep, "is_repeat": True, "repeat_of": 0},
+        {"images": ["a.png", "b.png", "c.png"], "dists": rep, "is_repeat": True, "repeat_of": 1},
     ]
     subj = pilot.load_pilot_subject(_write_session(tmp_path, "s.csv", "P", trials), rel2idx)
     # pair (a,b) observed twice -> mean of 0.2 and 0.4
@@ -97,7 +101,7 @@ def test_within_subject_test_retest_value(tmp_path):
     # identical original/repeat -> Spearman 1.0
     same = {(0, 1): 0.2, (0, 2): 0.5, (1, 2): 0.9}
     trials = [{"images": ["a.png", "b.png", "c.png"], "dists": same},
-              {"images": ["a.png", "b.png", "c.png"], "dists": same, "is_repeat": True, "repeat_of": 0}]
+              {"images": ["a.png", "b.png", "c.png"], "dists": same, "is_repeat": True, "repeat_of": 1}]
     subj = pilot.load_pilot_subject(_write_session(tmp_path, "s.csv", "P", trials), rel2idx)
     assert pilot.within_subject_test_retest(subj) == pytest.approx(1.0)
 

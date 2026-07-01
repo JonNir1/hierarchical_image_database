@@ -198,7 +198,7 @@ Single async `DOMContentLoaded` handler. Execution order:
 3. Seed RNG: `new Math.seedrandom(hashString(PID))` â€” **no RNG calls before `buildTrialLists`**
 4. Build image URL arrays from manifest keys (`images`, `practice_images`, `catch_images`) + config paths
 5. Compute layout via `computeLayout`
-6. Build trial sequence: `buildTrialLists` → `insertTrialRepeats` → `insertCatchTrials`; build a `trialId → trial_index` map for resolving repeat references
+6. Build trial sequence: `buildTrialLists` → `insertTrialRepeats` → `insertCatchTrials`; build a `trialId → trial_number` map (1-based, main trials only, matching `trial_type`'s numbering) for resolving repeat references
 7. Construct jsPsych timeline: Pavlovia init → consent → fullscreen → instructions → before/after examples → practice → post-practice transition → [preload + free-sort] × n → Pavlovia finish → debrief
 8. `jsPsych.run(timeline)`
 
@@ -220,7 +220,7 @@ Single async `DOMContentLoaded` handler. Execution order:
 | `trial_type` | all | `"trial_N"` (main) or `"catch_N"` (catch), 1-based |
 | `trial_index` | all | 0-based position in the full trial sequence |
 | `is_trial_repeat` | main only | `true` if this trial is a verbatim repeat of an earlier trial (see `frac_trials_repeated`) |
-| `repeat_of_trial_index` | main only | `trial_index` of the original occurrence if `is_trial_repeat` is `true`, else `null` |
+| `repeat_of_trial_number` | main only | The original occurrence's trial number (the `N` in its `trial_N` value) if `is_trial_repeat` is `true`, else `null`. Directly comparable to `trial_type`/`trial_number` — no re-indexing needed. |
 | `qc_flag` | all | `true` if trial failed any QC criterion |
 | `pairwise_distances` | all | JSON array of `{src_a, src_b, distance}` objects; distances normalised by arena diagonal |
 | `catch_trial_target_location` | catch only | String describing the required corner (e.g. `"bottom right corner"`) |

@@ -90,7 +90,8 @@ def load_pilot_subject(csv_path: str, rel2idx: Dict[str, int]) -> Optional[Pilot
     Accumulates each main trial's normalised pairwise distances into a per-subject condensed
     sum/count (a verbatim trial repeat adds a second observation of the same pairs, so the stored
     value is their mean). Repeat trials are also aligned to their originals (via
-    ``repeat_of_trial_index``) to give the within-subject test-retest pairs.
+    ``repeat_of_trial_number``, matched against each row's ``trial_N`` number) to give the
+    within-subject test-retest pairs.
     """
     df = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
     if df.empty or "trial_type" not in df.columns or "pairwise_distances" not in df.columns:
@@ -103,11 +104,12 @@ def load_pilot_subject(csv_path: str, rel2idx: Dict[str, int]) -> Optional[Pilot
     total = np.zeros(n_pairs, dtype=np.float64)
     count = np.zeros(n_pairs, dtype=np.int32)
 
-    by_index: Dict[int, Dict[int, float]] = {}
+    by_trial_number: Dict[int, Dict[int, float]] = {}
     flagged = 0
     for _, row in main.iterrows():
         pairs = _trial_pair_distances(row["pairwise_distances"], rel2idx)
-        by_index[int(row["trial_index"])] = pairs
+        trial_number = int(str(row["trial_type"]).rsplit("_", 1)[-1])
+        by_trial_number[trial_number] = pairs
         idx = np.fromiter(pairs.keys(), dtype=np.int64, count=len(pairs))
         total[idx] += np.fromiter(pairs.values(), dtype=np.float64, count=len(pairs))
         count[idx] += 1
@@ -118,11 +120,12 @@ def load_pilot_subject(csv_path: str, rel2idx: Dict[str, int]) -> Optional[Pilot
     for _, row in main.iterrows():
         if str(row.get("is_trial_repeat", "")).lower() != "true":
             continue
-        orig_idx = row.get("repeat_of_trial_index")
-        if orig_idx in ("", "null", None) or int(orig_idx) not in by_index:
+        orig_num = row.get("repeat_of_trial_number")
+        if orig_num in ("", "null", None) or int(orig_num) not in by_trial_number:
             continue
-        rep = by_index[int(row["trial_index"])]
-        orig = by_index[int(orig_idx)]
+        trial_number = int(str(row["trial_type"]).rsplit("_", 1)[-1])
+        rep = by_trial_number[trial_number]
+        orig = by_trial_number[int(orig_num)]
         shared = sorted(set(rep) & set(orig))  # same image set -> same pair keys
         if len(shared) >= 2:
             retest.append((np.array([orig[c] for c in shared]), np.array([rep[c] for c in shared])))
