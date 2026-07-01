@@ -95,7 +95,7 @@ pipeline, but it mean-imputes unobserved pairs so the numbers are unreliable; us
 ```python
 from SpAM_Simulations import pilot
 subs = pilot.load_pilot_subjects("data/pilot", "SpAM_Task/stimuli_manifest.json")
-v3   = [s for s in subs if s.task_version == "3.0"]            # matched 20x20 design, 3 repeats
+v3   = [s for s in subs if s.task_version == 3.0]             # matched 20x20 design, 3 repeats
 print(pilot.cohort_test_retest(v3))                            # noise target (median Spearman)
 print(pilot.between_subject_agreement(pilot.stack_distances(v3)))  # dispersion target
 coords, info = pilot.build_gt_from_pilot(subs, method="smacof")    # calibrated GT (raises if graph disconnected)

@@ -47,7 +47,7 @@ def main() -> None:
 
     # --- load -------------------------------------------------------------------------------
     allsub = pilot.load_pilot_subjects(args.pilot_dir, args.manifest)
-    v3 = [s for s in allsub if s.task_version == "3.0"]
+    v3 = [s for s in allsub if s.task_version == 3.0]
     print(f"[load] {len(allsub)} completed sessions; {len(v3)} are v3.0 (matched design)")
     if not v3:
         raise SystemExit("no v3.0 subjects found - calibration targets need the matched design")

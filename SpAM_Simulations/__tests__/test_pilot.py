@@ -1,7 +1,13 @@
-"""Tests for pilot ingestion + calibration (synthetic CSVs only - no real pilot data dependency)."""
+"""Tests for pilot ingestion + calibration.
+
+Session/CSV loading is delegated to ``analysis.pilot.parser`` (tested there); these tests exercise
+this module's own logic - reducing a parser-style tidy ``trials`` frame to a ``PilotSubject``, the
+observables, and the calibration fit - on hand-built DataFrames, with no real pilot-data dependency.
+"""
 import json
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from SpAM_Simulations import pilot
@@ -20,38 +26,35 @@ def _write_manifest(tmp_path):
     return str(p)
 
 
-def _pairwise(images, dists):
-    """JSON for one trial: `images` relpaths, `dists` a {(i,j): distance} dict over their indices."""
-    rows = []
-    for (i, j), d in dists.items():
-        rows.append({"src1": f"./images/pre_shine/{images[i]}",
-                     "src2": f"./images/pre_shine/{images[j]}", "distance": d})
-    return json.dumps(rows)
+def _pw_json(images, dists):
+    """A trial's pairwise_distances JSON string (parser keeps this column as-is)."""
+    return json.dumps([
+        {"src1": f"./images/pre_shine/{images[i]}", "src2": f"./images/pre_shine/{images[j]}", "distance": d}
+        for (i, j), d in dists.items()
+    ])
 
 
-def _write_session(tmp_path, name, participant, trials, version="3.0"):
-    """`trials`: list of dicts {images, dists, is_repeat?, repeat_of?}. Writes a minimal session CSV.
+def _trials_df(trials, participant="P", version=3.0):
+    """Build a parser-style `trials` frame for one participant.
 
-    `repeat_of`, when given, is the 1-based trial number (the `N` in `trial_N`) of the
-    original occurrence -- matching `repeat_of_trial_number`'s trial-number space.
+    `trials`: list of {images, dists, is_repeat?, repeat_of?}; `repeat_of` is the 1-based trial number
+    of the original (matching `repeat_of_trial_number`).
     """
-    import csv
-    cols = ["trial_type", "participant_id", "task_version",
-            "is_trial_repeat", "repeat_of_trial_number", "qc_flag", "pairwise_distances"]
-    p = tmp_path / name
-    with open(p, "w", newline="", encoding="utf-8") as fh:
-        w = csv.DictWriter(fh, fieldnames=cols)
-        w.writeheader()
-        for ti, t in enumerate(trials):
-            w.writerow({
-                "trial_type": f"trial_{ti + 1}",
-                "participant_id": participant, "task_version": version,
-                "is_trial_repeat": str(t.get("is_repeat", False)).lower(),
-                "repeat_of_trial_number": t.get("repeat_of", "null"),
-                "qc_flag": str(t.get("qc", False)).lower(),
-                "pairwise_distances": _pairwise(t["images"], t["dists"]),
-            })
-    return str(p)
+    recs = []
+    for ti, t in enumerate(trials, start=1):
+        recs.append({
+            "participant_id": participant, "task_version": version, "trial_number": ti,
+            "is_trial_repeat": bool(t.get("is_repeat", False)),
+            "repeat_of_trial_number": float(t["repeat_of"]) if t.get("repeat_of") is not None else np.nan,
+            "qc_flag": bool(t.get("qc", False)),
+            "pairwise_distances": _pw_json(t["images"], t["dists"]),
+        })
+    return pd.DataFrame(recs)
+
+
+def _subject(tmp_path, trials, **kw):
+    _, rel2idx = pilot.load_manifest(_write_manifest(tmp_path))
+    return pilot.subject_from_trials(_trials_df(trials, **kw), rel2idx)
 
 
 def _cond(i, j, n=5):
@@ -65,31 +68,24 @@ def test_load_manifest_and_src_mapping(tmp_path):
     assert pilot._src_to_relpath("./images/post_shine/c.png") == "c.png"
 
 
-def test_load_subject_distances_and_counts(tmp_path):
-    man = _write_manifest(tmp_path)
-    _, rel2idx = pilot.load_manifest(man)
-    # one trial over images a,b,c with known distances
-    trials = [{"images": ["a.png", "b.png", "c.png"], "dists": {(0, 1): 0.1, (0, 2): 0.4, (1, 2): 0.7}}]
-    path = _write_session(tmp_path, "s1.csv", "P1", trials)
-    subj = pilot.load_pilot_subject(path, rel2idx)
+def test_subject_distances_and_counts(tmp_path):
+    subj = _subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"],
+                                "dists": {(0, 1): 0.1, (0, 2): 0.4, (1, 2): 0.7}}])
     assert subj.distances[_cond(0, 1)] == pytest.approx(0.1)
     assert subj.distances[_cond(1, 2)] == pytest.approx(0.7)
     assert np.isnan(subj.distances[_cond(3, 4)])  # unobserved pair
     assert subj.num_observed_pairs() == 3
+    assert subj.task_version == 3.0 and subj.participant_id == "P"
 
 
 def test_repeat_trial_averaged_and_aligned(tmp_path):
-    man = _write_manifest(tmp_path)
-    _, rel2idx = pilot.load_manifest(man)
     base = {(0, 1): 0.2, (0, 2): 0.5, (1, 2): 0.9}
     rep = {(0, 1): 0.4, (0, 2): 0.5, (1, 2): 0.7}
-    trials = [
+    subj = _subject(tmp_path, [
         {"images": ["a.png", "b.png", "c.png"], "dists": base},
         {"images": ["a.png", "b.png", "c.png"], "dists": rep, "is_repeat": True, "repeat_of": 1},
-    ]
-    subj = pilot.load_pilot_subject(_write_session(tmp_path, "s.csv", "P", trials), rel2idx)
-    # pair (a,b) observed twice -> mean of 0.2 and 0.4
-    assert subj.distances[_cond(0, 1)] == pytest.approx(0.3)
+    ])
+    assert subj.distances[_cond(0, 1)] == pytest.approx(0.3)  # (a,b) seen twice -> mean(0.2, 0.4)
     assert len(subj.retest_pairs) == 1
     orig, rp = subj.retest_pairs[0]
     assert len(orig) == 3 and len(rp) == 3
@@ -97,47 +93,50 @@ def test_repeat_trial_averaged_and_aligned(tmp_path):
 
 # --------------------------------------------------------------------- observables
 def test_within_subject_test_retest_value(tmp_path):
-    _, rel2idx = pilot.load_manifest(_write_manifest(tmp_path))
-    # identical original/repeat -> Spearman 1.0
     same = {(0, 1): 0.2, (0, 2): 0.5, (1, 2): 0.9}
-    trials = [{"images": ["a.png", "b.png", "c.png"], "dists": same},
-              {"images": ["a.png", "b.png", "c.png"], "dists": same, "is_repeat": True, "repeat_of": 1}]
-    subj = pilot.load_pilot_subject(_write_session(tmp_path, "s.csv", "P", trials), rel2idx)
-    assert pilot.within_subject_test_retest(subj) == pytest.approx(1.0)
+    subj = _subject(tmp_path, [
+        {"images": ["a.png", "b.png", "c.png"], "dists": same},
+        {"images": ["a.png", "b.png", "c.png"], "dists": same, "is_repeat": True, "repeat_of": 1},
+    ])
+    assert pilot.within_subject_test_retest(subj) == pytest.approx(1.0)  # identical -> Spearman 1
 
 
 def test_between_subject_agreement(tmp_path):
-    _, rel2idx = pilot.load_manifest(_write_manifest(tmp_path))
     d1 = {(0, 1): 0.1, (0, 2): 0.4, (1, 2): 0.7}
     d2 = {(0, 1): 0.2, (0, 2): 0.5, (1, 2): 0.9}  # same rank order -> agreement 1.0
-    s1 = pilot.load_pilot_subject(
-        _write_session(tmp_path, "s1.csv", "A", [{"images": ["a.png", "b.png", "c.png"], "dists": d1}]), rel2idx)
-    s2 = pilot.load_pilot_subject(
-        _write_session(tmp_path, "s2.csv", "B", [{"images": ["a.png", "b.png", "c.png"], "dists": d2}]), rel2idx)
+    s1 = _subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"], "dists": d1}], participant="A")
+    s2 = _subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"], "dists": d2}], participant="B")
     out = pilot.between_subject_agreement(pilot.stack_distances([s1, s2]), min_overlap=2)
     assert out["mean_agreement"] == pytest.approx(1.0)
     assert out["n_dyads"] == 1 and out["median_overlap"] == 3
 
 
-# --------------------------------------------------------------------- loading dir / QC / aggregate
-def test_load_dir_filters_version_and_qc(tmp_path):
+# --------------------------------------------------------------------- load_pilot_subjects (parser-backed)
+def test_load_subjects_filters_version_and_qc(tmp_path, monkeypatch):
     man = _write_manifest(tmp_path)
-    good = [{"images": ["a.png", "b.png", "c.png"], "dists": {(0, 1): 0.1, (0, 2): 0.4, (1, 2): 0.7}}]
-    flagged = [{"images": ["a.png", "b.png", "c.png"], "dists": {(0, 1): 0.1, (0, 2): 0.4, (1, 2): 0.7}, "qc": True}]
-    _write_session(tmp_path, "v3a.csv", "A", good, version="3.0")
-    _write_session(tmp_path, "v2a.csv", "B", good, version="2.0")
-    _write_session(tmp_path, "v3bad.csv", "C", flagged, version="3.0")  # 100% flagged
-    assert len(pilot.load_pilot_subjects(str(tmp_path), man)) == 3
-    assert len(pilot.load_pilot_subjects(str(tmp_path), man, versions=["3.0"])) == 2
-    assert len(pilot.load_pilot_subjects(str(tmp_path), man, apply_qc=True)) == 2  # drops the flagged one
+    good = {"images": ["a.png", "b.png", "c.png"], "dists": {(0, 1): 0.1, (0, 2): 0.4, (1, 2): 0.7}}
+    flagged = {**good, "qc": True}
+    trials = pd.concat([
+        _trials_df([good], participant="A", version=3.0),
+        _trials_df([good], participant="B", version=2.0),
+        _trials_df([flagged], participant="C", version=3.0),  # 100% flagged
+    ], ignore_index=True)
+    # stub the parser loader: this module must NOT re-read CSVs, only reduce the tidy trials frame
+    monkeypatch.setattr(pilot, "load_pilot_data", lambda d: {"trials": trials})
+    assert len(pilot.load_pilot_subjects("ignored", man)) == 3
+    assert len(pilot.load_pilot_subjects("ignored", man, versions=[3.0])) == 2
+    assert len(pilot.load_pilot_subjects("ignored", man, apply_qc=True)) == 2  # drops the flagged one
+
+
+def test_load_subjects_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(pilot, "load_pilot_data", lambda d: {"trials": pd.DataFrame()})
+    assert pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path)) == []
 
 
 def test_aggregate_raises_on_disconnected_graph(tmp_path):
-    _, rel2idx = pilot.load_manifest(_write_manifest(tmp_path))
     # subject only ever touches images {a,b,c}; d,e never observed -> graph disconnected
-    s = pilot.load_pilot_subject(
-        _write_session(tmp_path, "s.csv", "P", [{"images": ["a.png", "b.png", "c.png"],
-                                                 "dists": {(0, 1): 0.1, (0, 2): 0.4, (1, 2): 0.7}}]), rel2idx)
+    s = _subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"],
+                             "dists": {(0, 1): 0.1, (0, 2): 0.4, (1, 2): 0.7}}])
     with pytest.raises(RuntimeError, match="connected components"):
         pilot.pilot_aggregate([s])
 
@@ -149,7 +148,6 @@ def test_simulate_returns_per_subject_matching_nan_pattern():
     _, res, per_subject = simulate_task_v3_experiment(params, emb, np.random.default_rng(0),
                                                       verbose=False, return_per_subject=True)
     assert per_subject.shape == (6, res.distances.shape[0])
-    # a per-subject entry is observed iff that subject contributed; agreement is a valid correlation
     out = pilot.between_subject_agreement(per_subject, min_overlap=5)
     assert -1.0 <= out["mean_agreement"] <= 1.0 and out["n_dyads"] > 0
 
@@ -168,11 +166,7 @@ def test_simulated_targets_are_monotone():
 
 
 def test_calibrate_recovers_known_parameters():
-    """Self-consistency: simulate a 'pilot' cohort at known (noise, dispersion), then recover them.
-
-    Uses the simulated cohort's own per-subject vectors + test-retest as the targets (bypassing the
-    CSV path), so this checks the fitting logic and the perspective-invariance of test-retest.
-    """
+    """Self-consistency: simulate a 'pilot' cohort at known (noise, dispersion), then recover them."""
     emb = build_ground_truth_embeddings(400, 5, seed=3)  # >= t_distinct*k = 17*20 = 340
     true_noise, true_disp = 0.6, 0.4
     kw = dict(num_subjects=11, trials_per_subject=20, images_per_trial=20,

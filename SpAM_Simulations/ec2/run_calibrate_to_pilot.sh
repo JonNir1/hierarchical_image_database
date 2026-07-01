@@ -59,6 +59,10 @@ export R_LIBS_USER="${R_LIBS_USER:-$HOME/R/library}"
 source "$(dirname "${BASH_SOURCE[0]}")/prepare_machine.sh"
 # prepare_machine.sh leaves us in $WORKDIR/repo with the venv active, PYTHONPATH set, and out/ created.
 
+# Calibration reuses analysis/pilot/parser.py (the canonical pilot loader), which prepare_machine's
+# sparse checkout (SpAM_Simulations only) doesn't include - add it.
+git sparse-checkout add analysis/pilot
+
 # Human-subjects data must never be left on the box - remove it on ANY exit (success or failure).
 PILOT_LOCAL="$PWD/pilot_data"
 trap 'rm -rf "$PILOT_LOCAL"' EXIT
