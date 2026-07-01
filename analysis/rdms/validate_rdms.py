@@ -23,7 +23,7 @@ from analysis.rdms.common import RESULTS_DIR, _EXPECTED_LEN, _EXPECTED_N, load_r
 
 _ALL_NAMES = ["sens_pre", "sens_post", "sem_km", "sem_wn", "clip_pre", "clip_post"]
 _N = _EXPECTED_N       # 725
-_WN_FALLBACK = 30.0    # must match semantic_wn._WN_FALLBACK_DIST
+_WN_FALLBACK = 30.0    # must match semantic_wn_dir._WN_FALLBACK_DIST
 _KM_MAX_DEPTH = 8      # generous upper bound for this dataset's hierarchy
 
 
@@ -193,7 +193,7 @@ def run_all_checks(names: list[str] | None = None) -> bool:
 
     print("\n=== Cross-variant checks ===")
     if "sens_pre" in present and "sens_post" in present:
-        run("sens_pre vs sens_post: Spearman rho > 0.9",
+        run("sens_pre vs sens_post: Spearman rho > 0.5",
             check_sens_correlation, present["sens_pre"], present["sens_post"])
     elif {"sens_pre", "sens_post"} & set(targets):
         print("  SKIP  sens correlation — need both sens_pre and sens_post")
