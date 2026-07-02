@@ -64,8 +64,7 @@ large-scale sweeps, see *Running on EC2* below.
 | `evaluation_task_v2_3.ipynb` | Plotting / analysis notebook for the task-v2.3 simulation. |
 | `evaluation_task_v2_4.ipynb` | Plotting / analysis notebook for the task-v2.4 simulation (adds the test-retest reliability panel). |
 | `evaluate_simulation.ipynb` | Read-only overview/drill-down figures for an already-completed **task-v3** run (incl. the plateau-N required-subjects readout), via `eval_helpers.py`. v3-only; older runs use the `evaluation*.ipynb` notebooks above. |
-| `ec2/prepare_machine.sh`, `ec2/run_task_v0_1_sim.sh`, `ec2/run_task_v2_3_sim.sh`, `ec2/run_task_v2_4_sim.sh`, `ec2/run_task_v3_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. |
-| `ec2/run_calibrate_to_pilot.sh` | EC2 entrypoint that runs the pilot calibration end-to-end (bootstrap -> fetch private pilot data -> fit -> log + params + GT uploaded to S3). See "Calibrating + sweeping on EC2". |
+| `ec2/prepare_machine.sh`, `ec2/run_task_v0_1_sim.sh`, `ec2/run_task_v2_3_sim.sh`, `ec2/run_task_v2_4_sim.sh`, `ec2/run_task_v3_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. `run_task_v3_sim.sh` also has a `CALIBRATE=true` flavor that fits the simulation to the pilot before sweeping (see "Calibrating + sweeping on EC2"). |
 | `sim_results/<run-name>/` | Local copy of a completed run's small files (`out/*.csv`, `mds_store/meta.csv`) downloaded from S3, e.g. `sim_results/task-v2.3/` - gitignored, consumed by `eval_helpers.py`/`evaluate_simulation.ipynb`. |
 
 ## Calibrating to pilot data
@@ -136,49 +135,27 @@ aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/pilot/"               # 
 Provision a new EC2 instance and copy the `ec2/` scripts to it, by following steps 0-4 in the
 ["Running on EC2 / Cookbook"](#cookbook-allocate---run---verify---terminate) section below.
 
-**Step 2 - calibrate on EC2** with the dedicated entrypoint `ec2/run_calibrate_to_pilot.sh` (it
-bootstraps via `prepare_machine.sh`, reads the pilot data from `$S3_URI/data/pilot/`, fits the
-parameters, tees the output to a log, and uploads the log + fitted params + pilot GT to
-`$S3_URI/calibration/`; the raw CSVs are deleted from the box at exit). On a freshly-allocated instance
-(see the full allocate -> run -> verify -> terminate Cookbook under "Running on EC2" below for how to
-allocate the instance and SSH in):
+**Step 2 - calibrate + sweep in one run** with `run_task_v3_sim.sh` and `CALIBRATE=true`. This is the
+same sweep entrypoint as the default (synthetic) flavor, but the `CALIBRATE` flag turns on a short
+(~1-5 min) prelude: it bootstraps via `prepare_machine.sh`, reads the pilot from `$S3_URI/data/pilot/`
+(**failing fast if it's empty/missing**), fits `subjects_noise_scale` / `perspective_dispersion` + the
+pilot GT (weighted SMACOF of the pooled pilot), then runs the **same** convergence sweep with those
+FIXED values instead of the swept guessed grids. It uploads the calibration artifacts to
+`$S3_URI/calibration/` and the sweep outputs to `$S3_URI/out/` + `mds_store/`; the raw pilot CSVs are
+deleted from the box at exit. Use a many-core instance (the sweep is the heavy part):
 ```bash
 export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
 export GIT_REF=main
-export S3_URI=s3://jon-nir/spam-simulations/task-v3            # PRIVATE: pilot at $S3_URI/data/pilot/, outputs at $S3_URI/calibration/
-bash run_calibrate_to_pilot.sh 2>&1 | tee calibrate_run.log
-# (override GT_METHOD=classical for a no-R provisional fit, or REPS=N to average more cohorts)
+export S3_URI=s3://jon-nir/spam-simulations/task-v3    # PRIVATE: pilot at $S3_URI/data/pilot/
+export CALIBRATE=true                                  # fit to pilot instead of the synthetic swept grids
+bash run_task_v3_sim.sh 2>&1 | tee run.log
+# GT_METHOD=classical for a no-R provisional fit; REPS=N to average more cohorts. USE_ISOTROPIC/decay
+# are ignored when CALIBRATE=true (GT comes from the pilot). Edit the num_subjects / design grids in
+# run_task_v3_sim.sh's CALIBRATE block to change the swept design. TERMINATE when done.
 ```
-This writes `calibration/{calibrate.log, calibrated_params.json, gt_pilot_coords.npy}` to S3. Calibration
-is light, so a small instance is fine - **terminate it when it finishes.**
-
-**Step 3 - run the calibrated convergence sweep** (the heavy step - use a many-core instance, as for
-`run_task_v3_sim.sh`). Pull the two artifacts from step 2 and feed them through the normal pipeline:
-```bash
-aws s3 cp $S3_URI/calibration/gt_pilot_coords.npy   .
-aws s3 cp $S3_URI/calibration/calibrated_params.json .
-N_JOBS=$(( $(nproc) * 2 / 3 )) python - <<'PY'
-import os, json, numpy as np
-from SpAM_Simulations.config import TaskV3SimulationConfig, MDSSweepConfig
-from SpAM_Simulations import pipeline, eval_helpers
-p = json.load(open("calibrated_params.json"))
-cfg = TaskV3SimulationConfig(
-    gt_embeddings=np.load("gt_pilot_coords.npy"),          # the calibrated pilot GT
-    num_subjects=[20, 50, 100, 200, 350, 500],
-    trials_per_subject=[20], images_per_trial=[20],
-    subjects_noise_scale=[p["subjects_noise_scale"]], subjects_noise_df=[1],
-    frac_trials_repeated=[0.15], perspective_dispersion=[p["perspective_dispersion"]],
-    reps=5, seed=42,
-)
-sim   = pipeline.generate_task_v3_simulation(cfg)
-store = pipeline.run_mds_sweep(sim, MDSSweepConfig(min_ndim=2), "mds_store",
-                               parallel=True, n_jobs=int(os.environ["N_JOBS"]))
-es = pipeline.compute_embedding_stability(store)
-es.to_csv("out/embedding_stability.csv", index=False)
-print(eval_helpers.plateau_num_subjects(es))              # required-N per ndim
-PY
-# then upload out/ + mds_store/ to S3 and TERMINATE. Keep both buckets PRIVATE (pilot-derived).
-```
+This writes `calibration/{calibrate.log, calibrated_params.json, gt_pilot_coords.npy}` +
+`out/*.csv` + `mds_store/` to S3. (For a **local, calibration-only** run without the sweep, use the CLI
+from *Calibrating to pilot data* above: `python -m SpAM_Simulations.calibrate_to_pilot`.)
 
 ## Running with R (rpy2 + smacof)
 `multi_dimensional_scaling.py` imports R at load time. R 4.5 + the `smacof` package are

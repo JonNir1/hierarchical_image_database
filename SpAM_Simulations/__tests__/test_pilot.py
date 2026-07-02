@@ -165,6 +165,48 @@ def test_simulated_targets_are_monotone():
     assert agr_lo > agr_hi  # dispersion lowers between-subject agreement
 
 
+def test_calibrate_from_pilot_wires_load_targets_gt_and_fit(tmp_path, monkeypatch):
+    """The reusable entrypoint the EC2 sweep depends on: load -> v3 targets -> GT -> fit -> return.
+
+    Stubs `build_gt_from_pilot` and `calibrate` (no R / no heavy sim); the load and target steps run
+    for real on synthetic subjects.
+    """
+    from SpAM_Simulations import calibrate_to_pilot as cli
+    same = {(0, 1): 0.2, (0, 2): 0.5, (1, 2): 0.9}
+    v3 = [_subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"], "dists": same},
+                              {"images": ["a.png", "b.png", "c.png"], "dists": same,
+                               "is_repeat": True, "repeat_of": 1}], participant=p, version=3.0)
+          for p in ("A", "B")]
+    other = [_subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"], "dists": same}],
+                      participant="C", version=2.0)]
+    captured = {}
+    monkeypatch.setattr(cli.pilot, "load_pilot_subjects", lambda d, m: v3 + other)
+    monkeypatch.setattr(cli.pilot, "build_gt_from_pilot",
+                        lambda subs, n_dims=None, method="smacof":
+                        (np.zeros((5, 3), np.float32), {"n_dims": 3, "method": method, "observed_frac": 1.0}))
+
+    def _fake_calibrate(coords, v3sub, reps=5):
+        captured["n_v3"] = len(v3sub); captured["reps"] = reps
+        return {"subjects_noise_scale": 1.0, "perspective_dispersion": 0.2, "subjects_noise_df": 1,
+                "pilot_test_retest": 0.3, "pilot_between_agreement": 0.2,
+                "simulated_test_retest": 0.3, "simulated_between_agreement": 0.2, "num_subjects": len(v3sub)}
+    monkeypatch.setattr(cli.pilot, "calibrate", _fake_calibrate)
+
+    coords, fit, info = cli.calibrate_from_pilot("d", "m", gt_method="classical", reps=3, verbose=False)
+    assert coords.shape == (5, 3) and info["n_dims"] == 3 and info["method"] == "classical"
+    assert fit["subjects_noise_scale"] == 1.0 and fit["perspective_dispersion"] == 0.2
+    assert captured == {"n_v3": 2, "reps": 3}  # only the 2 v3.0 subjects feed the fit
+
+
+def test_calibrate_from_pilot_raises_without_v3(tmp_path, monkeypatch):
+    from SpAM_Simulations import calibrate_to_pilot as cli
+    only_v2 = [_subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"],
+                                    "dists": {(0, 1): 0.1, (0, 2): 0.4, (1, 2): 0.7}}], version=2.0)]
+    monkeypatch.setattr(cli.pilot, "load_pilot_subjects", lambda d, m: only_v2)
+    with pytest.raises(SystemExit, match="no v3.0 subjects"):
+        cli.calibrate_from_pilot("d", "m", verbose=False)
+
+
 def test_calibrate_recovers_known_parameters():
     """Self-consistency: simulate a 'pilot' cohort at known (noise, dispersion), then recover them."""
     emb = build_ground_truth_embeddings(400, 5, seed=3)  # >= t_distinct*k = 17*20 = 340

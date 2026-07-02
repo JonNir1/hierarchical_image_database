@@ -25,10 +25,62 @@ from __future__ import annotations
 
 import argparse
 import json
+from typing import Optional, Tuple
 
 import numpy as np
 
 from SpAM_Simulations import pilot
+
+
+def calibrate_from_pilot(
+        pilot_dir: str,
+        manifest: str,
+        *,
+        gt_method: str = "smacof",
+        reps: int = 5,
+        n_dims: Optional[int] = None,
+        verbose: bool = True,
+) -> Tuple[np.ndarray, dict, dict]:
+    """Run the full pilot calibration (steps A-C) and return ``(gt_coords, fit, info)``.
+
+    The single source of truth shared by the standalone CLI (:func:`main`) and the EC2 sweep script's
+    calibration flavor (``ec2/run_task_v3_sim.sh`` with ``CALIBRATE=true``):
+
+    * pool ALL completed pilot subjects -> ``build_gt_from_pilot`` (weighted SMACOF, or ``classical``
+      for a no-R provisional GT) -> ground-truth coordinates inheriting the real spectrum/clusters;
+    * targets from the v3.0 subjects (within-subject test-retest, between-subject agreement);
+    * ``pilot.calibrate`` -> fitted ``subjects_noise_scale`` + ``perspective_dispersion``.
+
+    ``fit`` also carries the pilot vs simulated targets; ``info`` carries ``n_dims``/``method``/
+    ``observed_frac``. Raises ``SystemExit`` if no v3.0 (matched-design) subjects are present.
+    """
+    allsub = pilot.load_pilot_subjects(pilot_dir, manifest)
+    v3 = [s for s in allsub if s.task_version == 3.0]
+    if verbose:
+        print(f"[load] {len(allsub)} completed sessions; {len(v3)} are v3.0 (matched design)")
+    if not v3:
+        raise SystemExit("no v3.0 subjects found - calibration targets need the matched design")
+
+    # B. targets (no R)
+    tr = pilot.cohort_test_retest(v3)
+    agr = pilot.between_subject_agreement(pilot.stack_distances(v3))
+    if verbose:
+        print(f"[targets] within-subject test-retest (median) = {tr:.4f}")
+        print(f"[targets] between-subject agreement = {agr['mean_agreement']:.4f} "
+              f"(SEM {agr['sem_agreement']:.4f}, {agr['n_dyads']} dyads, median overlap {agr['median_overlap']:.0f})")
+
+    # A. ground truth
+    coords, info = pilot.build_gt_from_pilot(allsub, n_dims=n_dims, method=gt_method)
+    if verbose:
+        print(f"[gt] {info['method']} embedding: N={coords.shape[0]}, n_dims={info['n_dims']}, "
+              f"observed {info['observed_frac']:.1%} of pairs")
+        if gt_method == "classical":
+            print("[gt] WARNING: provisional no-R ground truth (numpy classical MDS). "
+                  "Re-run with --gt-method smacof for the final numbers.")
+
+    # C. fit
+    fit = pilot.calibrate(coords, v3, reps=reps)
+    return coords, fit, info
 
 
 def main() -> None:
@@ -45,30 +97,9 @@ def main() -> None:
                     help="if set, write the fitted parameters as JSON here (e.g. out/calibrated_params.json)")
     args = ap.parse_args()
 
-    # --- load -------------------------------------------------------------------------------
-    allsub = pilot.load_pilot_subjects(args.pilot_dir, args.manifest)
-    v3 = [s for s in allsub if s.task_version == 3.0]
-    print(f"[load] {len(allsub)} completed sessions; {len(v3)} are v3.0 (matched design)")
-    if not v3:
-        raise SystemExit("no v3.0 subjects found - calibration targets need the matched design")
-
-    # --- B. targets (no R) ------------------------------------------------------------------
-    tr = pilot.cohort_test_retest(v3)
-    agr = pilot.between_subject_agreement(pilot.stack_distances(v3))
-    print(f"[targets] within-subject test-retest (median) = {tr:.4f}")
-    print(f"[targets] between-subject agreement = {agr['mean_agreement']:.4f} "
-          f"(SEM {agr['sem_agreement']:.4f}, {agr['n_dyads']} dyads, median overlap {agr['median_overlap']:.0f})")
-
-    # --- A. ground truth --------------------------------------------------------------------
-    coords, info = pilot.build_gt_from_pilot(allsub, n_dims=args.n_dims, method=args.gt_method)
-    print(f"[gt] {info['method']} embedding: N={coords.shape[0]}, n_dims={info['n_dims']}, "
-          f"observed {info['observed_frac']:.1%} of pairs")
-    if args.gt_method == "classical":
-        print("[gt] WARNING: provisional no-R ground truth (numpy classical MDS). "
-              "Re-run with --gt-method smacof for the final numbers.")
-
-    # --- C. fit -----------------------------------------------------------------------------
-    fit = pilot.calibrate(coords, v3, reps=args.reps)
+    coords, fit, info = calibrate_from_pilot(
+        args.pilot_dir, args.manifest, gt_method=args.gt_method, reps=args.reps, n_dims=args.n_dims,
+    )
     print("\n=== CALIBRATED PARAMETERS ===")
     print(f"  subjects_noise_scale   = {fit['subjects_noise_scale']:.3f}  "
           f"(sim test-retest {fit['simulated_test_retest']:.3f} vs pilot {fit['pilot_test_retest']:.3f})")
