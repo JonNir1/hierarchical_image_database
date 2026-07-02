@@ -165,13 +165,8 @@ def test_simulated_targets_are_monotone():
     assert agr_lo > agr_hi  # dispersion lowers between-subject agreement
 
 
-def test_calibrate_from_pilot_wires_load_targets_gt_and_fit(tmp_path, monkeypatch):
-    """The reusable entrypoint the EC2 sweep depends on: load -> v3 targets -> GT -> fit -> return.
-
-    Stubs `build_gt_from_pilot` and `calibrate` (no R / no heavy sim); the load and target steps run
-    for real on synthetic subjects.
-    """
-    from SpAM_Simulations import calibrate_to_pilot as cli
+def _fake_subjects(tmp_path):
+    """2 v3 subjects (with repeats) + 1 v2 subject, all observing images a,b,c."""
     same = {(0, 1): 0.2, (0, 2): 0.5, (1, 2): 0.9}
     v3 = [_subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"], "dists": same},
                               {"images": ["a.png", "b.png", "c.png"], "dists": same,
@@ -179,32 +174,63 @@ def test_calibrate_from_pilot_wires_load_targets_gt_and_fit(tmp_path, monkeypatc
           for p in ("A", "B")]
     other = [_subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"], "dists": same}],
                       participant="C", version=2.0)]
-    captured = {}
-    monkeypatch.setattr(cli.pilot, "load_pilot_subjects", lambda d, m: v3 + other)
-    monkeypatch.setattr(cli.pilot, "build_gt_from_pilot",
+    return v3, other
+
+
+def _stub_gt_and_fit(monkeypatch, captured):
+    """Patch build_gt_from_pilot + _calibrate (no R / no heavy sim); capture the fit inputs."""
+    monkeypatch.setattr(pilot, "build_gt_from_pilot",
                         lambda subs, n_dims=None, method="smacof":
                         (np.zeros((5, 3), np.float32), {"n_dims": 3, "method": method, "observed_frac": 1.0}))
 
-    def _fake_calibrate(coords, v3sub, reps=5):
-        captured["n_v3"] = len(v3sub); captured["reps"] = reps
+    def _fake_calibrate(coords, num_subjects, target_tr, target_agr, *, reps=5, min_overlap=30, **kw):
+        captured.update(num_subjects=num_subjects, target_tr=target_tr, target_agr=target_agr, reps=reps)
         return {"subjects_noise_scale": 1.0, "perspective_dispersion": 0.2, "subjects_noise_df": 1,
-                "pilot_test_retest": 0.3, "pilot_between_agreement": 0.2,
-                "simulated_test_retest": 0.3, "simulated_between_agreement": 0.2, "num_subjects": len(v3sub)}
-    monkeypatch.setattr(cli.pilot, "calibrate", _fake_calibrate)
-
-    coords, fit, info = cli.calibrate_from_pilot("d", "m", gt_method="classical", reps=3, verbose=False)
-    assert coords.shape == (5, 3) and info["n_dims"] == 3 and info["method"] == "classical"
-    assert fit["subjects_noise_scale"] == 1.0 and fit["perspective_dispersion"] == 0.2
-    assert captured == {"n_v3": 2, "reps": 3}  # only the 2 v3.0 subjects feed the fit
+                "pilot_test_retest": target_tr, "pilot_between_agreement": target_agr,
+                "simulated_test_retest": 0.3, "simulated_between_agreement": 0.2, "num_subjects": num_subjects}
+    monkeypatch.setattr(pilot, "_calibrate", _fake_calibrate)
 
 
-def test_calibrate_from_pilot_raises_without_v3(tmp_path, monkeypatch):
-    from SpAM_Simulations import calibrate_to_pilot as cli
+def test_calibrate_params_from_pilot_uses_v3_for_retest_and_all_for_agreement(tmp_path, monkeypatch):
+    """test-retest target from v3 only; between-subject agreement pooled over ALL subjects."""
+    v3, other = _fake_subjects(tmp_path)
+    captured = {}
+    monkeypatch.setattr(pilot, "load_pilot_subjects", lambda d, m: v3 + other)
+    _stub_gt_and_fit(monkeypatch, captured)
+    # spy on the agreement call to confirm it receives all 3 subjects, not just the 2 v3 ones
+    seen = {}
+
+    def _spy_agr(dists, min_overlap=30):
+        seen["n_rows"] = dists.shape[0]
+        return {"mean_agreement": 0.2, "sem_agreement": 0.0, "n_dyads": 3, "median_overlap": 3}
+    monkeypatch.setattr(pilot, "between_subject_agreement", _spy_agr)
+
+    coords, fit, info = pilot.calibrate_params_from_pilot("d", "m", gt_method="classical", reps=3, verbose=False)
+    assert coords.shape == (5, 3) and info["n_dims"] == 3
+    assert seen["n_rows"] == 3            # agreement over all subjects (2 v3 + 1 v2)
+    assert captured["num_subjects"] == 2  # the fit's matched sim uses the 2 v3 subjects
+    assert captured["reps"] == 3 and fit["perspective_dispersion"] == 0.2
+
+
+def test_calibrate_params_from_pilot_saves_artifacts(tmp_path, monkeypatch):
+    import json
+    v3, other = _fake_subjects(tmp_path)
+    monkeypatch.setattr(pilot, "load_pilot_subjects", lambda d, m: v3 + other)
+    _stub_gt_and_fit(monkeypatch, {})
+    gt_path = tmp_path / "gt.npy"; params_path = tmp_path / "params.json"
+    pilot.calibrate_params_from_pilot("d", "m", gt_method="classical",
+                                      save_gt=str(gt_path), save_params=str(params_path), verbose=False)
+    assert np.load(gt_path).shape == (5, 3)
+    saved = json.loads(params_path.read_text())
+    assert saved["subjects_noise_scale"] == 1.0 and saved["n_dims"] == 3 and saved["gt_method"] == "classical"
+
+
+def test_calibrate_params_from_pilot_raises_without_v3(tmp_path, monkeypatch):
     only_v2 = [_subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"],
                                     "dists": {(0, 1): 0.1, (0, 2): 0.4, (1, 2): 0.7}}], version=2.0)]
-    monkeypatch.setattr(cli.pilot, "load_pilot_subjects", lambda d, m: only_v2)
+    monkeypatch.setattr(pilot, "load_pilot_subjects", lambda d, m: only_v2)
     with pytest.raises(SystemExit, match="no v3.0 subjects"):
-        cli.calibrate_from_pilot("d", "m", verbose=False)
+        pilot.calibrate_params_from_pilot("d", "m", verbose=False)
 
 
 def test_calibrate_recovers_known_parameters():

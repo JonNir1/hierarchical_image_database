@@ -182,7 +182,7 @@ def within_subject_test_retest(subject: PilotSubject) -> float:
     return float(np.nanmean(corrs)) if corrs else np.nan
 
 
-def cohort_test_retest(subjects: Sequence[PilotSubject]) -> float:
+def _cohort_test_retest(subjects: Sequence[PilotSubject]) -> float:
     """Median within-subject test-retest across a cohort (NaN-subjects ignored)."""
     vals = [within_subject_test_retest(s) for s in subjects]
     vals = [v for v in vals if not np.isnan(v)]
@@ -271,7 +271,7 @@ def _classical_embed(condensed: np.ndarray, ndim: int) -> np.ndarray:
     return (vecs[:, idx] * np.sqrt(np.clip(vals[idx], 0, None))).astype(np.float32)
 
 
-def choose_n_dims(eigenvalues: np.ndarray, var_threshold: float = 0.9, cap: int = 15) -> int:
+def _choose_n_dims(eigenvalues: np.ndarray, var_threshold: float = 0.9, cap: int = 15) -> int:
     """Smallest dimensionality whose positive eigenvalues explain >= `var_threshold` (capped)."""
     pos = eigenvalues[eigenvalues > 0]
     cum = np.cumsum(pos) / pos.sum()
@@ -299,7 +299,7 @@ def build_gt_from_pilot(
     imputed[weights == 0] = dists[weights > 0].mean()
     eig = classical_mds_eigenvalues(imputed)
     if n_dims is None:
-        n_dims = choose_n_dims(eig)
+        n_dims = _choose_n_dims(eig)
     if method == "smacof":
         from SpAM_Simulations.multi_dimensional_scaling import run_mds  # lazy: imports R
         out = run_mds(dists=dists, weights=weights, ndim=n_dims)
@@ -349,9 +349,11 @@ def _fit_1d(target: float, evaluate, grid: np.ndarray) -> float:
     return float(grid[int(np.nanargmin(np.abs(vals - target)))])
 
 
-def calibrate(
+def _calibrate(
         gt_embeddings: np.ndarray,
-        pilot_v3_subjects: Sequence[PilotSubject],
+        num_subjects: int,
+        target_test_retest: float,
+        target_agreement: float,
         *,
         trials_per_subject: int = 20,
         images_per_trial: int = 20,
@@ -359,37 +361,107 @@ def calibrate(
         noise_grid: Sequence[float] = tuple(np.round(np.arange(0.25, 8.01, 0.25), 2)),
         dispersion_grid: Sequence[float] = tuple(np.round(np.arange(0.0, 2.01, 0.1), 2)),
         reps: int = 5,
-        min_overlap: int = 20,
+        min_overlap: int = 30,
         seed: int = 0,
 ) -> dict:
     """Fit ``(subjects_noise_scale, perspective_dispersion)`` so the matched simulation reproduces the
-    pilot's within-subject test-retest and between-subject agreement.
+    two pilot targets.
 
-    Sequential because test-retest is perspective-invariant: (1) fit noise to the pilot's median
-    test-retest at ``dispersion=0``; (2) with noise fixed, fit dispersion to the pilot's between-
-    subject agreement. The matched simulation mirrors the v3.0 design (``num_subjects = len(pilot)``,
-    20 trials of 20, 3 repeats). ``gt_embeddings`` should be the pooled-pilot weighted-MDS embedding.
+    Sequential because test-retest is perspective-invariant: (1) fit noise to ``target_test_retest``
+    at ``dispersion=0``; (2) with noise fixed, fit dispersion to ``target_agreement``. The matched
+    simulation mirrors the v3.0 design (``num_subjects`` v3 subjects, 20 trials of 20, 3 repeats);
+    ``min_overlap`` is threaded into the simulated between-subject agreement so it is measured over the
+    same overlap regime as the pilot target. ``gt_embeddings`` is the pooled-pilot embedding.
     """
-    num_subjects = len(pilot_v3_subjects)
-    target_tr = cohort_test_retest(pilot_v3_subjects)
-    target_agr = between_subject_agreement(stack_distances(pilot_v3_subjects), min_overlap)["mean_agreement"]
-
     def common(noise, disp):
         return _simulated_targets(
             gt_embeddings, noise, disp, num_subjects, trials_per_subject, images_per_trial,
             frac_trials_repeated, reps, seed, min_overlap,
         )
 
-    fitted_noise = _fit_1d(target_tr, lambda x: common(x, 0.0)[0], np.asarray(noise_grid))
-    fitted_disp = _fit_1d(target_agr, lambda x: common(fitted_noise, x)[1], np.asarray(dispersion_grid))
+    fitted_noise = _fit_1d(target_test_retest, lambda x: common(x, 0.0)[0], np.asarray(noise_grid))
+    fitted_disp = _fit_1d(target_agreement, lambda x: common(fitted_noise, x)[1], np.asarray(dispersion_grid))
     sim_tr, sim_agr = common(fitted_noise, fitted_disp)
     return {
         "subjects_noise_scale": fitted_noise,
         "perspective_dispersion": fitted_disp,
         "subjects_noise_df": 1,
-        "pilot_test_retest": target_tr,
-        "pilot_between_agreement": target_agr,
+        "pilot_test_retest": target_test_retest,
+        "pilot_between_agreement": target_agreement,
         "simulated_test_retest": sim_tr,
         "simulated_between_agreement": sim_agr,
         "num_subjects": num_subjects,
     }
+
+
+def calibrate_params_from_pilot(
+        pilot_dir: str,
+        manifest: str,
+        *,
+        gt_method: str = "smacof",
+        reps: int = 5,
+        n_dims: Optional[int] = None,
+        min_overlap: int = 30,
+        save_gt: Optional[str] = None,
+        save_params: Optional[str] = None,
+        verbose: bool = True,
+) -> Tuple[np.ndarray, dict, dict]:
+    """Calibrate the task-v3 simulation to the pilot, end to end; return ``(gt_coords, fit, info)``.
+
+    The single entrypoint shared by the EC2 sweep's calibration flavor (``ec2/run_task_v3_sim.sh`` with
+    ``CALIBRATE=true``) and any local/programmatic caller:
+
+    * pool ALL completed pilot subjects -> :func:`build_gt_from_pilot` (weighted SMACOF, or
+      ``classical`` for a no-R provisional GT) -> ground-truth coordinates inheriting the real
+      spectrum/clusters;
+    * **within-subject test-retest** from the *v3.0* subjects (needs the whole-trial repeats) pins the
+      noise; **between-subject agreement** from *all* subjects (a population property, not v3-specific -
+      more dyads, tighter anchor) pins the perspective dispersion;
+    * :func:`_calibrate` -> fitted ``subjects_noise_scale`` + ``perspective_dispersion``.
+
+    ``save_gt`` / ``save_params`` (if given) persist the GT coordinates (``.npy``) and the fitted
+    parameters (``.json``) - the artifacts the downstream sweep consumes. Raises ``SystemExit`` if no
+    v3.0 (matched-design) subjects are present. Steps needing R (``gt_method="smacof"``) require rpy2.
+    """
+    allsub = load_pilot_subjects(pilot_dir, manifest)
+    v3 = [s for s in allsub if s.task_version == 3.0]
+    if verbose:
+        print(f"[load] {len(allsub)} completed sessions; {len(v3)} are v3.0 (matched design)")
+    if not v3:
+        raise SystemExit("no v3.0 subjects found - the within-subject test-retest target needs the matched design")
+
+    # targets: test-retest is v3-only (whole-trial repeats); agreement pools ALL subjects.
+    target_tr = _cohort_test_retest(v3)
+    agr = between_subject_agreement(stack_distances(allsub), min_overlap)
+    target_agr = agr["mean_agreement"]
+    if verbose:
+        print(f"[targets] within-subject test-retest (median, v3) = {target_tr:.4f}")
+        print(f"[targets] between-subject agreement (all subjects) = {target_agr:.4f} "
+              f"(SEM {agr['sem_agreement']:.4f}, {agr['n_dyads']} dyads, median overlap {agr['median_overlap']:.0f})")
+
+    coords, info = build_gt_from_pilot(allsub, n_dims=n_dims, method=gt_method)
+    if verbose:
+        print(f"[gt] {info['method']} embedding: N={coords.shape[0]}, n_dims={info['n_dims']}, "
+              f"observed {info['observed_frac']:.1%} of pairs")
+        if gt_method == "classical":
+            print("[gt] WARNING: provisional no-R ground truth (numpy classical MDS). "
+                  "Re-run with gt_method='smacof' for the final numbers.")
+
+    fit = _calibrate(coords, len(v3), target_tr, target_agr, reps=reps, min_overlap=min_overlap)
+    if verbose:
+        print(f"[calibrated] subjects_noise_scale={fit['subjects_noise_scale']:.3f} "
+              f"(sim {fit['simulated_test_retest']:.3f} vs pilot {fit['pilot_test_retest']:.3f}); "
+              f"perspective_dispersion={fit['perspective_dispersion']:.3f} "
+              f"(sim {fit['simulated_between_agreement']:.3f} vs pilot {fit['pilot_between_agreement']:.3f}); "
+              f"n_dims={info['n_dims']}")
+
+    if save_gt:
+        np.save(save_gt, coords)
+        if verbose:
+            print(f"[save] GT coordinates -> {save_gt}  {coords.shape}")
+    if save_params:
+        with open(save_params, "w", encoding="utf-8") as fh:
+            json.dump({**fit, "n_dims": info["n_dims"], "gt_method": info["method"]}, fh, indent=2)
+        if verbose:
+            print(f"[save] fitted parameters -> {save_params}")
+    return coords, fit, info

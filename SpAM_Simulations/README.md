@@ -56,15 +56,14 @@ large-scale sweeps, see *Running on EC2* below.
 | `config.py` | `SimulationConfig`, `TaskV2_3SimulationConfig`, `TaskV2_4SimulationConfig`, `TaskV3SimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
 | `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability) for all simulation types. |
 | `storage.py` | `ResultStore` - compact, streamable, resumable on-disk store for sweep results. |
-| `pilot.py` | **Read-only** pilot ingestion + calibration: load `data/pilot/` CSVs, the test-retest / between-subject-agreement observables, the pooled-pilot GT embedding, and `calibrate` (fits `subjects_noise_scale` + `perspective_dispersion`). See "Calibrating to pilot data" below. |
-| `calibrate_to_pilot.py` | One-command end-to-end calibration script (`python -m SpAM_Simulations.calibrate_to_pilot`). |
+| `pilot.py` | **Read-only** pilot ingestion + calibration: load `data/pilot/` (via `analysis/pilot/parser.py`), the test-retest / between-subject-agreement observables, the pooled-pilot GT embedding, and `calibrate_params_from_pilot` (the end-to-end fit of `subjects_noise_scale` + `perspective_dispersion`). See "Calibrating to pilot data" below. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
 | `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb` - no simulation, no MDS, no R. |
 | `evaluation.ipynb` | Plotting / analysis notebook for the task-v0.1 simulation. |
 | `evaluation_task_v2_3.ipynb` | Plotting / analysis notebook for the task-v2.3 simulation. |
 | `evaluation_task_v2_4.ipynb` | Plotting / analysis notebook for the task-v2.4 simulation (adds the test-retest reliability panel). |
 | `evaluate_simulation.ipynb` | Read-only overview/drill-down figures for an already-completed **task-v3** run (incl. the plateau-N required-subjects readout), via `eval_helpers.py`. v3-only; older runs use the `evaluation*.ipynb` notebooks above. |
-| `ec2/prepare_machine.sh`, `ec2/run_task_v0_1_sim.sh`, `ec2/run_task_v2_3_sim.sh`, `ec2/run_task_v2_4_sim.sh`, `ec2/run_task_v3_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. `run_task_v3_sim.sh` also has a `CALIBRATE=true` flavor that fits the simulation to the pilot before sweeping (see "Calibrating + sweeping on EC2"). |
+| `ec2/prepare_machine.sh`, `ec2/run_task_v0_1_sim.sh`, `ec2/run_task_v2_3_sim.sh`, `ec2/run_task_v2_4_sim.sh`, `ec2/run_task_v3_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. `run_task_v3_sim.sh` also has a `CALIBRATE=true` flavor that fits the simulation to the pilot before sweeping (see "Running on EC2 / Calibrated flavor"). |
 | `sim_results/<run-name>/` | Local copy of a completed run's small files (`out/*.csv`, `mds_store/meta.csv`) downloaded from S3, e.g. `sim_results/task-v2.3/` - gitignored, consumed by `eval_helpers.py`/`evaluate_simulation.ipynb`. |
 
 ## Calibrating to pilot data
@@ -82,80 +81,31 @@ calibrated number.
 2. **`subjects_noise_scale`** is pinned by within-subject **test-retest** (the v3.0 whole-trial
    repeats). Test-retest is *perspective-invariant* - a subject's perspective is identical across
    their original and repeat trials, only the noise re-draws - so it isolates measurement noise.
-3. **`perspective_dispersion`** is then pinned by **between-subject agreement**, with noise held fixed.
+3. **`perspective_dispersion`** is then pinned by **between-subject agreement** - correlating subjects'
+   RDMs over their jointly-judged pairs - with noise held fixed. This is pooled over *all* pilot
+   subjects (not just v3): agreement is a population property, so more subjects = more dyads = a tighter
+   anchor. (Only the test-retest step is v3-specific, since it needs the whole-trial repeats.)
 
 Identifiability is therefore sequential and clean: test-retest -> noise, then agreement -> dispersion.
 
-**Run it (local, R-enabled machine):**
-```powershell
-# from the repo root; reads data/pilot/ (never writes/commits it)
-python -m SpAM_Simulations.calibrate_to_pilot --gt-method smacof
-```
-Output: the pilot targets, the fitted `subjects_noise_scale` / `perspective_dispersion` / `n_dims`,
-and a ready-to-paste calibrated `TaskV3SimulationConfig` for the convergence sweep. Pass
-`--gt-method classical` for a **no-R provisional** GT (numpy classical MDS) - useful to smoke-test the
-pipeline, but it mean-imputes unobserved pairs so the numbers are unreliable; use SMACOF for real.
-
-**Building blocks** (all in `SpAM_Simulations/pilot.py`, all read-only):
+**Running it.** Calibration is a short (~1-5 min) prelude to the sweep, not a separate run: use the
+calibrated flavor of the EC2 sweep - `run_task_v3_sim.sh` with `CALIBRATE=true` (see
+[*Running on EC2*](#running-on-ec2)) - which fits the parameters + pilot GT and then runs the calibrated
+convergence sweep in one go. Programmatically it is a single call:
 ```python
-from SpAM_Simulations import pilot
-subs = pilot.load_pilot_subjects("data/pilot", "SpAM_Task/stimuli_manifest.json")
-v3   = [s for s in subs if s.task_version == 3.0]             # matched 20x20 design, 3 repeats
-print(pilot.cohort_test_retest(v3))                            # noise target (median Spearman)
-print(pilot.between_subject_agreement(pilot.stack_distances(v3)))  # dispersion target
-coords, info = pilot.build_gt_from_pilot(subs, method="smacof")    # calibrated GT (raises if graph disconnected)
-fit = pilot.calibrate(coords, v3)                              # -> {subjects_noise_scale, perspective_dispersion, ...}
+from SpAM_Simulations.pilot import calibrate_params_from_pilot
+coords, fit, info = calibrate_params_from_pilot(
+    "data/pilot", "SpAM_Task/stimuli_manifest.json",
+    gt_method="smacof",           # or "classical" for a no-R provisional GT (unreliable; smoke-test only)
+    save_gt="gt.npy", save_params="params.json",   # optional: persist the artifacts the sweep consumes
+)   # -> fitted {subjects_noise_scale, perspective_dispersion, n_dims, ...}
 ```
+The read-only building blocks it composes (`load_pilot_subjects`, `within_subject_test_retest`,
+`between_subject_agreement`, `build_gt_from_pilot`) also live in `pilot.py`.
 
 > **Data policy.** `data/pilot/` is human-subjects data: gitignored, **never committed or pushed**.
-> Pilot-derived artifacts (the aggregate RDM, the GT `coords`) are equally local - save them only to
-> gitignored paths.
-
-### Calibrating + sweeping on EC2
-
-Everything for a study lives under **one private `S3_URI` prefix**, by convention (the pilot path
-mirrors the local repo's `data/pilot/`):
-```
-$S3_URI/data/pilot/   <- INPUT  you stage once: session CSVs + stimuli_manifest.json
-$S3_URI/calibration/  <- OUTPUT calibrate.log, calibrated_params.json, gt_pilot_coords.npy
-$S3_URI/out/  $S3_URI/mds_store/   <- OUTPUT of the convergence sweep
-```
-
-**Step 0 - one-time: copy pilot data to S3 bucket**<br>
-The pilot CSVs (human-subjects
-data) and the manifest are gitignored, so they are never in the repo clone - the entrypoint pulls them
-to the subdirectory `$S3_URI/data/pilot/`:
-```powershell
-$S3_URI = "s3://jon-nir/spam-simulations/task-v3"
-aws s3 cp data/pilot/                     "$S3_URI/data/pilot/" --recursive   # session CSVs
-aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/pilot/"               # the 725-image manifest
-```
-
-**Step 1: initialize EC2**<br>
-Provision a new EC2 instance and copy the `ec2/` scripts to it, by following steps 0-4 in the
-["Running on EC2 / Cookbook"](#cookbook-allocate---run---verify---terminate) section below.
-
-**Step 2 - calibrate + sweep in one run** with `run_task_v3_sim.sh` and `CALIBRATE=true`. This is the
-same sweep entrypoint as the default (synthetic) flavor, but the `CALIBRATE` flag turns on a short
-(~1-5 min) prelude: it bootstraps via `prepare_machine.sh`, reads the pilot from `$S3_URI/data/pilot/`
-(**failing fast if it's empty/missing**), fits `subjects_noise_scale` / `perspective_dispersion` + the
-pilot GT (weighted SMACOF of the pooled pilot), then runs the **same** convergence sweep with those
-FIXED values instead of the swept guessed grids. It uploads the calibration artifacts to
-`$S3_URI/calibration/` and the sweep outputs to `$S3_URI/out/` + `mds_store/`; the raw pilot CSVs are
-deleted from the box at exit. Use a many-core instance (the sweep is the heavy part):
-```bash
-export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
-export GIT_REF=main
-export S3_URI=s3://jon-nir/spam-simulations/task-v3    # PRIVATE: pilot at $S3_URI/data/pilot/
-export CALIBRATE=true                                  # fit to pilot instead of the synthetic swept grids
-bash run_task_v3_sim.sh 2>&1 | tee run.log
-# GT_METHOD=classical for a no-R provisional fit; REPS=N to average more cohorts. USE_ISOTROPIC/decay
-# are ignored when CALIBRATE=true (GT comes from the pilot). Edit the num_subjects / design grids in
-# run_task_v3_sim.sh's CALIBRATE block to change the swept design. TERMINATE when done.
-```
-This writes `calibration/{calibrate.log, calibrated_params.json, gt_pilot_coords.npy}` +
-`out/*.csv` + `mds_store/` to S3. (For a **local, calibration-only** run without the sweep, use the CLI
-from *Calibrating to pilot data* above: `python -m SpAM_Simulations.calibrate_to_pilot`.)
+> Pilot-derived artifacts (the aggregate RDM, the GT `coords`, fitted params) are equally local - keep
+> them under the private `$S3_URI` prefix, never in the repo.
 
 ## Running with R (rpy2 + smacof)
 `multi_dimensional_scaling.py` imports R at load time. R 4.5 + the `smacof` package are
@@ -182,7 +132,7 @@ still isn't found, set `R_HOME` explicitly.
 
 ## Running on EC2
 
-Four shell scripts, under `ec2/`, handle the full-scale sweeps remotely:
+Five shell scripts, under `ec2/`, handle the full-scale sweeps remotely:
 - `ec2/prepare_machine.sh` - shared provisioning (system packages, R 4.5 + `smacof`, awscli v2,
   sparse-checkout clone of `SpAM_Simulations/`, Python venv). Sourced, not run directly.
 - `ec2/run_task_v0_1_sim.sh` - runs the task-v0.1 (original) simulation's full-study sweep.
@@ -196,6 +146,9 @@ Four shell scripts, under `ec2/`, handle the full-scale sweeps remotely:
   `k=20` any `frac_images_repeated>0` saturates every trial with doubled images and leaves none
   to repeat (matching the deployed `task_config.json`). The doubled-image SNR is characterised
   by the task-v2.3 sweep instead.
+- `ec2/run_task_v3_sim.sh` - runs the task-v3 (generative coordinate-space model) sweep. Two flavors:
+  the default synthetic-GT swept run, and (with `CALIBRATE=true`) a pilot-calibrated run - see
+  *Calibrated flavor* below.
 
 All entrypoints `source` `prepare_machine.sh` by relative path, so copy `prepare_machine.sh`
 together with whichever entrypoint(s) you want onto the instance (don't transfer an entrypoint
@@ -203,10 +156,8 @@ alone).
 
 ### Cookbook: allocate -> run -> verify -> terminate
 
-This Cookbook is also referenced by *Calibrating to pilot data* above for the
-calibrate-then-sweep workflow (steps (0)-(4) get you to an SSH prompt on a fresh
-instance; then run the calibration/sweep commands from that section instead of
-tmux-ing a sweep script directly).
+Steps (0)-(4) get you to an SSH prompt on a fresh instance; then tmux a sweep script (or, for the
+pilot-calibrated run, follow *Calibrated flavor* below).
 
 Known infra for this project: security group `sg-0e1f88c3d550f7154`, key pair `paf-key`
 (`.pem` kept outside the repo), IAM instance profile `spam-simulations` (has S3 access).
@@ -350,6 +301,43 @@ Get-ChildItem -Recurse $DEST | Select-Object FullName    # expect out/{coverage,
 ```
 `sim_results/` is gitignored, so these stay local. Then open
 `SpAM_Simulations/evaluate_simulation.ipynb` and set `RUN_RESULTS_DIR = "sim_results/task-v2.4"`.
+
+### Calibrated flavor (fit to pilot first)
+
+`run_task_v3_sim.sh` with `CALIBRATE=true` runs a short (~1-5 min) prelude that fits the simulation to
+the real pilot, then runs the **same** convergence sweep with the pilot GT + fitted
+`subjects_noise_scale`/`perspective_dispersion` (see *Calibrating to pilot data* above for the method).
+Everything for the study lives under one **private** `S3_URI` prefix, the pilot path mirroring the local
+`data/pilot/`:
+```
+$S3_URI/data/pilot/   <- INPUT  you stage once: session + demographics CSVs + stimuli_manifest.json
+$S3_URI/calibration/  <- OUTPUT calibrate.log, calibrated_params.json, gt_pilot_coords.npy
+$S3_URI/out/  $S3_URI/mds_store/   <- OUTPUT of the convergence sweep
+```
+
+**Stage the pilot once** (the CSVs + manifest are gitignored, so never in the repo clone - the
+entrypoint pulls them from S3 and deletes them from the box at exit):
+```powershell
+$S3_URI = "s3://jon-nir/spam-simulations/task-v3"
+aws s3 cp data/pilot/                     "$S3_URI/data/pilot/" --recursive   # session + demographics CSVs
+aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/pilot/"               # the 725-image manifest
+```
+
+**Run** (after steps (0)-(4) of the Cookbook get you an SSH prompt on a fresh, many-core instance):
+```bash
+export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
+export GIT_REF=main
+export S3_URI=s3://jon-nir/spam-simulations/task-v3    # PRIVATE: pilot read from $S3_URI/data/pilot/
+export CALIBRATE=true                                  # fit to pilot instead of the synthetic swept grids
+bash run_task_v3_sim.sh 2>&1 | tee run.log
+# GT_METHOD=classical for a no-R provisional fit; REPS=N to average more cohorts. USE_ISOTROPIC/decay
+# are ignored under CALIBRATE=true (GT comes from the pilot). Edit the num_subjects / design grids in
+# run_task_v3_sim.sh's CALIBRATE block to change the swept design. TERMINATE when done.
+```
+It fails fast if `$S3_URI/data/pilot/` is empty, and uploads
+`calibration/{calibrate.log, calibrated_params.json, gt_pilot_coords.npy}` + `out/*.csv` + `mds_store/`
+to S3. Pull results and view them exactly as above (the calibrated `out/` feeds
+`evaluate_simulation.ipynb` unchanged). Keep the whole `$S3_URI` prefix **private** (pilot-derived).
 
 ## Tests
 
