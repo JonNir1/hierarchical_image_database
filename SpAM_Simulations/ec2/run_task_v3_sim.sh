@@ -26,7 +26,7 @@
 #     perspective_dispersion to the v3.0 subjects' test-retest / between-subject agreement. The same
 #     sweep then runs with gt_embeddings + those FITTED (not swept) values. Calibration artifacts
 #     (gt_pilot_coords.npy, calibrated_params.json, calibrate.log) go to $S3_URI/calibration/.
-#     (The calibration is also runnable standalone/locally: `python -m SpAM_Simulations.calibrate_to_pilot`.)
+#     (The calibration is also callable programmatically: `SpAM_Simulations.pilot.calibrate_params_from_pilot`.)
 #
 # Sibling scripts: run_task_v2_4_sim.sh (additive-noise model + both repeat levers),
 # run_task_v2_3_sim.sh, run_task_v0_1_sim.sh. All source the shared prepare_machine.sh (must be
@@ -102,22 +102,17 @@ fi
 mkdir -p calibration
 
 N_JOBS="$N_JOBS" GT_METHOD="$GT_METHOD" REPS="$REPS" python - <<'PY' 2>&1 | tee calibration/calibrate.log
-import os, json
-import numpy as np
+import os
 from SpAM_Simulations.config import TaskV3SimulationConfig, MDSSweepConfig
 from SpAM_Simulations import pipeline, eval_helpers
-from SpAM_Simulations.calibrate_to_pilot import calibrate_from_pilot
+from SpAM_Simulations.pilot import calibrate_params_from_pilot
 
-# A-C: pool the pilot -> GT embedding + fitted noise/perspective (see calibrate_to_pilot.py).
-coords, fit, info = calibrate_from_pilot(
+# A-C: pool the pilot -> GT embedding + fitted noise/perspective; saves the artifacts (see pilot.py).
+coords, fit, info = calibrate_params_from_pilot(
     "data/pilot", "data/pilot/stimuli_manifest.json",
     gt_method=os.environ.get("GT_METHOD", "smacof"), reps=int(os.environ.get("REPS", "5")),
+    save_gt="calibration/gt_pilot_coords.npy", save_params="calibration/calibrated_params.json",
 )
-np.save("calibration/gt_pilot_coords.npy", coords)
-with open("calibration/calibrated_params.json", "w") as fh:
-    json.dump({**fit, "n_dims": info["n_dims"], "gt_method": info["method"]}, fh, indent=2)
-print(f"[calibrated] noise_scale={fit['subjects_noise_scale']:.3f} "
-      f"dispersion={fit['perspective_dispersion']:.3f} n_dims={info['n_dims']}")
 
 # D: the SAME sweep, but GT = the pilot embedding and noise/dispersion FIXED to the fit (num_subjects
 # is the required-N axis; edit the design grids below as needed - use_isotropic/decay are moot here).
