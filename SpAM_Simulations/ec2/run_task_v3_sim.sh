@@ -17,6 +17,17 @@
 #     case where low-variance dims rarely surface in any trial's 2-D slice. Run the sweep twice
 #     (use_isotropic True and False) to bracket the required-N estimate.
 #
+# TWO FLAVORS (CALIBRATE):
+#   * CALIBRATE=false (default) - synthetic ground truth (use_isotropic/decay) and SWEPT, guessed
+#     noise/dispersion grids. This is the block below, unchanged.
+#   * CALIBRATE=true            - a short (~1-5 min) prelude fits the simulation to the real pilot:
+#     it fetches the pilot from $S3_URI/data/pilot, builds the ground truth by weighted-SMACOF of the
+#     pooled pilot (so decay/n_clusters/use_isotropic are moot), and fits subjects_noise_scale +
+#     perspective_dispersion to the v3.0 subjects' test-retest / between-subject agreement. The same
+#     sweep then runs with gt_embeddings + those FITTED (not swept) values. Calibration artifacts
+#     (gt_pilot_coords.npy, calibrated_params.json, calibrate.log) go to $S3_URI/calibration/.
+#     (The calibration is also runnable standalone/locally: `python -m SpAM_Simulations.calibrate_to_pilot`.)
+#
 # Sibling scripts: run_task_v2_4_sim.sh (additive-noise model + both repeat levers),
 # run_task_v2_3_sim.sh, run_task_v0_1_sim.sh. All source the shared prepare_machine.sh (must be
 # copied alongside - see README.md's "Running on EC2" cookbook).
@@ -28,12 +39,17 @@
 #   * The instance can reach the repo (public repo, or a PAT/deploy key in REPO_URL/ssh).
 #   * S3 access: attach an IAM role with s3:PutObject on the bucket (preferred), or run
 #     `aws configure` with the project IAM user's credentials before this script.
+#   * For CALIBRATE=true only: stage the pilot under $S3_URI/data/pilot (PRIVATE), containing the
+#     per-session + demographics CSVs and stimuli_manifest.json, e.g.:
+#       aws s3 cp data/pilot/                     "$S3_URI/data/pilot/" --recursive
+#       aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/pilot/"
 #
 # Usage:
 #   export REPO_URL=https://github.com/<you>/hierarchical_image_database.git
 #   export GIT_REF=main
 #   export S3_URI=s3://<your-bucket>/spam-simulations/task-v3-isotropic
-#   export USE_ISOTROPIC=true            # or false for the realistic anisotropic spectrum
+#   export USE_ISOTROPIC=true            # (default flavor only) or false for the anisotropic spectrum
+#   # export CALIBRATE=true              # opt into the pilot-calibrated flavor instead
 #   bash run_task_v3_sim.sh
 #
 # This grid: 4 num_subjects x 3 trials_per_subject x 1 images_per_trial x 2 noise_scale x 1
@@ -49,6 +65,9 @@ GIT_REF="${GIT_REF:-main}"
 S3_URI="${S3_URI:?set S3_URI, e.g. s3://my-bucket/spam-simulations/task-v3-isotropic}"
 WORKDIR="${WORKDIR:-$HOME/spam_run}"
 USE_ISOTROPIC="${USE_ISOTROPIC:-false}"   # ground-truth spectrum: true=isotropic bound, false=realistic
+CALIBRATE="${CALIBRATE:-false}"           # true = fit to pilot data (see TWO FLAVORS above); ignores USE_ISOTROPIC
+GT_METHOD="${GT_METHOD:-smacof}"          # (CALIBRATE only) 'smacof' (needs R, canonical) or 'classical' (no-R)
+REPS="${REPS:-5}"                         # (CALIBRATE only) cohorts averaged per simulated fit point
 # MDS worker processes. All vCPUs OOM'd a run (each worker holds its own R/smacof process), so
 # default to 2/3 of them.
 N_JOBS="${N_JOBS:-$(( $(nproc) * 2 / 3 ))}"
@@ -58,6 +77,77 @@ export R_LIBS_USER="${R_LIBS_USER:-$HOME/R/library}"
 source "$(dirname "${BASH_SOURCE[0]}")/prepare_machine.sh"
 
 # --------------------------------------------------------------------------- run the sweep
+if [ "${CALIBRATE,,}" = "true" ] || [ "$CALIBRATE" = "1" ]; then
+# ===== calibrated flavor: fetch pilot -> fit noise/perspective + pilot GT -> calibrated sweep =====
+# Calibration reuses analysis/pilot/parser.py (the canonical pilot loader), which prepare_machine's
+# sparse checkout (SpAM_Simulations only) doesn't include - add it.
+git sparse-checkout add analysis/pilot
+
+# Fetch the (gitignored, human-subjects) pilot data; delete it from the box on ANY exit.
+PILOT_DIR="data/pilot"
+trap 'rm -rf "$PILOT_DIR"' EXIT
+echo ">> [calibrate] fetching pilot data from $S3_URI/data/pilot ..."
+mkdir -p "$PILOT_DIR"
+aws s3 sync "$S3_URI/data/pilot" "$PILOT_DIR/" --only-show-errors
+
+# Fail fast if the pilot prefix was empty/misconfigured (before spending on the sweep).
+shopt -s nullglob; _csvs=("$PILOT_DIR"/*.csv); shopt -u nullglob
+if [ ${#_csvs[@]} -eq 0 ] || [ ! -f "$PILOT_DIR/stimuli_manifest.json" ]; then
+  echo "!! [calibrate] no *.csv and/or stimuli_manifest.json under $S3_URI/data/pilot"
+  echo "!! Stage the pilot first, e.g.:"
+  echo "!!   aws s3 cp data/pilot/                     \"$S3_URI/data/pilot/\" --recursive"
+  echo "!!   aws s3 cp SpAM_Task/stimuli_manifest.json \"$S3_URI/data/pilot/\""
+  exit 1
+fi
+mkdir -p calibration
+
+N_JOBS="$N_JOBS" GT_METHOD="$GT_METHOD" REPS="$REPS" python - <<'PY' 2>&1 | tee calibration/calibrate.log
+import os, json
+import numpy as np
+from SpAM_Simulations.config import TaskV3SimulationConfig, MDSSweepConfig
+from SpAM_Simulations import pipeline, eval_helpers
+from SpAM_Simulations.calibrate_to_pilot import calibrate_from_pilot
+
+# A-C: pool the pilot -> GT embedding + fitted noise/perspective (see calibrate_to_pilot.py).
+coords, fit, info = calibrate_from_pilot(
+    "data/pilot", "data/pilot/stimuli_manifest.json",
+    gt_method=os.environ.get("GT_METHOD", "smacof"), reps=int(os.environ.get("REPS", "5")),
+)
+np.save("calibration/gt_pilot_coords.npy", coords)
+with open("calibration/calibrated_params.json", "w") as fh:
+    json.dump({**fit, "n_dims": info["n_dims"], "gt_method": info["method"]}, fh, indent=2)
+print(f"[calibrated] noise_scale={fit['subjects_noise_scale']:.3f} "
+      f"dispersion={fit['perspective_dispersion']:.3f} n_dims={info['n_dims']}")
+
+# D: the SAME sweep, but GT = the pilot embedding and noise/dispersion FIXED to the fit (num_subjects
+# is the required-N axis; edit the design grids below as needed - use_isotropic/decay are moot here).
+cfg = TaskV3SimulationConfig(
+    gt_embeddings=coords,
+    num_subjects=[20, 50, 100, 200, 350, 500],
+    trials_per_subject=[20], images_per_trial=[20],
+    subjects_noise_scale=[fit["subjects_noise_scale"]], subjects_noise_df=[1],
+    frac_trials_repeated=[0.15], perspective_dispersion=[fit["perspective_dispersion"]],
+    reps=5, seed=42,
+)
+sim = pipeline.generate_task_v3_simulation(cfg, verbose=True)
+pipeline.compute_coverage_table(sim).to_csv("out/coverage.csv", index=False)
+pipeline.compute_stability_table(sim).to_csv("out/stability.csv", index=False)
+
+sweep = MDSSweepConfig(min_ndim=2, max_iters=500, convergence_tol=1e-6, precalc_init=False)
+store = pipeline.run_mds_sweep(
+    sim, sweep, "mds_store",
+    parallel=True, n_jobs=int(os.environ["N_JOBS"]), verbose=True,
+)
+es = pipeline.compute_embedding_stability(store)
+es.to_csv("out/embedding_stability.csv", index=False)
+print(eval_helpers.plateau_num_subjects(es))   # required-N per ndim
+print(f"done: {len(store)} MDS results")
+PY
+
+echo ">> [calibrate] uploading calibration artifacts to $S3_URI/calibration/ ..."
+aws s3 sync calibration/ "$S3_URI/calibration/" --only-show-errors   # gt_pilot_coords.npy + calibrated_params.json + calibrate.log
+else
+# ===== default flavor: synthetic GT + swept guessed noise/dispersion =====
 N_JOBS="$N_JOBS" USE_ISOTROPIC="$USE_ISOTROPIC" python - <<'PY'
 import os
 from SpAM_Simulations.config import TaskV3SimulationConfig, MDSSweepConfig
@@ -91,5 +181,6 @@ store = pipeline.run_mds_sweep(
 pipeline.compute_embedding_stability(store).to_csv("out/embedding_stability.csv", index=False)
 print(f"done: {len(store)} MDS results")
 PY
+fi
 
 upload_and_finish
