@@ -88,8 +88,21 @@ source "$(dirname "${BASH_SOURCE[0]}")/prepare_machine.sh"
 if [ "${CALIBRATE,,}" = "true" ] || [ "$CALIBRATE" = "1" ]; then
 # ===== calibrated flavor: fetch pilot -> fit noise/perspective + pilot GT -> calibrated sweep =====
 # Calibration reuses analysis/pilot/parser.py (the canonical pilot loader), which prepare_machine's
-# sparse checkout (SpAM_Simulations only) doesn't include - add it.
-git sparse-checkout add analysis/pilot
+# sparse checkout (SpAM_Simulations only) doesn't include - add it. `sparse-checkout add` alone can
+# silently fail to materialise the tree on a --depth 1 cone clone, so verify and force a path checkout.
+git sparse-checkout add analysis/pilot || true
+if [ ! -f analysis/pilot/parser.py ]; then
+  echo ">> [calibrate] sparse add didn't materialise analysis/pilot; forcing a path checkout ..."
+  git checkout "$GIT_REF" -- analysis/pilot 2>/dev/null \
+    || git checkout HEAD -- analysis/pilot 2>/dev/null || true
+fi
+if [ ! -f analysis/pilot/parser.py ]; then
+  echo "!! [calibrate] analysis/pilot/parser.py still missing (checked out ref: $GIT_REF)."
+  echo "!! sparse-checkout list:"; git sparse-checkout list || true
+  echo "!! tracked analysis parser paths:"; git ls-tree -r --name-only HEAD | grep -i "analysis/.*parser.py" || true
+  exit 1
+fi
+echo ">> [calibrate] pilot parser present: analysis/pilot/parser.py"
 
 # Fetch the (gitignored, human-subjects) pilot data; delete it from the box on ANY exit.
 PILOT_DIR="data/pilot"
