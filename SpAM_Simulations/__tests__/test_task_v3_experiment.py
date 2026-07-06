@@ -166,6 +166,20 @@ class TestScientificValidity:
                                             np.random.default_rng(0), verbose=False)
         assert np.nanmean(lo.subject_test_retest) > np.nanmean(hi.subject_test_retest)
 
+    def test_test_retest_decoupled_from_dispersion(self):
+        """Canvas placement noise makes test-retest a pure placement effect: at fixed
+        ``subjects_noise_scale`` it is ~invariant to ``perspective_dispersion`` (the whole point of
+        placing noise *after* the deterministic projection). The old coordinate-space model coupled
+        the two strongly (test-retest swung ~0.5 across this dispersion range), so this locks the fix.
+        """
+        emb = build_ground_truth_embeddings(120, 6, use_isotropic=True, seed=1)
+        retests = []
+        for disp in (0.0, 0.5, 1.4):
+            params = _make_params(num_subjects=80, subjects_noise_scale=0.5, perspective_dispersion=disp)
+            _, res = simulate_task_v3_experiment(params, emb, np.random.default_rng(0), verbose=False)
+            retests.append(np.nanmedian(res.subject_test_retest))
+        assert np.ptp(retests) < 0.1  # far below the ~0.5 swing of the pre-canvas-noise model
+
     def test_aggregate_is_full_rank_not_two(self):
         """Local per-trial projections must collectively span >2 dims (else MDS can't recover D)."""
         emb = build_ground_truth_embeddings(120, 6, use_isotropic=True, seed=1)

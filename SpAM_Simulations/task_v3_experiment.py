@@ -15,17 +15,25 @@ Per-trial observation model (for subject ``s``, a trial of ``k`` images):
 2. ``X' = X * w_s`` - the subject's perspective: a per-PC weight vector ``w_s`` drawn once per
    subject from ``lognormal(0, perspective_dispersion)`` (``dispersion = 0`` -> ``w_s == 1``, i.e.
    everyone shares the ground-truth geometry).
-3. ``X'' = X' + N(0, coord_noise)`` - item-level perceptual noise in coordinate space (one draw per
-   *coordinate*, not per pair, so a single misplacement perturbs all of an item's pairwise
-   distances at once - matching how a real arrangement error works).
-4. ``Y = project_2d(X'')`` - a **local, per-trial** classical-MDS / PCA projection onto 2-D. The two
-   retained axes are the top-2 variance directions *of this trial's items under this subject's
-   weights*, so they rotate from trial to trial and subject to subject. The union of many
-   differently-oriented 2-D slices is what lets the aggregate recover ``> 2`` dimensions; a single
-   global projection would cap it at rank 2.
-5. ``obs = pdist(Y)`` - the recorded 2-D canvas distances. (No per-trial rescaling: like the real
-   fixed canvas, every trial shares the same coordinate units, so distances are comparable across
-   trials. A fixed-canvas ceiling/saturation is a documented future refinement, not modelled here.)
+3. ``Y = project_2d(X')`` - a **local, per-trial** classical-MDS / PCA projection onto 2-D,
+   *deterministic* given ``w_s``. The two retained axes are the top-2 variance directions *of this
+   trial's items under this subject's weights*, so they rotate from trial to trial and subject to
+   subject. The union of many differently-oriented 2-D slices is what lets the aggregate recover
+   ``> 2`` dimensions; a single global projection would cap it at rank 2.
+4. ``Y' = Y + N(0, s * spread(Y))`` - isotropic **canvas placement noise**: the subject drops each
+   image on the 2-D canvas with finite motor/decision precision. The jitter std is
+   ``subjects_noise_scale`` times *this trial's* arrangement spread, so ``subjects_noise_scale`` is a
+   unitless placement-precision ratio (0 = perfect, ~1 = jitter as wide as the arrangement itself).
+5. ``obs = pdist(Y')`` - the recorded 2-D canvas distances.
+
+Because the noise lands *after* the (deterministic) projection, within-subject reliability is a pure
+placement effect: a verbatim whole-trial repeat re-projects to the same ``Y`` and differs only by
+fresh placement noise, so the test-retest reliability depends on ``subjects_noise_scale`` alone and is
+independent of ``perspective_dispersion`` (which drives only between-subject disagreement). Injecting
+the noise in coordinate space *before* the projection - as earlier drafts did - instead let it perturb
+which axes the projection retained, coupling reliability to perspective; that is deliberately avoided.
+(No per-trial rescaling of the signal: like the real fixed canvas, every trial shares the same
+coordinate units. A fixed-canvas ceiling/saturation is a documented future refinement, not modelled.)
 
 Design notes:
 
@@ -144,11 +152,12 @@ def simulate_task_v3_experiment(
     all_n_obs = np.zeros(n_pairs, dtype=np.float64)
     subject_test_retest = np.empty(params.num_subjects, dtype=np.float64)
     per_subject = np.empty((params.num_subjects, n_pairs), dtype=np.float32) if return_per_subject else None
-    # Item-level noise lives in coordinate space, so scale it by the coordinate spread (not the
-    # distance spread the earlier models used) to keep `subjects_noise_scale` interpretable.
+    # Canvas placement noise is a *ratio* to each trial's own 2-D arrangement spread (applied per trial
+    # in `_simulate_trial`), so `subjects_noise_scale` is unitless here - do NOT rescale by the GT spread.
+    # `subjects_noise_df` still sets how heterogeneous that per-subject placement precision is.
     subject_noises = _draw_subject_noises(
         params.subjects_noise_df,
-        params.subjects_noise_scale * float(gt_embeddings.std()),
+        params.subjects_noise_scale,
         params.num_subjects,
         rng
     )
@@ -246,14 +255,19 @@ def _simulate_trial(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Generate one trial's 2-D arrangement distances, accumulate them, and return them.
 
-    Reweight the trial items' coordinates by the subject's perspective, add item-level coordinate
-    noise, project to a local 2-D arrangement, and record the resulting pairwise distances. Mutates
-    `observations`/`n_obs` in place and returns ``(cond_idx, trial_dists)`` (global condensed
-    indices and the matching 2-D distance vector, ordered like ``triu_indices(k)`` / ``pdist``).
+    Reweight the trial items' coordinates by the subject's perspective and project to a local 2-D
+    arrangement (both deterministic given ``weights``), then add isotropic **canvas placement noise**
+    to the 2-D positions - jitter whose std is ``subject_noise`` times *this trial's* arrangement
+    spread. Placing the noise after the projection (rather than in coordinate space before it) makes
+    within-subject reliability a pure placement effect, independent of the subject's perspective (the
+    projection no longer has its retained axes perturbed by the noise). Mutates ``observations``/
+    ``n_obs`` in place and returns ``(cond_idx, trial_dists)`` (global condensed indices and the
+    matching 2-D distance vector, ordered like ``triu_indices(k)`` / ``pdist``).
     """
-    coords = gt_embeddings[trial_images] * weights  # (k, D), perspective-weighted
-    coords = coords + rng.normal(0.0, subject_noise, size=coords.shape)  # item-level noise
-    trial_dists = pdist(project_2d(coords)).astype(np.float32)
+    coords = gt_embeddings[trial_images] * weights  # (k, D), perspective-weighted (deterministic)
+    Y = project_2d(coords)                           # adaptive per-trial top-2 (deterministic given weights)
+    Y = Y + rng.normal(0.0, subject_noise * (Y.std() + 1e-12), size=Y.shape)  # isotropic canvas jitter
+    trial_dists = pdist(Y).astype(np.float32)
     cond_idx = _condensed_pair_indices(trial_images[pair_rows], trial_images[pair_cols], N)
     observations[cond_idx] += trial_dists
     n_obs[cond_idx] += 1
