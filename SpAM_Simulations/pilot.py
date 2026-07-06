@@ -320,10 +320,12 @@ def _simulated_targets(
         gt_embeddings: np.ndarray, noise_scale: float, dispersion: float,
         num_subjects: int, trials_per_subject: int, images_per_trial: int,
         frac_trials_repeated: float, reps: int, seed: int, min_overlap: int,
+        noise_df: int = 1,
 ) -> Tuple[float, float]:
     """Run the matched simulation and return ``(median_test_retest, mean_between_agreement)``.
 
     Averaged over ``reps`` independent cohorts for stability (the cohort is only ``num_subjects``).
+    ``noise_df`` is the per-subject noise-heterogeneity df (the same value must be used in the sweep).
     """
     from SpAM_Simulations.task_v3_experiment import (
         simulate_task_v3_experiment, TaskV3ExperimentParameters,
@@ -331,7 +333,7 @@ def _simulated_targets(
     params = TaskV3ExperimentParameters(
         num_subjects=num_subjects, trials_per_subject=trials_per_subject,
         images_per_trial=images_per_trial, subjects_noise_scale=noise_scale,
-        subjects_noise_df=1, frac_trials_repeated=frac_trials_repeated,
+        subjects_noise_df=noise_df, frac_trials_repeated=frac_trials_repeated,
         perspective_dispersion=dispersion,
     )
     trs, agrs = [], []
@@ -364,6 +366,7 @@ def _calibrate(
         dispersion_grid: Sequence[float] = tuple(np.round(np.arange(0.0, 2.01, 0.1), 2)),
         reps: int = 10,
         min_overlap: int = 25,
+        noise_df: int = 1,
         seed: int = 0,
 ) -> dict:
     """Fit ``(subjects_noise_scale, perspective_dispersion)`` so the matched simulation reproduces the
@@ -377,16 +380,16 @@ def _calibrate(
     the canvas-ratio units of ``subjects_noise_scale`` - the *mean* jitter/arrangement-spread ratio over
     subjects; because the matched sim uses ``subjects_noise_df=1`` (Cauchy-heavy per-subject spread), the
     typical subject is far less noisy than that mean, so reproducing the pilot's median test-retest lands
-    the mean around ~2 (grid runs to 3.0). The
-    matched simulation mirrors the v3.0 design (``num_subjects`` v3 subjects, 20 trials of 20,
-    3 repeats); ``min_overlap`` is threaded into the simulated between-subject agreement so it is
-    measured over the same overlap regime as the pilot target. ``gt_embeddings`` is the pooled-pilot
-    embedding.
+    the mean high when ``noise_df`` is small (``df=1`` is Cauchy-heavy). The matched simulation mirrors
+    the v3.0 design (``num_subjects`` v3 subjects, 20 trials of 20, 3 repeats) at the given ``noise_df``
+    (which must match the sweep's ``subjects_noise_df``, since the fitted noise depends on it);
+    ``min_overlap`` is threaded into the simulated between-subject agreement so it is measured over the
+    same overlap regime as the pilot target. ``gt_embeddings`` is the pooled-pilot embedding.
     """
     def common(noise, disp):
         return _simulated_targets(
             gt_embeddings, noise, disp, num_subjects, trials_per_subject, images_per_trial,
-            frac_trials_repeated, reps, seed, min_overlap,
+            frac_trials_repeated, reps, seed, min_overlap, noise_df=noise_df,
         )
 
     fitted_noise = _fit_1d(target_test_retest, lambda x: common(x, 0.0)[0], np.asarray(noise_grid))
@@ -395,7 +398,7 @@ def _calibrate(
     return {
         "subjects_noise_scale": fitted_noise,
         "perspective_dispersion": fitted_disp,
-        "subjects_noise_df": 1,
+        "subjects_noise_df": noise_df,
         "pilot_test_retest": target_test_retest,
         "pilot_between_agreement": target_agreement,
         "simulated_test_retest": sim_tr,
@@ -412,6 +415,8 @@ def calibrate_params_from_pilot(
         reps: int = 10,
         n_dims: Optional[int] = None,
         min_overlap: int = 25,
+        noise_df: int = 1,
+        gt_coords: Optional[np.ndarray] = None,
         save_gt: Optional[str] = None,
         save_params: Optional[str] = None,
         verbose: bool = True,
@@ -429,9 +434,13 @@ def calibrate_params_from_pilot(
       more dyads, tighter anchor) pins the perspective dispersion;
     * :func:`_calibrate` -> fitted ``subjects_noise_scale`` + ``perspective_dispersion``.
 
-    ``save_gt`` / ``save_params`` (if given) persist the GT coordinates (``.npy``) and the fitted
-    parameters (``.json``) - the artifacts the downstream sweep consumes. Raises ``SystemExit`` if no
-    v3.0 (matched-design) subjects are present. Steps needing R (``gt_method="smacof"``) require rpy2.
+    ``noise_df`` sets the per-subject noise-heterogeneity df used both here and (necessarily) in the
+    sweep; the fitted noise depends on it, so calibrating over several ``noise_df`` values requires one
+    call each. Pass ``gt_coords`` to reuse an already-built pilot GT (skips the R/SMACOF build) - e.g.
+    when looping ``noise_df`` over one fixed GT. ``save_gt`` / ``save_params`` (if given) persist the GT
+    coordinates (``.npy``) and the fitted parameters (``.json``) - the artifacts the downstream sweep
+    consumes. Raises ``SystemExit`` if no v3.0 (matched-design) subjects are present. Building the GT
+    (``gt_method="smacof"``, ``gt_coords`` not given) requires rpy2.
     """
     allsub = load_pilot_subjects(pilot_dir, manifest)
     v3 = [s for s in allsub if s.task_version == 3.0]
@@ -449,17 +458,25 @@ def calibrate_params_from_pilot(
         print(f"[targets] between-subject agreement (all subjects) = {target_agr:.4f} "
               f"(SEM {agr['sem_agreement']:.4f}, {agr['n_dyads']} dyads, median overlap {agr['median_overlap']:.0f})")
 
-    coords, info = build_gt_from_pilot(allsub, n_dims=n_dims, method=gt_method)
-    if verbose:
-        print(f"[gt] {info['method']} embedding: N={coords.shape[0]}, n_dims={info['n_dims']}, "
-              f"observed {info['observed_frac']:.1%} of pairs")
-        if gt_method == "classical":
-            print("[gt] WARNING: provisional no-R ground truth (numpy classical MDS). "
-                  "Re-run with gt_method='smacof' for the final numbers.")
+    if gt_coords is not None:
+        coords = np.asarray(gt_coords, dtype=np.float32)
+        info = {"n_dims": coords.shape[1], "method": f"{gt_method} (reused)", "n_subjects": len(allsub),
+                "observed_frac": float("nan")}
+        if verbose:
+            print(f"[gt] reusing supplied GT: N={coords.shape[0]}, n_dims={coords.shape[1]}")
+    else:
+        coords, info = build_gt_from_pilot(allsub, n_dims=n_dims, method=gt_method)
+        if verbose:
+            print(f"[gt] {info['method']} embedding: N={coords.shape[0]}, n_dims={info['n_dims']}, "
+                  f"observed {info['observed_frac']:.1%} of pairs")
+            if gt_method == "classical":
+                print("[gt] WARNING: provisional no-R ground truth (numpy classical MDS). "
+                      "Re-run with gt_method='smacof' for the final numbers.")
 
-    fit = _calibrate(coords, len(v3), target_tr, target_agr, reps=reps, min_overlap=min_overlap)
+    fit = _calibrate(coords, len(v3), target_tr, target_agr, reps=reps, min_overlap=min_overlap,
+                     noise_df=noise_df)
     if verbose:
-        print(f"[calibrated] subjects_noise_scale={fit['subjects_noise_scale']:.3f} "
+        print(f"[calibrated] noise_df={noise_df}: subjects_noise_scale={fit['subjects_noise_scale']:.3f} "
               f"(sim {fit['simulated_test_retest']:.3f} vs pilot {fit['pilot_test_retest']:.3f}); "
               f"perspective_dispersion={fit['perspective_dispersion']:.3f} "
               f"(sim {fit['simulated_between_agreement']:.3f} vs pilot {fit['pilot_between_agreement']:.3f}); "
