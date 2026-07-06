@@ -15,9 +15,19 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
-import plotly.express.colors as px_colors
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+
+# plotly is only needed by the figure builders below; the pure-pandas helpers (e.g.
+# plateau_num_subjects) are imported headless by the EC2 calibration prelude, whose minimal venv
+# has no plotly. Keep it optional so importing this module never requires plotly - the plotting
+# functions still raise a clear AttributeError on `go`/`make_subplots`/`px_colors` if called without it.
+try:
+    import plotly.express.colors as px_colors
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    _PALETTE = px_colors.qualitative.Plotly
+except ModuleNotFoundError:
+    px_colors = go = make_subplots = None
+    _PALETTE = None
 
 from SpAM_Simulations.task_v3_experiment import TaskV3ExperimentParameters
 
@@ -38,8 +48,6 @@ DEFAULT_STATUS_COLORS = {
     "converged": "#2ca02c", "max_iters": "#ff7f0e",
     "disconnected": "#d62728", "error": "#7f7f7f",
 }
-
-_PALETTE = px_colors.qualitative.Plotly
 
 
 def format_value(val: object) -> str:
