@@ -1,19 +1,21 @@
 """Read-only ingestion of SpAM pilot data and calibration of the task-v3 simulation to it.
 
-The task-v3 simulation has two free internals - ``subjects_noise_scale`` (within-subject
-measurement noise) and ``perspective_dispersion`` (between-subject disagreement) - plus a ground-
+The task-v3 simulation has two free internals - ``subjects_noise_scale`` (within-subject canvas
+placement noise) and ``perspective_dispersion`` (between-subject disagreement) - plus a ground-
 truth geometry. This module anchors all three to the real pilot:
 
 * **Ground truth** is the weighted-MDS embedding of *all* pooled pilot subjects (see
   :func:`pilot_aggregate` + ``multi_dimensional_scaling.run_mds``); its spectrum and cluster
   structure are inherited, so the synthetic ``decay``/``n_clusters`` knobs become moot.
-* **Noise** is pinned by within-subject **test-retest** reliability (the v3.0 whole-trial repeats),
-  which is *perspective-invariant* - a subject's perspective is fixed across their original and
-  repeat presentations, so only measurement noise differs (see :func:`within_subject_test_retest`).
+* **Noise** is pinned by within-subject **test-retest** reliability (the v3.0 whole-trial repeats).
+  In the canvas-placement-noise model this is *perspective-invariant* - a whole-trial repeat
+  re-projects to the same 2-D arrangement and differs only by fresh placement noise, so test-retest
+  is governed by ``subjects_noise_scale`` alone (see :func:`within_subject_test_retest`).
 * **Perspective** is then pinned by **between-subject agreement** (:func:`between_subject_agreement`)
   with noise held fixed.
 
-Identifiability is therefore sequential and clean: test-retest -> noise, then agreement -> dispersion.
+Identifiability is therefore sequential and exact (a triangular system): test-retest -> noise, then
+agreement -> dispersion.
 
 Session loading and completion filtering are delegated to ``analysis.pilot.parser`` (the canonical
 pilot loader: ``load_pilot_data`` returns a demographics-filtered tidy trials frame, and
@@ -358,7 +360,7 @@ def _calibrate(
         trials_per_subject: int = 20,
         images_per_trial: int = 20,
         frac_trials_repeated: float = 0.15,
-        noise_grid: Sequence[float] = tuple(np.round(np.arange(0.25, 8.01, 0.25), 2)),
+        noise_grid: Sequence[float] = tuple(np.round(np.arange(0.1, 3.01, 0.1), 2)),
         dispersion_grid: Sequence[float] = tuple(np.round(np.arange(0.0, 2.01, 0.1), 2)),
         reps: int = 10,
         min_overlap: int = 25,
@@ -367,11 +369,19 @@ def _calibrate(
     """Fit ``(subjects_noise_scale, perspective_dispersion)`` so the matched simulation reproduces the
     two pilot targets.
 
-    Sequential because test-retest is perspective-invariant: (1) fit noise to ``target_test_retest``
-    at ``dispersion=0``; (2) with noise fixed, fit dispersion to ``target_agreement``. The matched
-    simulation mirrors the v3.0 design (``num_subjects`` v3 subjects, 20 trials of 20, 3 repeats);
-    ``min_overlap`` is threaded into the simulated between-subject agreement so it is measured over the
-    same overlap regime as the pilot target. ``gt_embeddings`` is the pooled-pilot embedding.
+    The task-v3 canvas-placement-noise model makes the two levers a *triangular* system - test-retest
+    ``= f(noise)`` (perspective-invariant, since a whole-trial repeat re-projects to the same 2-D
+    arrangement and differs only by fresh placement noise), agreement ``= g(noise, dispersion)`` - so a
+    sequential fit is exact, not an approximation: (1) fit noise to ``target_test_retest`` at
+    ``dispersion=0``; (2) with noise fixed, fit dispersion to ``target_agreement``. ``noise_grid`` is in
+    the canvas-ratio units of ``subjects_noise_scale`` - the *mean* jitter/arrangement-spread ratio over
+    subjects; because the matched sim uses ``subjects_noise_df=1`` (Cauchy-heavy per-subject spread), the
+    typical subject is far less noisy than that mean, so reproducing the pilot's median test-retest lands
+    the mean around ~2 (grid runs to 3.0). The
+    matched simulation mirrors the v3.0 design (``num_subjects`` v3 subjects, 20 trials of 20,
+    3 repeats); ``min_overlap`` is threaded into the simulated between-subject agreement so it is
+    measured over the same overlap regime as the pilot target. ``gt_embeddings`` is the pooled-pilot
+    embedding.
     """
     def common(noise, disp):
         return _simulated_targets(

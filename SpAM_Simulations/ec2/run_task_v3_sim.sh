@@ -2,8 +2,10 @@
 #
 # Provision an EC2 instance, run the full SpAM MDS sweep for the TASK-V3 simulation - the
 # generative, coordinate-space observation model (per-subject PC "perspective" + a local 2-D
-# arrangement projection per trial, replacing the additive-distance-noise model of v0.1/v2.3/v2.4)
-# - and upload the results to S3.
+# arrangement projection per trial + canvas placement noise on the projected 2-D positions,
+# replacing the additive-distance-noise model of v0.1/v2.3/v2.4) - and upload the results to S3.
+# subjects_noise_scale is that placement jitter as a ratio of a trial's 2-D arrangement spread
+# (post-projection), so within-subject test-retest is independent of perspective_dispersion.
 #
 # Task v3.0 (SpAM_Task/js/trial_generator.js) drops the frac_images_repeated cross-context lever:
 # every image appears in exactly one distinct trial, and the only repetition is a verbatim
@@ -154,7 +156,7 @@ cfg = TaskV3SimulationConfig(
     num_subjects=[30, 50, 75, 250],
     trials_per_subject=[10, 15, 20],
     images_per_trial=[20],
-    subjects_noise_scale=[0.5, 0.8],
+    subjects_noise_scale=[0.6, 1.0],   # v3: canvas placement jitter as a ratio of a trial's 2-D spread
     subjects_noise_df=[1],
     frac_trials_repeated=[0.0, 0.1, 0.15, 0.2],
     perspective_dispersion=[0.0, 0.1, 0.25],

@@ -48,7 +48,7 @@ large-scale sweeps, see *Running on EC2* below.
 | `design.py` | Per-subject trial allocation (`compute_design_counts`, `build_trial_lists`) for the task-v2.3 simulation, plus `distinct_trial_count`/`select_repeat_trials` for task-v2.4's whole-trial repeats, ported from `SpAM_Task`'s `buildTrialLists`/`insertTrialRepeats`. |
 | `task_v2_3_experiment.py` | Task-v2.3 simulation: per-subject image subset + trial design (matches `SpAM_Task`), plus the within-subject SNR heuristic. |
 | `task_v2_4_experiment.py` | Task-v2.4 simulation: task-v2.3 design **plus** `frac_trials_repeated` whole-trial repeats (each repeat re-draws its noisy distances), yielding a per-subject test-retest reliability. Bit-exact to task-v2.3 when `frac_trials_repeated=0`. |
-| `task_v3_experiment.py` | Task-v3 simulation: a **generative coordinate-space** model replacing additive-distance-noise. Per subject: a perspective weighting of the ground-truth PCs (`perspective_dispersion`) + item-level coordinate noise, projected onto a **local per-trial 2-D arrangement** (the SpAM canvas bottleneck). Drops `frac_images_repeated` (task v3.0); keeps `frac_trials_repeated` test-retest. |
+| `task_v3_experiment.py` | Task-v3 simulation: a **generative coordinate-space** model replacing additive-distance-noise. Per subject: a perspective weighting of the ground-truth PCs (`perspective_dispersion`) projected onto a **local per-trial 2-D arrangement** (the SpAM canvas bottleneck), then **canvas placement noise** (`subjects_noise_scale`, post-projection) for within-subject reliability. Drops `frac_images_repeated` (task v3.0); keeps `frac_trials_repeated` test-retest. |
 | `simulation.py` | `Simulation` container + ground-truth distances; `make` (random) / `from_embeddings` (real data) / `build_ground_truth_embeddings` (synthetic with a chosen eigenvalue spectrum for task-v3). |
 | `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`, `test_retest_summary`, `effective_rank` (classical-MDS rank of an aggregate - checks the task-v3 2-D slices span >2 dims). |
 | `helpers.py` | Distance-matrix format conversion (`convert_to_condensed`). |
@@ -68,9 +68,11 @@ large-scale sweeps, see *Running on EC2* below.
 
 ## Calibrating to pilot data
 
-By default the task-v3 simulation's internals are *guessed*: `subjects_noise_scale` is scaled to the
-synthetic GT signal, but `perspective_dispersion` and the GT-geometry knobs (`decay`/`n_clusters`)
-have no anchor - so the absolute required-N is only as meaningful as those guesses. `pilot.py` anchors
+By default the task-v3 simulation's internals are *guessed*: `subjects_noise_scale` (mean canvas
+placement jitter as a ratio of a trial's arrangement spread; with `subjects_noise_df=1` the per-subject
+spread is heavy-tailed, so the typical subject is well below this mean), `perspective_dispersion`, and
+the GT-geometry knobs (`decay`/`n_clusters`) have no anchor - so the absolute required-N is only as
+meaningful as those guesses. `pilot.py` anchors
 all of them to real pilot data, turning the estimate from "as a function of guessed internals" into a
 calibrated number.
 
@@ -78,15 +80,18 @@ calibrated number.
 1. **Ground-truth geometry** - pool *all* completed pilot subjects into one aggregate RDM and run
    weighted SMACOF -> the recovered embedding *is* the GT (it inherits the real eigenvalue spectrum
    and cluster structure, so `decay`/`n_clusters` become moot; `n_dims` is read from the spectrum).
-2. **`subjects_noise_scale`** is pinned by within-subject **test-retest** (the v3.0 whole-trial
-   repeats). Test-retest is *perspective-invariant* - a subject's perspective is identical across
-   their original and repeat trials, only the noise re-draws - so it isolates measurement noise.
+2. **`subjects_noise_scale`** (canvas placement noise) is pinned by within-subject **test-retest** (the
+   v3.0 whole-trial repeats). Test-retest is *perspective-invariant* - a whole-trial repeat re-projects
+   to the same 2-D arrangement and differs only by fresh placement noise - so it isolates placement
+   precision, independent of perspective.
 3. **`perspective_dispersion`** is then pinned by **between-subject agreement** - correlating subjects'
    RDMs over their jointly-judged pairs - with noise held fixed. This is pooled over *all* pilot
    subjects (not just v3): agreement is a population property, so more subjects = more dyads = a tighter
    anchor. (Only the test-retest step is v3-specific, since it needs the whole-trial repeats.)
 
-Identifiability is therefore sequential and clean: test-retest -> noise, then agreement -> dispersion.
+Because the canvas-placement-noise model makes the two levers triangular (test-retest = f(noise);
+agreement = g(noise, dispersion)), identifiability is sequential and *exact*: test-retest -> noise,
+then agreement -> dispersion.
 
 **Running it.** Calibration is a short (~1-5 min) prelude to the sweep, not a separate run: use the
 calibrated flavor of the EC2 sweep - `run_task_v3_sim.sh` with `CALIBRATE=true` (see
