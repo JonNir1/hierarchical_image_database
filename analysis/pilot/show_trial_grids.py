@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import plotly.io as pio
 
 from analysis.pilot.parser import load_pilot_data
-from analysis.pilot.visualize import plot_trial_grid
+from analysis.utils.visualize_trials import visualize_trials
 
 pio.renderers.default = "browser"
 
@@ -125,4 +125,4 @@ for session_file in all_files:
     v = session_version.get(session_file)
     vtag = f" (v{v:g})" if v is not None else ""
     print(f"Opening grid for {session_file}{vtag} …")
-    plot_trial_grid(df[df["session_file"] == session_file]).show()
+    visualize_trials(df[df["session_file"] == session_file]).show()

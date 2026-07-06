@@ -30,7 +30,7 @@ from PIL import Image, ImageDraw, ImageFont
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
 
-from analysis.utils.render import render_trial  # noqa: E402
+from analysis.utils.visualize_trials import render_trial  # noqa: E402
 
 BASE = _REPO_ROOT / "data" / "prod"
 OUT_DIR = Path(__file__).resolve().parent / "figures"
