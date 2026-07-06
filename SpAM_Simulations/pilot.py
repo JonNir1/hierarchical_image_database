@@ -17,7 +17,7 @@ truth geometry. This module anchors all three to the real pilot:
 Identifiability is therefore sequential and exact (a triangular system): test-retest -> noise, then
 agreement -> dispersion.
 
-Session loading and completion filtering are delegated to ``analysis.pilot.parser`` (the canonical
+Session loading and completion filtering are delegated to ``analysis.utils.parser`` (the canonical
 pilot loader: ``load_pilot_data`` returns a demographics-filtered tidy trials frame, and
 ``parse_pairwise_distances`` parses the per-trial JSON); this module only reduces those trials to the
 condensed per-pair distances the calibration needs.
@@ -39,7 +39,7 @@ from scipy.sparse.csgraph import connected_components
 from scipy.spatial.distance import squareform
 from scipy.stats import spearmanr
 
-from analysis.pilot.parser import load_pilot_data, parse_pairwise_distances
+from analysis.utils.parser import load_pilot_data, parse_pairwise_distances
 from SpAM_Simulations.experiment import _condensed_pair_indices
 
 # A pilot stimulus path is ``./images/<variant>_shine/<relpath>``; the manifest lists ``<relpath>``.
@@ -80,7 +80,7 @@ class PilotSubject:
 def _pair_condensed_indices(pairwise_json: str, rel2idx: Dict[str, int]) -> Dict[int, float]:
     """One trial's ``pairwise_distances`` -> ``{condensed_pair_index: distance}`` on the manifest space.
 
-    Reuses ``analysis.pilot.parser.parse_pairwise_distances`` (which returns ``{(src1, src2): dist}``
+    Reuses ``analysis.utils.parser.parse_pairwise_distances`` (which returns ``{(src1, src2): dist}``
     keyed by image path) and maps each path onto the manifest index, then to its condensed position.
     """
     items = parse_pairwise_distances(pairwise_json)
@@ -97,7 +97,7 @@ def _pair_condensed_indices(pairwise_json: str, rel2idx: Dict[str, int]) -> Dict
 def subject_from_trials(trials: pd.DataFrame, rel2idx: Dict[str, int]) -> PilotSubject:
     """Build one :class:`PilotSubject` from a single participant's rows of the parser ``trials`` frame.
 
-    ``trials`` is one participant's slice of ``analysis.pilot.parser.load_pilot_data(...)["trials"]``
+    ``trials`` is one participant's slice of ``analysis.utils.parser.load_pilot_data(...)["trials"]``
     (columns ``pairwise_distances``, ``trial_number``, ``is_trial_repeat``, ``repeat_of_trial_number``,
     ``qc_flag``, ``task_version``, ``participant_id``). Each trial's normalised pairwise distances are
     accumulated into a per-subject condensed sum/count (a verbatim repeat adds a second observation of
@@ -151,7 +151,7 @@ def load_pilot_subjects(
     """Load the completed pilot subjects under ``pilot_dir`` (optionally filtered by ``task_version``).
 
     Delegates all session/CSV handling and completion filtering to
-    ``analysis.pilot.parser.load_pilot_data`` (demographics-aware: consent-revoked and
+    ``analysis.utils.parser.load_pilot_data`` (demographics-aware: consent-revoked and
     erroneous-completion participants are already excluded), then reduces each participant's trials to
     a :class:`PilotSubject` on the manifest index space. ``versions`` compares against the float
     ``task_version`` (e.g. ``[3.0]``). ``apply_qc=False`` by default; set ``True`` to additionally drop

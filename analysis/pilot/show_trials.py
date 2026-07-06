@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import plotly.io as pio
 
-from analysis.pilot.parser import load_pilot_data
+from analysis.utils.parser import load_pilot_data
 from analysis.utils.visualize_trials import visualize_trials
 
 pio.renderers.default = "browser"
