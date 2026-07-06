@@ -187,7 +187,7 @@ following files and place them in `SpAM_Task/jspsych/`:
 
 1. Enable debug mode in `task_config.json` (bypasses the Prolific ID requirement):
    ```json
-   "debug": true
+   "mode": "debug"
    ```
 
 2. Start a local web server from the **repo root** (where `index.html` lives):
