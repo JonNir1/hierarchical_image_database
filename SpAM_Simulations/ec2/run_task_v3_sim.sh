@@ -22,12 +22,15 @@
 # TWO FLAVORS (CALIBRATE):
 #   * CALIBRATE=false (default) - synthetic ground truth (use_isotropic/decay) and SWEPT, guessed
 #     noise/dispersion grids. This is the block below, unchanged.
-#   * CALIBRATE=true            - a short (~1-5 min) prelude fits the simulation to the real pilot:
-#     it fetches the pilot from $S3_URI/data/pilot, builds the ground truth by weighted-SMACOF of the
-#     pooled pilot (so decay/n_clusters/use_isotropic are moot), and fits subjects_noise_scale +
-#     perspective_dispersion to the v3.0 subjects' test-retest / between-subject agreement. The same
-#     sweep then runs with gt_embeddings + those FITTED (not swept) values. Calibration artifacts
-#     (gt_pilot_coords.npy, calibrated_params.json, calibrate.log) go to $S3_URI/calibration/.
+#   * CALIBRATE=true            - fits the simulation to the real pilot, then sweeps the DESIGN grid:
+#     it fetches the pilot from $S3_URI/data/pilot and builds the ground truth ONCE by weighted-SMACOF
+#     of the pooled pilot (so decay/n_clusters/use_isotropic are moot). Then, for each per-subject
+#     noise-heterogeneity df in $DF_LIST (default 5,8,10), it refits subjects_noise_scale +
+#     perspective_dispersion to the v3.0 test-retest / between-subject agreement on that fixed GT and
+#     sweeps num_subjects x trials_per_subject x images_per_trial at those FITTED (not swept) values.
+#     Per-df outputs go to out/df<df>/ + mds_store/df<df>/, plus a combined out/plateau_by_df.csv
+#     (required-N per ndim x design). Calibration artifacts (gt_pilot_coords.npy,
+#     calibrated_params_df<df>.json, calibrate.log) go to $S3_URI/calibration/.
 #     (The calibration is also callable programmatically: `SpAM_Simulations.pilot.calibrate_params_from_pilot`.)
 #
 # Sibling scripts: run_task_v2_4_sim.sh (additive-noise model + both repeat levers),
@@ -52,11 +55,14 @@
 #   export S3_URI=s3://<your-bucket>/spam-simulations/task-v3-isotropic
 #   export USE_ISOTROPIC=true            # (default flavor only) or false for the anisotropic spectrum
 #   # export CALIBRATE=true              # opt into the pilot-calibrated flavor instead
+#   # export DF_LIST=5,8,10              # (calibrate flavor) per-subject noise-heterogeneity df values
 #   bash run_task_v3_sim.sh
 #
-# This grid: 4 num_subjects x 3 trials_per_subject x 1 images_per_trial x 2 noise_scale x 1
+# Default-flavor grid: 4 num_subjects x 3 trials_per_subject x 1 images_per_trial x 2 noise_scale x 1
 # noise_df x 4 frac_trials_repeated x 3 perspective_dispersion = 288 combos x 5 reps x 9 target
-# ndims = ~12960 MDS fits. c7i.4xlarge (16 vCPU) is fine but the sweep is ~3x the v2.4 one.
+# ndims = ~12960 MDS fits. Calibrate-flavor grid: 3 df x 4 num_subjects x 2 trials x 2 images = 48
+# combos x 5 reps x 13 ndims (min_ndim=3) = ~3120 fits (itmax=1000, precalc_init=True). c7i.4xlarge
+# (16 vCPU) fits both; the calibrate sweep is ~2.5-3 h. REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
 # REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
 
 set -euo pipefail
@@ -103,42 +109,64 @@ if [ ${#_csvs[@]} -eq 0 ] || [ ! -f "$PILOT_DIR/stimuli_manifest.json" ]; then
 fi
 mkdir -p calibration
 
-N_JOBS="$N_JOBS" GT_METHOD="$GT_METHOD" REPS="$REPS" python - <<'PY' 2>&1 | tee calibration/calibrate.log
+N_JOBS="$N_JOBS" GT_METHOD="$GT_METHOD" REPS="$REPS" DF_LIST="${DF_LIST:-5,8,10}" python - <<'PY' 2>&1 | tee calibration/calibrate.log
 import os
+import numpy as np
+import pandas as pd
 from SpAM_Simulations.config import TaskV3SimulationConfig, MDSSweepConfig
 from SpAM_Simulations import pipeline, eval_helpers
-from SpAM_Simulations.pilot import calibrate_params_from_pilot
+from SpAM_Simulations.pilot import calibrate_params_from_pilot, load_pilot_subjects, build_gt_from_pilot
 
-# A-C: pool the pilot -> GT embedding + fitted noise/perspective; saves the artifacts (see pilot.py).
-coords, fit, info = calibrate_params_from_pilot(
-    "data/pilot", "data/pilot/stimuli_manifest.json",
-    gt_method=os.environ.get("GT_METHOD", "smacof"), reps=int(os.environ.get("REPS", "10")),
-    save_gt="calibration/gt_pilot_coords.npy", save_params="calibration/calibrated_params.json",
-)
+PILOT, MANIFEST = "data/pilot", "data/pilot/stimuli_manifest.json"
+GT_METHOD = os.environ.get("GT_METHOD", "smacof")
+REPS = int(os.environ.get("REPS", "10"))
+N_JOBS = int(os.environ["N_JOBS"])
+DF_LIST = [int(x) for x in os.environ.get("DF_LIST", "5,8,10").split(",")]
 
-# D: the SAME sweep, but GT = the pilot embedding and noise/dispersion FIXED to the fit (num_subjects
-# is the required-N axis; edit the design grids below as needed - use_isotropic/decay are moot here).
-cfg = TaskV3SimulationConfig(
-    gt_embeddings=coords,
-    num_subjects=[20, 50, 100, 200, 350, 500],
-    trials_per_subject=[20], images_per_trial=[20],
-    subjects_noise_scale=[fit["subjects_noise_scale"]], subjects_noise_df=[1],
-    frac_trials_repeated=[0.15], perspective_dispersion=[fit["perspective_dispersion"]],
-    reps=5, seed=42,
-)
-sim = pipeline.generate_task_v3_simulation(cfg, verbose=True)
-pipeline.compute_coverage_table(sim).to_csv("out/coverage.csv", index=False)
-pipeline.compute_stability_table(sim).to_csv("out/stability.csv", index=False)
+# A: build the pooled-pilot GT ONCE (deterministic; identical across noise_df), reused by every fit so
+# the noise_df comparison isn't confounded by GT differences.
+allsub = load_pilot_subjects(PILOT, MANIFEST)
+coords, gt_info = build_gt_from_pilot(allsub, method=GT_METHOD)
+np.save("calibration/gt_pilot_coords.npy", coords)
+print(f"[gt] {gt_info['method']} embedding: N={coords.shape[0]}, n_dims={gt_info['n_dims']}, "
+      f"observed {gt_info['observed_frac']:.1%} of pairs")
 
-sweep = MDSSweepConfig(min_ndim=2, max_iters=500, convergence_tol=1e-6, precalc_init=False)
-store = pipeline.run_mds_sweep(
-    sim, sweep, "mds_store",
-    parallel=True, n_jobs=int(os.environ["N_JOBS"]), verbose=True,
-)
-es = pipeline.compute_embedding_stability(store)
-es.to_csv("out/embedding_stability.csv", index=False)
-print(eval_helpers.plateau_num_subjects(es))   # required-N per ndim
-print(f"done: {len(store)} MDS results")
+# B-D: for each per-subject noise-heterogeneity df, refit (noise, dispersion) to the pilot on that fixed
+# GT, then sweep the DESIGN grid (num_subjects x trials_per_subject x images_per_trial). noise_df must
+# match between calibration and sweep. Plateau is read per (ndim, trials_per_subject, images_per_trial).
+sweep = MDSSweepConfig(min_ndim=3, max_iters=1000, convergence_tol=1e-6, precalc_init=True)
+plateaus = []
+for df in DF_LIST:
+    print(f"\n===== noise_df={df} =====")
+    _, fit, _ = calibrate_params_from_pilot(
+        PILOT, MANIFEST, gt_method=GT_METHOD, reps=REPS, noise_df=df, gt_coords=coords,
+        save_params=f"calibration/calibrated_params_df{df}.json",
+    )
+    cfg = TaskV3SimulationConfig(
+        gt_embeddings=coords,
+        num_subjects=[50, 75, 150, 300],
+        trials_per_subject=[20, 25], images_per_trial=[20, 25],
+        subjects_noise_scale=[fit["subjects_noise_scale"]], subjects_noise_df=[df],
+        frac_trials_repeated=[0.15], perspective_dispersion=[fit["perspective_dispersion"]],
+        reps=5, seed=42,
+    )
+    outd, stored = f"out/df{df}", f"mds_store/df{df}"
+    os.makedirs(outd, exist_ok=True)
+    sim = pipeline.generate_task_v3_simulation(cfg, verbose=True)
+    pipeline.compute_coverage_table(sim).to_csv(f"{outd}/coverage.csv", index=False)
+    pipeline.compute_stability_table(sim).to_csv(f"{outd}/stability.csv", index=False)
+    store = pipeline.run_mds_sweep(sim, sweep, stored, parallel=True, n_jobs=N_JOBS, verbose=True)
+    es = pipeline.compute_embedding_stability(store)
+    es.to_csv(f"{outd}/embedding_stability.csv", index=False)
+    pl = eval_helpers.plateau_num_subjects(
+        es, group_by=("ndim", "trials_per_subject", "images_per_trial"))
+    pl.insert(0, "subjects_noise_df", df)
+    plateaus.append(pl)
+    print(f"[df={df}] {len(store)} MDS results; plateau per (ndim, design):")
+    print(pl.to_string(index=False))
+
+pd.concat(plateaus, ignore_index=True).to_csv("out/plateau_by_df.csv", index=False)
+print("\n[done] combined plateau table -> out/plateau_by_df.csv")
 PY
 
 echo ">> [calibrate] uploading calibration artifacts to $S3_URI/calibration/ ..."
