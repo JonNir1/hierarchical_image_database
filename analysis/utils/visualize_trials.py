@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import math
+import statistics
 import warnings
 from pathlib import Path
 
@@ -21,6 +22,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from PIL import Image
 from plotly.subplots import make_subplots
+from scipy.stats import spearmanr
 
 # analysis/utils/visualize_trials.py → analysis/utils/ → analysis/ → repo root
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -129,6 +131,25 @@ def _pair_and_remaining_rows(df_subject: pd.DataFrame) -> tuple[list[pd.Series],
     return pair_rows, remaining_rows
 
 
+def _distance_dict(row: pd.Series) -> dict[frozenset, float]:
+    """Parse a trial row's pairwise_distances JSON into {frozenset({src1, src2}): distance}."""
+    raw = row.get("pairwise_distances", None)
+    if raw is None or pd.isna(raw) or raw == "":
+        return {}
+    items = json.loads(raw)
+    return {frozenset((d["src1"], d["src2"])): d["distance"] for d in items}
+
+
+def _pair_spearman_r(orig_row: pd.Series, repeat_row: pd.Series) -> float | None:
+    """Spearman R between an original trial's and its repeat's pairwise image distances."""
+    d_orig, d_repeat = _distance_dict(orig_row), _distance_dict(repeat_row)
+    keys = sorted(d_orig.keys() & d_repeat.keys(), key=lambda k: sorted(k))
+    if len(keys) < 2:
+        return None
+    r, _p = spearmanr([d_orig[k] for k in keys], [d_repeat[k] for k in keys])
+    return r
+
+
 def visualize_trials(
     df_subject: pd.DataFrame,
     only_repeats: bool = False,
@@ -139,6 +160,11 @@ def visualize_trials(
 ) -> go.Figure:
     """
     Render trials for one subject as a Plotly grid figure.
+
+    Every test-retest pair (an original trial and its verbatim repeat) is
+    annotated with their Spearman R (computed over shared pairwise image
+    distances), and the figure's subtitle reports the subject's median R
+    across all their pairs.
 
     Parameters
     ----------
@@ -156,11 +182,15 @@ def visualize_trials(
         two modes when 3 repeat pairs are present.
     trials_per_row:
         Number of trial panels per row (3–4 recommended for full sessions;
-        2 keeps each test-retest pair on its own row).
+        2 keeps each test-retest pair on its own row, which is required for
+        the per-pair R annotation to sit alongside its row).
     output_width, output_height, thumbnail_px:
         Passed through to :func:`render_trial`.
     """
     pair_rows, remaining_rows = _pair_and_remaining_rows(df_subject)
+    pair_r_values = [
+        _pair_spearman_r(pair_rows[k], pair_rows[k + 1]) for k in range(0, len(pair_rows), 2)
+    ]
 
     if only_repeats:
         if not pair_rows:
@@ -171,10 +201,13 @@ def visualize_trials(
                 stacklevel=2,
             )
             trials = remaining_rows
+            active_r_values: list[float | None] = []
         else:
             trials = pair_rows
+            active_r_values = pair_r_values
     else:
         trials = pair_rows + remaining_rows
+        active_r_values = pair_r_values
 
     n = len(trials)
     if n == 0:
@@ -183,7 +216,28 @@ def visualize_trials(
     n_cols = min(trials_per_row, n)
     n_rows = math.ceil(n / n_cols)
 
-    subplot_titles = [f"Trial {row['trial_number']}" for row in trials]
+    # For each pair (positions 2k, 2k+1 in `trials`), annotate its R value
+    # beside the row if both trials land in the same row, otherwise fall
+    # back to appending it onto the repeat trial's subplot title.
+    row_pair_r: dict[int, float] = {}
+    fallback_title_r: dict[int, float] = {}
+    for k, r_value in enumerate(active_r_values):
+        if r_value is None:
+            continue
+        i_orig, i_repeat = 2 * k, 2 * k + 1
+        row_orig = i_orig // n_cols + 1
+        row_repeat = i_repeat // n_cols + 1
+        if row_orig == row_repeat and row_orig not in row_pair_r:
+            row_pair_r[row_orig] = r_value
+        else:
+            fallback_title_r[i_repeat] = r_value
+
+    subplot_titles = []
+    for i, row in enumerate(trials):
+        title = f"Trial {row['trial_number']}"
+        if i in fallback_title_r:
+            title += f"  (R={fallback_title_r[i]:.3f})"
+        subplot_titles.append(title)
     # Pad titles for empty cells
     subplot_titles += [""] * (n_rows * n_cols - n)
 
@@ -211,15 +265,30 @@ def visualize_trials(
         fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False, row=r, col=c)
         fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False, row=r, col=c)
 
+    for row_number, r_value in row_pair_r.items():
+        y0, y1 = fig.get_subplot(row=row_number, col=1).yaxis.domain
+        fig.add_annotation(
+            x=1.0, xref="paper", xanchor="left",
+            y=(y0 + y1) / 2, yref="paper", yanchor="middle",
+            text=f"R = {r_value:.3f}",
+            showarrow=False,
+            font={"size": 14, "color": "#0c447c"},
+            align="left",
+        )
+
     panel_w = output_width + 20   # add a small margin per panel
     panel_h = output_height + 50  # add room for the subplot title
+    right_margin = 100 if row_pair_r else 10
+
+    valid_r_values = [r for r in active_r_values if r is not None]
+    title_text = f"Trial arrangements — participant {df_subject['participant_id'].iloc[0]}"
+    if valid_r_values:
+        title_text += f"<br>median test-retest R = {statistics.median(valid_r_values):.3f}"
 
     fig.update_layout(
         height=n_rows * panel_h,
-        width=n_cols * panel_w,
-        margin={"l": 10, "r": 10, "t": 40, "b": 10},
-        title_text=(
-            f"Trial arrangements — participant {df_subject['participant_id'].iloc[0]}"
-        ),
+        width=n_cols * panel_w + right_margin,
+        margin={"l": 10, "r": right_margin, "t": 40, "b": 10},
+        title_text=title_text,
     )
     return fig

@@ -3,22 +3,22 @@ Open per-subject trial arrangement grids in the browser.
 
 Run from repo root:
     # all subjects
-    .venv/Scripts/python analysis/pilot/show_trial_grids.py
+    .venv/Scripts/python analysis/pilot/show_trials.py
 
     # filter by task version
-    .venv/Scripts/python analysis/pilot/show_trial_grids.py --version 2.0
-    .venv/Scripts/python analysis/pilot/show_trial_grids.py --version 1.0
+    .venv/Scripts/python analysis/pilot/show_trials.py --version 2.0
+    .venv/Scripts/python analysis/pilot/show_trials.py --version 1.0
 
     # single subject -- pass any substring of the session filename
-    .venv/Scripts/python analysis/pilot/show_trial_grids.py 15h45
-    .venv/Scripts/python analysis/pilot/show_trial_grids.py 2026-06-05
+    .venv/Scripts/python analysis/pilot/show_trials.py 15h45
+    .venv/Scripts/python analysis/pilot/show_trials.py 2026-06-05
 
     # combine version filter with filename substring
-    .venv/Scripts/python analysis/pilot/show_trial_grids.py --version 2.0 16h22
+    .venv/Scripts/python analysis/pilot/show_trials.py --version 2.0 16h22
 
     # list available session filenames (with versions) without opening anything
-    .venv/Scripts/python analysis/pilot/show_trial_grids.py --list
-    .venv/Scripts/python analysis/pilot/show_trial_grids.py --version 2.0 --list
+    .venv/Scripts/python analysis/pilot/show_trials.py --list
+    .venv/Scripts/python analysis/pilot/show_trials.py --version 2.0 --list
 """
 import sys
 import warnings
