@@ -110,7 +110,7 @@ from SpAM_Simulations.pilot import calibrate_params_from_pilot
 # A-C: pool the pilot -> GT embedding + fitted noise/perspective; saves the artifacts (see pilot.py).
 coords, fit, info = calibrate_params_from_pilot(
     "data/pilot", "data/pilot/stimuli_manifest.json",
-    gt_method=os.environ.get("GT_METHOD", "smacof"), reps=int(os.environ.get("REPS", "5")),
+    gt_method=os.environ.get("GT_METHOD", "smacof"), reps=int(os.environ.get("REPS", "10")),
     save_gt="calibration/gt_pilot_coords.npy", save_params="calibration/calibrated_params.json",
 )
 

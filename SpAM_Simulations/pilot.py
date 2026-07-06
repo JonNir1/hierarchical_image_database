@@ -360,8 +360,8 @@ def _calibrate(
         frac_trials_repeated: float = 0.15,
         noise_grid: Sequence[float] = tuple(np.round(np.arange(0.25, 8.01, 0.25), 2)),
         dispersion_grid: Sequence[float] = tuple(np.round(np.arange(0.0, 2.01, 0.1), 2)),
-        reps: int = 5,
-        min_overlap: int = 30,
+        reps: int = 10,
+        min_overlap: int = 25,
         seed: int = 0,
 ) -> dict:
     """Fit ``(subjects_noise_scale, perspective_dispersion)`` so the matched simulation reproduces the
@@ -399,9 +399,9 @@ def calibrate_params_from_pilot(
         manifest: str,
         *,
         gt_method: str = "smacof",
-        reps: int = 5,
+        reps: int = 10,
         n_dims: Optional[int] = None,
-        min_overlap: int = 30,
+        min_overlap: int = 25,
         save_gt: Optional[str] = None,
         save_params: Optional[str] = None,
         verbose: bool = True,
