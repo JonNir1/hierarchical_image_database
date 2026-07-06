@@ -2,7 +2,7 @@
 Loader for SpAM pilot data.
 
 Usage (from repo root):
-    from analysis.pilot.parser import load_pilot_data
+    from analysis.utils.parser import load_pilot_data
     data = load_pilot_data("data/pilot")
     df_trials = data["trials"]        # one row per experimental trial, completed subjects only
     df_status = data["status"]        # one row per participant with completion_status
@@ -14,7 +14,7 @@ import json
 import warnings
 from pathlib import Path
 
-# analysis/pilot/parser.py → analysis/pilot/ → analysis/ → repo root
+# analysis/utils/parser.py → analysis/utils/ → analysis/ → repo root
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 import pandas as pd

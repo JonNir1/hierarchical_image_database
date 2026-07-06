@@ -87,9 +87,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/prepare_machine.sh"
 # --------------------------------------------------------------------------- run the sweep
 if [ "${CALIBRATE,,}" = "true" ] || [ "$CALIBRATE" = "1" ]; then
 # ===== calibrated flavor: fetch pilot -> fit noise/perspective + pilot GT -> calibrated sweep =====
-# Calibration reuses analysis/pilot/parser.py (the canonical pilot loader), which prepare_machine's
+# Calibration reuses analysis/utils/parser.py (the canonical pilot loader), which prepare_machine's
 # sparse checkout (SpAM_Simulations only) doesn't include - add it.
-git sparse-checkout add analysis/pilot
+git sparse-checkout add analysis/utils
 
 # Fetch the (gitignored, human-subjects) pilot data; delete it from the box on ANY exit.
 PILOT_DIR="data/pilot"

@@ -56,7 +56,7 @@ large-scale sweeps, see *Running on EC2* below.
 | `config.py` | `SimulationConfig`, `TaskV2_3SimulationConfig`, `TaskV2_4SimulationConfig`, `TaskV3SimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
 | `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability) for all simulation types. |
 | `storage.py` | `ResultStore` - compact, streamable, resumable on-disk store for sweep results. |
-| `pilot.py` | **Read-only** pilot ingestion + calibration: load `data/pilot/` (via `analysis/pilot/parser.py`), the test-retest / between-subject-agreement observables, the pooled-pilot GT embedding, and `calibrate_params_from_pilot` (the end-to-end fit of `subjects_noise_scale` + `perspective_dispersion`). See "Calibrating to pilot data" below. |
+| `pilot.py` | **Read-only** pilot ingestion + calibration: load `data/pilot/` (via `analysis/utils/parser.py`), the test-retest / between-subject-agreement observables, the pooled-pilot GT embedding, and `calibrate_params_from_pilot` (the end-to-end fit of `subjects_noise_scale` + `perspective_dispersion`). See "Calibrating to pilot data" below. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
 | `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb` - no simulation, no MDS, no R. |
 | `evaluation.ipynb` | Plotting / analysis notebook for the task-v0.1 simulation. |

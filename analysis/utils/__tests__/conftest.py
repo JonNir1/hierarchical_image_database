@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pandas as pd
 
-# Make 'from analysis.pilot.parser import ...' work regardless of the working
-# directory pytest is invoked from.
+# Make the repo root importable so 'from analysis.utils.visualize_trials import ...'
+# works regardless of the working directory pytest is invoked from.
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 _DEMOGRAPHICS_COLUMNS = [

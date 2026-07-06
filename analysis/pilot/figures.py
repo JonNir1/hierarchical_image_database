@@ -1,11 +1,11 @@
 """
 Pilot analysis figures for the SpAM task.
 
-All functions accept DataFrames returned by analysis.pilot.parser.load_pilot_data
+All functions accept DataFrames returned by analysis.utils.parser.load_pilot_data
 and return plotly Figure objects.
 
 Usage (from repo root):
-    from analysis.pilot.parser import load_pilot_data
+    from analysis.utils.parser import load_pilot_data
     from analysis.pilot.figures import (
         fig_completion_status, fig_trial_duration_per_subject,
         fig_moves_per_subject, fig_duration_progression,
@@ -25,7 +25,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.stats import gaussian_kde, ks_2samp, spearmanr
 
-from analysis.pilot.parser import parse_pairwise_distances
+from analysis.utils.parser import parse_pairwise_distances
 
 # ---------------------------------------------------------------------------
 # Version colour palette
