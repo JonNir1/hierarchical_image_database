@@ -63,7 +63,6 @@
 # ndims = ~12960 MDS fits. Calibrate-flavor grid: 3 df x 4 num_subjects x 2 trials x 2 images = 48
 # combos x 5 reps x 13 ndims (min_ndim=3) = ~3120 fits (itmax=1000, precalc_init=True). c7i.4xlarge
 # (16 vCPU) fits both; the calibrate sweep is ~2.5-3 h. REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
-# REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
 
 set -euo pipefail
 
@@ -88,8 +87,21 @@ source "$(dirname "${BASH_SOURCE[0]}")/prepare_machine.sh"
 if [ "${CALIBRATE,,}" = "true" ] || [ "$CALIBRATE" = "1" ]; then
 # ===== calibrated flavor: fetch pilot -> fit noise/perspective + pilot GT -> calibrated sweep =====
 # Calibration reuses analysis/utils/parser.py (the canonical pilot loader), which prepare_machine's
-# sparse checkout (SpAM_Simulations only) doesn't include - add it.
-git sparse-checkout add analysis/utils
+# sparse checkout (SpAM_Simulations only) doesn't include - add it. `sparse-checkout add` alone can
+# silently fail to materialise the tree on a --depth 1 cone clone, so verify and force a path checkout.
+git sparse-checkout add analysis/utils || true
+if [ ! -f analysis/utils/parser.py ]; then
+  echo ">> [calibrate] sparse add didn't materialise analysis/utils; forcing a path checkout ..."
+  git checkout "$GIT_REF" -- analysis/utils 2>/dev/null \
+    || git checkout HEAD -- analysis/utils 2>/dev/null || true
+fi
+if [ ! -f analysis/utils/parser.py ]; then
+  echo "!! [calibrate] analysis/utils/parser.py still missing (checked out ref: $GIT_REF)."
+  echo "!! sparse-checkout list:"; git sparse-checkout list || true
+  echo "!! tracked analysis parser paths:"; git ls-tree -r --name-only HEAD | grep -i "analysis/.*parser.py" || true
+  exit 1
+fi
+echo ">> [calibrate] pilot parser present: analysis/utils/parser.py"
 
 # Fetch the (gitignored, human-subjects) pilot data; delete it from the box on ANY exit.
 PILOT_DIR="data/pilot"
