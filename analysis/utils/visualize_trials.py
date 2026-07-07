@@ -38,9 +38,9 @@ _BG_COLOUR = (250, 250, 250)   # near-white canvas background
 
 def render_trial(
     trial: pd.Series,
-    output_width: int = 700,
-    output_height: int = 530,
-    thumbnail_px: int = 72,
+    output_width: int = 600,
+    output_height: int = 450,
+    thumbnail_px: int = 75,
 ) -> Image.Image:
     """
     Render a single trial's final arrangement as a PIL Image.
@@ -136,9 +136,9 @@ def visualize_trials(
     df_subject: pd.DataFrame,
     only_repeats: bool = False,
     trials_per_row: int = 2,
-    output_width: int = 700,
-    output_height: int = 530,
-    thumbnail_px: int = 72,
+    output_width: int = 600,
+    output_height: int = 450,
+    thumbnail_px: int = 75,
 ) -> go.Figure:
     """
     Render trials for one subject as a Plotly grid figure.
@@ -198,10 +198,31 @@ def visualize_trials(
     n_cols = min(trials_per_row, n)
     n_rows = math.ceil(n / n_cols)
 
+    # render_trial() pads its canvas by thumbnail_px on every side, so the
+    # actual rendered array is this size -- not output_width x output_height.
+    img_w = output_width + thumbnail_px
+    img_h = output_height + thumbnail_px
+
+    # Fixed *absolute* pixel gaps between panels (independent of row/col
+    # count), converted to the fractions make_subplots expects. Sizing each
+    # subplot's pixel domain to exactly img_w x img_h (rather than deriving
+    # it from a fractional spacing of the whole figure) keeps images at
+    # their true rendered size with no aspect-ratio-driven letterboxing,
+    # however many rows a session has. gap_x_px is wide enough to hold the
+    # "R = ..." annotation between a pair's two columns, so no extra margin
+    # is needed on the outer edges of the figure for it.
+    gap_x_px = 70
+    gap_y_px = 35  # headroom for the subplot title
+    plot_w = n_cols * img_w + (n_cols - 1) * gap_x_px
+    plot_h = n_rows * img_h + (n_rows - 1) * gap_y_px
+    horizontal_spacing = gap_x_px / plot_w if n_cols > 1 else 0
+    vertical_spacing = gap_y_px / plot_h if n_rows > 1 else 0
+
     # For each pair (positions 2k, 2k+1 in `trials`), annotate its R value
-    # beside the row if both trials land in the same row, otherwise fall
-    # back to appending it onto the repeat trial's subplot title.
-    row_pair_r: dict[int, float] = {}
+    # in the gap between its two columns if both trials land in the same
+    # row, otherwise fall back to appending it onto the repeat trial's
+    # subplot title.
+    row_pair_r: dict[int, tuple[int, int, float]] = {}
     fallback_title_r: dict[int, float] = {}
     for k, r_value in enumerate(active_r_values):
         if r_value is None:
@@ -209,8 +230,10 @@ def visualize_trials(
         i_orig, i_repeat = 2 * k, 2 * k + 1
         row_orig = i_orig // n_cols + 1
         row_repeat = i_repeat // n_cols + 1
+        col_orig = i_orig % n_cols + 1
+        col_repeat = i_repeat % n_cols + 1
         if row_orig == row_repeat and row_orig not in row_pair_r:
-            row_pair_r[row_orig] = r_value
+            row_pair_r[row_orig] = (col_orig, col_repeat, r_value)
         else:
             fallback_title_r[i_repeat] = r_value
 
@@ -227,8 +250,8 @@ def visualize_trials(
         rows=n_rows,
         cols=n_cols,
         subplot_titles=subplot_titles,
-        horizontal_spacing=0.03,
-        vertical_spacing=0.08,
+        horizontal_spacing=horizontal_spacing,
+        vertical_spacing=vertical_spacing,
     )
 
     for i, trial in enumerate(trials):
@@ -247,20 +270,21 @@ def visualize_trials(
         fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False, row=r, col=c)
         fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False, row=r, col=c)
 
-    for row_number, r_value in row_pair_r.items():
-        y0, y1 = fig.get_subplot(row=row_number, col=1).yaxis.domain
+    for row_number, (col_orig, col_repeat, r_value) in row_pair_r.items():
+        y0, y1 = fig.get_subplot(row=row_number, col=col_orig).yaxis.domain
+        x_orig_end = fig.get_subplot(row=row_number, col=col_orig).xaxis.domain[1]
+        x_repeat_start = fig.get_subplot(row=row_number, col=col_repeat).xaxis.domain[0]
         fig.add_annotation(
-            x=1.0, xref="paper", xanchor="left",
+            x=(x_orig_end + x_repeat_start) / 2, xref="paper", xanchor="center",
             y=(y0 + y1) / 2, yref="paper", yanchor="middle",
             text=f"R = {r_value:.3f}",
             showarrow=False,
             font={"size": 14, "color": "#0c447c"},
-            align="left",
+            align="center",
         )
 
-    panel_w = output_width + 20   # add a small margin per panel
-    panel_h = output_height + 50  # add room for the subplot title
-    right_margin = 100 if row_pair_r else 10
+    margin_l = margin_r = margin_b = 5
+    margin_t = 40
 
     valid_r_values = [r for r in active_r_values if r is not None]
     title_text = f"Trial arrangements — participant {df_subject['participant_id'].iloc[0]}"
@@ -268,9 +292,9 @@ def visualize_trials(
         title_text += f"<br>median test-retest R = {statistics.median(valid_r_values):.3f}"
 
     fig.update_layout(
-        height=n_rows * panel_h,
-        width=n_cols * panel_w + right_margin,
-        margin={"l": 10, "r": right_margin, "t": 40, "b": 10},
+        height=plot_h + margin_t + margin_b,
+        width=plot_w + margin_l + margin_r,
+        margin={"l": margin_l, "r": margin_r, "t": margin_t, "b": margin_b},
         title_text=title_text,
     )
     return fig

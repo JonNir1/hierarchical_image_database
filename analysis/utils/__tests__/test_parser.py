@@ -11,9 +11,10 @@ from analysis.utils.parser import (
     _trial_image_set,
     load_pilot_data,
     parse_pairwise_distances,
+    validate_trial_counts,
     validate_trial_repeat_image_sets,
 )
-from conftest import write_demographics_csv, write_session_csv
+from pilot_csv_helpers import write_demographics_csv, write_session_csv
 
 
 def _demo_row(**overrides) -> dict:
@@ -136,6 +137,35 @@ class TestLoadPilotData:
 
         assert data["trials"].empty
         assert data["status"].iloc[0]["completion_status"] == "erroneous_completion"
+
+    def test_prod_style_demographics_filename_supported(self, tmp_path):
+        # prod's demographics file is "demographic.csv" (singular, no
+        # "participant_" prefix), unlike pilot's "participant_demographics*.csv".
+        write_demographics_csv(tmp_path, [_demo_row()], filename="demographic.csv")
+        write_session_csv(tmp_path, [_main_trial_row()], "session1.csv")
+
+        data = load_pilot_data(tmp_path)
+
+        assert len(data["trials"]) == 1
+        assert data["status"].iloc[0]["completion_status"] == "completed"
+
+    def test_picks_most_complete_session_among_multiple_files(self, tmp_path):
+        """A participant can have more than one session file (e.g. a reconnect after
+        an abandoned attempt, seen in prod) -- the one with the most trial/catch rows
+        must be used, regardless of which file is discovered first."""
+        write_demographics_csv(tmp_path, [_demo_row()])
+        write_session_csv(tmp_path, [_main_trial_row(trial_type="trial_1")], "session_a_abandoned.csv")
+        write_session_csv(tmp_path, [
+            _main_trial_row(trial_type="trial_1"),
+            _main_trial_row(trial_type="trial_2"),
+            _catch_trial_row(),
+        ], "session_b_complete.csv")
+
+        data = load_pilot_data(tmp_path)
+
+        assert len(data["trials"]) == 2
+        assert len(data["catch_trials"]) == 1
+        assert data["trials"]["session_file"].iloc[0] == "session_b_complete"
 
 
 # ---------------------------------------------------------------------------
@@ -267,3 +297,63 @@ class TestValidateTrialRepeatImageSets:
         df = self._base_df().drop(columns=["pairwise_distances"])
         with pytest.raises(KeyError):
             validate_trial_repeat_image_sets(df)
+
+
+# ---------------------------------------------------------------------------
+# validate_trial_counts
+# ---------------------------------------------------------------------------
+
+class TestValidateTrialCounts:
+    def _session_df(self, participant_id, session_file, task_version, n_trials, n_repeats) -> pd.DataFrame:
+        return pd.DataFrame([
+            {
+                "participant_id": participant_id, "session_file": session_file,
+                "task_version": task_version, "trial_number": n,
+                "is_trial_repeat": n <= n_repeats,
+            }
+            for n in range(1, n_trials + 1)
+        ])
+
+    def test_v1_expects_10_trials_0_repeats(self):
+        df = self._session_df("p1", "s1", 1.0, n_trials=10, n_repeats=0)
+        report = validate_trial_counts(df)
+        row = report.iloc[0]
+        assert (row["expected_n_trials"], row["expected_n_repeats"]) == (10, 0)
+        assert bool(row["trials_match"]) is True
+        assert bool(row["repeats_match"]) is True
+
+    def test_v3_06_expects_20_trials_3_repeats(self):
+        df = self._session_df("p1", "s1", 3.06, n_trials=20, n_repeats=3)
+        report = validate_trial_counts(df)
+        row = report.iloc[0]
+        assert (row["expected_n_trials"], row["expected_n_repeats"]) == (20, 3)
+        assert bool(row["trials_match"]) is True
+        assert bool(row["repeats_match"]) is True
+
+    def test_wrong_trial_count_fails(self):
+        df = self._session_df("p1", "s1", 1.0, n_trials=8, n_repeats=0)
+        report = validate_trial_counts(df)
+        row = report.iloc[0]
+        assert bool(row["trials_match"]) is False
+        assert bool(row["repeats_match"]) is True
+
+    def test_wrong_repeat_count_fails(self):
+        df = self._session_df("p1", "s1", 3.06, n_trials=20, n_repeats=2)
+        report = validate_trial_counts(df)
+        row = report.iloc[0]
+        assert bool(row["trials_match"]) is True
+        assert bool(row["repeats_match"]) is False
+
+    def test_unknown_task_version_is_unmatched(self):
+        df = self._session_df("p1", "s1", 9.9, n_trials=10, n_repeats=0)
+        report = validate_trial_counts(df)
+        row = report.iloc[0]
+        assert pd.isna(row["expected_n_trials"])
+        assert pd.isna(row["expected_n_repeats"])
+        assert bool(row["trials_match"]) is False
+        assert bool(row["repeats_match"]) is False
+
+    def test_missing_required_column_raises_key_error(self):
+        df = self._session_df("p1", "s1", 1.0, n_trials=10, n_repeats=0).drop(columns=["task_version"])
+        with pytest.raises(KeyError):
+            validate_trial_counts(df)
