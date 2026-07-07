@@ -137,6 +137,35 @@ class TestLoadPilotData:
         assert data["trials"].empty
         assert data["status"].iloc[0]["completion_status"] == "erroneous_completion"
 
+    def test_prod_style_demographics_filename_supported(self, tmp_path):
+        # prod's demographics file is "demographic.csv" (singular, no
+        # "participant_" prefix), unlike pilot's "participant_demographics*.csv".
+        write_demographics_csv(tmp_path, [_demo_row()], filename="demographic.csv")
+        write_session_csv(tmp_path, [_main_trial_row()], "session1.csv")
+
+        data = load_pilot_data(tmp_path)
+
+        assert len(data["trials"]) == 1
+        assert data["status"].iloc[0]["completion_status"] == "completed"
+
+    def test_picks_most_complete_session_among_multiple_files(self, tmp_path):
+        """A participant can have more than one session file (e.g. a reconnect after
+        an abandoned attempt, seen in prod) -- the one with the most trial/catch rows
+        must be used, regardless of which file is discovered first."""
+        write_demographics_csv(tmp_path, [_demo_row()])
+        write_session_csv(tmp_path, [_main_trial_row(trial_type="trial_1")], "session_a_abandoned.csv")
+        write_session_csv(tmp_path, [
+            _main_trial_row(trial_type="trial_1"),
+            _main_trial_row(trial_type="trial_2"),
+            _catch_trial_row(),
+        ], "session_b_complete.csv")
+
+        data = load_pilot_data(tmp_path)
+
+        assert len(data["trials"]) == 2
+        assert len(data["catch_trials"]) == 1
+        assert data["trials"]["session_file"].iloc[0] == "session_b_complete"
+
 
 # ---------------------------------------------------------------------------
 # _load_demographics

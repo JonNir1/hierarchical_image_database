@@ -1,14 +1,11 @@
 # TODO
 
-- **Unify `analysis/pilot/` and `analysis/prod/` data loading + CLI.**
-  `analysis/prod/parser.py` (`load_prod_data`) is a near-duplicate of
-  `analysis/utils/parser.py` (`load_pilot_data`) -- same demographics/session
-  CSV schema, same trial parsing -- differing only in the demographics
-  filename glob and prod's extra "session must have all 20 trials + 4 catch
-  trials" completeness check. Likewise `analysis/prod/show_trials.py` is a
-  near-duplicate of `analysis/pilot/show_trials.py` (same --version/
-  --participant/--list CLI, just pointed at a different loader + data dir).
-  Once prod data collection settles, merge both loaders into one function
-  (data_dir + demographics-glob + completeness-predicate as parameters) and
-  merge the two show_trials.py scripts into a single script parameterized by
-  dataset (pilot vs prod).
+- **Unify `analysis/pilot/show_trials.py` and `analysis/prod/show_trials.py`.**
+  Data loading is already unified: `analysis/utils/parser.py`'s
+  `load_pilot_data` works for both `data/pilot` and `data/prod` (tries both
+  demographics filename patterns, and picks the most-complete session file
+  when a participant has more than one). The two `show_trials.py` scripts
+  are otherwise identical -- same --version/--participant/--list CLI, just
+  pointed at a different `data_dir`. Merge them into a single script
+  parameterized by dataset (pilot vs prod), e.g. a `--dataset pilot|prod`
+  flag or a positional data_dir argument.
