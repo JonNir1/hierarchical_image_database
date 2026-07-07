@@ -353,6 +353,38 @@ def _fit_1d(target: float, evaluate, grid: np.ndarray) -> float:
     return float(grid[int(np.nanargmin(np.abs(vals - target)))])
 
 
+def fit_noise_for_test_retest(
+        gt_embeddings: np.ndarray,
+        target_test_retest: float,
+        *,
+        noise_df: int,
+        images_per_trial: int = 20,
+        trials_per_subject: int = 20,
+        frac_trials_repeated: float = 0.15,
+        num_subjects: int = 20,
+        reps: int = 8,
+        noise_grid: Sequence[float] = tuple(np.round(np.arange(0.1, 3.01, 0.1), 2)),
+        seed: int = 0,
+) -> Tuple[float, float]:
+    """Invert the ``subjects_noise_scale`` (canvas placement noise) that yields a target within-subject
+    ``test_retest`` for the given ``noise_df`` and design, returning ``(noise_scale, achieved_tr)``.
+
+    Test-retest is perspective-invariant (a whole-trial repeat re-projects to the same arrangement and
+    differs only by fresh placement noise), so the inversion is done at ``dispersion=0`` and is
+    independent of ``perspective_dispersion``. It depends on ``noise_df`` (heavy tails shift the
+    median) and weakly on ``images_per_trial``; ``num_subjects``/``trials_per_subject`` only affect the
+    estimator's variance. If ``target_test_retest`` is outside the grid's achievable range, the closest
+    achievable value is returned - inspect ``achieved_tr`` to see how far off it landed.
+    """
+    def tr(noise: float) -> float:
+        return _simulated_targets(
+            gt_embeddings, noise, 0.0, num_subjects, trials_per_subject, images_per_trial,
+            frac_trials_repeated, reps, seed, min_overlap=25, noise_df=noise_df,
+        )[0]
+    noise = _fit_1d(target_test_retest, tr, np.asarray(noise_grid))
+    return float(noise), float(tr(noise))
+
+
 def _calibrate(
         gt_embeddings: np.ndarray,
         num_subjects: int,
