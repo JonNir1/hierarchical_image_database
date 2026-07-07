@@ -38,9 +38,9 @@ _BG_COLOUR = (250, 250, 250)   # near-white canvas background
 
 def render_trial(
     trial: pd.Series,
-    output_width: int = 790,
-    output_height: int = 600,
-    thumbnail_px: int = 90,
+    output_width: int = 600,
+    output_height: int = 450,
+    thumbnail_px: int = 75,
 ) -> Image.Image:
     """
     Render a single trial's final arrangement as a PIL Image.
@@ -136,9 +136,9 @@ def visualize_trials(
     df_subject: pd.DataFrame,
     only_repeats: bool = False,
     trials_per_row: int = 2,
-    output_width: int = 790,
-    output_height: int = 600,
-    thumbnail_px: int = 90,
+    output_width: int = 600,
+    output_height: int = 450,
+    thumbnail_px: int = 75,
 ) -> go.Figure:
     """
     Render trials for one subject as a Plotly grid figure.
@@ -211,8 +211,8 @@ def visualize_trials(
     # however many rows a session has. gap_x_px is wide enough to hold the
     # "R = ..." annotation between a pair's two columns, so no extra margin
     # is needed on the outer edges of the figure for it.
-    gap_x_px = 120
-    gap_y_px = 50  # headroom for the subplot title
+    gap_x_px = 70
+    gap_y_px = 35  # headroom for the subplot title
     plot_w = n_cols * img_w + (n_cols - 1) * gap_x_px
     plot_h = n_rows * img_h + (n_rows - 1) * gap_y_px
     horizontal_spacing = gap_x_px / plot_w if n_cols > 1 else 0
@@ -283,8 +283,8 @@ def visualize_trials(
             align="center",
         )
 
-    margin_l = margin_r = margin_b = 10
-    margin_t = 80
+    margin_l = margin_r = margin_b = 5
+    margin_t = 40
 
     valid_r_values = [r for r in active_r_values if r is not None]
     title_text = f"Trial arrangements — participant {df_subject['participant_id'].iloc[0]}"
