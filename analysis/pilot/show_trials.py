@@ -9,14 +9,20 @@ Run from repo root:
     .venv/Scripts/python analysis/pilot/show_trials.py --version 2.0
     .venv/Scripts/python analysis/pilot/show_trials.py --version 1.0
 
+    # single subject -- by participant_id (exact or substring match)
+    .venv/Scripts/python analysis/pilot/show_trials.py --participant 6a0f812b04e94d1ec3d4bd0c
+    .venv/Scripts/python analysis/pilot/show_trials.py -p 6a0f812b
+
     # single subject -- pass any substring of the session filename
     .venv/Scripts/python analysis/pilot/show_trials.py 15h45
     .venv/Scripts/python analysis/pilot/show_trials.py 2026-06-05
 
-    # combine version filter with filename substring
+    # combine filters (version + participant + filename substring all AND together)
     .venv/Scripts/python analysis/pilot/show_trials.py --version 2.0 16h22
+    .venv/Scripts/python analysis/pilot/show_trials.py --version 3.0 -p 6a0f812b
 
-    # list available session filenames (with versions) without opening anything
+    # list available session filenames (with versions and participant_ids) without
+    # opening anything
     .venv/Scripts/python analysis/pilot/show_trials.py --list
     .venv/Scripts/python analysis/pilot/show_trials.py --version 2.0 --list
 """
@@ -47,6 +53,7 @@ df = data["trials"]
 args = sys.argv[1:]
 
 version_filter: float | None = None
+participant_filter: str | None = None
 list_only = False
 filename_query: str | None = None
 
@@ -63,11 +70,17 @@ while i < len(args):
             print(f"Error: invalid version '{args[i + 1]}' — must be a number (e.g. 2.0)")
             sys.exit(1)
         i += 2
+    elif arg in ("--participant", "-p"):
+        if i + 1 >= len(args):
+            print(f"Error: {arg} requires a value (e.g. {arg} 6a0f812b)")
+            sys.exit(1)
+        participant_filter = args[i + 1]
+        i += 2
     elif arg == "--list":
         list_only = True
         i += 1
-    elif arg.startswith("--"):
-        print(f"Unknown option '{arg}'. Valid options: --version, --list")
+    elif arg.startswith("-"):
+        print(f"Unknown option '{arg}'. Valid options: --version, --participant/-p, --list")
         sys.exit(1)
     else:
         filename_query = arg
@@ -77,9 +90,12 @@ while i < len(args):
 # Build the candidate session file list
 # ---------------------------------------------------------------------------
 
-# Per-session version lookup (task_version is constant within a session)
+# Per-session version / participant_id lookup (both constant within a session)
 session_version = (
     df.groupby("session_file")["task_version"].first().to_dict()
+)
+session_participant = (
+    df.groupby("session_file")["participant_id"].first().to_dict()
 )
 all_files = sorted(df["session_file"].unique())
 
@@ -94,6 +110,15 @@ if version_filter is not None:
         )
         sys.exit(1)
     all_files = filtered
+
+# Apply --participant filter (substring match against participant_id)
+if participant_filter is not None:
+    matches = [f for f in all_files if participant_filter in session_participant.get(f, "")]
+    if not matches:
+        print(f"No session found with participant_id containing '{participant_filter}'.")
+        print("Run with --list to see available participant_ids.")
+        sys.exit(1)
+    all_files = matches
 
 # Apply filename substring filter
 if filename_query is not None:
@@ -114,7 +139,9 @@ if list_only:
     for f in all_files:
         v = session_version.get(f)
         version_tag = f"  [v{v:g}]" if v is not None else ""
-        print(f"  {f}{version_tag}")
+        pid = session_participant.get(f)
+        pid_tag = f"  participant={pid}" if pid is not None else ""
+        print(f"  {f}{version_tag}{pid_tag}")
     sys.exit(0)
 
 # ---------------------------------------------------------------------------
