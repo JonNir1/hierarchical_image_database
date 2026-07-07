@@ -38,9 +38,9 @@ _BG_COLOUR = (250, 250, 250)   # near-white canvas background
 
 def render_trial(
     trial: pd.Series,
-    output_width: int = 700,
-    output_height: int = 530,
-    thumbnail_px: int = 72,
+    output_width: int = 900,
+    output_height: int = 680,
+    thumbnail_px: int = 100,
 ) -> Image.Image:
     """
     Render a single trial's final arrangement as a PIL Image.
@@ -136,9 +136,9 @@ def visualize_trials(
     df_subject: pd.DataFrame,
     only_repeats: bool = False,
     trials_per_row: int = 2,
-    output_width: int = 700,
-    output_height: int = 530,
-    thumbnail_px: int = 72,
+    output_width: int = 900,
+    output_height: int = 680,
+    thumbnail_px: int = 100,
 ) -> go.Figure:
     """
     Render trials for one subject as a Plotly grid figure.
