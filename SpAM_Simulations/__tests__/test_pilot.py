@@ -1,6 +1,6 @@
 """Tests for pilot ingestion + calibration.
 
-Session/CSV loading is delegated to ``analysis.pilot.parser`` (tested there); these tests exercise
+Session/CSV loading is delegated to ``analysis.utils.parser`` (tested there); these tests exercise
 this module's own logic - reducing a parser-style tidy ``trials`` frame to a ``PilotSubject``, the
 observables, and the calibration fit - on hand-built DataFrames, with no real pilot-data dependency.
 """

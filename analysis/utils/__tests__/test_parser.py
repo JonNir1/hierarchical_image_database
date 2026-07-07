@@ -4,7 +4,7 @@ import math
 import pandas as pd
 import pytest
 
-from analysis.pilot.parser import (
+from analysis.utils.parser import (
     _count_moves,
     _load_demographics,
     _normalise_locations,
