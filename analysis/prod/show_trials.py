@@ -1,8 +1,10 @@
 """
 Open per-participant trial arrangement grids in the browser.
 
-TODO(analysis): near-duplicate of analysis/pilot/show_trials.py -- see the
-TODO in analysis/prod/parser.py to unify both loaders + CLIs.
+TODO(analysis): near-duplicate of analysis/pilot/show_trials.py -- see
+TODO.md to unify both CLIs (the loaders are already unified in
+analysis/utils/parser.py's load_pilot_data, which works for both
+data/pilot and data/prod).
 
 Run from repo root:
     # all participants
@@ -34,14 +36,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import plotly.io as pio
 
-from analysis.prod.parser import load_prod_data
+from analysis.utils.parser import load_pilot_data
 from analysis.utils.visualize_trials import visualize_trials
 
 pio.renderers.default = "browser"
 
 with warnings.catch_warnings(record=True) as _w:
     warnings.simplefilter("always")
-    data = load_prod_data("data/prod")
+    data = load_pilot_data("data/prod")
 
 df = data["trials"]
 

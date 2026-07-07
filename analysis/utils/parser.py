@@ -1,9 +1,15 @@
 """
-Loader for SpAM pilot data.
+Loader for SpAM session data -- works for both data/pilot and data/prod.
+
+The two differ only in demographics filename (participant_demographics*.csv
+vs demographic*.csv, both tried automatically) and in that prod participants
+can have more than one session file (a reconnect after an abandoned
+attempt); when that happens, the session with the most trial/catch rows is
+used, so callers never have to know which directory they're pointed at.
 
 Usage (from repo root):
     from analysis.utils.parser import load_pilot_data
-    data = load_pilot_data("data/pilot")
+    data = load_pilot_data("data/pilot")   # or "data/prod"
     df_trials = data["trials"]        # one row per experimental trial, completed subjects only
     df_status = data["status"]        # one row per participant with completion_status
     df_catch  = data["catch_trials"]  # one row per catch trial, completed subjects only
@@ -23,7 +29,8 @@ import pandas as pd
 # Constants
 # ---------------------------------------------------------------------------
 
-_DEMOGRAPHICS_PREFIX = "participant_demographics"  # matches participant_demographics.csv, participant_demographics_v3.csv, ...
+# pilot demographics files are "participant_demographics*.csv"; prod's is "demographic*.csv"
+_DEMOGRAPHICS_GLOBS = ["participant_demographics*.csv", "demographic*.csv"]
 _EXPERIMENTAL_TRIAL_TYPE_RE = r"^trial_\d+$"
 _CATCH_TRIAL_TYPE_RE = r"^catch_\d+$"
 
@@ -118,10 +125,10 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
     if not data_dir.is_dir():
         raise NotADirectoryError(f"Path is not a directory: {data_dir}")
 
-    demo_paths = sorted(data_dir.glob(f"{_DEMOGRAPHICS_PREFIX}*.csv"))
+    demo_paths = sorted({p for pattern in _DEMOGRAPHICS_GLOBS for p in data_dir.glob(pattern)})
     if not demo_paths:
         raise FileNotFoundError(
-            f"No demographics file found in: {data_dir} (expected {_DEMOGRAPHICS_PREFIX}*.csv)"
+            f"No demographics file found in: {data_dir} (expected one of {_DEMOGRAPHICS_GLOBS})"
         )
 
     df_demo = pd.concat([_load_demographics(p) for p in demo_paths], ignore_index=True)
@@ -152,8 +159,8 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
             status_rows.append({**participant.to_dict(), "completion_status": "revoked_consent"})
             continue
 
-        session_path = session_files.get(pid)
-        if session_path is None:
+        session_paths = session_files.get(pid, [])
+        if not session_paths:
             warnings.warn(
                 f"Participant {pid}: APPROVED but no session file found (erroneous completion), excluded from trials.",
                 UserWarning,
@@ -161,6 +168,11 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
             )
             status_rows.append({**participant.to_dict(), "completion_status": "erroneous_completion"})
             continue
+
+        # A participant can have more than one session file (e.g. a reconnect after
+        # an abandoned attempt, seen in prod); use whichever has the most trial/catch
+        # rows. A no-op when there's only one, which is the common pilot case.
+        session_path = max(session_paths, key=_session_row_count) if len(session_paths) > 1 else session_paths[0]
 
         df_trials = _load_session_trials(session_path, participant)
         trial_rows.append(df_trials)
@@ -212,24 +224,37 @@ def _load_demographics(path: Path) -> pd.DataFrame:
     return df
 
 
-def _index_session_files(data_dir: Path) -> dict[str, Path]:
-    """Return {participant_id: path} for all session CSVs in data_dir.
+def _index_session_files(data_dir: Path) -> dict[str, list[Path]]:
+    """Return {participant_id: [session paths]} for all session CSVs in data_dir.
 
     Participant IDs are read from the participant_id column inside each CSV
     because the filenames use literal placeholder tokens rather than actual IDs.
+    A participant can have more than one session file (e.g. a reconnect after
+    an abandoned attempt), so every match is kept, not just the last one seen.
     """
-    index: dict[str, Path] = {}
-    for csv_path in data_dir.glob("*.csv"):
-        if csv_path.stem.startswith(_DEMOGRAPHICS_PREFIX):
+    index: dict[str, list[Path]] = {}
+    demo_paths = {p for pattern in _DEMOGRAPHICS_GLOBS for p in data_dir.glob(pattern)}
+    for csv_path in sorted(data_dir.glob("*.csv")):
+        if csv_path in demo_paths:
             continue
         try:
             # Read only the first data row to extract participant_id cheaply
             df_head = pd.read_csv(csv_path, usecols=["participant_id"], nrows=1)
             pid = str(df_head["participant_id"].iloc[0])
-            index[pid] = csv_path
+            index.setdefault(pid, []).append(csv_path)
         except (KeyError, IndexError, pd.errors.ParserError, ValueError):
             continue
     return index
+
+
+def _session_row_count(session_path: Path) -> int:
+    """Number of main-trial + catch-trial rows in a session CSV, used to pick the most
+    complete session file when a participant has more than one."""
+    trial_types = pd.read_csv(session_path, usecols=["trial_type"])["trial_type"].astype(str)
+    return int(
+        trial_types.str.match(_EXPERIMENTAL_TRIAL_TYPE_RE).sum()
+        + trial_types.str.match(_CATCH_TRIAL_TYPE_RE).sum()
+    )
 
 
 def _load_session_trials(session_path: Path, participant: pd.Series) -> pd.DataFrame:
