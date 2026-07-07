@@ -29,11 +29,11 @@
 #     (default 3,5) x target within-subject test-retest R in $TR_LIST (default 0.24,0.35,0.5,0.65) it
 #     INVERTS subjects_noise_scale to hit R at reference images=20 (test-retest is perspective-invariant
 #     and only weakly image-dependent, so one noise per (df,R) spans both images), then sweeps
-#     num_subjects x trials_per_subject x images_per_trial. Cells already covered by a previous run
-#     (df=5, R~=0.24, N in {50,75,150,300}) are skipped (only N=30 is new there) - EXTEND, don't
-#     overwrite; point $S3_URI at a fresh prefix and merge with the old run at analysis time.
-#     Outputs: out/df<df>_tr<RR>/ + mds_store/df<df>_tr<RR>/, out/plateau_by_df_tr.csv, and
-#     calibration/noise_map.csv (target vs ACHIEVED R per df - analysis groups by achieved R).
+#     num_subjects x trials_per_subject x images_per_trial. The grid is self-contained on THIS run's GT
+#     (a re-uploaded pilot changes the GT, so results across runs are not comparable - point $S3_URI at
+#     a fresh prefix per pilot version). Outputs: out/df<df>_tr<RR>/ + mds_store/df<df>_tr<RR>/,
+#     out/plateau_by_df_tr.csv, calibration/noise_map.csv (target vs ACHIEVED R per df - analysis groups
+#     by achieved R), and run.log (full run transcript + start/end timestamps, uploaded to $S3_URI).
 #
 # Sibling scripts: run_task_v2_4_sim.sh (additive-noise model + both repeat levers),
 # run_task_v2_3_sim.sh, run_task_v0_1_sim.sh. All source the shared prepare_machine.sh (must be
@@ -66,9 +66,8 @@
 # Default-flavor grid: 4 num_subjects x 3 trials_per_subject x 1 images_per_trial x 2 noise_scale x 1
 # noise_df x 4 frac_trials_repeated x 3 perspective_dispersion = 288 combos x 5 reps x 9 target
 # ndims = ~12960 MDS fits. Calibrate-flavor grid (defaults): 2 df x 4 R x 5 num_subjects x 2 trials x
-# 2 images, minus the skipped df5/R0.24 x {50,75,150,300} = 144 leaf configs x 5 reps x 13 ndims
-# (min_ndim=3) = ~9360 fits (itmax=1000, precalc_init=True) ~9 h on c7i.4xlarge.
-# REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
+# 2 images = 160 leaf configs x 5 reps x 13 ndims (min_ndim=3) = ~10400 fits (itmax=1000,
+# precalc_init=True) ~10 h on c7i.4xlarge. REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
 
 set -euo pipefail
 
@@ -85,6 +84,28 @@ REPS="${REPS:-5}"                         # (CALIBRATE only) cohorts averaged pe
 # default to 2/3 of them.
 N_JOBS="${N_JOBS:-$(( $(nproc) * 2 / 3 ))}"
 export R_LIBS_USER="${R_LIBS_USER:-$HOME/R/library}"
+
+# --------------------------------------------------------------------------- logging
+# Capture EVERYTHING (this script + the sourced prepare_machine.sh + the python blocks) to a log file
+# on the box, independent of how the caller redirects stdout - so `run.log` is never empty and survives
+# an SSH drop. On ANY exit: scrub the pilot data, stamp the end time, and push the log to S3.
+mkdir -p "$WORKDIR"
+LOGFILE="$WORKDIR/run.log"
+: > "$LOGFILE"
+exec > >(tee -a "$LOGFILE") 2>&1
+_START_TS=$(date -u +%s)
+echo ">> [start] $(date -u +'%Y-%m-%dT%H:%M:%SZ')  (S3_URI=$S3_URI, CALIBRATE=$CALIBRATE)"
+
+_on_exit() {
+  local rc=$?
+  [ -n "${PILOT_DIR:-}" ] && rm -rf "$PILOT_DIR"   # human-subjects data never left on the box
+  echo ">> [end] $(date -u +'%Y-%m-%dT%H:%M:%SZ')  (exit $rc, elapsed $(( $(date -u +%s) - _START_TS ))s)"
+  if [ -n "${S3_URI:-}" ]; then
+    sleep 1   # let the tee subprocess flush the final lines before we upload
+    aws s3 cp "$LOGFILE" "$S3_URI/run.log" --only-show-errors || true
+  fi
+}
+trap _on_exit EXIT
 
 # shellcheck disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/prepare_machine.sh"
@@ -109,9 +130,8 @@ if [ ! -f analysis/utils/parser.py ]; then
 fi
 echo ">> [calibrate] pilot parser present: analysis/utils/parser.py"
 
-# Fetch the (gitignored, human-subjects) pilot data; delete it from the box on ANY exit.
+# Fetch the (gitignored, human-subjects) pilot data; the EXIT trap (_on_exit) deletes it on any exit.
 PILOT_DIR="data/pilot"
-trap 'rm -rf "$PILOT_DIR"' EXIT
 echo ">> [calibrate] fetching pilot data from $S3_URI/data/pilot ..."
 mkdir -p "$PILOT_DIR"
 aws s3 sync "$S3_URI/data/pilot" "$PILOT_DIR/" --only-show-errors
@@ -171,20 +191,15 @@ noise_map = pd.DataFrame(rows)
 noise_map.to_csv("calibration/noise_map.csv", index=False)
 print("[save] noise map -> calibration/noise_map.csv")
 
-def n_for(df, R):
-    # EXTEND, don't overwrite: the previous run (out/df5) already covers df=5, R~=0.24, N in
-    # {50,75,150,300}; only N=30 is new for that cell. Everything else runs the full N grid.
-    if df == 5 and abs(R - 0.24) < 1e-6:
-        return [30]
-    return FULL_N
-
 # C: design sweep per (df, target R), dispersion FIXED = DISP, noise = the inverted value (across both
-# images). num_subjects x trials x images swept; itmax=1000, precalc_init=True (deterministic init).
+# images). Self-contained on THIS run's GT: every cell runs the full num_subjects grid (no skipping /
+# merging with a prior run - a re-uploaded pilot changes the GT, so old results are not comparable).
+# num_subjects x trials x images swept; itmax=1000, precalc_init=True (deterministic init).
 sweep = MDSSweepConfig(min_ndim=3, max_iters=1000, convergence_tol=1e-6, precalc_init=True)
 plateaus = []
 for _, r in noise_map.iterrows():
     df = int(r.subjects_noise_df); R = float(r.target_test_retest); noise = float(r.subjects_noise_scale)
-    Ns = n_for(df, R)
+    Ns = FULL_N
     tag = f"df{df}_tr{int(round(R * 100)):02d}"
     print(f"\n===== {tag}: noise={noise:.2f}, disp={DISP}, num_subjects={Ns} =====")
     cfg = TaskV3SimulationConfig(
