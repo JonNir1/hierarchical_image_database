@@ -76,7 +76,7 @@ jobs:
         run: pytest SpAM_Task/__tests__/ -v
 
   python-analysis-tests:
-    name: Python analysis/rdms + analysis/utils tests
+    name: Python analysis/rdms + analysis/utils + analysis/prod tests
     runs-on: ubuntu-latest
 
     steps:
@@ -90,16 +90,16 @@ jobs:
 
       - name: Install dependencies
         # Only the subset needed by common.py, semantic_km.py, sensory.py,
-        # analysis.utils.parser/visualize_trials/spearman_r, and their tests
-        # (tqdm is a lightweight, dependency-free progress bar used by both
-        # builders; plotly is needed by visualize_trials's tests); heavy deps
-        # (torch, open_clip, nltk) are not required here -- tests that need
-        # them (e.g. test_assign_wn_synsets.py) skip gracefully via
+        # analysis.utils.parser/visualize_trials/spearman_r, analysis.prod.parser,
+        # and their tests (tqdm is a lightweight, dependency-free progress bar
+        # used by both builders; plotly is needed by visualize_trials's tests);
+        # heavy deps (torch, open_clip, nltk) are not required here -- tests
+        # that need them (e.g. test_assign_wn_synsets.py) skip gracefully via
         # pytest.importorskip when nltk is absent.
         run: pip install pytest numpy scipy pandas Pillow plotly tqdm
 
       - name: Run pytest
-        run: pytest analysis/rdms/__tests__/ analysis/utils/__tests__/ -v
+        run: pytest analysis/rdms/__tests__/ analysis/utils/__tests__/ analysis/prod/__tests__/ -v
 
   python-simulations-tests:
     name: Python SpAM-simulations tests
