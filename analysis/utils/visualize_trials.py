@@ -198,6 +198,24 @@ def visualize_trials(
     n_cols = min(trials_per_row, n)
     n_rows = math.ceil(n / n_cols)
 
+    # render_trial() pads its canvas by thumbnail_px on every side, so the
+    # actual rendered array is this size -- not output_width x output_height.
+    img_w = output_width + thumbnail_px
+    img_h = output_height + thumbnail_px
+
+    # Fixed *absolute* pixel gaps between panels (independent of row/col
+    # count), converted to the fractions make_subplots expects. Sizing each
+    # subplot's pixel domain to exactly img_w x img_h (rather than deriving
+    # it from a fractional spacing of the whole figure) keeps images at
+    # their true rendered size with no aspect-ratio-driven letterboxing,
+    # however many rows a session has.
+    gap_x_px = 20
+    gap_y_px = 50  # also doubles as headroom for the subplot title
+    plot_w = n_cols * img_w + (n_cols - 1) * gap_x_px
+    plot_h = n_rows * img_h + (n_rows - 1) * gap_y_px
+    horizontal_spacing = gap_x_px / plot_w if n_cols > 1 else 0
+    vertical_spacing = gap_y_px / plot_h if n_rows > 1 else 0
+
     # For each pair (positions 2k, 2k+1 in `trials`), annotate its R value
     # beside the row if both trials land in the same row, otherwise fall
     # back to appending it onto the repeat trial's subplot title.
@@ -227,8 +245,8 @@ def visualize_trials(
         rows=n_rows,
         cols=n_cols,
         subplot_titles=subplot_titles,
-        horizontal_spacing=0.03,
-        vertical_spacing=0.08,
+        horizontal_spacing=horizontal_spacing,
+        vertical_spacing=vertical_spacing,
     )
 
     for i, trial in enumerate(trials):
@@ -258,8 +276,7 @@ def visualize_trials(
             align="left",
         )
 
-    panel_w = output_width + 20   # add a small margin per panel
-    panel_h = output_height + 50  # add room for the subplot title
+    margin_l, margin_t, margin_b = 10, 80, 10
     right_margin = 100 if row_pair_r else 10
 
     valid_r_values = [r for r in active_r_values if r is not None]
@@ -268,9 +285,9 @@ def visualize_trials(
         title_text += f"<br>median test-retest R = {statistics.median(valid_r_values):.3f}"
 
     fig.update_layout(
-        height=n_rows * panel_h,
-        width=n_cols * panel_w + right_margin,
-        margin={"l": 10, "r": right_margin, "t": 40, "b": 10},
+        height=plot_h + margin_t + margin_b,
+        width=plot_w + margin_l + right_margin,
+        margin={"l": margin_l, "r": right_margin, "t": margin_t, "b": margin_b},
         title_text=title_text,
     )
     return fig
