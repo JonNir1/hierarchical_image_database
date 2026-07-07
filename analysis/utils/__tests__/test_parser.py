@@ -13,7 +13,7 @@ from analysis.utils.parser import (
     parse_pairwise_distances,
     validate_trial_repeat_image_sets,
 )
-from conftest import write_demographics_csv, write_session_csv
+from pilot_csv_helpers import write_demographics_csv, write_session_csv
 
 
 def _demo_row(**overrides) -> dict:
