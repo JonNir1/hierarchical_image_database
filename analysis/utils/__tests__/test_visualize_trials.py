@@ -38,13 +38,13 @@ def _make_trials_df(
 
 
 def _subplot_titles(fig) -> list[str]:
-    # make_subplots' auto-generated subplot titles are xanchor="center";
-    # our manually added per-pair R annotations are xanchor="left".
-    return [a.text for a in fig.layout.annotations if a.xanchor != "left"]
+    # make_subplots' auto-generated subplot titles are yanchor="bottom";
+    # our manually added per-pair R annotations are yanchor="middle".
+    return [a.text for a in fig.layout.annotations if a.yanchor != "middle"]
 
 
 def _r_annotations(fig) -> list[str]:
-    return [a.text for a in fig.layout.annotations if a.xanchor == "left"]
+    return [a.text for a in fig.layout.annotations if a.yanchor == "middle"]
 
 
 def test_only_repeats_true_selects_pairs_in_presentation_order():
