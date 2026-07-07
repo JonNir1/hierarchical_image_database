@@ -440,23 +440,94 @@ def validate_trial_repeat_image_sets(df_trials: pd.DataFrame) -> pd.DataFrame:
     ])
 
 
+# {task_version: (expected main trials per subject, expected repeated trials per subject)}
+# v1.0/v2.0 predate the whole-trial-repeat mechanism (frac_trials_repeated); v3.x always
+# repeats exactly 3 of its 20 trials (see SpAM_Task/js/trial_generator.js).
+_EXPECTED_TRIAL_COUNTS: dict[float, tuple[int, int]] = {
+    1.0:  (10, 0),
+    2.0:  (10, 0),
+    3.0:  (20, 3),
+    3.06: (20, 3),
+}
+
+
+def validate_trial_counts(df_trials: pd.DataFrame) -> pd.DataFrame:
+    """
+    Check that every session has the expected number of main trials and repeated
+    trials for its task_version (see ``_EXPECTED_TRIAL_COUNTS``).
+
+    Returns one row per (participant_id, session_file), with columns:
+    participant_id, session_file, task_version, n_trials, n_repeats,
+    expected_n_trials, expected_n_repeats, trials_match, repeats_match. A
+    task_version absent from ``_EXPECTED_TRIAL_COUNTS`` gets NaN expected
+    values and both ``*_match`` columns False. Never raises on a mismatch --
+    inspect the ``trials_match``/``repeats_match`` columns, or use
+    ``report[["trials_match", "repeats_match"]].all(axis=None)`` for a single
+    pass/fail check.
+    """
+    required = {"participant_id", "session_file", "task_version", "trial_number", "is_trial_repeat"}
+    missing = required - set(df_trials.columns)
+    if missing:
+        raise KeyError(f"validate_trial_counts: df_trials missing column(s): {sorted(missing)}")
+
+    rows = []
+    for (pid, session, task_version), group in df_trials.groupby(
+        ["participant_id", "session_file", "task_version"]
+    ):
+        n_trials = int(group["trial_number"].nunique())
+        n_repeats = int(group["is_trial_repeat"].astype(bool).sum())
+        expected = _EXPECTED_TRIAL_COUNTS.get(task_version)
+        expected_n_trials, expected_n_repeats = expected if expected is not None else (None, None)
+        rows.append({
+            "participant_id":      pid,
+            "session_file":        session,
+            "task_version":        task_version,
+            "n_trials":            n_trials,
+            "n_repeats":           n_repeats,
+            "expected_n_trials":   expected_n_trials,
+            "expected_n_repeats":  expected_n_repeats,
+            "trials_match":        expected_n_trials is not None and n_trials == expected_n_trials,
+            "repeats_match":       expected_n_repeats is not None and n_repeats == expected_n_repeats,
+        })
+
+    return pd.DataFrame(rows, columns=[
+        "participant_id", "session_file", "task_version", "n_trials", "n_repeats",
+        "expected_n_trials", "expected_n_repeats", "trials_match", "repeats_match",
+    ])
+
+
 if __name__ == "__main__":
     import argparse
 
     ap = argparse.ArgumentParser(
-        description="Validate that trial-repeat pairs (is_trial_repeat / "
-                    "repeat_of_trial_number) share the same image set.",
+        description="Validate trial-repeat image sets (is_trial_repeat / "
+                    "repeat_of_trial_number) and per-version trial/repeat counts.",
     )
     ap.add_argument("data_dir", nargs="?", default="data/pilot",
                      help="Pilot data directory (default: data/pilot)")
     args = ap.parse_args()
 
-    report = validate_trial_repeat_image_sets(load_pilot_data(args.data_dir)["trials"])
-    if report.empty:
+    df_trials = load_pilot_data(args.data_dir)["trials"]
+    failed = False
+
+    image_report = validate_trial_repeat_image_sets(df_trials)
+    if image_report.empty:
         print("No trial repeats found.")
     else:
-        print(report.to_string(index=False))
-        n_bad = int((~report["images_match"]).sum())
-        print(f"\n{len(report)} repeat trial(s) checked, {n_bad} mismatch(es).")
-        if n_bad:
-            raise SystemExit(1)
+        print(image_report.to_string(index=False))
+        n_bad = int((~image_report["images_match"]).sum())
+        print(f"\n{len(image_report)} repeat trial(s) checked, {n_bad} mismatch(es).")
+        failed = failed or bool(n_bad)
+
+    print()
+    count_report = validate_trial_counts(df_trials)
+    bad_counts = count_report[~(count_report["trials_match"] & count_report["repeats_match"])]
+    if bad_counts.empty:
+        print(f"All {len(count_report)} session(s) have the expected trial/repeat counts for their task_version.")
+    else:
+        print(bad_counts.to_string(index=False))
+        print(f"\n{len(bad_counts)} of {len(count_report)} session(s) have unexpected trial/repeat counts.")
+        failed = True
+
+    if failed:
+        raise SystemExit(1)

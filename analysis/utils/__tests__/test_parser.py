@@ -11,6 +11,7 @@ from analysis.utils.parser import (
     _trial_image_set,
     load_pilot_data,
     parse_pairwise_distances,
+    validate_trial_counts,
     validate_trial_repeat_image_sets,
 )
 from pilot_csv_helpers import write_demographics_csv, write_session_csv
@@ -296,3 +297,63 @@ class TestValidateTrialRepeatImageSets:
         df = self._base_df().drop(columns=["pairwise_distances"])
         with pytest.raises(KeyError):
             validate_trial_repeat_image_sets(df)
+
+
+# ---------------------------------------------------------------------------
+# validate_trial_counts
+# ---------------------------------------------------------------------------
+
+class TestValidateTrialCounts:
+    def _session_df(self, participant_id, session_file, task_version, n_trials, n_repeats) -> pd.DataFrame:
+        return pd.DataFrame([
+            {
+                "participant_id": participant_id, "session_file": session_file,
+                "task_version": task_version, "trial_number": n,
+                "is_trial_repeat": n <= n_repeats,
+            }
+            for n in range(1, n_trials + 1)
+        ])
+
+    def test_v1_expects_10_trials_0_repeats(self):
+        df = self._session_df("p1", "s1", 1.0, n_trials=10, n_repeats=0)
+        report = validate_trial_counts(df)
+        row = report.iloc[0]
+        assert (row["expected_n_trials"], row["expected_n_repeats"]) == (10, 0)
+        assert bool(row["trials_match"]) is True
+        assert bool(row["repeats_match"]) is True
+
+    def test_v3_06_expects_20_trials_3_repeats(self):
+        df = self._session_df("p1", "s1", 3.06, n_trials=20, n_repeats=3)
+        report = validate_trial_counts(df)
+        row = report.iloc[0]
+        assert (row["expected_n_trials"], row["expected_n_repeats"]) == (20, 3)
+        assert bool(row["trials_match"]) is True
+        assert bool(row["repeats_match"]) is True
+
+    def test_wrong_trial_count_fails(self):
+        df = self._session_df("p1", "s1", 1.0, n_trials=8, n_repeats=0)
+        report = validate_trial_counts(df)
+        row = report.iloc[0]
+        assert bool(row["trials_match"]) is False
+        assert bool(row["repeats_match"]) is True
+
+    def test_wrong_repeat_count_fails(self):
+        df = self._session_df("p1", "s1", 3.06, n_trials=20, n_repeats=2)
+        report = validate_trial_counts(df)
+        row = report.iloc[0]
+        assert bool(row["trials_match"]) is True
+        assert bool(row["repeats_match"]) is False
+
+    def test_unknown_task_version_is_unmatched(self):
+        df = self._session_df("p1", "s1", 9.9, n_trials=10, n_repeats=0)
+        report = validate_trial_counts(df)
+        row = report.iloc[0]
+        assert pd.isna(row["expected_n_trials"])
+        assert pd.isna(row["expected_n_repeats"])
+        assert bool(row["trials_match"]) is False
+        assert bool(row["repeats_match"]) is False
+
+    def test_missing_required_column_raises_key_error(self):
+        df = self._session_df("p1", "s1", 1.0, n_trials=10, n_repeats=0).drop(columns=["task_version"])
+        with pytest.raises(KeyError):
+            validate_trial_counts(df)
