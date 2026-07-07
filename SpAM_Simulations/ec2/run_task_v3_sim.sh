@@ -22,16 +22,18 @@
 # TWO FLAVORS (CALIBRATE):
 #   * CALIBRATE=false (default) - synthetic ground truth (use_isotropic/decay) and SWEPT, guessed
 #     noise/dispersion grids. This is the block below, unchanged.
-#   * CALIBRATE=true            - fits the simulation to the real pilot, then sweeps the DESIGN grid:
+#   * CALIBRATE=true            - fits the simulation to the real pilot, then sweeps a MULTIVARIATE grid:
 #     it fetches the pilot from $S3_URI/data/pilot and builds the ground truth ONCE by weighted-SMACOF
-#     of the pooled pilot (so decay/n_clusters/use_isotropic are moot). Then, for each per-subject
-#     noise-heterogeneity df in $DF_LIST (default 5,8,10), it refits subjects_noise_scale +
-#     perspective_dispersion to the v3.0 test-retest / between-subject agreement on that fixed GT and
-#     sweeps num_subjects x trials_per_subject x images_per_trial at those FITTED (not swept) values.
-#     Per-df outputs go to out/df<df>/ + mds_store/df<df>/, plus a combined out/plateau_by_df.csv
-#     (required-N per ndim x design). Calibration artifacts (gt_pilot_coords.npy,
-#     calibrated_params_df<df>.json, calibrate.log) go to $S3_URI/calibration/.
-#     (The calibration is also callable programmatically: `SpAM_Simulations.pilot.calibrate_params_from_pilot`.)
+#     of the pooled pilot (so decay/n_clusters/use_isotropic are moot). Perspective dispersion is FIXED
+#     to $DISP (default 0.2, empirical). For each per-subject noise-heterogeneity df in $DF_LIST
+#     (default 3,5) x target within-subject test-retest R in $TR_LIST (default 0.24,0.35,0.5,0.65) it
+#     INVERTS subjects_noise_scale to hit R at reference images=20 (test-retest is perspective-invariant
+#     and only weakly image-dependent, so one noise per (df,R) spans both images), then sweeps
+#     num_subjects x trials_per_subject x images_per_trial. Cells already covered by a previous run
+#     (df=5, R~=0.24, N in {50,75,150,300}) are skipped (only N=30 is new there) - EXTEND, don't
+#     overwrite; point $S3_URI at a fresh prefix and merge with the old run at analysis time.
+#     Outputs: out/df<df>_tr<RR>/ + mds_store/df<df>_tr<RR>/, out/plateau_by_df_tr.csv, and
+#     calibration/noise_map.csv (target vs ACHIEVED R per df - analysis groups by achieved R).
 #
 # Sibling scripts: run_task_v2_4_sim.sh (additive-noise model + both repeat levers),
 # run_task_v2_3_sim.sh, run_task_v0_1_sim.sh. All source the shared prepare_machine.sh (must be
@@ -55,14 +57,18 @@
 #   export S3_URI=s3://<your-bucket>/spam-simulations/task-v3-isotropic
 #   export USE_ISOTROPIC=true            # (default flavor only) or false for the anisotropic spectrum
 #   # export CALIBRATE=true              # opt into the pilot-calibrated flavor instead
-#   # export DF_LIST=5,8,10              # (calibrate flavor) per-subject noise-heterogeneity df values
+#   # export S3_URI=.../task-v3-multivar # (calibrate) use a FRESH prefix to extend, not overwrite
+#   # export DF_LIST=3,5                 # (calibrate) per-subject noise-heterogeneity df values
+#   # export TR_LIST=0.24,0.35,0.5,0.65  # (calibrate) target within-subject test-retest R values
+#   # export DISP=0.2                    # (calibrate) fixed perspective dispersion
 #   bash run_task_v3_sim.sh
 #
 # Default-flavor grid: 4 num_subjects x 3 trials_per_subject x 1 images_per_trial x 2 noise_scale x 1
 # noise_df x 4 frac_trials_repeated x 3 perspective_dispersion = 288 combos x 5 reps x 9 target
-# ndims = ~12960 MDS fits. Calibrate-flavor grid: 3 df x 4 num_subjects x 2 trials x 2 images = 48
-# combos x 5 reps x 13 ndims (min_ndim=3) = ~3120 fits (itmax=1000, precalc_init=True). c7i.4xlarge
-# (16 vCPU) fits both; the calibrate sweep is ~2.5-3 h. REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
+# ndims = ~12960 MDS fits. Calibrate-flavor grid (defaults): 2 df x 4 R x 5 num_subjects x 2 trials x
+# 2 images, minus the skipped df5/R0.24 x {50,75,150,300} = 144 leaf configs x 5 reps x 13 ndims
+# (min_ndim=3) = ~9360 fits (itmax=1000, precalc_init=True) ~9 h on c7i.4xlarge.
+# REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
 
 set -euo pipefail
 
@@ -121,64 +127,89 @@ if [ ${#_csvs[@]} -eq 0 ] || [ ! -f "$PILOT_DIR/stimuli_manifest.json" ]; then
 fi
 mkdir -p calibration
 
-N_JOBS="$N_JOBS" GT_METHOD="$GT_METHOD" REPS="$REPS" DF_LIST="${DF_LIST:-5,8,10}" python - <<'PY' 2>&1 | tee calibration/calibrate.log
+N_JOBS="$N_JOBS" GT_METHOD="$GT_METHOD" REPS="$REPS" DF_LIST="${DF_LIST:-3,5}" \
+  TR_LIST="${TR_LIST:-0.24,0.35,0.5,0.65}" DISP="${DISP:-0.2}" python - <<'PY' 2>&1 | tee calibration/calibrate.log
 import os
 import numpy as np
 import pandas as pd
 from SpAM_Simulations.config import TaskV3SimulationConfig, MDSSweepConfig
 from SpAM_Simulations import pipeline, eval_helpers
-from SpAM_Simulations.pilot import calibrate_params_from_pilot, load_pilot_subjects, build_gt_from_pilot
+from SpAM_Simulations.pilot import (
+    load_pilot_subjects, build_gt_from_pilot, fit_noise_for_test_retest, _simulated_targets,
+)
 
 PILOT, MANIFEST = "data/pilot", "data/pilot/stimuli_manifest.json"
 GT_METHOD = os.environ.get("GT_METHOD", "smacof")
-REPS = int(os.environ.get("REPS", "10"))
 N_JOBS = int(os.environ["N_JOBS"])
-DF_LIST = [int(x) for x in os.environ.get("DF_LIST", "5,8,10").split(",")]
+DF_LIST = [int(x) for x in os.environ["DF_LIST"].split(",")]
+TR_LIST = [float(x) for x in os.environ["TR_LIST"].split(",")]
+DISP = float(os.environ["DISP"])                 # perspective dispersion, FIXED (empirical 0.2)
+INV_REPS = int(os.environ.get("REPS", "8"))      # cohorts averaged in the noise->test-retest inversion
+FULL_N = [30, 50, 75, 150, 300]
 
-# A: build the pooled-pilot GT ONCE (deterministic; identical across noise_df), reused by every fit so
-# the noise_df comparison isn't confounded by GT differences.
+# A: pooled-pilot GT, built ONCE (deterministic; shared by every cell so comparisons aren't confounded).
 allsub = load_pilot_subjects(PILOT, MANIFEST)
 coords, gt_info = build_gt_from_pilot(allsub, method=GT_METHOD)
 np.save("calibration/gt_pilot_coords.npy", coords)
-print(f"[gt] {gt_info['method']} embedding: N={coords.shape[0]}, n_dims={gt_info['n_dims']}, "
+print(f"[gt] {gt_info['method']}: N={coords.shape[0]}, n_dims={gt_info['n_dims']}, "
       f"observed {gt_info['observed_frac']:.1%} of pairs")
 
-# B-D: for each per-subject noise-heterogeneity df, refit (noise, dispersion) to the pilot on that fixed
-# GT, then sweep the DESIGN grid (num_subjects x trials_per_subject x images_per_trial). noise_df must
-# match between calibration and sweep. Plateau is read per (ndim, trials_per_subject, images_per_trial).
+# B: invert subjects_noise_scale for each (df, target test-retest) at REFERENCE images=20. test-retest
+# is perspective-invariant (dispersion irrelevant here) and depends only weakly on images (~0.02), so
+# one noise per (df, R) is applied across both images - matching the previous run's methodology. Targets
+# are nominal; the achieved R (recorded) is what analysis should group by.
+rows = []
+for df in DF_LIST:
+    for R in TR_LIST:
+        noise, ach20 = fit_noise_for_test_retest(coords, R, noise_df=df, images_per_trial=20, reps=INV_REPS)
+        ach25 = _simulated_targets(coords, noise, 0.0, 20, 20, 25, 0.15, INV_REPS, 0, 25, noise_df=df)[0]
+        rows.append(dict(subjects_noise_df=df, target_test_retest=R, subjects_noise_scale=noise,
+                         achieved_tr_img20=ach20, achieved_tr_img25=ach25))
+        print(f"[invert] df={df} targetR={R:.2f} -> noise={noise:.2f} "
+              f"(achieved {ach20:.3f}@img20, {ach25:.3f}@img25)")
+noise_map = pd.DataFrame(rows)
+noise_map.to_csv("calibration/noise_map.csv", index=False)
+print("[save] noise map -> calibration/noise_map.csv")
+
+def n_for(df, R):
+    # EXTEND, don't overwrite: the previous run (out/df5) already covers df=5, R~=0.24, N in
+    # {50,75,150,300}; only N=30 is new for that cell. Everything else runs the full N grid.
+    if df == 5 and abs(R - 0.24) < 1e-6:
+        return [30]
+    return FULL_N
+
+# C: design sweep per (df, target R), dispersion FIXED = DISP, noise = the inverted value (across both
+# images). num_subjects x trials x images swept; itmax=1000, precalc_init=True (deterministic init).
 sweep = MDSSweepConfig(min_ndim=3, max_iters=1000, convergence_tol=1e-6, precalc_init=True)
 plateaus = []
-for df in DF_LIST:
-    print(f"\n===== noise_df={df} =====")
-    _, fit, _ = calibrate_params_from_pilot(
-        PILOT, MANIFEST, gt_method=GT_METHOD, reps=REPS, noise_df=df, gt_coords=coords,
-        save_params=f"calibration/calibrated_params_df{df}.json",
-    )
+for _, r in noise_map.iterrows():
+    df = int(r.subjects_noise_df); R = float(r.target_test_retest); noise = float(r.subjects_noise_scale)
+    Ns = n_for(df, R)
+    tag = f"df{df}_tr{int(round(R * 100)):02d}"
+    print(f"\n===== {tag}: noise={noise:.2f}, disp={DISP}, num_subjects={Ns} =====")
     cfg = TaskV3SimulationConfig(
-        gt_embeddings=coords,
-        num_subjects=[50, 75, 150, 300],
+        gt_embeddings=coords, num_subjects=Ns,
         trials_per_subject=[20, 25], images_per_trial=[20, 25],
-        subjects_noise_scale=[fit["subjects_noise_scale"]], subjects_noise_df=[df],
-        frac_trials_repeated=[0.15], perspective_dispersion=[fit["perspective_dispersion"]],
+        subjects_noise_scale=[noise], subjects_noise_df=[df],
+        frac_trials_repeated=[0.15], perspective_dispersion=[DISP],
         reps=5, seed=42,
     )
-    outd, stored = f"out/df{df}", f"mds_store/df{df}"
+    outd, stored = f"out/{tag}", f"mds_store/{tag}"
     os.makedirs(outd, exist_ok=True)
     sim = pipeline.generate_task_v3_simulation(cfg, verbose=True)
     pipeline.compute_coverage_table(sim).to_csv(f"{outd}/coverage.csv", index=False)
     pipeline.compute_stability_table(sim).to_csv(f"{outd}/stability.csv", index=False)
     store = pipeline.run_mds_sweep(sim, sweep, stored, parallel=True, n_jobs=N_JOBS, verbose=True)
     es = pipeline.compute_embedding_stability(store)
+    es = es.assign(target_test_retest=R, achieved_test_retest=float(r.achieved_tr_img20))
     es.to_csv(f"{outd}/embedding_stability.csv", index=False)
-    pl = eval_helpers.plateau_num_subjects(
-        es, group_by=("ndim", "trials_per_subject", "images_per_trial"))
-    pl.insert(0, "subjects_noise_df", df)
+    pl = eval_helpers.plateau_num_subjects(es, group_by=("ndim", "trials_per_subject", "images_per_trial"))
+    pl.insert(0, "target_test_retest", R); pl.insert(0, "subjects_noise_df", df)
     plateaus.append(pl)
-    print(f"[df={df}] {len(store)} MDS results; plateau per (ndim, design):")
-    print(pl.to_string(index=False))
+    print(f"[{tag}] {len(store)} MDS results")
 
-pd.concat(plateaus, ignore_index=True).to_csv("out/plateau_by_df.csv", index=False)
-print("\n[done] combined plateau table -> out/plateau_by_df.csv")
+pd.concat(plateaus, ignore_index=True).to_csv("out/plateau_by_df_tr.csv", index=False)
+print("\n[done] combined plateau -> out/plateau_by_df_tr.csv; noise map -> calibration/noise_map.csv")
 PY
 
 echo ">> [calibrate] uploading calibration artifacts to $S3_URI/calibration/ ..."
