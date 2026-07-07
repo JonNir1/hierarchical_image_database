@@ -38,9 +38,9 @@ _BG_COLOUR = (250, 250, 250)   # near-white canvas background
 
 def render_trial(
     trial: pd.Series,
-    output_width: int = 900,
-    output_height: int = 680,
-    thumbnail_px: int = 100,
+    output_width: int = 790,
+    output_height: int = 600,
+    thumbnail_px: int = 90,
 ) -> Image.Image:
     """
     Render a single trial's final arrangement as a PIL Image.
@@ -136,9 +136,9 @@ def visualize_trials(
     df_subject: pd.DataFrame,
     only_repeats: bool = False,
     trials_per_row: int = 2,
-    output_width: int = 900,
-    output_height: int = 680,
-    thumbnail_px: int = 100,
+    output_width: int = 790,
+    output_height: int = 600,
+    thumbnail_px: int = 90,
 ) -> go.Figure:
     """
     Render trials for one subject as a Plotly grid figure.
@@ -208,18 +208,21 @@ def visualize_trials(
     # subplot's pixel domain to exactly img_w x img_h (rather than deriving
     # it from a fractional spacing of the whole figure) keeps images at
     # their true rendered size with no aspect-ratio-driven letterboxing,
-    # however many rows a session has.
-    gap_x_px = 20
-    gap_y_px = 50  # also doubles as headroom for the subplot title
+    # however many rows a session has. gap_x_px is wide enough to hold the
+    # "R = ..." annotation between a pair's two columns, so no extra margin
+    # is needed on the outer edges of the figure for it.
+    gap_x_px = 120
+    gap_y_px = 50  # headroom for the subplot title
     plot_w = n_cols * img_w + (n_cols - 1) * gap_x_px
     plot_h = n_rows * img_h + (n_rows - 1) * gap_y_px
     horizontal_spacing = gap_x_px / plot_w if n_cols > 1 else 0
     vertical_spacing = gap_y_px / plot_h if n_rows > 1 else 0
 
     # For each pair (positions 2k, 2k+1 in `trials`), annotate its R value
-    # beside the row if both trials land in the same row, otherwise fall
-    # back to appending it onto the repeat trial's subplot title.
-    row_pair_r: dict[int, float] = {}
+    # in the gap between its two columns if both trials land in the same
+    # row, otherwise fall back to appending it onto the repeat trial's
+    # subplot title.
+    row_pair_r: dict[int, tuple[int, int, float]] = {}
     fallback_title_r: dict[int, float] = {}
     for k, r_value in enumerate(active_r_values):
         if r_value is None:
@@ -227,8 +230,10 @@ def visualize_trials(
         i_orig, i_repeat = 2 * k, 2 * k + 1
         row_orig = i_orig // n_cols + 1
         row_repeat = i_repeat // n_cols + 1
+        col_orig = i_orig % n_cols + 1
+        col_repeat = i_repeat % n_cols + 1
         if row_orig == row_repeat and row_orig not in row_pair_r:
-            row_pair_r[row_orig] = r_value
+            row_pair_r[row_orig] = (col_orig, col_repeat, r_value)
         else:
             fallback_title_r[i_repeat] = r_value
 
@@ -265,19 +270,21 @@ def visualize_trials(
         fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False, row=r, col=c)
         fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False, row=r, col=c)
 
-    for row_number, r_value in row_pair_r.items():
-        y0, y1 = fig.get_subplot(row=row_number, col=1).yaxis.domain
+    for row_number, (col_orig, col_repeat, r_value) in row_pair_r.items():
+        y0, y1 = fig.get_subplot(row=row_number, col=col_orig).yaxis.domain
+        x_orig_end = fig.get_subplot(row=row_number, col=col_orig).xaxis.domain[1]
+        x_repeat_start = fig.get_subplot(row=row_number, col=col_repeat).xaxis.domain[0]
         fig.add_annotation(
-            x=1.0, xref="paper", xanchor="left",
+            x=(x_orig_end + x_repeat_start) / 2, xref="paper", xanchor="center",
             y=(y0 + y1) / 2, yref="paper", yanchor="middle",
             text=f"R = {r_value:.3f}",
             showarrow=False,
             font={"size": 14, "color": "#0c447c"},
-            align="left",
+            align="center",
         )
 
-    margin_l, margin_t, margin_b = 10, 80, 10
-    right_margin = 100 if row_pair_r else 10
+    margin_l = margin_r = margin_b = 10
+    margin_t = 80
 
     valid_r_values = [r for r in active_r_values if r is not None]
     title_text = f"Trial arrangements — participant {df_subject['participant_id'].iloc[0]}"
@@ -286,8 +293,8 @@ def visualize_trials(
 
     fig.update_layout(
         height=plot_h + margin_t + margin_b,
-        width=plot_w + margin_l + right_margin,
-        margin={"l": margin_l, "r": right_margin, "t": margin_t, "b": margin_b},
+        width=plot_w + margin_l + margin_r,
+        margin={"l": margin_l, "r": margin_r, "t": margin_t, "b": margin_b},
         title_text=title_text,
     )
     return fig
