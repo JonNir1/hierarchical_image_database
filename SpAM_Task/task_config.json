@@ -11,6 +11,7 @@
   },
 
   "design": {
+    "stimuli_path":                 "./images/",
     "trials_per_subject":           20,
     "images_per_trial":             20,
     "frac_trials_repeated":         0.15,
@@ -18,16 +19,15 @@
     "min_trial_duration_ms":        60000,
     "min_pairwise_distance_sd":     0.1,
     "min_move_item_ratio":          0.65,
-    "stimuli_path":                 "./images/",
     "min_header_height_px":         120,
     "min_footer_height_px":         100
   },
 
   "catch_trials": {
+    "stimuli_path":       "SpAM_Task/assets/openmoji/",
     "num_trials":         4,
     "images_per_trial":   10,
-    "location_tolerance": 0.15,
-    "stimuli_path":       "SpAM_Task/assets/openmoji/"
+    "location_tolerance": 0.15
   },
 
   "display": {
