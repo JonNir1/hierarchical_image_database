@@ -170,6 +170,8 @@ FULL_N = [30, 50, 75, 150, 300]
 
 # A: pooled-pilot GT, built ONCE (deterministic; shared by every cell so comparisons aren't confounded).
 allsub = load_pilot_subjects(PILOT, MANIFEST)
+print(f"[gt] loaded {len(allsub)} completed sessions; calculating GT embeddings "
+      f"({GT_METHOD}) - this may take a few minutes ...", flush=True)   # SMACOF runs silently in R
 coords, gt_info = build_gt_from_pilot(allsub, method=GT_METHOD)
 np.save("calibration/gt_pilot_coords.npy", coords)
 print(f"[gt] {gt_info['method']}: N={coords.shape[0]}, n_dims={gt_info['n_dims']}, "
