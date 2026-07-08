@@ -116,7 +116,7 @@ class TestMainErrors:
 
     def test_empty_main_root_raises_value_error(self, task_env):
         make_config(task_env)  # main_root="" by default
-        with pytest.raises(ValueError, match="main_root"):
+        with pytest.raises(ValueError, match="stimuli_path"):
             gm.main()
 
     def test_nonexistent_pre_dir_raises(self, task_env):
@@ -151,19 +151,18 @@ class TestMainErrors:
 class TestMainManifestContent:
     def test_all_three_sets_written_when_paths_valid(self, task_env):
         _make_both_dirs(task_env, ["img.png"])
-        for name in ("practice", "catch"):
-            d = task_env / name
-            d.mkdir()
-            (d / "img.png").touch()
+        shared = task_env / "shared"
+        shared.mkdir()
+        (shared / "img.png").touch()
         make_config(
             task_env,
             main_root=str(task_env / "images"),
-            stimuli_practice_path=str(task_env / "practice"),
-            stimuli_catch_path=str(task_env / "catch"),
+            stimuli_path=str(shared),
         )
         gm.main()
         manifest = json.loads((task_env / "stimuli_manifest.json").read_text())
         assert set(manifest.keys()) == {"images", "practice_images", "catch_images"}
+        assert manifest["practice_images"] == manifest["catch_images"]  # same shared dir
 
     def test_no_shine_variant_key_in_manifest(self, task_env):
         _make_both_dirs(task_env, ["img.png"])
@@ -232,12 +231,12 @@ class TestPostShineVerification:
 class TestMainValidation:
     def test_warns_when_too_few_practice_images(self, task_env, capsys):
         _make_both_dirs(task_env, ["img.png"])
-        practice_dir = task_env / "practice"
-        practice_dir.mkdir()
-        (practice_dir / "a.png").touch()  # 1 image, threshold is 8
+        shared_dir = task_env / "shared"
+        shared_dir.mkdir()
+        (shared_dir / "a.png").touch()  # 1 image, practice threshold is 8
         make_config(task_env,
                     main_root=str(task_env / "images"),
-                    stimuli_practice_path=str(practice_dir),
+                    stimuli_path=str(shared_dir),
                     practice_images_per_trial=8)
         gm.main()
         out = capsys.readouterr().out
@@ -246,12 +245,12 @@ class TestMainValidation:
 
     def test_warns_when_too_few_catch_images(self, task_env, capsys):
         _make_both_dirs(task_env, ["img.png"])
-        catch_dir = task_env / "catch"
-        catch_dir.mkdir()
-        (catch_dir / "a.png").touch()  # 1 image, threshold is 20
+        shared_dir = task_env / "shared"
+        shared_dir.mkdir()
+        (shared_dir / "a.png").touch()  # 1 image, catch threshold is 20
         make_config(task_env,
                     main_root=str(task_env / "images"),
-                    stimuli_catch_path=str(catch_dir),
+                    stimuli_path=str(shared_dir),
                     images_per_trial=20)
         gm.main()
         out = capsys.readouterr().out
@@ -260,13 +259,13 @@ class TestMainValidation:
 
     def test_no_practice_warning_when_count_meets_threshold(self, task_env, capsys):
         _make_both_dirs(task_env, ["img.png"])
-        practice_dir = task_env / "practice"
-        practice_dir.mkdir()
+        shared_dir = task_env / "shared"
+        shared_dir.mkdir()
         for i in range(8):
-            (practice_dir / f"img_{i}.png").touch()
+            (shared_dir / f"img_{i}.png").touch()
         make_config(task_env,
                     main_root=str(task_env / "images"),
-                    stimuli_practice_path=str(practice_dir),
+                    stimuli_path=str(shared_dir),
                     practice_images_per_trial=8)
         gm.main()
         out = capsys.readouterr().out
@@ -274,13 +273,13 @@ class TestMainValidation:
 
     def test_no_catch_warning_when_count_meets_threshold(self, task_env, capsys):
         _make_both_dirs(task_env, ["img.png"])
-        catch_dir = task_env / "catch"
-        catch_dir.mkdir()
+        shared_dir = task_env / "shared"
+        shared_dir.mkdir()
         for i in range(20):
-            (catch_dir / f"img_{i}.png").touch()
+            (shared_dir / f"img_{i}.png").touch()
         make_config(task_env,
                     main_root=str(task_env / "images"),
-                    stimuli_catch_path=str(catch_dir),
+                    stimuli_path=str(shared_dir),
                     images_per_trial=20)
         gm.main()
         out = capsys.readouterr().out

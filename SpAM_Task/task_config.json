@@ -1,8 +1,13 @@
 {
-  "stimuli_paths": {
-    "main_root": "./images/",
-    "practice":  "SpAM_Task/assets/openmoji/",
-    "catch":     "SpAM_Task/assets/openmoji/"
+  "deployment": {
+    "version": "3.18",
+    "mode": "production",
+    "debug_shine_variant": "pre"
+  },
+
+  "prolific": {
+    "completion_url":  "https://app.prolific.com/submissions/complete?cc=C12AB9X4",
+    "no_consent_url":  "https://app.prolific.com/submissions/complete?cc=CRP3B455"
   },
 
   "design": {
@@ -10,44 +15,30 @@
     "images_per_trial":             20,
     "frac_trials_repeated":         0.15,
     "min_trial_repeat_separation":  3,
-    "min_trial_duration_ms":        60000
+    "min_trial_duration_ms":        60000,
+    "min_pairwise_distance_sd":     0.1,
+    "min_move_item_ratio":          0.65,
+    "stimuli_path":                 "./images/",
+    "min_header_height_px":         120,
+    "min_footer_height_px":         100
   },
 
   "catch_trials": {
     "num_trials":         4,
     "images_per_trial":   10,
-    "cluster_max_mean":   0.15,
-    "cluster_max_sd":     0.10,
-    "location_tolerance": 0.15
+    "location_tolerance": 0.15,
+    "stimuli_path":       "SpAM_Task/assets/openmoji/"
   },
 
   "display": {
-    "sort_area_width":      1400,
-    "sort_area_height":     900,
     "sort_area_min_width":  900,
     "sort_area_min_height": 550,
-    "sort_area_shape":      "rect",
-    "stim_starts_inside":   true,
-    "column_spread_factor": 1.0,
     "image_size_fraction":  0.08,
     "background_color":     "#808080",
     "text_color":           "#111111",
     "font_family":          "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     "font_size":            "16px",
     "line_height":          1.6
-  },
-
-  "quality_control": {
-    "min_pairwise_distance_sd": 0.1,
-    "min_move_item_ratio":      0.65
-  },
-
-  "deployment": {
-    "version": "3.11",
-    "mode": "production",
-    "debug_shine_variant": "pre",
-    "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=C12AB9X4",
-    "prolific_no_consent_url": "https://app.prolific.com/submissions/complete?cc=CRP3B455"
   },
 
   "consent": {

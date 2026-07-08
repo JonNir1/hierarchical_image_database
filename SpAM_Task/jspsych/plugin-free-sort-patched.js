@@ -2,42 +2,22 @@
 // plugin-free-sort-patched.js
 // Based on jsPsych plugin-free-sort v2.1.0 (https://www.jspsych.org)
 //
-// LOCAL MODIFICATION (SpAM_Task):
-//   Each entry in the `moves` array now includes a `t` field — milliseconds
-//   elapsed since trial start (Math.round(performance.now() - start_time)) —
-//   recorded at pointer-up (drag end). Fields `src`, `x`, and `y` are unchanged.
-//   This is the only deviation from the upstream release.
+// LOCAL MODIFICATIONS (SpAM_Task):
+//   1. Each entry in the `moves` array now includes a `t` field — milliseconds
+//      elapsed since trial start (Math.round(performance.now() - start_time)) —
+//      recorded at pointer-up (drag end). Fields `src`, `x`, and `y` are unchanged.
+//   2. Removed the `stim_starts_inside: false` (staging-column) and
+//      `sort_area_shape: "ellipse"` code paths and their parameters. SpAM_Task
+//      always starts stimuli randomly inside a rectangular sort area (see
+//      CLAUDE.md), so those upstream options are permanently unused here.
 // =============================================================================
 var jsPsychFreeSort = (function (jspsych) {
   'use strict';
 
   var version = "2.1.0";
 
-  function shuffle(array) {
-    let cur_idx = array.length, tmp_val, rand_idx;
-    while (0 !== cur_idx) {
-      rand_idx = Math.floor(Math.random() * cur_idx);
-      cur_idx -= 1;
-      tmp_val = array[cur_idx];
-      array[cur_idx] = array[rand_idx];
-      array[rand_idx] = tmp_val;
-    }
-    return array;
-  }
-  function make_arr(startValue, stopValue, cardinality) {
-    const step = (stopValue - startValue) / (cardinality - 1);
-    let arr = [];
-    for (let i = 0; i < cardinality; i++) {
-      arr.push(startValue + step * i);
-    }
-    return arr;
-  }
-  function inside_ellipse(x, y, x0, y0, rx, ry, square = false) {
-    if (square) {
-      return Math.abs(x - x0) <= rx && Math.abs(y - y0) <= ry;
-    } else {
-      return (x - x0) * (x - x0) * (ry * ry) + (y - y0) * (y - y0) * (rx * rx) <= rx * rx * (ry * ry);
-    }
+  function inside_rect(x, y, x0, y0, rx, ry) {
+    return Math.abs(x - x0) <= rx && Math.abs(y - y0) <= ry;
   }
   function random_coordinate(max_width, max_height) {
     const rnd_x = Math.floor(Math.random() * (max_width - 1));
@@ -82,12 +62,6 @@ var jsPsychFreeSort = (function (jspsych) {
       sort_area_width: {
         type: jspsych.ParameterType.INT,
         default: 700
-      },
-      /** The shape of the sorting area, can be "ellipse" or "square". */
-      sort_area_shape: {
-        type: jspsych.ParameterType.SELECT,
-        options: ["square", "ellipse"],
-        default: "ellipse"
       },
       /** This string can contain HTML markup. The intention is that it can be used to provide a reminder about the action the participant is supposed to take (e.g., which key to press).  */
       prompt: {
@@ -150,22 +124,6 @@ var jsPsychFreeSort = (function (jspsych) {
         type: jspsych.ParameterType.HTML_STRING,
         default: "All items placed. Feel free to reposition items if necessary."
       },
-      /**
-       * If false, the images will be positioned to the left and right of the sort area when the trial loads.
-       * If true, the images will be positioned at random locations inside the sort area when the trial loads.
-       */
-      stim_starts_inside: {
-        type: jspsych.ParameterType.BOOL,
-        default: false
-      },
-      /**
-       * When the images appear outside the sort area, this determines the x-axis spread of the image columns.
-       * Default value is 1. Values less than 1 will compress the image columns along the x-axis, and values greater than 1 will spread them farther apart.
-       */
-      column_spread_factor: {
-        type: jspsych.ParameterType.FLOAT,
-        default: 1
-      }
     },
     data: {
       /**  An array containing objects representing the initial locations of all the stimuli in the sorting area. Each element in the array represents a stimulus, and has a "src", "x", and "y" value. "src" is the image path, and "x" and "y" are the object location. This will be encoded as a JSON string when data is saved using the `.json()` or `.csv()` functions.  */
@@ -236,11 +194,7 @@ var jsPsychFreeSort = (function (jspsych) {
       }
       let html = '<div id="jspsych-free-sort-arena" class="jspsych-free-sort-arena" style="position: relative; width:' + trial.sort_area_width + "px; height:" + trial.sort_area_height + 'px; margin: auto;"</div>';
       html += '<div id="jspsych-free-sort-border" class="jspsych-free-sort-border" style="position: relative; width:' + trial.sort_area_width * 0.94 + "px; height:" + trial.sort_area_height * 0.94 + "px; border:" + border_width + "px solid " + border_color_out + "; margin: auto; line-height: 0em; ";
-      if (trial.sort_area_shape == "ellipse") {
-        html += 'webkit-border-radius: 50%; moz-border-radius: 50%; border-radius: 50%"></div>';
-      } else {
-        html += 'webkit-border-radius: 0%; moz-border-radius: 0%; border-radius: 0%"></div>';
-      }
+      html += 'webkit-border-radius: 0%; moz-border-radius: 0%; border-radius: 0%"></div>';
       const html_text = '<div style="line-height: 1.0em;">' + trial.prompt + '<p id="jspsych-free-sort-counter" style="display: inline-block;">' + get_counter_text(stimuli.length) + "</p></div>";
       if (trial.prompt_location == "below") {
         html += html_text;
@@ -250,49 +204,11 @@ var jsPsychFreeSort = (function (jspsych) {
       html += '<div><button id="jspsych-free-sort-done-btn" class="jspsych-btn" style="margin-top: 5px; margin-bottom: 15px; visibility: hidden;">' + trial.button_label + "</button></div>";
       display_element.innerHTML = html;
       let init_locations = [];
-      if (!trial.stim_starts_inside) {
-        let num_rows = Math.ceil(Math.sqrt(stimuli.length));
-        if (num_rows % 2 != 0) {
-          num_rows = num_rows + 1;
-        }
-        var r_coords = [];
-        var l_coords = [];
-        for (const x of make_arr(0, trial.sort_area_width - trial.stim_width, num_rows)) {
-          for (const y of make_arr(0, trial.sort_area_height - trial.stim_height, num_rows)) {
-            if (x > (trial.sort_area_width - trial.stim_width) * 0.5) {
-              r_coords.push({
-                x: x + trial.sort_area_width * (0.5 * trial.column_spread_factor),
-                y
-              });
-            } else {
-              l_coords.push({
-                x: x - trial.sort_area_width * (0.5 * trial.column_spread_factor),
-                y
-              });
-            }
-          }
-        }
-        while (r_coords.length + l_coords.length < stimuli.length) {
-          r_coords = r_coords.concat(r_coords);
-          l_coords = l_coords.concat(l_coords);
-        }
-        l_coords = l_coords.reverse();
-        stimuli = shuffle(stimuli);
-      }
       for (let i = 0; i < stimuli.length; i++) {
-        var coords;
-        if (trial.stim_starts_inside) {
-          coords = random_coordinate(
-            trial.sort_area_width - trial.stim_width,
-            trial.sort_area_height - trial.stim_height
-          );
-        } else {
-          if (i % 2 == 0) {
-            coords = r_coords[Math.floor(i * 0.5)];
-          } else {
-            coords = l_coords[Math.floor(i * 0.5)];
-          }
-        }
+        const coords = random_coordinate(
+          trial.sort_area_width - trial.stim_width,
+          trial.sort_area_height - trial.stim_height
+        );
         display_element.querySelector("#jspsych-free-sort-arena").innerHTML += '<img src="' + stimuli[i] + '" data-src="' + stimuli[i] + '" class="jspsych-free-sort-draggable" draggable="false" id="jspsych-free-sort-draggable-' + i + '" style="position: absolute; cursor: move; width:' + trial.stim_width + "px; height:" + trial.stim_height + "px; top:" + coords.y + "px; left:" + coords.x + 'px;"></img>';
         init_locations.push({
           src: stimuli[i],
@@ -300,7 +216,7 @@ var jsPsychFreeSort = (function (jspsych) {
           y: coords.y
         });
       }
-      const inside = stimuli.map(() => trial.stim_starts_inside);
+      const inside = stimuli.map(() => true);
       const moves = [];
       let cur_in = false;
       const draggables = Array.prototype.slice.call(
@@ -324,14 +240,13 @@ var jsPsychFreeSort = (function (jspsych) {
           let y = pageY - this.offsetTop - window.scrollY;
           this.style.transform = "scale(" + trial.scale_factor + "," + trial.scale_factor + ")";
           const on_pointer_move = ({ clientX, clientY }) => {
-            cur_in = inside_ellipse(
+            cur_in = inside_rect(
               clientX - x,
               clientY - y,
               trial.sort_area_width * 0.5 - trial.stim_width * 0.5,
               trial.sort_area_height * 0.5 - trial.stim_height * 0.5,
               trial.sort_area_width * 0.5,
-              trial.sort_area_height * 0.5,
-              trial.sort_area_shape == "square"
+              trial.sort_area_height * 0.5
             );
             this.style.top = Math.min(
               trial.sort_area_height - trial.stim_height * 0.5,

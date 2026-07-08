@@ -12,10 +12,10 @@ over 725 object images. Built with jsPsych, hosted on Pavlovia, recruiting via P
 
 **Implemented.** All JS modules, the HTML entry point, and `generate_manifest.py` are complete.
 Before first use:
-1. Populate the three stimulus directories and set their paths in `task_config.json`
+1. Populate the two stimulus directories (main + shared practice/catch) and set their paths in `task_config.json`
 2. Run `python generate_manifest.py` from `SpAM_Task/`
 3. Download jsPsych + plugins into `jspsych/` (see *Running Locally* below)
-4. Set `prolific_completion_url` in `task_config.json` before deploying to Prolific
+4. Set `prolific.completion_url` in `task_config.json` before deploying to Prolific
 
 ---
 
@@ -48,9 +48,10 @@ Stimuli live **outside this directory** at paths specified in `task_config.json`
 ## generate_manifest.py
 
 Browsers cannot list the contents of a server directory, so `task.js` cannot discover which
-image files exist at runtime. `generate_manifest.py` solves this: it reads the three stimulus
-paths from `task_config.json`, recursively scans each directory for `.png` files, and writes
-`stimuli_manifest.json`.
+image files exist at runtime. `generate_manifest.py` solves this: it reads the two stimulus
+paths from `task_config.json` (`design.stimuli_path` for main images, `catch_trials.stimuli_path`
+for practice + catch, scanned twice into separate manifest keys), recursively scans each
+directory for `.png` files, and writes `stimuli_manifest.json`.
 
 **Output format** (keys used by `task.js`):
 ```json
@@ -63,7 +64,8 @@ paths from `task_config.json`, recursively scans each directory for `.png` files
 
 Paths within each list are relative to their respective stimulus directory root, using POSIX
 separators (forward slashes), sorted lexicographically. `task.js` prepends the corresponding
-`config.*_path` value to form browser-resolvable URLs.
+`stimuli_path` value (`design.stimuli_path` for `images`, `catch_trials.stimuli_path` for
+`practice_images`/`catch_images`) to form browser-resolvable URLs.
 
 The script also validates that each set has enough images for the configured thresholds and
 prints warnings for any missing or empty directories. Run it once after any change to the
@@ -97,23 +99,26 @@ them in `<img>` elements automatically. Output per trial: `data.final_locations`
 sort area (origin at top-left).
 
 **Responsive layout**: Sort-area dimensions and stimulus size are computed once at page-load
-time by `computeLayout(window.innerWidth, window.innerHeight, config)` (utils.js). The sort
-area is clamped between `[sort_area_min_width/height, sort_area_width/height]`; stimulus size
-is `round(sortW Ã— image_size_fraction)`. This ensures all images render at the same size
+time by `computeLayout(window.innerWidth, window.innerHeight, config)` (utils.js), before any
+trial DOM exists — there's no DOM-measurement infrastructure, so sizing is purely arithmetic
+against `window.innerWidth/innerHeight`. Width fills `WIDTH_FILL_FRACTION` (0.92) of the
+viewport; height fills the viewport minus fixed pixel budgets reserved for the prompt
+(`design.min_header_height_px`, above the arena) and the counter + Done button
+(`design.min_footer_height_px`, below the arena). Both axes are floor-protected by
+`sort_area_min_width/height` for small screens. Stimulus size is
+`round(sortW Ã— image_size_fraction)`. This ensures all images render at the same size
 regardless of native resolution and the layout degrades gracefully on smaller screens.
 
-**`stim_starts_inside: true` (images initialise inside the sort area)**: When
-`stim_starts_inside: false` the jsPsychFreeSort plugin places images in staging columns
-*outside* the orange arena border â€” the sort area must then share the viewport with those
-columns, limiting `sortW` to at most `viewportW / (1 + column_spread_factor)` (â‰ˆ half the
-viewport at the default `column_spread_factor: 1.0`). This wastes screen space and produces a
-small arena on any normal monitor. The SpAM literature (Goldstone 1994, Bracci et al. 2019)
-arranges stimuli randomly *within* the arena from the start; disengagement is detected via the
-`min_trial_duration_ms` floor and the interleaved catch trials, not by a staging zone. Setting
-`stim_starts_inside: true` allows the arena to fill up to 85% of the viewport width (limited
-only by `sort_area_width`), giving a substantially larger working space. `column_spread_factor`
-is kept at 1.0 in the config for forward-compatibility if this decision is ever revisited, but
-has no effect while `stim_starts_inside` is `true`.
+**Stimuli always start inside a rectangular sort area**: The SpAM literature (Goldstone 1994,
+Bracci et al. 2019) arranges stimuli randomly *within* the arena from the start; disengagement
+is detected via the `min_trial_duration_ms` floor and the interleaved catch trials, not by a
+staging zone. This lets the arena fill most of the viewport width (see "Responsive layout"
+above). **Not supported**: the
+upstream jsPsych free-sort plugin's `stim_starts_inside: false` mode (images begin in staging
+columns outside the arena, roughly halving usable width) and `sort_area_shape: "ellipse"` (a
+round arena). Both are hard-coded off (`STIM_STARTS_INSIDE = true` in `utils.js`) and their
+code paths have been removed from the patched plugin (`plugin-free-sort-patched.js`) — see that
+file's header comment for the full list of deviations from upstream.
 
 **Distance normalisation**: All pairwise Euclidean distances from `final_locations` are divided
 by the sort-area diagonal `âˆš(sortWÂ²+sortHÂ²)` ←’ [0, 1]. Removes dependence on screen resolution
@@ -162,7 +167,7 @@ non-compliant catch trial cannot be submitted at all, making a post-hoc flag red
 
 **Pavlovia saving**: On Pavlovia, the `jsPsychPavlovia` plugin (`jspsych-7-pavlovia-2022.1.1.js`)
 handles data upload; the `finish` command node is appended to the timeline and calls
-`config.prolific_completion_url` on completion. Locally, `saveData()` downloads a filtered CSV
+`config.prolific.completion_url` on completion. Locally, `saveData()` downloads a filtered CSV
 (practice trials excluded) via a temporary `<a>` element.
 
 ---
@@ -173,7 +178,7 @@ handles data upload; the `finish` command node is appended to the timeline and c
 
 | Function | Signature | Description |
 |---|---|---|
-| `computeLayout` | `(viewportW, viewportH, config) ←’ {sortW, sortH, stimSize}` | Clamp sort area to configured min/max, compute stimulus size as fraction of width |
+| `computeLayout` | `(viewportW, viewportH, config) ←’ {sortW, sortH, stimSize}` | Fill viewport width/height (floor-protected by configured min), compute stimulus size as fraction of width |
 | `hashString` | `(str) ←’ number` | djb2 hash ←’ positive 32-bit int; seeds the RNG from PROLIFIC_PID |
 | `seededShuffle` | `(array, rng) ←’ array` | Fisher-Yates shuffle; non-mutating; accepts a seeded RNG function |
 | `computePairwiseDistances` | `(locations, sortW, sortH) ←’ [{src1, src2, distance}]` | All C(k,2) normalised Euclidean distances from `final_locations` |
@@ -212,8 +217,8 @@ Single async `DOMContentLoaded` handler. Execution order:
 | `task_version` | Value of `config.deployment.version` — bump on participant-facing changes |
 | `deployment_mode` | `"debug"`, `"pilot"`, or `"production"` |
 | `shine_variant` | `"pre"` or `"post"` — which SHINE image set was shown |
-| `sort_area_width` | Actual sort arena width in px (clamped to viewport) |
-| `sort_area_height` | Actual sort arena height in px (clamped to viewport) |
+| `sort_area_width` | Actual sort arena width in px (filled to `WIDTH_FILL_FRACTION` of viewport width, floor-protected) |
+| `sort_area_height` | Actual sort arena height in px (filled to viewport height minus reserved header/footer, floor-protected) |
 
 **Trial-level fields** (written in each free-sort `on_finish`):
 
@@ -252,7 +257,7 @@ manifest generator and the browser interpret them the same way.
    ```jsonc
    "shine": { "shine_variant": "pre" }   // or "post"
    ```
-   The `stimuli_paths.main_root` default `"./images/"` resolves the full main directory
+   The `design.stimuli_path` default `"./images/"` resolves the full main directory
    to `<repo>/images/<variant>_shine/`.
 3. Run `python generate_manifest.py` from `SpAM_Task/`. The manifest records the active
    variant; `task.js` cross-checks it against the config and aborts on mismatch.
@@ -267,23 +272,12 @@ manifest generator and the browser interpret them the same way.
 
 ## task_config.json Parameters
 
-task_config.json is organised into seven sections:
-
-### `stimuli_paths`
-
-All paths are relative to the **project root** (where `index.html` lives), so the
-browser and `generate_manifest.py` resolve them identically.
-
-| Key | Default | Description |
-|---|---|---|
-| `main_root` | `"./images/"` | Parent of the per-variant stimulus directories. The main directory resolves to `<main_root>/<shine_variant>_shine/`. |
-| `practice` | `"./SpAM_Task/assets/openmoji/"` | Path to practice trial images |
-| `catch` | `"./SpAM_Task/assets/openmoji/"` | Path to catch trial images |
+task_config.json is organised into six sections:
 
 ### `shine`
 | Key | Default | Description |
 |---|---|---|
-| `shine_variant` | `"pre"` | `"pre"` or `"post"`. Selects which variant subdirectory under `main_root` to load. Recorded in the manifest and in every saved trial row for auditing. |
+| `shine_variant` | `"pre"` | `"pre"` or `"post"`. Selects which variant subdirectory under `design.stimuli_path` to load. Recorded in the manifest and in every saved trial row for auditing. |
 
 ### `design`
 | Key | Default | Description |
@@ -293,31 +287,25 @@ browser and `generate_manifest.py` resolve them identically.
 | `frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are verbatim repeats of an earlier trial (test-retest reliability) — the only mechanism by which an image can appear more than once per subject. `t_distinct = t − round(frac_trials_repeated×t)`. Keep below 0.4, since high values leave little room to satisfy `min_trial_repeat_separation`. |
 | `min_trial_repeat_separation` | 3 | Minimum number of other main-trial slots between an original trial and its verbatim repeat. |
 | `min_trial_duration_ms` | 60000 | UI-enforced minimum on main trials: "Done" button stays disabled for this many ms (countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. Not applied to practice or catch trials. |
+| `min_pairwise_distance_sd` | 0.1 | Minimum SD of normalised distances for a main trial to pass QC |
+| `min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a main trial to pass QC. Flags participants who place few or no images. |
+| `stimuli_path` | `"./images/"` | Parent of the per-variant main-stimulus directories. Resolves to `<stimuli_path>/<shine_variant>_shine/`. Relative to the **project root** (where `index.html` lives), so the browser and `generate_manifest.py` resolve it identically. |
+| `min_header_height_px` | 120 | Minimum viewport height (px) reserved above the sort area for the prompt. Fixed pixel budget, not measured — see `computeLayout`. |
+| `min_footer_height_px` | 100 | Minimum viewport height (px) reserved below the sort area for the counter + Done button. Fixed pixel budget, not measured — see `computeLayout`. |
 
 ### `catch_trials`
 | Key | Default | Description |
 |---|---|---|
 | `num_trials` | 2 | Catch trials interleaved among main trials |
 | `images_per_trial` | 10 | Images shown per catch trial. **Dual-use**: also sizes the (discarded) practice trial — there is no separate `design.practice_images_per_trial` key. |
-| `cluster_max_mean` | 0.15 | Max mean normalised distance for catch trial to pass (cluster tightness) |
-| `cluster_max_sd` | 0.10 | Max SD of normalised distances for catch trial to pass |
-| `location_tolerance` | 0.15 | Max normalised per-image distance to target for catch trial to pass |
+| `location_tolerance` | 0.15 | Max normalised per-image distance to target for catch trial to pass. Live-enforced by `attachCatchCompliance`, not a post-hoc QC flag. |
+| `stimuli_path` | `"SpAM_Task/assets/openmoji/"` | Path to catch trial images. **Dual-use**: also the practice trial's image source — there is no separate practice path. Relative to the **project root**. |
 
 ### `display`
 | Key | Default | Description |
 |---|---|---|
-| `sort_area_width/height` | 1400 / 900 | Maximum sort canvas size in px (actual size also constrained by viewport) |
-| `sort_area_min_width/height` | 900 / 550 | Minimum sort canvas size in px (floor for small screens) |
-| `sort_area_shape` | `"rect"` | `"rect"` or `"ellipse"` â€” shape of the orange sort-area border |
-| `stim_starts_inside` | `true` | If `true`, images are placed randomly inside the arena at trial start (SpAM convention); if `false`, images begin in staging columns outside the arena, limiting arena width to â‰ˆ `viewportW / (1 + column_spread_factor)` |
-| `column_spread_factor` | 1.0 | Controls how far staging columns extend when `stim_starts_inside: false`; ignored when `stim_starts_inside: true` |
+| `sort_area_min_width/height` | 900 / 550 | Minimum sort canvas size in px (floor for small screens; the sort area otherwise fills the viewport — see "Responsive layout" and `design.min_header_height_px`/`min_footer_height_px`) |
 | `image_size_fraction` | 0.08 | Stimulus size as fraction of sort-area width |
-
-### `quality_control`
-| Key | Default | Description |
-|---|---|---|
-| `min_pairwise_distance_sd` | 0.1 | Minimum SD of normalised distances for main trial to pass |
-| `min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a trial to pass, on both main and catch trials. Flags participants who place few or no images. |
 
 ### `deployment`
 | Key | Default | Description |
@@ -325,5 +313,9 @@ browser and `generate_manifest.py` resolve them identically.
 | `version` | `"1.0"` | Task version string — bump on participant-facing changes; written to every output row |
 | `mode` | `"debug"` | `"debug"`: fixed PID + console logging; `"pilot"`: real users, always pre-SHINE; `"production"`: PID-hash cohort assignment |
 | `debug_shine_variant` | `"pre"` | SHINE variant used in `"debug"` mode |
-| `prolific_completion_url` | `""` | Prolific completion redirect URL — set before deploying |
-| `prolific_no_consent_url` | `""` | Prolific no-consent redirect URL — set before deploying |
+
+### `prolific`
+| Key | Default | Description |
+|---|---|---|
+| `completion_url` | `""` | Prolific completion redirect URL — set before deploying |
+| `no_consent_url` | `""` | Prolific no-consent redirect URL — set before deploying |

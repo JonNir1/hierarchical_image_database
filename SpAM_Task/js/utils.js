@@ -68,33 +68,27 @@ function verifyConfig(config) {
 
     // ── Group 1: section presence & key types ────────────────────────────────
     const SCHEMA = {
-        stimuli_paths: {
-            main_root: 'string',
-            practice:  'string',
-            catch:     'string',
-        },
         design: {
             trials_per_subject:          'number',
             images_per_trial:            'number',
             frac_trials_repeated:        'number',
             min_trial_repeat_separation: 'number',
             min_trial_duration_ms:       'number',
+            min_pairwise_distance_sd:    'number',
+            min_move_item_ratio:         'number',
+            stimuli_path:                'string',
+            min_header_height_px:        'number',
+            min_footer_height_px:        'number',
         },
         catch_trials: {
             num_trials:         'number',
             images_per_trial:   'number',
-            cluster_max_mean:   'number',
-            cluster_max_sd:     'number',
             location_tolerance: 'number',
+            stimuli_path:       'string',
         },
         display: {
-            sort_area_width:      'number',
-            sort_area_height:     'number',
             sort_area_min_width:  'number',
             sort_area_min_height: 'number',
-            sort_area_shape:      'string',
-            stim_starts_inside:   'boolean',
-            column_spread_factor: 'number',
             image_size_fraction:  'number',
             background_color:     'string',
             text_color:           'string',
@@ -102,15 +96,13 @@ function verifyConfig(config) {
             font_size:            'string',
             line_height:          'number',
         },
-        quality_control: {
-            min_pairwise_distance_sd: 'number',
-            min_move_item_ratio:      'number',
-        },
         deployment: {
-            mode:                    'string',
-            debug_shine_variant:     'string',
-            prolific_completion_url: 'string',
-            prolific_no_consent_url: 'string',
+            mode:                'string',
+            debug_shine_variant: 'string',
+        },
+        prolific: {
+            completion_url:  'string',
+            no_consent_url:  'string',
         },
         consent: {
             researcher_name:        'string',
@@ -152,27 +144,23 @@ function verifyConfig(config) {
         err('"consent.study_duration_minutes" must be > 0, got ' + config.consent.study_duration_minutes + '.');
 
     // ── Group 2: individual field ranges ─────────────────────────────────────
-    const { design: d, catch_trials: ct, display: disp, quality_control: qc } = config;
+    const { design: d, catch_trials: ct, display: disp } = config;
 
     const t          = d.trials_per_subject;
     const k          = d.images_per_trial;
     const fr         = d.frac_trials_repeated;
     const minRepSep  = d.min_trial_repeat_separation;
     const minDur     = d.min_trial_duration_ms;
+    const minSd      = d.min_pairwise_distance_sd;
+    const moveRatio  = d.min_move_item_ratio;
+    const minHeader  = d.min_header_height_px;
+    const minFooter  = d.min_footer_height_px;
     const nCatch     = ct.num_trials;
     const kCatch     = ct.images_per_trial;
-    const catchMean  = ct.cluster_max_mean;
-    const catchSd    = ct.cluster_max_sd;
     const catchTol   = ct.location_tolerance;
-    const maxW       = disp.sort_area_width;
-    const maxH       = disp.sort_area_height;
     const minW       = disp.sort_area_min_width;
     const minH       = disp.sort_area_min_height;
-    const shape      = disp.sort_area_shape;
-    const spread     = disp.column_spread_factor;
     const frac       = disp.image_size_fraction;
-    const minSd      = qc.min_pairwise_distance_sd;
-    const moveRatio  = qc.min_move_item_ratio;
 
     if (!Number.isInteger(t)        || t < 1)        err('"design.trials_per_subject" must be a positive integer, got ' + t + '.');
     if (!Number.isInteger(k)        || k < 1)        err('"design.images_per_trial" must be a positive integer, got ' + k + '.');
@@ -180,26 +168,21 @@ function verifyConfig(config) {
     if (fr >= 0.4) warn('WARNING: "design.frac_trials_repeated" is ' + fr + ' (>= 0.4). High values leave little room to satisfy "design.min_trial_repeat_separation", raising the risk that insertTrialRepeats fails at runtime. Keep below 0.4 for reliable behaviour.');
     if (!Number.isInteger(minRepSep) || minRepSep < 1) err('"design.min_trial_repeat_separation" must be a positive integer, got ' + minRepSep + '.');
     if (minDur < 0) err('"design.min_trial_duration_ms" must be >= 0, got ' + minDur + '.');
+    if (minSd <= 0 || minSd >= 1)     err('"design.min_pairwise_distance_sd" must be in (0, 1), got ' + minSd      + '.');
+    if (moveRatio <= 0 || moveRatio > 1) err('"design.min_move_item_ratio" must be in (0, 1], got '   + moveRatio  + '.');
+    if (minHeader < 0) err('"design.min_header_height_px" must be >= 0, got ' + minHeader + '.');
+    if (minFooter < 0) err('"design.min_footer_height_px" must be >= 0, got ' + minFooter + '.');
     if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"catch_trials.num_trials" must be a non-negative integer, got ' + nCatch + '.');
     if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
-    if (catchMean <= 0 || catchMean >= 1) err('"catch_trials.cluster_max_mean" must be in (0, 1), got ' + catchMean + '.');
-    if (catchSd   <= 0 || catchSd   >= 1) err('"catch_trials.cluster_max_sd" must be in (0, 1), got '   + catchSd   + '.');
     if (catchTol  <= 0 || catchTol  >= 1) err('"catch_trials.location_tolerance" must be in (0, 1), got '+ catchTol  + '.');
-    if (maxW <= 0) err('"display.sort_area_width" must be > 0, got '        + maxW + '.');
-    if (maxH <= 0) err('"display.sort_area_height" must be > 0, got '       + maxH + '.');
     if (minW <= 0) err('"display.sort_area_min_width" must be > 0, got '    + minW + '.');
     if (minH <= 0) err('"display.sort_area_min_height" must be > 0, got '   + minH + '.');
     if (frac  <= 0 || frac  >= 1) err('"display.image_size_fraction" must be in (0, 1), got ' + frac  + '.');
-    if (spread <= 0)               err('"display.column_spread_factor" must be > 0, got '      + spread + '.');
-    if (shape !== 'rect' && shape !== 'ellipse')
-        err('"display.sort_area_shape" must be "rect" or "ellipse", got "' + shape + '".');
     if (!disp.background_color.trim()) err('"display.background_color" must not be empty.');
     if (!disp.text_color.trim())       err('"display.text_color" must not be empty.');
     if (!disp.font_family.trim())      err('"display.font_family" must not be empty.');
     if (!disp.font_size.trim())        err('"display.font_size" must not be empty.');
     if (disp.line_height <= 0)         err('"display.line_height" must be > 0, got ' + disp.line_height + '.');
-    if (minSd <= 0 || minSd >= 1)     err('"quality_control.min_pairwise_distance_sd" must be in (0, 1), got ' + minSd      + '.');
-    if (moveRatio <= 0 || moveRatio > 1) err('"quality_control.min_move_item_ratio" must be in (0, 1], got '   + moveRatio  + '.');
 
     // 2b. Deployment mode + debug variant
     const mode = config.deployment.mode;
@@ -230,16 +213,12 @@ function verifyConfig(config) {
     if (nCatch >= t)
         err('catch_trials.num_trials (' + nCatch + ') must be < design.trials_per_subject (' + t + '). At least one main trial is required.');
 
-    // 3c. Sort area min <= max
-    if (minW > maxW) err('display.sort_area_min_width ('  + minW + ') must not exceed display.sort_area_width ('  + maxW + ').');
-    if (minH > maxH) err('display.sort_area_min_height (' + minH + ') must not exceed display.sort_area_height (' + maxH + ').');
-
-    // 3d. Single image fits in minimum sort area
+    // 3c. Single image fits in minimum sort area
     const stimSize = Math.round(minW * frac);
     if (stimSize >= minW) err('Computed stimulus size (' + stimSize + 'px) equals or exceeds display.sort_area_min_width ('  + minW + 'px). Reduce display.image_size_fraction.');
     if (stimSize >= minH) err('Computed stimulus size (' + stimSize + 'px) equals or exceeds display.sort_area_min_height (' + minH + 'px). Reduce display.image_size_fraction.');
 
-    // 3e. k images fit in a square grid within the minimum sort area
+    // 3d. k images fit in a square grid within the minimum sort area
     const colsMain = Math.ceil(Math.sqrt(k));
     const rowsMain = Math.ceil(k / colsMain);
     if (colsMain * stimSize > minW)
@@ -261,57 +240,55 @@ function verifyConfig(config) {
 
     // ── Group 4: deployment warnings ─────────────────────────────────────────
     if (mode !== 'debug') {
-        if (!config.stimuli_paths.main_root)               warn('"stimuli_paths.main_root" is empty — no main images will load.');
-        if (!config.stimuli_paths.practice)                warn('"stimuli_paths.practice" is empty — practice trial will have no images.');
-        if (!config.stimuli_paths.catch)                   warn('"stimuli_paths.catch" is empty — catch trials will have no images.');
-        if (!config.deployment.prolific_completion_url)    warn('"deployment.prolific_completion_url" is empty — participants will not be redirected after completion.');
+        if (!config.design.stimuli_path)                   warn('"design.stimuli_path" is empty — no main images will load.');
+        if (!config.catch_trials.stimuli_path)             warn('"catch_trials.stimuli_path" is empty — catch and practice trials will have no images.');
+        if (!config.prolific.completion_url)                warn('"prolific.completion_url" is empty — participants will not be redirected after completion.');
     }
 }
+
+// Images always start at random positions inside the sort area (SpAM convention;
+// see CLAUDE.md "Trial layout"). Staging-column placement (images starting outside
+// the arena) is not supported.
+const STIM_STARTS_INSIDE = true;
+
+// Fraction of viewport width the sort area fills (floor-protected by
+// display.sort_area_min_width). ~90-95% target per design goal.
+const WIDTH_FILL_FRACTION = 0.92;
 
 /**
  * Compute the sort-area dimensions and stimulus size for the current viewport.
  *
- * Sort area is clamped between [min, max] on each axis, where max is the ideal
- * configured size and min is the smallest acceptable size. Image size is expressed
- * as a fraction of the sort-area width so that emoji and dataset images are always
- * rendered at the same size regardless of their native resolution.
- *
- * When `stim_starts_inside` is true, images begin inside the sort area so the canvas
- * can fill 85% of the viewport width. When false, images start in staging columns to
- * the left and right of the sort area; the plugin positions them at
- * ±(sortW × 0.5 × column_spread_factor) from the arena edge, so the total horizontal
- * space needed is sortW × (1 + column_spread_factor). In that case the canvas width is
- * capped at floor(viewportW / (1 + column_spread_factor)) to prevent overflow.
- * Height is clamped to 70% of viewport height to leave room for the prompt, counter,
- * and done button above/below the sort area without triggering a vertical scrollbar.
+ * The sort area fills WIDTH_FILL_FRACTION of viewport width, and all remaining
+ * viewport height after reserving design.min_header_height_px (prompt strip, above
+ * the arena) and design.min_footer_height_px (counter + Done button strip, below
+ * the arena) — there's no DOM-measurement infrastructure here, computeLayout runs
+ * once at page load before any trial DOM exists, so these are fixed pixel budgets,
+ * not measured. Both axes are floor-protected by sort_area_min_width/height for
+ * small screens. Image size is expressed as a fraction of the sort-area width so
+ * that emoji and dataset images are always rendered at the same size regardless of
+ * their native resolution. The plugin's arena border is nested inside the outer
+ * arena div at 94% size (centered), so it's fully contained within sortH -- no
+ * extra pixel budget needed for the border itself.
  *
  * @param {number} viewportW - window.innerWidth
  * @param {number} viewportH - window.innerHeight
- * @param {{ display: {
- *   sort_area_width: number, sort_area_height: number,
- *   sort_area_min_width: number, sort_area_min_height: number,
- *   image_size_fraction: number,
- *   stim_starts_inside: boolean, column_spread_factor: number
- * }}} config
+ * @param {{
+ *   display: { sort_area_min_width: number, sort_area_min_height: number, image_size_fraction: number },
+ *   design:  { min_header_height_px: number, min_footer_height_px: number },
+ * }} config
  * @returns {{ sortW: number, sortH: number, stimSize: number }}
  */
 function computeLayout(viewportW, viewportH, config) {
-    const {
-        sort_area_width, sort_area_height,
-        sort_area_min_width, sort_area_min_height,
-        image_size_fraction, stim_starts_inside, column_spread_factor,
-    } = config.display;
+    const { sort_area_min_width, sort_area_min_height, image_size_fraction } = config.display;
+    const { min_header_height_px, min_footer_height_px } = config.design;
 
-    const maxSortW = stim_starts_inside
-        ? Math.floor(viewportW * 0.85)
-        : Math.floor(viewportW / (1 + column_spread_factor));
     const sortW = Math.max(
         sort_area_min_width,
-        Math.min(maxSortW, sort_area_width),
+        Math.floor(viewportW * WIDTH_FILL_FRACTION),
     );
     const sortH = Math.max(
         sort_area_min_height,
-        Math.min(Math.floor(viewportH * 0.70), sort_area_height),
+        viewportH - min_header_height_px - min_footer_height_px,
     );
     const stimSize = Math.round(sortW * image_size_fraction);
     return { sortW, sortH, stimSize };
@@ -473,11 +450,11 @@ function computeSD(values) {
  * @param {number} sd          - Sample SD of normalised pairwise distances
  * @param {number} numMoves    - Total drag-end events recorded by the plugin
  * @param {number} numItems    - Number of stimuli in the trial
- * @param {object} config      - Task config (reads quality_control fields)
+ * @param {object} config      - Task config (reads design.min_pairwise_distance_sd / design.min_move_item_ratio)
  * @returns {boolean} true if the trial should be flagged
  */
 function computeMainQcFlag(sd, numMoves, numItems, config) {
-    const qc = config.quality_control;
-    const enoughMoves = numMoves >= qc.min_move_item_ratio * numItems;
-    return sd < qc.min_pairwise_distance_sd || !enoughMoves;
+    const d = config.design;
+    const enoughMoves = numMoves >= d.min_move_item_ratio * numItems;
+    return sd < d.min_pairwise_distance_sd || !enoughMoves;
 }

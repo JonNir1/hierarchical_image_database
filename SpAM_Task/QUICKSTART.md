@@ -33,7 +33,7 @@ No Python packages beyond the standard library are needed for `generate_manifest
 
 ## Step 1 — Prepare your images
 
-The task expects three sets of PNG images. Create a directory for each (they can live anywhere
+The task expects two sets of PNG images. Create a directory for each (they can live anywhere
 on your machine; you will point `task_config.json` at them in Step 2).
 
 ### Main stimuli
@@ -44,15 +44,16 @@ full library is covered across participants. Images should:
 - Be similar in size (the task renders them all at the same display size, so wildly different
   aspect ratios will look odd)
 
-### Practice images
-A small set (~8) of familiar, everyday objects used in the unrecorded warm-up trial. These
-should be simple and unambiguous — participants use them to learn the drag interface before
-real data collection begins. **These images are not part of your dataset** and are discarded.
+### Practice + catch images
+One shared directory, used for two purposes:
+- **Practice**: a small unrecorded warm-up trial (~8 images) using familiar, everyday objects —
+  participants use it to learn the drag interface before real data collection begins. **These
+  images are not part of your dataset** and the trial is discarded.
+- **Catch**: attention checks (~20 or more images) used to check whether participants are
+  following instructions. On catch trials, participants are told to place all images in a
+  specific region of the screen (e.g. "top left corner"). Responses that ignore the instruction
+  are flagged.
 
-### Catch images
-A separate set of images (~20 or more) used to check whether participants are following
-instructions. On catch trials, participants are told to place all images in a specific region
-of the screen (e.g. "top left corner"). Responses that ignore the instruction are flagged.
 Use images that are distinctive enough that participants have no reason to be confused — simple
 emoji-style or clip-art images work well.
 
@@ -65,24 +66,25 @@ change are:
 
 ```json
 {
-  "stimuli_paths": {
-    "main_root": "../images/",
-    "practice":  "./assets/openmoji/",
-    "catch":     "./assets/openmoji/"
+  "design": {
+    "stimuli_path": "../images/"
+  },
+  "catch_trials": {
+    "stimuli_path": "./assets/openmoji/"
   },
   "shine": {
     "shine_variant": "pre"
   },
-  "deployment": {
-    "prolific_completion_url": ""
+  "prolific": {
+    "completion_url": ""
   }
 }
 ```
 
 **Dataset layout.** Main stimuli live at `<repo>/images/{pre_shine,post_shine}/` (one
 directory per SHINE-preprocessing variant). The main directory is resolved as
-`<main_root>/<shine_variant>_shine/`. `main_root` is relative to `SpAM_Task/`, so the
-default `"../images/"` reaches `<repo>/images/`.
+`<stimuli_path>/<shine_variant>_shine/`. `design.stimuli_path` is relative to `SpAM_Task/`, so
+the default `"../images/"` reaches `<repo>/images/`.
 
 The dataset (725 images per variant) is tracked on both `main` (GitHub) and
 `pavlovia_deploy` (Pavlovia gitlab) — no force-add required. Source datasets used
@@ -97,7 +99,7 @@ junctions or symlinks are required.
 `"post"` to load SHINE-preprocessed images. The selected variant is recorded in the
 manifest and in every saved trial row.
 
-**Leave `prolific_completion_url` empty for now** — you will fill it in after creating your
+**Leave `prolific.completion_url` empty for now** — you will fill it in after creating your
 Prolific study (Step 6).
 
 ### Tuning the trial design
@@ -112,6 +114,8 @@ is substantially smaller or larger, adjust accordingly.
 | `design.frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are exact verbatim repeats of an earlier trial (same k images, reshuffled order), for test-retest reliability of the arrangement itself — the only way an image can appear more than once per subject. `t_distinct = t − round(frac_trials_repeated × t)` is the number of genuinely distinct combinations generated; the remaining slots replay earlier ones. Keep below 0.4 — see `min_trial_repeat_separation` below. |
 | `design.min_trial_repeat_separation` | 3 | Minimum number of other main-trial slots between an original trial and its verbatim repeat (prevents back-to-back identical trials). |
 | `design.min_trial_duration_ms` | 60000 | UI-enforced minimum: "Done" button is disabled for this many ms on main trials (live countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. |
+| `design.min_header_height_px` | 120 | Minimum viewport height (px) reserved above the sort area for the prompt text. Increase if your prompt text wraps to more lines than the default budget expects. |
+| `design.min_footer_height_px` | 100 | Minimum viewport height (px) reserved below the sort area for the counter + Done button (and the catch-trial compliance warning line). |
 | `catch_trials.num_trials` | 2 | How many attention-check trials are interleaved |
 | `catch_trials.images_per_trial` | 10 | Images per catch trial |
 
@@ -125,13 +129,11 @@ is substantially smaller or larger, adjust accordingly.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `quality_control.min_pairwise_distance_sd` | 0.1 | Main trials where all images are piled in one spot are flagged |
-| `quality_control.min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a main trial to pass; flags main trials where the participant barely engaged |
+| `design.min_pairwise_distance_sd` | 0.1 | Main trials where all images are piled in one spot are flagged |
+| `design.min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a main trial to pass; flags main trials where the participant barely engaged |
 | `catch_trials.location_tolerance` | 0.15 | Catch trial: every individual image must be within this normalised distance of the target region. Live-enforced (Done button stays disabled until satisfied), not a post-hoc QC flag. |
 
 Catch trials have no post-hoc `qc_flag` — see "Quality control — catch trials" in `CLAUDE.md`.
-`catch_trials.cluster_max_mean`/`cluster_max_sd` are unused (kept in the schema for possible
-future re-enablement).
 
 A participant is excluded in post-processing if more than 30% of their main trials are flagged.
 You can leave these at their defaults for a pilot run and revisit after inspecting the data.
@@ -160,7 +162,7 @@ catch_images: 22 images in <repo>/SpAM_Task/assets/openmoji
 Manifest written to .../SpAM_Task/stimuli_manifest.json
 ```
 
-The script aborts if `main_root/<variant>_shine/` is missing or empty (main set is
+The script aborts if `stimuli_path/<variant>_shine/` is missing or empty (main set is
 fatal). Practice/catch paths emit warnings on missing content but do not abort.
 
 ---
@@ -249,7 +251,7 @@ following files and place them in `SpAM_Task/jspsych/`:
    completion URL (it looks like `https://app.prolific.com/submissions/complete?cc=XXXXXXXX`).
 4. Paste that completion URL into `task_config.json`:
    ```json
-   "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=XXXXXXXX"
+   "prolific": { "completion_url": "https://app.prolific.com/submissions/complete?cc=XXXXXXXX" }
    ```
 5. Commit the updated `task_config.json` to `main`, push to GitHub, then run
    `bash SpAM_Task/scripts/deploy_pavlovia.sh` (or `.\SpAM_Task\scripts\deploy_pavlovia.ps1` on
@@ -271,7 +273,7 @@ ID. Pass the folder of CSVs to the post-processing pipeline for aggregation and 
 ## Troubleshooting
 
 **Images don't appear / sort area is empty**
-: Check that `stimuli_paths.main_root` and `shine.shine_variant` in `task_config.json`
+: Check that `design.stimuli_path` and `shine.shine_variant` in `task_config.json`
 are correct and that `generate_manifest.py` found your images. Confirm the web server
 is running from the **repo root**, not from `SpAM_Task/` — `index.html` lives at the
 root and references task code via `SpAM_Task/...` paths.
@@ -286,10 +288,10 @@ the URL manually, or set `"debug": true` in `task_config.json`.
 exception un-ignores it). Verify `index.html` is at the project root on Pavlovia
 (Pavlovia auto-detects it there and cannot be configured to look elsewhere).
 
-**Catch trial QC flags everyone**
-: The catch-trial tolerance parameters may be too strict for your screen-size range. Try
-increasing `catch_location_tolerance` (e.g. 0.30) and `catch_cluster_max_mean` (e.g. 0.20),
-then re-run a pilot.
+**Catch trial Done button never enables**
+: `catch_trials.location_tolerance` may be too strict for your screen-size range —
+`attachCatchCompliance` blocks submission until every image is within tolerance of the target.
+Try increasing it (e.g. 0.20-0.30), then re-run a pilot.
 
 **Participant sees the same images as a previous participant**
 : This would only happen if two participants share a Prolific PID. Prolific guarantees unique

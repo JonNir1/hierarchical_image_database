@@ -103,16 +103,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ---------------------------------------------------------------------------
   // 5. Build image URL arrays
   //    Manifest paths are filenames relative to each stimulus directory.
-  //    Main URL = stimuli_paths.main_root + "<variant>_shine/" + filename;
-  //    practice/catch URLs are unchanged.
-  //    All stimuli_paths values are relative to the repo root (where
-  //    index.html lives), so concatenating them with filenames yields
-  //    browser-resolvable URLs.
+  //    Main URL = design.stimuli_path + "<variant>_shine/" + filename.
+  //    Practice trials reuse catch_trials.stimuli_path (no separate practice path).
+  //    Both are relative to the repo root (where index.html lives), so
+  //    concatenating them with filenames yields browser-resolvable URLs.
   // ---------------------------------------------------------------------------
-  const mainPrefix   = config.stimuli_paths.main_root + assignedVariant + '_shine';
-  const imageUrls    = (manifest.images          || []).map(f => mainPrefix                   + '/' + f);
-  const catchUrls    = (manifest.catch_images    || []).map(f => config.stimuli_paths.catch    + '/' + f);
-  const practiceUrls = (manifest.practice_images || []).map(f => config.stimuli_paths.practice + '/' + f);
+  const mainPrefix   = config.design.stimuli_path + assignedVariant + '_shine';
+  const imageUrls    = (manifest.images          || []).map(f => mainPrefix                       + '/' + f);
+  const catchUrls    = (manifest.catch_images    || []).map(f => config.catch_trials.stimuli_path  + '/' + f);
+  const practiceUrls = (manifest.practice_images || []).map(f => config.catch_trials.stimuli_path  + '/' + f);
 
   // ---------------------------------------------------------------------------
   // 5. Responsive layout
@@ -124,12 +123,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.innerWidth, window.innerHeight, config,
   );
   if (mode === 'debug') console.log('[SpAM] Layout (pre-fullscreen):', { sortW, sortH, stimSize });
-
-  // jsPsychFreeSort only recognises 'square' (rectangular) and 'ellipse'.
-  // Our config uses 'rect'/'ellipse'; map here so the inside-check uses the
-  // correct geometry (passing an unrecognised value falls through to ellipse,
-  // which would exclude images placed in the corners of a rectangular arena).
-  const pluginShape = config.display.sort_area_shape === 'ellipse' ? 'ellipse' : 'square';
 
   // ---------------------------------------------------------------------------
   // Catch-trial compliance blocking
@@ -364,8 +357,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (data.response === 1) {
         // Participant declined consent — redirect to Prolific no-consent URL if set,
         // otherwise show a neutral end screen.
-        if (config.deployment.prolific_no_consent_url) {
-          window.location.href = config.deployment.prolific_no_consent_url;
+        if (config.prolific.no_consent_url) {
+          window.location.href = config.prolific.no_consent_url;
         } else {
           jsPsych.abortExperiment(
             '<p style="text-align:center;margin-top:20%;">You have chosen not to participate.<br>You may now close this window.</p>'
@@ -377,7 +370,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // --- Enter fullscreen ---
   // on_finish recomputes layout using the actual fullscreen viewport so that
-  // sort-area dimensions reflect the full screen, not the windowed browser.
+  // sort-area dimensions reflect the full screen, not the windowed browser. Every
+  // subsequent free-sort trial reads sortW/sortH/stimSize via dynamic (function)
+  // parameters (see below), so they pick up this recomputed value at trial-run
+  // time rather than the stale pre-fullscreen value captured at timeline-build time.
   timeline.push({
     type:            jsPsychFullscreen,
     fullscreen_mode: true,
@@ -452,13 +448,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   timeline.push({
     type:            jsPsychFreeSort,
     stimuli:         practiceUrls.slice(0, config.catch_trials.images_per_trial),
-    sort_area_width:  sortW,
-    sort_area_height: sortH,
-    stim_width:        stimSize,
-    stim_height:       stimSize,
-    sort_area_shape:      pluginShape,
-    stim_starts_inside:   config.display.stim_starts_inside,
-    column_spread_factor: config.display.column_spread_factor,
+    // Dynamic (function) parameters: jsPsych evaluates these at trial-run time, not
+    // at timeline-build time, so they pick up the fullscreen-trial's layout recompute.
+    sort_area_width:  () => sortW,
+    sort_area_height: () => sortH,
+    stim_width:        () => stimSize,
+    stim_height:       () => stimSize,
     prompt: '<p style="font-size:0.9em;"><strong>Your task:</strong> Arrange these images by their ' +
         '<strong>visual similarity.</strong><br><br>' +
         'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
@@ -486,13 +481,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   timeline.push({
     type:             jsPsychFreeSort,
     stimuli:          catchUrls.slice(0, config.catch_trials.images_per_trial),
-    sort_area_width:  sortW,
-    sort_area_height: sortH,
-    stim_width:        stimSize,
-    stim_height:       stimSize,
-    sort_area_shape:      pluginShape,
-    stim_starts_inside:   config.display.stim_starts_inside,
-    column_spread_factor: config.display.column_spread_factor,
+    sort_area_width:  () => sortW,
+    sort_area_height: () => sortH,
+    stim_width:        () => stimSize,
+    stim_height:       () => stimSize,
     prompt: '<p style="font-size:0.9em;"><strong>Your task:</strong> Place all images in the ' +
             '<strong>bottom right corner</strong> of the screen.<br><br>' +
             'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
@@ -531,9 +523,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Free-sort trial
     // NOTE: header_text must go in `prompt`, NOT counter_text_*.
     // counter_text_* wraps its content in a <p>; putting a <p> inside a <p> is
-    // invalid HTML, and the browser auto-corrects it by splitting them.  When
-    // stim_starts_inside:true the plugin then immediately overwrites the counter
-    // innerHTML, rendering the text a second time → duplicate instructions.
+    // invalid HTML, and the browser auto-corrects it by splitting them. Since
+    // stimuli always start inside the sort area, the plugin then immediately
+    // overwrites the counter innerHTML, rendering the text a second time →
+    // duplicate instructions.
     const header_text = trial.type === 'catch'
         ? '<p style="font-size:0.9em;"><strong>Your task:</strong> Place all images in the ' +
           '<strong>' + trial.target_location + '</strong> of the screen.</p>'
@@ -542,13 +535,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     timeline.push({
       type:             jsPsychFreeSort,
       stimuli:          trial.images,
-      sort_area_width:  sortW,
-      sort_area_height: sortH,
-      stim_width:        stimSize,
-      stim_height:       stimSize,
-      sort_area_shape:      pluginShape,
-      stim_starts_inside:   config.display.stim_starts_inside,
-      column_spread_factor: config.display.column_spread_factor,
+      sort_area_width:  () => sortW,
+      sort_area_height: () => sortH,
+      stim_width:        () => stimSize,
+      stim_height:       () => stimSize,
       prompt:                   header_text,
       counter_text_unfinished:  '',
       counter_text_finished:    '',
@@ -654,7 +644,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       </div>`,
     choices: ['Finish'],
     on_finish: function() {
-      const completionUrl = config.deployment.prolific_completion_url;
+      const completionUrl = config.prolific.completion_url;
       if (isPavlovia && completionUrl) {
         window.location.href = completionUrl;
       }

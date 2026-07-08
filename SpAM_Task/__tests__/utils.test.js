@@ -93,33 +93,27 @@ describe('canSatisfyTrialRepeatSeparation', () => {
 describe('verifyConfig', () => {
     // Minimal valid config that passes all checks.
     const validConfig = () => ({
-        stimuli_paths: {
-            main_root: 'images',
-            practice:  'practice',
-            catch:     'catch',
-        },
         design: {
             trials_per_subject:          10,
             images_per_trial:            20,
             frac_trials_repeated:        0,
             min_trial_repeat_separation: 2,
             min_trial_duration_ms:       5000,
+            min_pairwise_distance_sd:    0.04,
+            min_move_item_ratio:         0.75,
+            stimuli_path:                'images',
+            min_header_height_px:        100,
+            min_footer_height_px:        80,
         },
         catch_trials: {
             num_trials:         2,
             images_per_trial:   10,
-            cluster_max_mean:   0.15,
-            cluster_max_sd:     0.10,
             location_tolerance: 0.20,
+            stimuli_path:       'catch',
         },
         display: {
-            sort_area_width:      900,
-            sort_area_height:     700,
             sort_area_min_width:  900,
             sort_area_min_height: 700,
-            sort_area_shape:      'rect',
-            stim_starts_inside:   true,
-            column_spread_factor: 0.3,
             image_size_fraction:  0.11,
             background_color:     '#808080',
             text_color:           '#111111',
@@ -127,16 +121,14 @@ describe('verifyConfig', () => {
             font_size:            '16px',
             line_height:          1.6,
         },
-        quality_control: {
-            min_pairwise_distance_sd: 0.04,
-            min_move_item_ratio:      0.75,
-        },
         deployment: {
-            mode:                    'debug',
-            debug_shine_variant:     'pre',
-            prolific_completion_url: 'https://example.com',
-            prolific_no_consent_url: 'https://example.com/no-consent',
-            version:                 '2.2',
+            mode:                'debug',
+            debug_shine_variant: 'pre',
+            version:             '2.2',
+        },
+        prolific: {
+            completion_url:  'https://example.com',
+            no_consent_url:  'https://example.com/no-consent',
         },
         consent: {
             researcher_name:        'Test Researcher',
@@ -199,39 +191,30 @@ describe('verifyConfig', () => {
         );
     });
 
-    it('throws on invalid sort_area_shape', () => {
-        const cfg = validConfig();
-        cfg.display.sort_area_shape = 'square'; // old value, now invalid
-        assert.throws(
-            () => verifyConfig(cfg),
-            { message: /"display\.sort_area_shape" must be "rect" or "ellipse"/ },
-        );
-    });
-
     it('throws on missing min_move_item_ratio', () => {
         const cfg = validConfig();
-        delete cfg.quality_control.min_move_item_ratio;
+        delete cfg.design.min_move_item_ratio;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /missing required key "quality_control\.min_move_item_ratio"/ },
+            { message: /missing required key "design\.min_move_item_ratio"/ },
         );
     });
 
     it('throws when min_move_item_ratio is out of range (> 1)', () => {
         const cfg = validConfig();
-        cfg.quality_control.min_move_item_ratio = 1.5;
+        cfg.design.min_move_item_ratio = 1.5;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"quality_control\.min_move_item_ratio" must be in \(0, 1\]/ },
+            { message: /"design\.min_move_item_ratio" must be in \(0, 1\]/ },
         );
     });
 
     it('throws when min_move_item_ratio is 0', () => {
         const cfg = validConfig();
-        cfg.quality_control.min_move_item_ratio = 0;
+        cfg.design.min_move_item_ratio = 0;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"quality_control\.min_move_item_ratio" must be in \(0, 1\]/ },
+            { message: /"design\.min_move_item_ratio" must be in \(0, 1\]/ },
         );
     });
 
@@ -298,7 +281,7 @@ describe('verifyConfig', () => {
 // ── computeMainQcFlag ─────────────────────────────────────────────────────────
 describe('computeMainQcFlag', () => {
     const cfg = {
-        quality_control: { min_pairwise_distance_sd: 0.04, min_move_item_ratio: 0.75 },
+        design: { min_pairwise_distance_sd: 0.04, min_move_item_ratio: 0.75 },
     };
 
     it('passes when sd is high enough and moves are sufficient', () => {
@@ -332,54 +315,42 @@ describe('computeMainQcFlag', () => {
 
 // ── computeLayout ─────────────────────────────────────────────────────────────
 describe('computeLayout', () => {
-    // Helper: build a minimal config with a display section.
-    const cfg = (maxW, maxH, minW, minH, frac = 0.11, inside = true, spread = 1.0) => ({
+    // Helper: build a minimal config. Sort area fills WIDTH_FILL_FRACTION (0.92) of
+    // viewport width and all remaining viewport height after reserving
+    // min_header_height_px/min_footer_height_px, each floor-protected by
+    // sort_area_min_width/height.
+    const cfg = (minW, minH, headerPx, footerPx, frac = 0.11) => ({
         display: {
-            sort_area_width:      maxW,
-            sort_area_height:     maxH,
             sort_area_min_width:  minW,
             sort_area_min_height: minH,
             image_size_fraction:  frac,
-            stim_starts_inside:   inside,
-            column_spread_factor: spread,
+        },
+        design: {
+            min_header_height_px: headerPx,
+            min_footer_height_px: footerPx,
         },
     });
 
-    // ── stim_starts_inside: true (images start inside — full 85% fraction) ───
-    it('inside=true, large screen — capped at configured max', () => {
-        // floor(1920 * 0.85) = 1632 > max 900  →  capped at 900
-        // floor(1080 * 0.70) = 756  > max 700  →  capped at 700
-        const { sortW, sortH, stimSize } = computeLayout(1920, 1080, cfg(900, 700, 900, 700));
-        assert.equal(sortW,    900);
-        assert.equal(sortH,    700);
-        assert.equal(stimSize,  99); // round(900 * 0.11)
+    it('large screen — fill formula wins over the floor on both axes', () => {
+        // floor(1920 * 0.92) = 1766 > min 900 → 1766
+        // 1080 - 120 - 100 = 860 > min 550 → 860
+        const { sortW, sortH, stimSize } = computeLayout(1920, 1080, cfg(900, 550, 120, 100));
+        assert.equal(sortW,    1766);
+        assert.equal(sortH,     860);
+        assert.equal(stimSize,  194); // round(1766 * 0.11)
     });
 
-    it('inside=true, medium screen — viewport fraction wins between min and max', () => {
-        // floor(1200 * 0.85) = 1020, clamp to [900, 1400] → 1020
-        // floor(900  * 0.70) = 630,  clamp to [600, 900]  → 630
-        const { sortW, sortH } = computeLayout(1200, 900, cfg(1400, 900, 900, 600));
-        assert.equal(sortW, 1020);
-        assert.equal(sortH,  630);
+    it('small screen — floor wins over the fill formula on both axes', () => {
+        // floor(950 * 0.92) = 874 < min 900 → 900
+        // 700 - 120 - 100 = 480 < min 550 → 550
+        const { sortW, sortH } = computeLayout(950, 700, cfg(900, 550, 120, 100));
+        assert.equal(sortW, 900);
+        assert.equal(sortH, 550);
     });
 
-    // ── stim_starts_inside: false (images start outside — viewport / (1+factor)) ──
-    it('inside=false, large screen with factor=0.3 — capped at max', () => {
-        // floor(1920 / 1.3) = 1476 > max 1400  →  capped at 1400
-        const { sortW } = computeLayout(1920, 1080, cfg(1400, 900, 900, 500, 0.11, false, 0.3));
-        assert.equal(sortW, 1400);
-    });
-
-    it('inside=false, medium screen with factor=1.0 — constrained by staging', () => {
-        // floor(1456 / 2.0) = 728, clamp to [650, 1000] → 728
-        const { sortW, stimSize } = computeLayout(1456, 816, cfg(1000, 750, 650, 500, 0.11, false, 1.0));
-        assert.equal(sortW,    728);
-        assert.equal(stimSize,  80); // round(728 * 0.11)
-    });
-
-    it('inside=false, small screen — floor wins even with staging constraint', () => {
-        // floor(1000 / 2.0) = 500 < min 650  →  floored at 650
-        const { sortW } = computeLayout(1000, 800, cfg(1000, 750, 650, 500, 0.11, false, 1.0));
-        assert.equal(sortW, 650);
+    it('header/footer budgets are subtracted from available height', () => {
+        // 1000 - 150 - 130 = 720, well above the 200px floor
+        const { sortH } = computeLayout(1200, 1000, cfg(200, 200, 150, 130));
+        assert.equal(sortH, 720);
     });
 });

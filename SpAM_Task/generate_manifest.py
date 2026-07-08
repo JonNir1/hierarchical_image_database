@@ -8,11 +8,12 @@ CONFIG_PATH = TASK_DIR / "task_config.json"
 MANIFEST_PATH = TASK_DIR / "stimuli_manifest.json"
 
 # Practice and catch sets are variant-agnostic and resolved directly from config.
-# The main set is resolved from stimuli_paths.main_root; both pre_shine/ and
-# post_shine/ subdirectories are scanned and verified to be identical.
+# Both are scanned from catch_trials.stimuli_path -- practice has no separate path,
+# it reuses the catch directory. The main set is resolved from design.stimuli_path;
+# both pre_shine/ and post_shine/ subdirectories are scanned and verified to be identical.
 SECONDARY_SETS = [
-    ("stimuli_paths", "practice", "practice_images"),
-    ("stimuli_paths", "catch",    "catch_images"),
+    ("catch_trials", "stimuli_path", "practice_images"),
+    ("catch_trials", "stimuli_path", "catch_images"),
 ]
 
 
@@ -30,13 +31,13 @@ def resolve_path(raw: str) -> Path:
 
 
 def resolve_main_root(config: dict) -> Path:
-    """Resolve the main-stimulus root directory from stimuli_paths.main_root.
+    """Resolve the main-stimulus root directory from design.stimuli_path.
 
     Returns the resolved Path. Raises ValueError if the key is missing or empty.
     """
-    main_root_raw = config.get("stimuli_paths", {}).get("main_root", "")
+    main_root_raw = config.get("design", {}).get("stimuli_path", "")
     if not main_root_raw:
-        raise ValueError("'stimuli_paths.main_root' is missing or empty in task_config.json")
+        raise ValueError("'design.stimuli_path' is missing or empty in task_config.json")
     return resolve_path(main_root_raw)
 
 
@@ -88,7 +89,7 @@ def main() -> None:
     if not pre_dir.exists():
         raise FileNotFoundError(
             f"Main stimulus directory does not exist: {pre_dir}\n"
-            f"Populate pre_shine/ under stimuli_paths.main_root and retry."
+            f"Populate pre_shine/ under design.stimuli_path and retry."
         )
     pre_images = scan_pngs(pre_dir)
     if not pre_images:
@@ -102,7 +103,7 @@ def main() -> None:
     if not post_dir.exists():
         raise FileNotFoundError(
             f"post_shine directory does not exist: {post_dir}\n"
-            f"Populate post_shine/ under stimuli_paths.main_root and retry."
+            f"Populate post_shine/ under design.stimuli_path and retry."
         )
     post_images = scan_pngs(post_dir)
     if set(pre_images) != set(post_images):
