@@ -299,9 +299,7 @@ browser and `generate_manifest.py` resolve them identically.
 |---|---|---|
 | `num_trials` | 2 | Catch trials interleaved among main trials |
 | `images_per_trial` | 10 | Images shown per catch trial. **Dual-use**: also sizes the (discarded) practice trial — there is no separate `design.practice_images_per_trial` key. |
-| `cluster_max_mean` | 0.15 | Max mean normalised distance for catch trial to pass (cluster tightness) |
-| `cluster_max_sd` | 0.10 | Max SD of normalised distances for catch trial to pass |
-| `location_tolerance` | 0.15 | Max normalised per-image distance to target for catch trial to pass |
+| `location_tolerance` | 0.15 | Max normalised per-image distance to target for catch trial to pass. Live-enforced by `attachCatchCompliance`, not a post-hoc QC flag. |
 
 ### `display`
 | Key | Default | Description |

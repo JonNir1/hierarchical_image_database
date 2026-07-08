@@ -130,8 +130,6 @@ is substantially smaller or larger, adjust accordingly.
 | `catch_trials.location_tolerance` | 0.15 | Catch trial: every individual image must be within this normalised distance of the target region. Live-enforced (Done button stays disabled until satisfied), not a post-hoc QC flag. |
 
 Catch trials have no post-hoc `qc_flag` — see "Quality control — catch trials" in `CLAUDE.md`.
-`catch_trials.cluster_max_mean`/`cluster_max_sd` are unused (kept in the schema for possible
-future re-enablement).
 
 A participant is excluded in post-processing if more than 30% of their main trials are flagged.
 You can leave these at their defaults for a pilot run and revisit after inspecting the data.
@@ -286,10 +284,10 @@ the URL manually, or set `"debug": true` in `task_config.json`.
 exception un-ignores it). Verify `index.html` is at the project root on Pavlovia
 (Pavlovia auto-detects it there and cannot be configured to look elsewhere).
 
-**Catch trial QC flags everyone**
-: The catch-trial tolerance parameters may be too strict for your screen-size range. Try
-increasing `catch_location_tolerance` (e.g. 0.30) and `catch_cluster_max_mean` (e.g. 0.20),
-then re-run a pilot.
+**Catch trial Done button never enables**
+: `catch_trials.location_tolerance` may be too strict for your screen-size range —
+`attachCatchCompliance` blocks submission until every image is within tolerance of the target.
+Try increasing it (e.g. 0.20-0.30), then re-run a pilot.
 
 **Participant sees the same images as a previous participant**
 : This would only happen if two participants share a Prolific PID. Prolific guarantees unique

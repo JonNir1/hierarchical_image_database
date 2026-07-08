@@ -16,8 +16,6 @@
   "catch_trials": {
     "num_trials":         4,
     "images_per_trial":   10,
-    "cluster_max_mean":   0.15,
-    "cluster_max_sd":     0.10,
     "location_tolerance": 0.15
   },
 
@@ -43,7 +41,7 @@
   },
 
   "deployment": {
-    "version": "3.11",
+    "version": "3.12",
     "mode": "production",
     "debug_shine_variant": "pre",
     "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=C12AB9X4",

@@ -83,8 +83,6 @@ function verifyConfig(config) {
         catch_trials: {
             num_trials:         'number',
             images_per_trial:   'number',
-            cluster_max_mean:   'number',
-            cluster_max_sd:     'number',
             location_tolerance: 'number',
         },
         display: {
@@ -161,8 +159,6 @@ function verifyConfig(config) {
     const minDur     = d.min_trial_duration_ms;
     const nCatch     = ct.num_trials;
     const kCatch     = ct.images_per_trial;
-    const catchMean  = ct.cluster_max_mean;
-    const catchSd    = ct.cluster_max_sd;
     const catchTol   = ct.location_tolerance;
     const maxW       = disp.sort_area_width;
     const maxH       = disp.sort_area_height;
@@ -182,8 +178,6 @@ function verifyConfig(config) {
     if (minDur < 0) err('"design.min_trial_duration_ms" must be >= 0, got ' + minDur + '.');
     if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"catch_trials.num_trials" must be a non-negative integer, got ' + nCatch + '.');
     if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
-    if (catchMean <= 0 || catchMean >= 1) err('"catch_trials.cluster_max_mean" must be in (0, 1), got ' + catchMean + '.');
-    if (catchSd   <= 0 || catchSd   >= 1) err('"catch_trials.cluster_max_sd" must be in (0, 1), got '   + catchSd   + '.');
     if (catchTol  <= 0 || catchTol  >= 1) err('"catch_trials.location_tolerance" must be in (0, 1), got '+ catchTol  + '.');
     if (maxW <= 0) err('"display.sort_area_width" must be > 0, got '        + maxW + '.');
     if (maxH <= 0) err('"display.sort_area_height" must be > 0, got '       + maxH + '.');

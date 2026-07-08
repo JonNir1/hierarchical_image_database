@@ -108,8 +108,6 @@ describe('verifyConfig', () => {
         catch_trials: {
             num_trials:         2,
             images_per_trial:   10,
-            cluster_max_mean:   0.15,
-            cluster_max_sd:     0.10,
             location_tolerance: 0.20,
         },
         display: {
