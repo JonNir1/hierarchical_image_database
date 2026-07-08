@@ -1,6 +1,6 @@
 {
   "deployment": {
-    "version": "3.18",
+    "version": "3.19",
     "mode": "production",
     "debug_shine_variant": "pre"
   },
@@ -18,9 +18,7 @@
     "min_trial_repeat_separation":  3,
     "min_trial_duration_ms":        60000,
     "min_pairwise_distance_sd":     0.1,
-    "min_move_item_ratio":          0.65,
-    "min_header_height_px":         120,
-    "min_footer_height_px":         100
+    "min_move_item_ratio":          0.65
   },
 
   "catch_trials": {
@@ -33,6 +31,8 @@
   "display": {
     "sort_area_min_width":  900,
     "sort_area_min_height": 550,
+    "min_header_height_px": 60,
+    "min_footer_height_px": 160,
     "image_size_fraction":  0.08,
     "background_color":     "#808080",
     "text_color":           "#111111",

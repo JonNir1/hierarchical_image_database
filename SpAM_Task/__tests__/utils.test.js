@@ -102,8 +102,6 @@ describe('verifyConfig', () => {
             min_pairwise_distance_sd:    0.04,
             min_move_item_ratio:         0.75,
             stimuli_path:                'images',
-            min_header_height_px:        100,
-            min_footer_height_px:        80,
         },
         catch_trials: {
             num_trials:         2,
@@ -114,6 +112,8 @@ describe('verifyConfig', () => {
         display: {
             sort_area_min_width:  900,
             sort_area_min_height: 700,
+            min_header_height_px: 100,
+            min_footer_height_px: 80,
             image_size_fraction:  0.11,
             background_color:     '#808080',
             text_color:           '#111111',
@@ -323,11 +323,9 @@ describe('computeLayout', () => {
         display: {
             sort_area_min_width:  minW,
             sort_area_min_height: minH,
-            image_size_fraction:  frac,
-        },
-        design: {
             min_header_height_px: headerPx,
             min_footer_height_px: footerPx,
+            image_size_fraction:  frac,
         },
     });
 

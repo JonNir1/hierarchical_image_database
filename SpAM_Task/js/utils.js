@@ -77,8 +77,6 @@ function verifyConfig(config) {
             min_pairwise_distance_sd:    'number',
             min_move_item_ratio:         'number',
             stimuli_path:                'string',
-            min_header_height_px:        'number',
-            min_footer_height_px:        'number',
         },
         catch_trials: {
             num_trials:         'number',
@@ -89,6 +87,8 @@ function verifyConfig(config) {
         display: {
             sort_area_min_width:  'number',
             sort_area_min_height: 'number',
+            min_header_height_px: 'number',
+            min_footer_height_px: 'number',
             image_size_fraction:  'number',
             background_color:     'string',
             text_color:           'string',
@@ -153,13 +153,13 @@ function verifyConfig(config) {
     const minDur     = d.min_trial_duration_ms;
     const minSd      = d.min_pairwise_distance_sd;
     const moveRatio  = d.min_move_item_ratio;
-    const minHeader  = d.min_header_height_px;
-    const minFooter  = d.min_footer_height_px;
     const nCatch     = ct.num_trials;
     const kCatch     = ct.images_per_trial;
     const catchTol   = ct.location_tolerance;
     const minW       = disp.sort_area_min_width;
     const minH       = disp.sort_area_min_height;
+    const minHeader  = disp.min_header_height_px;
+    const minFooter  = disp.min_footer_height_px;
     const frac       = disp.image_size_fraction;
 
     if (!Number.isInteger(t)        || t < 1)        err('"design.trials_per_subject" must be a positive integer, got ' + t + '.');
@@ -170,13 +170,13 @@ function verifyConfig(config) {
     if (minDur < 0) err('"design.min_trial_duration_ms" must be >= 0, got ' + minDur + '.');
     if (minSd <= 0 || minSd >= 1)     err('"design.min_pairwise_distance_sd" must be in (0, 1), got ' + minSd      + '.');
     if (moveRatio <= 0 || moveRatio > 1) err('"design.min_move_item_ratio" must be in (0, 1], got '   + moveRatio  + '.');
-    if (minHeader < 0) err('"design.min_header_height_px" must be >= 0, got ' + minHeader + '.');
-    if (minFooter < 0) err('"design.min_footer_height_px" must be >= 0, got ' + minFooter + '.');
     if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"catch_trials.num_trials" must be a non-negative integer, got ' + nCatch + '.');
     if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
     if (catchTol  <= 0 || catchTol  >= 1) err('"catch_trials.location_tolerance" must be in (0, 1), got '+ catchTol  + '.');
     if (minW <= 0) err('"display.sort_area_min_width" must be > 0, got '    + minW + '.');
     if (minH <= 0) err('"display.sort_area_min_height" must be > 0, got '   + minH + '.');
+    if (minHeader < 0) err('"display.min_header_height_px" must be >= 0, got ' + minHeader + '.');
+    if (minFooter < 0) err('"display.min_footer_height_px" must be >= 0, got ' + minFooter + '.');
     if (frac  <= 0 || frac  >= 1) err('"display.image_size_fraction" must be in (0, 1), got ' + frac  + '.');
     if (!disp.background_color.trim()) err('"display.background_color" must not be empty.');
     if (!disp.text_color.trim())       err('"display.text_color" must not be empty.');
@@ -259,8 +259,8 @@ const WIDTH_FILL_FRACTION = 0.92;
  * Compute the sort-area dimensions and stimulus size for the current viewport.
  *
  * The sort area fills WIDTH_FILL_FRACTION of viewport width, and all remaining
- * viewport height after reserving design.min_header_height_px (prompt strip, above
- * the arena) and design.min_footer_height_px (counter + Done button strip, below
+ * viewport height after reserving display.min_header_height_px (prompt strip, above
+ * the arena) and display.min_footer_height_px (counter + Done button strip, below
  * the arena) — there's no DOM-measurement infrastructure here, computeLayout runs
  * once at page load before any trial DOM exists, so these are fixed pixel budgets,
  * not measured. Both axes are floor-protected by sort_area_min_width/height for
@@ -272,15 +272,19 @@ const WIDTH_FILL_FRACTION = 0.92;
  *
  * @param {number} viewportW - window.innerWidth
  * @param {number} viewportH - window.innerHeight
- * @param {{
- *   display: { sort_area_min_width: number, sort_area_min_height: number, image_size_fraction: number },
- *   design:  { min_header_height_px: number, min_footer_height_px: number },
- * }} config
+ * @param {{ display: {
+ *   sort_area_min_width: number, sort_area_min_height: number,
+ *   min_header_height_px: number, min_footer_height_px: number,
+ *   image_size_fraction: number,
+ * } }} config
  * @returns {{ sortW: number, sortH: number, stimSize: number }}
  */
 function computeLayout(viewportW, viewportH, config) {
-    const { sort_area_min_width, sort_area_min_height, image_size_fraction } = config.display;
-    const { min_header_height_px, min_footer_height_px } = config.design;
+    const {
+        sort_area_min_width, sort_area_min_height,
+        min_header_height_px, min_footer_height_px,
+        image_size_fraction,
+    } = config.display;
 
     const sortW = Math.max(
         sort_area_min_width,

@@ -103,8 +103,8 @@ time by `computeLayout(window.innerWidth, window.innerHeight, config)` (utils.js
 trial DOM exists — there's no DOM-measurement infrastructure, so sizing is purely arithmetic
 against `window.innerWidth/innerHeight`. Width fills `WIDTH_FILL_FRACTION` (0.92) of the
 viewport; height fills the viewport minus fixed pixel budgets reserved for the prompt
-(`design.min_header_height_px`, above the arena) and the counter + Done button
-(`design.min_footer_height_px`, below the arena). Both axes are floor-protected by
+(`display.min_header_height_px`, above the arena) and the counter + Done button
+(`display.min_footer_height_px`, below the arena). Both axes are floor-protected by
 `sort_area_min_width/height` for small screens. Stimulus size is
 `round(sortW Ã— image_size_fraction)`. This ensures all images render at the same size
 regardless of native resolution and the layout degrades gracefully on smaller screens.
@@ -290,8 +290,6 @@ task_config.json is organised into six sections:
 | `min_pairwise_distance_sd` | 0.1 | Minimum SD of normalised distances for a main trial to pass QC |
 | `min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a main trial to pass QC. Flags participants who place few or no images. |
 | `stimuli_path` | `"./images/"` | Parent of the per-variant main-stimulus directories. Resolves to `<stimuli_path>/<shine_variant>_shine/`. Relative to the **project root** (where `index.html` lives), so the browser and `generate_manifest.py` resolve it identically. |
-| `min_header_height_px` | 120 | Minimum viewport height (px) reserved above the sort area for the prompt. Fixed pixel budget, not measured — see `computeLayout`. |
-| `min_footer_height_px` | 100 | Minimum viewport height (px) reserved below the sort area for the counter + Done button. Fixed pixel budget, not measured — see `computeLayout`. |
 
 ### `catch_trials`
 | Key | Default | Description |
@@ -304,7 +302,9 @@ task_config.json is organised into six sections:
 ### `display`
 | Key | Default | Description |
 |---|---|---|
-| `sort_area_min_width/height` | 900 / 550 | Minimum sort canvas size in px (floor for small screens; the sort area otherwise fills the viewport — see "Responsive layout" and `design.min_header_height_px`/`min_footer_height_px`) |
+| `sort_area_min_width/height` | 900 / 550 | Minimum sort canvas size in px (floor for small screens; the sort area otherwise fills the viewport — see "Responsive layout" and `min_header_height_px`/`min_footer_height_px` below) |
+| `min_header_height_px` | 60 | Minimum viewport height (px) reserved above the sort area for the prompt. Fixed pixel budget, not measured — see `computeLayout`. |
+| `min_footer_height_px` | 160 | Minimum viewport height (px) reserved below the sort area for the counter + Done button (and, on catch trials, the compliance warning line). Fixed pixel budget, not measured — see `computeLayout`. |
 | `image_size_fraction` | 0.08 | Stimulus size as fraction of sort-area width |
 
 ### `deployment`
