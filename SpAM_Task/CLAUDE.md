@@ -314,7 +314,7 @@ browser and `generate_manifest.py` resolve them identically.
 ### `quality_control`
 | Key | Default | Description |
 |---|---|---|
-| `min_pairwise_distance_sd` | 0.04 | Minimum SD of normalised distances for main trial to pass |
+| `min_pairwise_distance_sd` | 0.1 | Minimum SD of normalised distances for main trial to pass |
 | `min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a trial to pass, on both main and catch trials. Flags participants who place few or no images. |
 
 ### `deployment`

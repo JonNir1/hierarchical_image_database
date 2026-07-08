@@ -125,7 +125,7 @@ is substantially smaller or larger, adjust accordingly.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `quality_control.min_pairwise_distance_sd` | 0.04 | Main trials where all images are piled in one spot are flagged |
+| `quality_control.min_pairwise_distance_sd` | 0.1 | Main trials where all images are piled in one spot are flagged |
 | `quality_control.min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a trial to pass; flags trials (main or catch) where the participant barely engaged |
 | `catch_trials.cluster_max_mean` | 0.15 | Catch trial: images must be clustered (low mean distance) |
 | `catch_trials.cluster_max_sd` | 0.10 | Catch trial: cluster must be tight (low SD) |
