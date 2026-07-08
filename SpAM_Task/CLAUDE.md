@@ -109,6 +109,16 @@ viewport; height fills the viewport minus fixed pixel budgets reserved for the p
 `round(sortW Ã— image_size_fraction)`. This ensures all images render at the same size
 regardless of native resolution and the layout degrades gracefully on smaller screens.
 
+jsPsych's own `jspsych.css` vertically centers `.jspsych-content` via `margin: auto`, which
+would decouple the visible spacing from `min_header_height_px`/`min_footer_height_px` entirely
+(the reserved budgets only shrink `sortH`; they don't create any actual DOM spacing) and can
+visually clip content on both edges when the block overflows the viewport. `index.html`
+overrides this (`.jspsych-content-wrapper { align-items: flex-start; }`,
+`.jspsych-content { margin: 0 auto; }`) to top-anchor the content instead, so the header/footer
+budgets directly determine the visible layout: content stacks from the top, and any
+under-budgeted content only ever overflows at the bottom (predictable, and directly diagnosable
+by widening `min_footer_height_px`).
+
 **Stimuli always start inside a rectangular sort area**: The SpAM literature (Goldstone 1994,
 Bracci et al. 2019) arranges stimuli randomly *within* the arena from the start; disengagement
 is detected via the `min_trial_duration_ms` floor and the interleaved catch trials, not by a

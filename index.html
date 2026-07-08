@@ -5,7 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Spatial Arrangement Task</title>
   <link rel="stylesheet" href="SpAM_Task/jspsych/jspsych.css">
-  <style>body { background-color: #808080; margin: 0; }</style>
+  <style>
+    body { background-color: #808080; margin: 0; }
+    /* jsPsych vertically centers .jspsych-content via `margin: auto` (jspsych.css),
+       which decouples visible spacing from design.min_header_height_px/min_footer_height_px
+       and can visually clip content on both edges when it overflows. Top-anchor instead,
+       so our reserved header/footer budgets directly determine the visible layout: content
+       stacks from the top, and any leftover/deficit only ever shows up at the bottom. */
+    .jspsych-content-wrapper { align-items: flex-start; }
+    .jspsych-content { margin: 0 auto; }
+  </style>
 
   <!-- jsPsych 7 core + plugins (local copies in SpAM_Task/jspsych/) -->
   <script src="SpAM_Task/jspsych/jspsych.js"></script>
