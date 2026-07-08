@@ -115,7 +115,7 @@ is substantially smaller or larger, adjust accordingly.
 | `design.min_trial_repeat_separation` | 3 | Minimum number of other main-trial slots between an original trial and its verbatim repeat (prevents back-to-back identical trials). |
 | `design.min_trial_duration_ms` | 60000 | UI-enforced minimum: "Done" button is disabled for this many ms on main trials (live countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. |
 | `display.min_header_height_px` | 60 | Minimum viewport height (px) reserved above the sort area for the prompt text. Increase if your prompt text wraps to more lines than the default budget expects. |
-| `display.min_footer_height_px` | 160 | Minimum viewport height (px) reserved below the sort area for the counter + Done button (and the catch-trial compliance warning line). Increase if this content is clipped or forces a scrollbar. |
+| `display.min_footer_height_px` | 80 | Minimum viewport height (px) reserved below the sort area for the counter + Done button (and the catch-trial compliance warning line). Increase if this content is clipped or forces a scrollbar. |
 | `catch_trials.num_trials` | 2 | How many attention-check trials are interleaved |
 | `catch_trials.images_per_trial` | 10 | Images per catch trial |
 
