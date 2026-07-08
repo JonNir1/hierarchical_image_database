@@ -89,8 +89,9 @@ export R_LIBS_USER="${R_LIBS_USER:-$HOME/R/library}"
 # Capture EVERYTHING (this script + the sourced prepare_machine.sh + the python blocks) to a log file
 # on the box, independent of how the caller redirects stdout - so `run.log` is never empty and survives
 # an SSH drop. On ANY exit: scrub the pilot data, stamp the end time, and push the log to S3.
-mkdir -p "$WORKDIR"
-LOGFILE="$WORKDIR/run.log"
+# NB: the log MUST live OUTSIDE $WORKDIR - prepare_machine.sh does `rm -rf "$WORKDIR"` for a clean clone,
+# which would unlink a log placed inside it out from under the running tee (leaving an empty run.log).
+LOGFILE="${WORKDIR%/}.log"      # e.g. ~/spam_run.log  (sibling of $WORKDIR, not wiped by the clean-clone rm)
 : > "$LOGFILE"
 exec > >(tee -a "$LOGFILE") 2>&1
 _START_TS=$(date -u +%s)
