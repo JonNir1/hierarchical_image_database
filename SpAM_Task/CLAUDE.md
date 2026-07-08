@@ -178,7 +178,7 @@ handles data upload; the `finish` command node is appended to the timeline and c
 | `seededShuffle` | `(array, rng) ←’ array` | Fisher-Yates shuffle; non-mutating; accepts a seeded RNG function |
 | `computePairwiseDistances` | `(locations, sortW, sortH) ←’ [{src1, src2, distance}]` | All C(k,2) normalised Euclidean distances from `final_locations` |
 | `computeCentroid` | `(locations) ←’ {x, y}` | Mean (x, y) of placed images; used to log centroid position in trial data |
-| `_targetPoint` | `(targetLocation, sortW, sortH) ←’ {x, y}` | Maps a CATCH_LOCATIONS string to an absolute pixel coordinate (15% from edge for corners) |
+| `_targetPoint` | `(targetLocation, sortW, sortH) ←’ {x, y}` | Maps a CATCH_LOCATIONS string to an absolute pixel coordinate (5% from edge for corners) |
 | `allImagesNearTarget` | `(locations, targetLocation, sortW, sortH, tolerance) ←’ boolean` | True iff every image is within `tolerance` (normalised diagonal) of the target point; used for catch-trial blocking and QC |
 | `computeSD` | `(values) ←’ number` | Sample SD (denominator nâˆ’1); returns 0 for < 2 values |
 
@@ -301,7 +301,7 @@ browser and `generate_manifest.py` resolve them identically.
 | `images_per_trial` | 10 | Images shown per catch trial. **Dual-use**: also sizes the (discarded) practice trial — there is no separate `design.practice_images_per_trial` key. |
 | `cluster_max_mean` | 0.15 | Max mean normalised distance for catch trial to pass (cluster tightness) |
 | `cluster_max_sd` | 0.10 | Max SD of normalised distances for catch trial to pass |
-| `location_tolerance` | 0.20 | Max normalised per-image distance to target for catch trial to pass |
+| `location_tolerance` | 0.15 | Max normalised per-image distance to target for catch trial to pass |
 
 ### `display`
 | Key | Default | Description |

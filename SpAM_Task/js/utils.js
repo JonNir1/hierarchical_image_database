@@ -409,7 +409,7 @@ function computeCentroid(locations) {
  * @returns {{x: number, y: number}} Absolute pixel coordinates of target point
  */
 function _targetPoint(targetLocation, sortAreaWidth, sortAreaHeight) {
-    const EDGE = 0.15; // fraction from edge for corner targets
+    const EDGE = 0.05; // fraction from edge for corner targets
     const map  = {
         'center':             { fx: 0.50, fy: 0.50 },
         'top left corner':    { fx: EDGE,      fy: EDGE       },
