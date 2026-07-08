@@ -267,7 +267,7 @@ manifest generator and the browser interpret them the same way.
 
 ## task_config.json Parameters
 
-task_config.json is organised into seven sections:
+task_config.json is organised into six sections:
 
 ### `stimuli_paths`
 
@@ -293,6 +293,8 @@ browser and `generate_manifest.py` resolve them identically.
 | `frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are verbatim repeats of an earlier trial (test-retest reliability) — the only mechanism by which an image can appear more than once per subject. `t_distinct = t − round(frac_trials_repeated×t)`. Keep below 0.4, since high values leave little room to satisfy `min_trial_repeat_separation`. |
 | `min_trial_repeat_separation` | 3 | Minimum number of other main-trial slots between an original trial and its verbatim repeat. |
 | `min_trial_duration_ms` | 60000 | UI-enforced minimum on main trials: "Done" button stays disabled for this many ms (countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. Not applied to practice or catch trials. |
+| `min_pairwise_distance_sd` | 0.1 | Minimum SD of normalised distances for a main trial to pass QC |
+| `min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a main trial to pass QC. Flags participants who place few or no images. |
 
 ### `catch_trials`
 | Key | Default | Description |
@@ -310,12 +312,6 @@ browser and `generate_manifest.py` resolve them identically.
 | `stim_starts_inside` | `true` | If `true`, images are placed randomly inside the arena at trial start (SpAM convention); if `false`, images begin in staging columns outside the arena, limiting arena width to â‰ˆ `viewportW / (1 + column_spread_factor)` |
 | `column_spread_factor` | 1.0 | Controls how far staging columns extend when `stim_starts_inside: false`; ignored when `stim_starts_inside: true` |
 | `image_size_fraction` | 0.08 | Stimulus size as fraction of sort-area width |
-
-### `quality_control`
-| Key | Default | Description |
-|---|---|---|
-| `min_pairwise_distance_sd` | 0.1 | Minimum SD of normalised distances for main trial to pass |
-| `min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a trial to pass, on both main and catch trials. Flags participants who place few or no images. |
 
 ### `deployment`
 | Key | Default | Description |

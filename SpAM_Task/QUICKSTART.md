@@ -125,8 +125,8 @@ is substantially smaller or larger, adjust accordingly.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `quality_control.min_pairwise_distance_sd` | 0.1 | Main trials where all images are piled in one spot are flagged |
-| `quality_control.min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a main trial to pass; flags main trials where the participant barely engaged |
+| `design.min_pairwise_distance_sd` | 0.1 | Main trials where all images are piled in one spot are flagged |
+| `design.min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a main trial to pass; flags main trials where the participant barely engaged |
 | `catch_trials.location_tolerance` | 0.15 | Catch trial: every individual image must be within this normalised distance of the target region. Live-enforced (Done button stays disabled until satisfied), not a post-hoc QC flag. |
 
 Catch trials have no post-hoc `qc_flag` — see "Quality control — catch trials" in `CLAUDE.md`.

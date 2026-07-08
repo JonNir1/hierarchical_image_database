@@ -104,6 +104,8 @@ describe('verifyConfig', () => {
             frac_trials_repeated:        0,
             min_trial_repeat_separation: 2,
             min_trial_duration_ms:       5000,
+            min_pairwise_distance_sd:    0.04,
+            min_move_item_ratio:         0.75,
         },
         catch_trials: {
             num_trials:         2,
@@ -124,10 +126,6 @@ describe('verifyConfig', () => {
             font_family:          'sans-serif',
             font_size:            '16px',
             line_height:          1.6,
-        },
-        quality_control: {
-            min_pairwise_distance_sd: 0.04,
-            min_move_item_ratio:      0.75,
         },
         deployment: {
             mode:                    'debug',
@@ -208,28 +206,28 @@ describe('verifyConfig', () => {
 
     it('throws on missing min_move_item_ratio', () => {
         const cfg = validConfig();
-        delete cfg.quality_control.min_move_item_ratio;
+        delete cfg.design.min_move_item_ratio;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /missing required key "quality_control\.min_move_item_ratio"/ },
+            { message: /missing required key "design\.min_move_item_ratio"/ },
         );
     });
 
     it('throws when min_move_item_ratio is out of range (> 1)', () => {
         const cfg = validConfig();
-        cfg.quality_control.min_move_item_ratio = 1.5;
+        cfg.design.min_move_item_ratio = 1.5;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"quality_control\.min_move_item_ratio" must be in \(0, 1\]/ },
+            { message: /"design\.min_move_item_ratio" must be in \(0, 1\]/ },
         );
     });
 
     it('throws when min_move_item_ratio is 0', () => {
         const cfg = validConfig();
-        cfg.quality_control.min_move_item_ratio = 0;
+        cfg.design.min_move_item_ratio = 0;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"quality_control\.min_move_item_ratio" must be in \(0, 1\]/ },
+            { message: /"design\.min_move_item_ratio" must be in \(0, 1\]/ },
         );
     });
 
@@ -296,7 +294,7 @@ describe('verifyConfig', () => {
 // ── computeMainQcFlag ─────────────────────────────────────────────────────────
 describe('computeMainQcFlag', () => {
     const cfg = {
-        quality_control: { min_pairwise_distance_sd: 0.04, min_move_item_ratio: 0.75 },
+        design: { min_pairwise_distance_sd: 0.04, min_move_item_ratio: 0.75 },
     };
 
     it('passes when sd is high enough and moves are sufficient', () => {

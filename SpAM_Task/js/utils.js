@@ -79,6 +79,8 @@ function verifyConfig(config) {
             frac_trials_repeated:        'number',
             min_trial_repeat_separation: 'number',
             min_trial_duration_ms:       'number',
+            min_pairwise_distance_sd:    'number',
+            min_move_item_ratio:         'number',
         },
         catch_trials: {
             num_trials:         'number',
@@ -99,10 +101,6 @@ function verifyConfig(config) {
             font_family:          'string',
             font_size:            'string',
             line_height:          'number',
-        },
-        quality_control: {
-            min_pairwise_distance_sd: 'number',
-            min_move_item_ratio:      'number',
         },
         deployment: {
             mode:                    'string',
@@ -150,13 +148,15 @@ function verifyConfig(config) {
         err('"consent.study_duration_minutes" must be > 0, got ' + config.consent.study_duration_minutes + '.');
 
     // ── Group 2: individual field ranges ─────────────────────────────────────
-    const { design: d, catch_trials: ct, display: disp, quality_control: qc } = config;
+    const { design: d, catch_trials: ct, display: disp } = config;
 
     const t          = d.trials_per_subject;
     const k          = d.images_per_trial;
     const fr         = d.frac_trials_repeated;
     const minRepSep  = d.min_trial_repeat_separation;
     const minDur     = d.min_trial_duration_ms;
+    const minSd      = d.min_pairwise_distance_sd;
+    const moveRatio  = d.min_move_item_ratio;
     const nCatch     = ct.num_trials;
     const kCatch     = ct.images_per_trial;
     const catchTol   = ct.location_tolerance;
@@ -167,8 +167,6 @@ function verifyConfig(config) {
     const shape      = disp.sort_area_shape;
     const spread     = disp.column_spread_factor;
     const frac       = disp.image_size_fraction;
-    const minSd      = qc.min_pairwise_distance_sd;
-    const moveRatio  = qc.min_move_item_ratio;
 
     if (!Number.isInteger(t)        || t < 1)        err('"design.trials_per_subject" must be a positive integer, got ' + t + '.');
     if (!Number.isInteger(k)        || k < 1)        err('"design.images_per_trial" must be a positive integer, got ' + k + '.');
@@ -176,6 +174,8 @@ function verifyConfig(config) {
     if (fr >= 0.4) warn('WARNING: "design.frac_trials_repeated" is ' + fr + ' (>= 0.4). High values leave little room to satisfy "design.min_trial_repeat_separation", raising the risk that insertTrialRepeats fails at runtime. Keep below 0.4 for reliable behaviour.');
     if (!Number.isInteger(minRepSep) || minRepSep < 1) err('"design.min_trial_repeat_separation" must be a positive integer, got ' + minRepSep + '.');
     if (minDur < 0) err('"design.min_trial_duration_ms" must be >= 0, got ' + minDur + '.');
+    if (minSd <= 0 || minSd >= 1)     err('"design.min_pairwise_distance_sd" must be in (0, 1), got ' + minSd      + '.');
+    if (moveRatio <= 0 || moveRatio > 1) err('"design.min_move_item_ratio" must be in (0, 1], got '   + moveRatio  + '.');
     if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"catch_trials.num_trials" must be a non-negative integer, got ' + nCatch + '.');
     if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
     if (catchTol  <= 0 || catchTol  >= 1) err('"catch_trials.location_tolerance" must be in (0, 1), got '+ catchTol  + '.');
@@ -192,8 +192,6 @@ function verifyConfig(config) {
     if (!disp.font_family.trim())      err('"display.font_family" must not be empty.');
     if (!disp.font_size.trim())        err('"display.font_size" must not be empty.');
     if (disp.line_height <= 0)         err('"display.line_height" must be > 0, got ' + disp.line_height + '.');
-    if (minSd <= 0 || minSd >= 1)     err('"quality_control.min_pairwise_distance_sd" must be in (0, 1), got ' + minSd      + '.');
-    if (moveRatio <= 0 || moveRatio > 1) err('"quality_control.min_move_item_ratio" must be in (0, 1], got '   + moveRatio  + '.');
 
     // 2b. Deployment mode + debug variant
     const mode = config.deployment.mode;
@@ -467,11 +465,11 @@ function computeSD(values) {
  * @param {number} sd          - Sample SD of normalised pairwise distances
  * @param {number} numMoves    - Total drag-end events recorded by the plugin
  * @param {number} numItems    - Number of stimuli in the trial
- * @param {object} config      - Task config (reads quality_control fields)
+ * @param {object} config      - Task config (reads design.min_pairwise_distance_sd / design.min_move_item_ratio)
  * @returns {boolean} true if the trial should be flagged
  */
 function computeMainQcFlag(sd, numMoves, numItems, config) {
-    const qc = config.quality_control;
-    const enoughMoves = numMoves >= qc.min_move_item_ratio * numItems;
-    return sd < qc.min_pairwise_distance_sd || !enoughMoves;
+    const d = config.design;
+    const enoughMoves = numMoves >= d.min_move_item_ratio * numItems;
+    return sd < d.min_pairwise_distance_sd || !enoughMoves;
 }
