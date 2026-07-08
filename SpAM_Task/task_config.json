@@ -39,11 +39,11 @@
 
   "quality_control": {
     "min_pairwise_distance_sd": 0.04,
-    "min_move_item_ratio":      0.7
+    "min_move_item_ratio":      0.65
   },
 
   "deployment": {
-    "version": "3.07",
+    "version": "3.08",
     "mode": "production",
     "debug_shine_variant": "pre",
     "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=C12AB9X4",
