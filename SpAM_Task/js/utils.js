@@ -77,6 +77,8 @@ function verifyConfig(config) {
             min_pairwise_distance_sd:    'number',
             min_move_item_ratio:         'number',
             stimuli_path:                'string',
+            min_header_height_px:        'number',
+            min_footer_height_px:        'number',
         },
         catch_trials: {
             num_trials:         'number',
@@ -85,8 +87,6 @@ function verifyConfig(config) {
             stimuli_path:       'string',
         },
         display: {
-            sort_area_width:      'number',
-            sort_area_height:     'number',
             sort_area_min_width:  'number',
             sort_area_min_height: 'number',
             image_size_fraction:  'number',
@@ -153,11 +153,11 @@ function verifyConfig(config) {
     const minDur     = d.min_trial_duration_ms;
     const minSd      = d.min_pairwise_distance_sd;
     const moveRatio  = d.min_move_item_ratio;
+    const minHeader  = d.min_header_height_px;
+    const minFooter  = d.min_footer_height_px;
     const nCatch     = ct.num_trials;
     const kCatch     = ct.images_per_trial;
     const catchTol   = ct.location_tolerance;
-    const maxW       = disp.sort_area_width;
-    const maxH       = disp.sort_area_height;
     const minW       = disp.sort_area_min_width;
     const minH       = disp.sort_area_min_height;
     const frac       = disp.image_size_fraction;
@@ -170,11 +170,11 @@ function verifyConfig(config) {
     if (minDur < 0) err('"design.min_trial_duration_ms" must be >= 0, got ' + minDur + '.');
     if (minSd <= 0 || minSd >= 1)     err('"design.min_pairwise_distance_sd" must be in (0, 1), got ' + minSd      + '.');
     if (moveRatio <= 0 || moveRatio > 1) err('"design.min_move_item_ratio" must be in (0, 1], got '   + moveRatio  + '.');
+    if (minHeader < 0) err('"design.min_header_height_px" must be >= 0, got ' + minHeader + '.');
+    if (minFooter < 0) err('"design.min_footer_height_px" must be >= 0, got ' + minFooter + '.');
     if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"catch_trials.num_trials" must be a non-negative integer, got ' + nCatch + '.');
     if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
     if (catchTol  <= 0 || catchTol  >= 1) err('"catch_trials.location_tolerance" must be in (0, 1), got '+ catchTol  + '.');
-    if (maxW <= 0) err('"display.sort_area_width" must be > 0, got '        + maxW + '.');
-    if (maxH <= 0) err('"display.sort_area_height" must be > 0, got '       + maxH + '.');
     if (minW <= 0) err('"display.sort_area_min_width" must be > 0, got '    + minW + '.');
     if (minH <= 0) err('"display.sort_area_min_height" must be > 0, got '   + minH + '.');
     if (frac  <= 0 || frac  >= 1) err('"display.image_size_fraction" must be in (0, 1), got ' + frac  + '.');
@@ -213,16 +213,12 @@ function verifyConfig(config) {
     if (nCatch >= t)
         err('catch_trials.num_trials (' + nCatch + ') must be < design.trials_per_subject (' + t + '). At least one main trial is required.');
 
-    // 3c. Sort area min <= max
-    if (minW > maxW) err('display.sort_area_min_width ('  + minW + ') must not exceed display.sort_area_width ('  + maxW + ').');
-    if (minH > maxH) err('display.sort_area_min_height (' + minH + ') must not exceed display.sort_area_height (' + maxH + ').');
-
-    // 3d. Single image fits in minimum sort area
+    // 3c. Single image fits in minimum sort area
     const stimSize = Math.round(minW * frac);
     if (stimSize >= minW) err('Computed stimulus size (' + stimSize + 'px) equals or exceeds display.sort_area_min_width ('  + minW + 'px). Reduce display.image_size_fraction.');
     if (stimSize >= minH) err('Computed stimulus size (' + stimSize + 'px) equals or exceeds display.sort_area_min_height (' + minH + 'px). Reduce display.image_size_fraction.');
 
-    // 3e. k images fit in a square grid within the minimum sort area
+    // 3d. k images fit in a square grid within the minimum sort area
     const colsMain = Math.ceil(Math.sqrt(k));
     const rowsMain = Math.ceil(k / colsMain);
     if (colsMain * stimSize > minW)
@@ -255,43 +251,44 @@ function verifyConfig(config) {
 // the arena) is not supported.
 const STIM_STARTS_INSIDE = true;
 
+// Fraction of viewport width the sort area fills (floor-protected by
+// display.sort_area_min_width). ~90-95% target per design goal.
+const WIDTH_FILL_FRACTION = 0.92;
+
 /**
  * Compute the sort-area dimensions and stimulus size for the current viewport.
  *
- * Sort area is clamped between [min, max] on each axis, where max is the ideal
- * configured size and min is the smallest acceptable size. Image size is expressed
- * as a fraction of the sort-area width so that emoji and dataset images are always
- * rendered at the same size regardless of their native resolution.
- *
- * Stimuli always start inside the sort area (see STIM_STARTS_INSIDE), so the canvas
- * can fill up to 85% of the viewport width. Height is clamped to 70% of viewport
- * height to leave room for the prompt, counter, and done button above/below the sort
- * area without triggering a vertical scrollbar.
+ * The sort area fills WIDTH_FILL_FRACTION of viewport width, and all remaining
+ * viewport height after reserving design.min_header_height_px (prompt strip, above
+ * the arena) and design.min_footer_height_px (counter + Done button strip, below
+ * the arena) — there's no DOM-measurement infrastructure here, computeLayout runs
+ * once at page load before any trial DOM exists, so these are fixed pixel budgets,
+ * not measured. Both axes are floor-protected by sort_area_min_width/height for
+ * small screens. Image size is expressed as a fraction of the sort-area width so
+ * that emoji and dataset images are always rendered at the same size regardless of
+ * their native resolution. The plugin's arena border is nested inside the outer
+ * arena div at 94% size (centered), so it's fully contained within sortH -- no
+ * extra pixel budget needed for the border itself.
  *
  * @param {number} viewportW - window.innerWidth
  * @param {number} viewportH - window.innerHeight
- * @param {{ display: {
- *   sort_area_width: number, sort_area_height: number,
- *   sort_area_min_width: number, sort_area_min_height: number,
- *   image_size_fraction: number
- * }}} config
+ * @param {{
+ *   display: { sort_area_min_width: number, sort_area_min_height: number, image_size_fraction: number },
+ *   design:  { min_header_height_px: number, min_footer_height_px: number },
+ * }} config
  * @returns {{ sortW: number, sortH: number, stimSize: number }}
  */
 function computeLayout(viewportW, viewportH, config) {
-    const {
-        sort_area_width, sort_area_height,
-        sort_area_min_width, sort_area_min_height,
-        image_size_fraction,
-    } = config.display;
+    const { sort_area_min_width, sort_area_min_height, image_size_fraction } = config.display;
+    const { min_header_height_px, min_footer_height_px } = config.design;
 
-    const maxSortW = Math.floor(viewportW * 0.85);
     const sortW = Math.max(
         sort_area_min_width,
-        Math.min(maxSortW, sort_area_width),
+        Math.floor(viewportW * WIDTH_FILL_FRACTION),
     );
     const sortH = Math.max(
         sort_area_min_height,
-        Math.min(Math.floor(viewportH * 0.70), sort_area_height),
+        viewportH - min_header_height_px - min_footer_height_px,
     );
     const stimSize = Math.round(sortW * image_size_fraction);
     return { sortW, sortH, stimSize };

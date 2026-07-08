@@ -102,6 +102,8 @@ describe('verifyConfig', () => {
             min_pairwise_distance_sd:    0.04,
             min_move_item_ratio:         0.75,
             stimuli_path:                'images',
+            min_header_height_px:        100,
+            min_footer_height_px:        80,
         },
         catch_trials: {
             num_trials:         2,
@@ -110,8 +112,6 @@ describe('verifyConfig', () => {
             stimuli_path:       'catch',
         },
         display: {
-            sort_area_width:      900,
-            sort_area_height:     700,
             sort_area_min_width:  900,
             sort_area_min_height: 700,
             image_size_fraction:  0.11,
@@ -315,32 +315,42 @@ describe('computeMainQcFlag', () => {
 
 // ── computeLayout ─────────────────────────────────────────────────────────────
 describe('computeLayout', () => {
-    // Helper: build a minimal config with a display section. Stimuli always start
-    // inside the sort area (STIM_STARTS_INSIDE) — no false/staging-column mode.
-    const cfg = (maxW, maxH, minW, minH, frac = 0.11) => ({
+    // Helper: build a minimal config. Sort area fills WIDTH_FILL_FRACTION (0.92) of
+    // viewport width and all remaining viewport height after reserving
+    // min_header_height_px/min_footer_height_px, each floor-protected by
+    // sort_area_min_width/height.
+    const cfg = (minW, minH, headerPx, footerPx, frac = 0.11) => ({
         display: {
-            sort_area_width:      maxW,
-            sort_area_height:     maxH,
             sort_area_min_width:  minW,
             sort_area_min_height: minH,
             image_size_fraction:  frac,
         },
+        design: {
+            min_header_height_px: headerPx,
+            min_footer_height_px: footerPx,
+        },
     });
 
-    it('large screen — capped at configured max', () => {
-        // floor(1920 * 0.85) = 1632 > max 900  →  capped at 900
-        // floor(1080 * 0.70) = 756  > max 700  →  capped at 700
-        const { sortW, sortH, stimSize } = computeLayout(1920, 1080, cfg(900, 700, 900, 700));
-        assert.equal(sortW,    900);
-        assert.equal(sortH,    700);
-        assert.equal(stimSize,  99); // round(900 * 0.11)
+    it('large screen — fill formula wins over the floor on both axes', () => {
+        // floor(1920 * 0.92) = 1766 > min 900 → 1766
+        // 1080 - 120 - 100 = 860 > min 550 → 860
+        const { sortW, sortH, stimSize } = computeLayout(1920, 1080, cfg(900, 550, 120, 100));
+        assert.equal(sortW,    1766);
+        assert.equal(sortH,     860);
+        assert.equal(stimSize,  194); // round(1766 * 0.11)
     });
 
-    it('medium screen — viewport fraction wins between min and max', () => {
-        // floor(1200 * 0.85) = 1020, clamp to [900, 1400] → 1020
-        // floor(900  * 0.70) = 630,  clamp to [600, 900]  → 630
-        const { sortW, sortH } = computeLayout(1200, 900, cfg(1400, 900, 900, 600));
-        assert.equal(sortW, 1020);
-        assert.equal(sortH,  630);
+    it('small screen — floor wins over the fill formula on both axes', () => {
+        // floor(950 * 0.92) = 874 < min 900 → 900
+        // 700 - 120 - 100 = 480 < min 550 → 550
+        const { sortW, sortH } = computeLayout(950, 700, cfg(900, 550, 120, 100));
+        assert.equal(sortW, 900);
+        assert.equal(sortH, 550);
+    });
+
+    it('header/footer budgets are subtracted from available height', () => {
+        // 1000 - 150 - 130 = 720, well above the 200px floor
+        const { sortH } = computeLayout(1200, 1000, cfg(200, 200, 150, 130));
+        assert.equal(sortH, 720);
     });
 });
