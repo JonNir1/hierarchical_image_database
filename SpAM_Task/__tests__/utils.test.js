@@ -93,11 +93,6 @@ describe('canSatisfyTrialRepeatSeparation', () => {
 describe('verifyConfig', () => {
     // Minimal valid config that passes all checks.
     const validConfig = () => ({
-        stimuli_paths: {
-            main_root: 'images',
-            practice:  'practice',
-            catch:     'catch',
-        },
         design: {
             trials_per_subject:          10,
             images_per_trial:            20,
@@ -106,11 +101,13 @@ describe('verifyConfig', () => {
             min_trial_duration_ms:       5000,
             min_pairwise_distance_sd:    0.04,
             min_move_item_ratio:         0.75,
+            stimuli_path:                'images',
         },
         catch_trials: {
             num_trials:         2,
             images_per_trial:   10,
             location_tolerance: 0.20,
+            stimuli_path:       'catch',
         },
         display: {
             sort_area_width:      900,

@@ -12,7 +12,7 @@ over 725 object images. Built with jsPsych, hosted on Pavlovia, recruiting via P
 
 **Implemented.** All JS modules, the HTML entry point, and `generate_manifest.py` are complete.
 Before first use:
-1. Populate the three stimulus directories and set their paths in `task_config.json`
+1. Populate the two stimulus directories (main + shared practice/catch) and set their paths in `task_config.json`
 2. Run `python generate_manifest.py` from `SpAM_Task/`
 3. Download jsPsych + plugins into `jspsych/` (see *Running Locally* below)
 4. Set `prolific_completion_url` in `task_config.json` before deploying to Prolific
@@ -48,9 +48,10 @@ Stimuli live **outside this directory** at paths specified in `task_config.json`
 ## generate_manifest.py
 
 Browsers cannot list the contents of a server directory, so `task.js` cannot discover which
-image files exist at runtime. `generate_manifest.py` solves this: it reads the three stimulus
-paths from `task_config.json`, recursively scans each directory for `.png` files, and writes
-`stimuli_manifest.json`.
+image files exist at runtime. `generate_manifest.py` solves this: it reads the two stimulus
+paths from `task_config.json` (`design.stimuli_path` for main images, `catch_trials.stimuli_path`
+for practice + catch, scanned twice into separate manifest keys), recursively scans each
+directory for `.png` files, and writes `stimuli_manifest.json`.
 
 **Output format** (keys used by `task.js`):
 ```json
@@ -63,7 +64,8 @@ paths from `task_config.json`, recursively scans each directory for `.png` files
 
 Paths within each list are relative to their respective stimulus directory root, using POSIX
 separators (forward slashes), sorted lexicographically. `task.js` prepends the corresponding
-`config.*_path` value to form browser-resolvable URLs.
+`stimuli_path` value (`design.stimuli_path` for `images`, `catch_trials.stimuli_path` for
+`practice_images`/`catch_images`) to form browser-resolvable URLs.
 
 The script also validates that each set has enough images for the configured thresholds and
 prints warnings for any missing or empty directories. Run it once after any change to the
@@ -252,7 +254,7 @@ manifest generator and the browser interpret them the same way.
    ```jsonc
    "shine": { "shine_variant": "pre" }   // or "post"
    ```
-   The `stimuli_paths.main_root` default `"./images/"` resolves the full main directory
+   The `design.stimuli_path` default `"./images/"` resolves the full main directory
    to `<repo>/images/<variant>_shine/`.
 3. Run `python generate_manifest.py` from `SpAM_Task/`. The manifest records the active
    variant; `task.js` cross-checks it against the config and aborts on mismatch.
@@ -267,23 +269,12 @@ manifest generator and the browser interpret them the same way.
 
 ## task_config.json Parameters
 
-task_config.json is organised into six sections:
-
-### `stimuli_paths`
-
-All paths are relative to the **project root** (where `index.html` lives), so the
-browser and `generate_manifest.py` resolve them identically.
-
-| Key | Default | Description |
-|---|---|---|
-| `main_root` | `"./images/"` | Parent of the per-variant stimulus directories. The main directory resolves to `<main_root>/<shine_variant>_shine/`. |
-| `practice` | `"./SpAM_Task/assets/openmoji/"` | Path to practice trial images |
-| `catch` | `"./SpAM_Task/assets/openmoji/"` | Path to catch trial images |
+task_config.json is organised into five sections:
 
 ### `shine`
 | Key | Default | Description |
 |---|---|---|
-| `shine_variant` | `"pre"` | `"pre"` or `"post"`. Selects which variant subdirectory under `main_root` to load. Recorded in the manifest and in every saved trial row for auditing. |
+| `shine_variant` | `"pre"` | `"pre"` or `"post"`. Selects which variant subdirectory under `design.stimuli_path` to load. Recorded in the manifest and in every saved trial row for auditing. |
 
 ### `design`
 | Key | Default | Description |
@@ -295,6 +286,7 @@ browser and `generate_manifest.py` resolve them identically.
 | `min_trial_duration_ms` | 60000 | UI-enforced minimum on main trials: "Done" button stays disabled for this many ms (countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. Not applied to practice or catch trials. |
 | `min_pairwise_distance_sd` | 0.1 | Minimum SD of normalised distances for a main trial to pass QC |
 | `min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a main trial to pass QC. Flags participants who place few or no images. |
+| `stimuli_path` | `"./images/"` | Parent of the per-variant main-stimulus directories. Resolves to `<stimuli_path>/<shine_variant>_shine/`. Relative to the **project root** (where `index.html` lives), so the browser and `generate_manifest.py` resolve it identically. |
 
 ### `catch_trials`
 | Key | Default | Description |
@@ -302,6 +294,7 @@ browser and `generate_manifest.py` resolve them identically.
 | `num_trials` | 2 | Catch trials interleaved among main trials |
 | `images_per_trial` | 10 | Images shown per catch trial. **Dual-use**: also sizes the (discarded) practice trial — there is no separate `design.practice_images_per_trial` key. |
 | `location_tolerance` | 0.15 | Max normalised per-image distance to target for catch trial to pass. Live-enforced by `attachCatchCompliance`, not a post-hoc QC flag. |
+| `stimuli_path` | `"SpAM_Task/assets/openmoji/"` | Path to catch trial images. **Dual-use**: also the practice trial's image source — there is no separate practice path. Relative to the **project root**. |
 
 ### `display`
 | Key | Default | Description |

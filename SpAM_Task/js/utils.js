@@ -68,11 +68,6 @@ function verifyConfig(config) {
 
     // ── Group 1: section presence & key types ────────────────────────────────
     const SCHEMA = {
-        stimuli_paths: {
-            main_root: 'string',
-            practice:  'string',
-            catch:     'string',
-        },
         design: {
             trials_per_subject:          'number',
             images_per_trial:            'number',
@@ -81,11 +76,13 @@ function verifyConfig(config) {
             min_trial_duration_ms:       'number',
             min_pairwise_distance_sd:    'number',
             min_move_item_ratio:         'number',
+            stimuli_path:                'string',
         },
         catch_trials: {
             num_trials:         'number',
             images_per_trial:   'number',
             location_tolerance: 'number',
+            stimuli_path:       'string',
         },
         display: {
             sort_area_width:      'number',
@@ -253,9 +250,8 @@ function verifyConfig(config) {
 
     // ── Group 4: deployment warnings ─────────────────────────────────────────
     if (mode !== 'debug') {
-        if (!config.stimuli_paths.main_root)               warn('"stimuli_paths.main_root" is empty — no main images will load.');
-        if (!config.stimuli_paths.practice)                warn('"stimuli_paths.practice" is empty — practice trial will have no images.');
-        if (!config.stimuli_paths.catch)                   warn('"stimuli_paths.catch" is empty — catch trials will have no images.');
+        if (!config.design.stimuli_path)                   warn('"design.stimuli_path" is empty — no main images will load.');
+        if (!config.catch_trials.stimuli_path)             warn('"catch_trials.stimuli_path" is empty — catch and practice trials will have no images.');
         if (!config.deployment.prolific_completion_url)    warn('"deployment.prolific_completion_url" is empty — participants will not be redirected after completion.');
     }
 }

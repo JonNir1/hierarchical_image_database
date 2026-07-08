@@ -103,16 +103,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ---------------------------------------------------------------------------
   // 5. Build image URL arrays
   //    Manifest paths are filenames relative to each stimulus directory.
-  //    Main URL = stimuli_paths.main_root + "<variant>_shine/" + filename;
-  //    practice/catch URLs are unchanged.
-  //    All stimuli_paths values are relative to the repo root (where
-  //    index.html lives), so concatenating them with filenames yields
-  //    browser-resolvable URLs.
+  //    Main URL = design.stimuli_path + "<variant>_shine/" + filename.
+  //    Practice trials reuse catch_trials.stimuli_path (no separate practice path).
+  //    Both are relative to the repo root (where index.html lives), so
+  //    concatenating them with filenames yields browser-resolvable URLs.
   // ---------------------------------------------------------------------------
-  const mainPrefix   = config.stimuli_paths.main_root + assignedVariant + '_shine';
-  const imageUrls    = (manifest.images          || []).map(f => mainPrefix                   + '/' + f);
-  const catchUrls    = (manifest.catch_images    || []).map(f => config.stimuli_paths.catch    + '/' + f);
-  const practiceUrls = (manifest.practice_images || []).map(f => config.stimuli_paths.practice + '/' + f);
+  const mainPrefix   = config.design.stimuli_path + assignedVariant + '_shine';
+  const imageUrls    = (manifest.images          || []).map(f => mainPrefix                       + '/' + f);
+  const catchUrls    = (manifest.catch_images    || []).map(f => config.catch_trials.stimuli_path  + '/' + f);
+  const practiceUrls = (manifest.practice_images || []).map(f => config.catch_trials.stimuli_path  + '/' + f);
 
   // ---------------------------------------------------------------------------
   // 5. Responsive layout

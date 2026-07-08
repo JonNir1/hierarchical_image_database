@@ -1,16 +1,10 @@
 {
   "deployment": {
-    "version": "3.13",
+    "version": "3.14",
     "mode": "production",
     "debug_shine_variant": "pre",
     "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=C12AB9X4",
     "prolific_no_consent_url": "https://app.prolific.com/submissions/complete?cc=CRP3B455"
-  },
-
-  "stimuli_paths": {
-    "main_root": "./images/",
-    "practice":  "SpAM_Task/assets/openmoji/",
-    "catch":     "SpAM_Task/assets/openmoji/"
   },
 
   "design": {
@@ -20,13 +14,15 @@
     "min_trial_repeat_separation":  3,
     "min_trial_duration_ms":        60000,
     "min_pairwise_distance_sd":     0.1,
-    "min_move_item_ratio":          0.65
+    "min_move_item_ratio":          0.65,
+    "stimuli_path":                 "./images/"
   },
 
   "catch_trials": {
     "num_trials":         4,
     "images_per_trial":   10,
-    "location_tolerance": 0.15
+    "location_tolerance": 0.15,
+    "stimuli_path":       "SpAM_Task/assets/openmoji/"
   },
 
   "display": {

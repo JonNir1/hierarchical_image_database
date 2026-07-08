@@ -33,7 +33,7 @@ No Python packages beyond the standard library are needed for `generate_manifest
 
 ## Step 1 — Prepare your images
 
-The task expects three sets of PNG images. Create a directory for each (they can live anywhere
+The task expects two sets of PNG images. Create a directory for each (they can live anywhere
 on your machine; you will point `task_config.json` at them in Step 2).
 
 ### Main stimuli
@@ -44,15 +44,16 @@ full library is covered across participants. Images should:
 - Be similar in size (the task renders them all at the same display size, so wildly different
   aspect ratios will look odd)
 
-### Practice images
-A small set (~8) of familiar, everyday objects used in the unrecorded warm-up trial. These
-should be simple and unambiguous — participants use them to learn the drag interface before
-real data collection begins. **These images are not part of your dataset** and are discarded.
+### Practice + catch images
+One shared directory, used for two purposes:
+- **Practice**: a small unrecorded warm-up trial (~8 images) using familiar, everyday objects —
+  participants use it to learn the drag interface before real data collection begins. **These
+  images are not part of your dataset** and the trial is discarded.
+- **Catch**: attention checks (~20 or more images) used to check whether participants are
+  following instructions. On catch trials, participants are told to place all images in a
+  specific region of the screen (e.g. "top left corner"). Responses that ignore the instruction
+  are flagged.
 
-### Catch images
-A separate set of images (~20 or more) used to check whether participants are following
-instructions. On catch trials, participants are told to place all images in a specific region
-of the screen (e.g. "top left corner"). Responses that ignore the instruction are flagged.
 Use images that are distinctive enough that participants have no reason to be confused — simple
 emoji-style or clip-art images work well.
 
@@ -65,10 +66,11 @@ change are:
 
 ```json
 {
-  "stimuli_paths": {
-    "main_root": "../images/",
-    "practice":  "./assets/openmoji/",
-    "catch":     "./assets/openmoji/"
+  "design": {
+    "stimuli_path": "../images/"
+  },
+  "catch_trials": {
+    "stimuli_path": "./assets/openmoji/"
   },
   "shine": {
     "shine_variant": "pre"
@@ -81,8 +83,8 @@ change are:
 
 **Dataset layout.** Main stimuli live at `<repo>/images/{pre_shine,post_shine}/` (one
 directory per SHINE-preprocessing variant). The main directory is resolved as
-`<main_root>/<shine_variant>_shine/`. `main_root` is relative to `SpAM_Task/`, so the
-default `"../images/"` reaches `<repo>/images/`.
+`<stimuli_path>/<shine_variant>_shine/`. `design.stimuli_path` is relative to `SpAM_Task/`, so
+the default `"../images/"` reaches `<repo>/images/`.
 
 The dataset (725 images per variant) is tracked on both `main` (GitHub) and
 `pavlovia_deploy` (Pavlovia gitlab) — no force-add required. Source datasets used
@@ -158,7 +160,7 @@ catch_images: 22 images in <repo>/SpAM_Task/assets/openmoji
 Manifest written to .../SpAM_Task/stimuli_manifest.json
 ```
 
-The script aborts if `main_root/<variant>_shine/` is missing or empty (main set is
+The script aborts if `stimuli_path/<variant>_shine/` is missing or empty (main set is
 fatal). Practice/catch paths emit warnings on missing content but do not abort.
 
 ---
@@ -269,7 +271,7 @@ ID. Pass the folder of CSVs to the post-processing pipeline for aggregation and 
 ## Troubleshooting
 
 **Images don't appear / sort area is empty**
-: Check that `stimuli_paths.main_root` and `shine.shine_variant` in `task_config.json`
+: Check that `design.stimuli_path` and `shine.shine_variant` in `task_config.json`
 are correct and that `generate_manifest.py` found your images. Confirm the web server
 is running from the **repo root**, not from `SpAM_Task/` — `index.html` lives at the
 root and references task code via `SpAM_Task/...` paths.

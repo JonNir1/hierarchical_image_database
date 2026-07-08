@@ -31,28 +31,25 @@ def make_config(
     base: Path,
     *,
     main_root: str = "",
-    stimuli_practice_path: str = "",
-    stimuli_catch_path: str = "",
+    stimuli_path: str = "",
     images_per_trial: int = 20,
     practice_images_per_trial: int = 8,
     **extra,
 ) -> dict:
     """Write a minimal task_config.json into *base*.
 
-    Returns the config dict. `main_root` is the value of
-    `stimuli_paths.main_root`; generate_manifest scans both
-    `<main_root>/pre_shine/` and `<main_root>/post_shine/`.
+    Returns the config dict. `main_root` is the value of `design.stimuli_path`
+    (main-image root; generate_manifest scans both `<main_root>/pre_shine/` and
+    `<main_root>/post_shine/`). `stimuli_path` is `catch_trials.stimuli_path`,
+    shared by both the practice and catch secondary sets.
     """
     config = {
-        "stimuli_paths": {
-            "main_root": main_root,
-            "practice":  stimuli_practice_path,
-            "catch":     stimuli_catch_path,
-        },
         "design": {
+            "stimuli_path":              main_root,
             "practice_images_per_trial": practice_images_per_trial,
         },
         "catch_trials": {
+            "stimuli_path":     stimuli_path,
             "images_per_trial": images_per_trial,
         },
         **extra,
