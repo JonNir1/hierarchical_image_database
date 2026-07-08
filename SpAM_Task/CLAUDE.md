@@ -127,8 +127,12 @@ interior positions (e.g. trials 3 and 7 in a 10-trial sequence). Each catch tria
   `top right corner`, `bottom left corner`, `bottom right corner`) via the same RNG.
 - Displays the instruction: *"Please place all images on the [target location] of the screen."*
 
-Catch trials detect disengaged participants who are not following instructions. They are
-distinguished from main trials by a visible prompt and different QC logic (see below).
+Catch trials detect disengaged participants who are not following instructions. Compliance is
+enforced live, not flagged post-hoc: `attachCatchCompliance` (`on_load`) disables the Done button
+until `allImagesNearTarget` (every image within `location_tolerance` of the target point) holds,
+so a catch trial cannot be submitted non-compliant. `qc_flag` is therefore hard-coded `false` for
+catch trials (see "Quality control" below) — `cluster_mean_distance`/centroid are still logged as
+diagnostics, not QC criteria.
 
 **Trial-level repeats**: `frac_trials_repeated` repeats some whole trials verbatim (same k-image
 set, reshuffled presentation order) later in the session, for test-retest reliability of the
@@ -148,15 +152,13 @@ There is no RT-based flag: the `min_trial_duration_ms` floor is UI-enforced (Don
 disabled for that duration), so a too-fast completion is impossible. Exclude a participant
 if > 30% of their main trials are flagged.
 
-**Quality control â€” catch trials**: A catch trial is flagged if ANY of the following hold:
-- `mean(normalised pairwise distances) > catch_cluster_max_mean` â€” images not clustered tightly
-- `SD(normalised pairwise distances) > catch_cluster_max_sd` â€” cluster too spread
-- Every individual image must be within `catch_location_tolerance` (normalised) of the
-  target point — if any single image is too far away, the trial is flagged
-- `num_moves < min_move_item_ratio Ã— numItems` â€” too few drag-end events for the number of
-  images shown
-
-`allImagesNearTarget` checks every individual image: each must be within `tolerance` (normalised diagonal distance) of the target corner/centre point. This function is used identically by the real-time blocking check (`on_load`) and the post-trial QC flag (`on_finish`), keeping both criteria in sync.
+**Quality control â€” catch trials**: `qc_flag` is always `false`. Any post-hoc metric (cluster
+tightness, move count) can be trivially satisfied without engagement whenever a catch trial's
+images happen to spawn compliant by chance, so it would risk a false-positive flag on a
+participant who did nothing wrong. The one criterion that actually matters — every image within
+`location_tolerance` of the target point (`allImagesNearTarget`) — is enforced live by
+`attachCatchCompliance` (`on_load`) instead: the Done button stays disabled until it holds, so a
+non-compliant catch trial cannot be submitted at all, making a post-hoc flag redundant.
 
 **Pavlovia saving**: On Pavlovia, the `jsPsychPavlovia` plugin (`jspsych-7-pavlovia-2022.1.1.js`)
 handles data upload; the `finish` command node is appended to the timeline and calls

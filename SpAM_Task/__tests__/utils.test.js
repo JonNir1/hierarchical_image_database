@@ -330,40 +330,6 @@ describe('computeMainQcFlag', () => {
     });
 });
 
-// ── computeCatchQcFlag ────────────────────────────────────────────────────────
-describe('computeCatchQcFlag', () => {
-    const cfg = {
-        catch_trials:    { cluster_max_mean: 0.15, cluster_max_sd: 0.10 },
-        quality_control: { min_move_item_ratio: 0.75 },
-    };
-
-    it('passes when all criteria are met', () => {
-        assert.equal(computeCatchQcFlag(0.10, 0.05, true, 8, 10, cfg), false);
-    });
-
-    it('flags when cluster mean is too large', () => {
-        assert.equal(computeCatchQcFlag(0.20, 0.05, true, 8, 10, cfg), true);
-    });
-
-    it('flags when cluster sd is too large', () => {
-        assert.equal(computeCatchQcFlag(0.10, 0.15, true, 8, 10, cfg), true);
-    });
-
-    it('flags when images are not near target', () => {
-        assert.equal(computeCatchQcFlag(0.10, 0.05, false, 8, 10, cfg), true);
-    });
-
-    it('flags when moves are insufficient', () => {
-        // 0.75 * 10 = 7.5; 7 moves → flag
-        assert.equal(computeCatchQcFlag(0.10, 0.05, true, 7, 10, cfg), true);
-    });
-
-    it('passes at exactly the move threshold', () => {
-        // 0.75 * 10 = 7.5; 8 moves → pass
-        assert.equal(computeCatchQcFlag(0.10, 0.05, true, 8, 10, cfg), false);
-    });
-});
-
 // ── computeLayout ─────────────────────────────────────────────────────────────
 describe('computeLayout', () => {
     // Helper: build a minimal config with a display section.
