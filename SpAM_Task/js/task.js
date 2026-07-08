@@ -370,7 +370,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // --- Enter fullscreen ---
   // on_finish recomputes layout using the actual fullscreen viewport so that
-  // sort-area dimensions reflect the full screen, not the windowed browser.
+  // sort-area dimensions reflect the full screen, not the windowed browser. Every
+  // subsequent free-sort trial reads sortW/sortH/stimSize via dynamic (function)
+  // parameters (see below), so they pick up this recomputed value at trial-run
+  // time rather than the stale pre-fullscreen value captured at timeline-build time.
   timeline.push({
     type:            jsPsychFullscreen,
     fullscreen_mode: true,
@@ -445,10 +448,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   timeline.push({
     type:            jsPsychFreeSort,
     stimuli:         practiceUrls.slice(0, config.catch_trials.images_per_trial),
-    sort_area_width:  sortW,
-    sort_area_height: sortH,
-    stim_width:        stimSize,
-    stim_height:       stimSize,
+    // Dynamic (function) parameters: jsPsych evaluates these at trial-run time, not
+    // at timeline-build time, so they pick up the fullscreen-trial's layout recompute.
+    sort_area_width:  () => sortW,
+    sort_area_height: () => sortH,
+    stim_width:        () => stimSize,
+    stim_height:       () => stimSize,
     prompt: '<p style="font-size:0.9em;"><strong>Your task:</strong> Arrange these images by their ' +
         '<strong>visual similarity.</strong><br><br>' +
         'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
@@ -476,10 +481,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   timeline.push({
     type:             jsPsychFreeSort,
     stimuli:          catchUrls.slice(0, config.catch_trials.images_per_trial),
-    sort_area_width:  sortW,
-    sort_area_height: sortH,
-    stim_width:        stimSize,
-    stim_height:       stimSize,
+    sort_area_width:  () => sortW,
+    sort_area_height: () => sortH,
+    stim_width:        () => stimSize,
+    stim_height:       () => stimSize,
     prompt: '<p style="font-size:0.9em;"><strong>Your task:</strong> Place all images in the ' +
             '<strong>bottom right corner</strong> of the screen.<br><br>' +
             'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
@@ -530,10 +535,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     timeline.push({
       type:             jsPsychFreeSort,
       stimuli:          trial.images,
-      sort_area_width:  sortW,
-      sort_area_height: sortH,
-      stim_width:        stimSize,
-      stim_height:       stimSize,
+      sort_area_width:  () => sortW,
+      sort_area_height: () => sortH,
+      stim_width:        () => stimSize,
+      stim_height:       () => stimSize,
       prompt:                   header_text,
       counter_text_unfinished:  '',
       counter_text_finished:    '',

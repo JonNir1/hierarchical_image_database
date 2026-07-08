@@ -1,6 +1,6 @@
 {
   "deployment": {
-    "version": "3.17",
+    "version": "3.18",
     "mode": "production",
     "debug_shine_variant": "pre"
   },
