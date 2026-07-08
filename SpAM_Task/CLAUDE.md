@@ -113,7 +113,7 @@ jsPsych's own `jspsych.css` vertically centers `.jspsych-content` via `margin: a
 would decouple the visible spacing from `min_header_height_px`/`min_footer_height_px` entirely
 (the reserved budgets only shrink `sortH`; they don't create any actual DOM spacing) and can
 visually clip content on both edges when the block overflows the viewport. `index.html`
-overrides this (`.jspsych-content.spam-freesort { margin: 0 auto; padding-top: 12px; }`) to
+overrides this (`.jspsych-content.spam-freesort { margin: 0 auto; padding-top: 20px; }`) to
 top-anchor the content instead, so the header/footer budgets directly determine the visible
 layout: content stacks from the top, and any under-budgeted content only ever overflows at the
 bottom (predictable, and directly diagnosable by widening `min_footer_height_px`). Scoped to the
@@ -322,7 +322,7 @@ task_config.json is organised into six sections:
 |---|---|---|
 | `sort_area_min_width/height` | 900 / 550 | Minimum sort canvas size in px (floor for small screens; the sort area otherwise fills the viewport — see "Responsive layout" and `min_header_height_px`/`min_footer_height_px` below) |
 | `min_header_height_px` | 60 | Minimum viewport height (px) reserved above the sort area for the prompt. Fixed pixel budget, not measured — see `computeLayout`. |
-| `min_footer_height_px` | 160 | Minimum viewport height (px) reserved below the sort area for the counter + Done button (and, on catch trials, the compliance warning line). Fixed pixel budget, not measured — see `computeLayout`. |
+| `min_footer_height_px` | 80 | Minimum viewport height (px) reserved below the sort area for the counter + Done button (and, on catch trials, the compliance warning line). Fixed pixel budget, not measured — see `computeLayout`. |
 | `image_size_fraction` | 0.08 | Stimulus size as fraction of sort-area width |
 
 ### `deployment`
