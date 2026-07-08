@@ -581,20 +581,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         if (trial.type === 'catch') {
-          // Catch-trial QC: cluster tightness + centroid proximity to target.
-          // computeCentroid and isCentroidNearTarget added with new catch design.
+          // Catch-trial compliance (all images within location_tolerance of the
+          // target) is enforced by attachCatchCompliance's UI block on_load --
+          // a catch trial cannot be submitted unless it already satisfies the
+          // instruction, so no post-hoc QC flag applies here. cluster_mean_distance
+          // and centroid are still logged as diagnostics, not QC criteria.
           const centroid   = computeCentroid(data.final_locations);
           const clusterMean = distances.reduce((a, b) => a + b, 0) / (distances.length || 1);
-          const locationOk = allImagesNearTarget(
-            data.final_locations, trial.target_location,
-            sortW, sortH,
-            config.catch_trials.location_tolerance,
-          );
           data.catch_trial_target_location = trial.target_location;
           data.centroid_x             = centroid.x / sortW;
           data.centroid_y             = centroid.y / sortH;
           data.cluster_mean_distance  = clusterMean;
-          data.qc_flag = computeCatchQcFlag(clusterMean, sd, locationOk, numMoves, trial.images.length, config);
+          data.qc_flag = false;
         } else {
           data.qc_flag = computeMainQcFlag(sd, numMoves, trial.images.length, config);
         }

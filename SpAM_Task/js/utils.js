@@ -409,7 +409,7 @@ function computeCentroid(locations) {
  * @returns {{x: number, y: number}} Absolute pixel coordinates of target point
  */
 function _targetPoint(targetLocation, sortAreaWidth, sortAreaHeight) {
-    const EDGE = 0.15; // fraction from edge for corner targets
+    const EDGE = 0.05; // fraction from edge for corner targets
     const map  = {
         'center':             { fx: 0.50, fy: 0.50 },
         'top left corner':    { fx: EDGE,      fy: EDGE       },
@@ -480,27 +480,4 @@ function computeMainQcFlag(sd, numMoves, numItems, config) {
     const qc = config.quality_control;
     const enoughMoves = numMoves >= qc.min_move_item_ratio * numItems;
     return sd < qc.min_pairwise_distance_sd || !enoughMoves;
-}
-
-/**
- * QC flag for a catch trial.
- * Flags if the cluster is too spread, too distant from the target,
- * or the participant barely moved items.
- *
- * @param {number}  clusterMean - Mean normalised pairwise distance
- * @param {number}  sd          - Sample SD of normalised pairwise distances
- * @param {boolean} locationOk  - Result of allImagesNearTarget()
- * @param {number}  numMoves    - Total drag-end events recorded by the plugin
- * @param {number}  numItems    - Number of stimuli in the trial
- * @param {object}  config      - Task config (reads catch_trials + quality_control fields)
- * @returns {boolean} true if the trial should be flagged
- */
-function computeCatchQcFlag(clusterMean, sd, locationOk, numMoves, numItems, config) {
-    const ct = config.catch_trials;
-    const qc = config.quality_control;
-    const enoughMoves = numMoves >= qc.min_move_item_ratio * numItems;
-    return clusterMean > ct.cluster_max_mean ||
-           sd          > ct.cluster_max_sd   ||
-           !locationOk                       ||
-           !enoughMoves;
 }

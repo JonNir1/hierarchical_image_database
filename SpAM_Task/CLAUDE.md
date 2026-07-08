@@ -127,8 +127,12 @@ interior positions (e.g. trials 3 and 7 in a 10-trial sequence). Each catch tria
   `top right corner`, `bottom left corner`, `bottom right corner`) via the same RNG.
 - Displays the instruction: *"Please place all images on the [target location] of the screen."*
 
-Catch trials detect disengaged participants who are not following instructions. They are
-distinguished from main trials by a visible prompt and different QC logic (see below).
+Catch trials detect disengaged participants who are not following instructions. Compliance is
+enforced live, not flagged post-hoc: `attachCatchCompliance` (`on_load`) disables the Done button
+until `allImagesNearTarget` (every image within `location_tolerance` of the target point) holds,
+so a catch trial cannot be submitted non-compliant. `qc_flag` is therefore hard-coded `false` for
+catch trials (see "Quality control" below) — `cluster_mean_distance`/centroid are still logged as
+diagnostics, not QC criteria.
 
 **Trial-level repeats**: `frac_trials_repeated` repeats some whole trials verbatim (same k-image
 set, reshuffled presentation order) later in the session, for test-retest reliability of the
@@ -148,15 +152,13 @@ There is no RT-based flag: the `min_trial_duration_ms` floor is UI-enforced (Don
 disabled for that duration), so a too-fast completion is impossible. Exclude a participant
 if > 30% of their main trials are flagged.
 
-**Quality control â€” catch trials**: A catch trial is flagged if ANY of the following hold:
-- `mean(normalised pairwise distances) > catch_cluster_max_mean` â€” images not clustered tightly
-- `SD(normalised pairwise distances) > catch_cluster_max_sd` â€” cluster too spread
-- Every individual image must be within `catch_location_tolerance` (normalised) of the
-  target point — if any single image is too far away, the trial is flagged
-- `num_moves < min_move_item_ratio Ã— numItems` â€” too few drag-end events for the number of
-  images shown
-
-`allImagesNearTarget` checks every individual image: each must be within `tolerance` (normalised diagonal distance) of the target corner/centre point. This function is used identically by the real-time blocking check (`on_load`) and the post-trial QC flag (`on_finish`), keeping both criteria in sync.
+**Quality control â€” catch trials**: `qc_flag` is always `false`. Any post-hoc metric (cluster
+tightness, move count) can be trivially satisfied without engagement whenever a catch trial's
+images happen to spawn compliant by chance, so it would risk a false-positive flag on a
+participant who did nothing wrong. The one criterion that actually matters — every image within
+`location_tolerance` of the target point (`allImagesNearTarget`) — is enforced live by
+`attachCatchCompliance` (`on_load`) instead: the Done button stays disabled until it holds, so a
+non-compliant catch trial cannot be submitted at all, making a post-hoc flag redundant.
 
 **Pavlovia saving**: On Pavlovia, the `jsPsychPavlovia` plugin (`jspsych-7-pavlovia-2022.1.1.js`)
 handles data upload; the `finish` command node is appended to the timeline and calls
@@ -176,7 +178,7 @@ handles data upload; the `finish` command node is appended to the timeline and c
 | `seededShuffle` | `(array, rng) ←’ array` | Fisher-Yates shuffle; non-mutating; accepts a seeded RNG function |
 | `computePairwiseDistances` | `(locations, sortW, sortH) ←’ [{src1, src2, distance}]` | All C(k,2) normalised Euclidean distances from `final_locations` |
 | `computeCentroid` | `(locations) ←’ {x, y}` | Mean (x, y) of placed images; used to log centroid position in trial data |
-| `_targetPoint` | `(targetLocation, sortW, sortH) ←’ {x, y}` | Maps a CATCH_LOCATIONS string to an absolute pixel coordinate (15% from edge for corners) |
+| `_targetPoint` | `(targetLocation, sortW, sortH) ←’ {x, y}` | Maps a CATCH_LOCATIONS string to an absolute pixel coordinate (5% from edge for corners) |
 | `allImagesNearTarget` | `(locations, targetLocation, sortW, sortH, tolerance) ←’ boolean` | True iff every image is within `tolerance` (normalised diagonal) of the target point; used for catch-trial blocking and QC |
 | `computeSD` | `(values) ←’ number` | Sample SD (denominator nâˆ’1); returns 0 for < 2 values |
 
@@ -299,7 +301,7 @@ browser and `generate_manifest.py` resolve them identically.
 | `images_per_trial` | 10 | Images shown per catch trial. **Dual-use**: also sizes the (discarded) practice trial — there is no separate `design.practice_images_per_trial` key. |
 | `cluster_max_mean` | 0.15 | Max mean normalised distance for catch trial to pass (cluster tightness) |
 | `cluster_max_sd` | 0.10 | Max SD of normalised distances for catch trial to pass |
-| `location_tolerance` | 0.20 | Max normalised per-image distance to target for catch trial to pass |
+| `location_tolerance` | 0.15 | Max normalised per-image distance to target for catch trial to pass |
 
 ### `display`
 | Key | Default | Description |
@@ -314,8 +316,8 @@ browser and `generate_manifest.py` resolve them identically.
 ### `quality_control`
 | Key | Default | Description |
 |---|---|---|
-| `min_pairwise_distance_sd` | 0.04 | Minimum SD of normalised distances for main trial to pass |
-| `min_move_item_ratio` | 0.7 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a trial to pass, on both main and catch trials. Flags participants who place few or no images. |
+| `min_pairwise_distance_sd` | 0.1 | Minimum SD of normalised distances for main trial to pass |
+| `min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a trial to pass, on both main and catch trials. Flags participants who place few or no images. |
 
 ### `deployment`
 | Key | Default | Description |
