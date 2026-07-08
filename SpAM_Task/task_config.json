@@ -1,6 +1,6 @@
 {
   "deployment": {
-    "version": "3.15",
+    "version": "3.16",
     "mode": "production",
     "debug_shine_variant": "pre"
   },
@@ -33,9 +33,6 @@
     "sort_area_height":     900,
     "sort_area_min_width":  900,
     "sort_area_min_height": 550,
-    "sort_area_shape":      "rect",
-    "stim_starts_inside":   true,
-    "column_spread_factor": 1.0,
     "image_size_fraction":  0.08,
     "background_color":     "#808080",
     "text_color":           "#111111",

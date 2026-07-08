@@ -104,18 +104,15 @@ area is clamped between `[sort_area_min_width/height, sort_area_width/height]`; 
 is `round(sortW Ã— image_size_fraction)`. This ensures all images render at the same size
 regardless of native resolution and the layout degrades gracefully on smaller screens.
 
-**`stim_starts_inside: true` (images initialise inside the sort area)**: When
-`stim_starts_inside: false` the jsPsychFreeSort plugin places images in staging columns
-*outside* the orange arena border â€” the sort area must then share the viewport with those
-columns, limiting `sortW` to at most `viewportW / (1 + column_spread_factor)` (â‰ˆ half the
-viewport at the default `column_spread_factor: 1.0`). This wastes screen space and produces a
-small arena on any normal monitor. The SpAM literature (Goldstone 1994, Bracci et al. 2019)
-arranges stimuli randomly *within* the arena from the start; disengagement is detected via the
-`min_trial_duration_ms` floor and the interleaved catch trials, not by a staging zone. Setting
-`stim_starts_inside: true` allows the arena to fill up to 85% of the viewport width (limited
-only by `sort_area_width`), giving a substantially larger working space. `column_spread_factor`
-is kept at 1.0 in the config for forward-compatibility if this decision is ever revisited, but
-has no effect while `stim_starts_inside` is `true`.
+**Stimuli always start inside a rectangular sort area**: The SpAM literature (Goldstone 1994,
+Bracci et al. 2019) arranges stimuli randomly *within* the arena from the start; disengagement
+is detected via the `min_trial_duration_ms` floor and the interleaved catch trials, not by a
+staging zone. This lets the arena fill up to 85% of the viewport width. **Not supported**: the
+upstream jsPsych free-sort plugin's `stim_starts_inside: false` mode (images begin in staging
+columns outside the arena, roughly halving usable width) and `sort_area_shape: "ellipse"` (a
+round arena). Both are hard-coded off (`STIM_STARTS_INSIDE = true` in `utils.js`) and their
+code paths have been removed from the patched plugin (`plugin-free-sort-patched.js`) — see that
+file's header comment for the full list of deviations from upstream.
 
 **Distance normalisation**: All pairwise Euclidean distances from `final_locations` are divided
 by the sort-area diagonal `âˆš(sortWÂ²+sortHÂ²)` ←’ [0, 1]. Removes dependence on screen resolution
@@ -301,9 +298,6 @@ task_config.json is organised into six sections:
 |---|---|---|
 | `sort_area_width/height` | 1400 / 900 | Maximum sort canvas size in px (actual size also constrained by viewport) |
 | `sort_area_min_width/height` | 900 / 550 | Minimum sort canvas size in px (floor for small screens) |
-| `sort_area_shape` | `"rect"` | `"rect"` or `"ellipse"` â€” shape of the orange sort-area border |
-| `stim_starts_inside` | `true` | If `true`, images are placed randomly inside the arena at trial start (SpAM convention); if `false`, images begin in staging columns outside the arena, limiting arena width to â‰ˆ `viewportW / (1 + column_spread_factor)` |
-| `column_spread_factor` | 1.0 | Controls how far staging columns extend when `stim_starts_inside: false`; ignored when `stim_starts_inside: true` |
 | `image_size_fraction` | 0.08 | Stimulus size as fraction of sort-area width |
 
 ### `deployment`

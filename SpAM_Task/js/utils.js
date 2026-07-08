@@ -89,9 +89,6 @@ function verifyConfig(config) {
             sort_area_height:     'number',
             sort_area_min_width:  'number',
             sort_area_min_height: 'number',
-            sort_area_shape:      'string',
-            stim_starts_inside:   'boolean',
-            column_spread_factor: 'number',
             image_size_fraction:  'number',
             background_color:     'string',
             text_color:           'string',
@@ -163,8 +160,6 @@ function verifyConfig(config) {
     const maxH       = disp.sort_area_height;
     const minW       = disp.sort_area_min_width;
     const minH       = disp.sort_area_min_height;
-    const shape      = disp.sort_area_shape;
-    const spread     = disp.column_spread_factor;
     const frac       = disp.image_size_fraction;
 
     if (!Number.isInteger(t)        || t < 1)        err('"design.trials_per_subject" must be a positive integer, got ' + t + '.');
@@ -183,9 +178,6 @@ function verifyConfig(config) {
     if (minW <= 0) err('"display.sort_area_min_width" must be > 0, got '    + minW + '.');
     if (minH <= 0) err('"display.sort_area_min_height" must be > 0, got '   + minH + '.');
     if (frac  <= 0 || frac  >= 1) err('"display.image_size_fraction" must be in (0, 1), got ' + frac  + '.');
-    if (spread <= 0)               err('"display.column_spread_factor" must be > 0, got '      + spread + '.');
-    if (shape !== 'rect' && shape !== 'ellipse')
-        err('"display.sort_area_shape" must be "rect" or "ellipse", got "' + shape + '".');
     if (!disp.background_color.trim()) err('"display.background_color" must not be empty.');
     if (!disp.text_color.trim())       err('"display.text_color" must not be empty.');
     if (!disp.font_family.trim())      err('"display.font_family" must not be empty.');
@@ -258,6 +250,11 @@ function verifyConfig(config) {
     }
 }
 
+// Images always start at random positions inside the sort area (SpAM convention;
+// see CLAUDE.md "Trial layout"). Staging-column placement (images starting outside
+// the arena) is not supported.
+const STIM_STARTS_INSIDE = true;
+
 /**
  * Compute the sort-area dimensions and stimulus size for the current viewport.
  *
@@ -266,22 +263,17 @@ function verifyConfig(config) {
  * as a fraction of the sort-area width so that emoji and dataset images are always
  * rendered at the same size regardless of their native resolution.
  *
- * When `stim_starts_inside` is true, images begin inside the sort area so the canvas
- * can fill 85% of the viewport width. When false, images start in staging columns to
- * the left and right of the sort area; the plugin positions them at
- * ±(sortW × 0.5 × column_spread_factor) from the arena edge, so the total horizontal
- * space needed is sortW × (1 + column_spread_factor). In that case the canvas width is
- * capped at floor(viewportW / (1 + column_spread_factor)) to prevent overflow.
- * Height is clamped to 70% of viewport height to leave room for the prompt, counter,
- * and done button above/below the sort area without triggering a vertical scrollbar.
+ * Stimuli always start inside the sort area (see STIM_STARTS_INSIDE), so the canvas
+ * can fill up to 85% of the viewport width. Height is clamped to 70% of viewport
+ * height to leave room for the prompt, counter, and done button above/below the sort
+ * area without triggering a vertical scrollbar.
  *
  * @param {number} viewportW - window.innerWidth
  * @param {number} viewportH - window.innerHeight
  * @param {{ display: {
  *   sort_area_width: number, sort_area_height: number,
  *   sort_area_min_width: number, sort_area_min_height: number,
- *   image_size_fraction: number,
- *   stim_starts_inside: boolean, column_spread_factor: number
+ *   image_size_fraction: number
  * }}} config
  * @returns {{ sortW: number, sortH: number, stimSize: number }}
  */
@@ -289,12 +281,10 @@ function computeLayout(viewportW, viewportH, config) {
     const {
         sort_area_width, sort_area_height,
         sort_area_min_width, sort_area_min_height,
-        image_size_fraction, stim_starts_inside, column_spread_factor,
+        image_size_fraction,
     } = config.display;
 
-    const maxSortW = stim_starts_inside
-        ? Math.floor(viewportW * 0.85)
-        : Math.floor(viewportW / (1 + column_spread_factor));
+    const maxSortW = Math.floor(viewportW * 0.85);
     const sortW = Math.max(
         sort_area_min_width,
         Math.min(maxSortW, sort_area_width),

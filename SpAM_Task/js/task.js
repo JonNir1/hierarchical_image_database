@@ -124,12 +124,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   );
   if (mode === 'debug') console.log('[SpAM] Layout (pre-fullscreen):', { sortW, sortH, stimSize });
 
-  // jsPsychFreeSort only recognises 'square' (rectangular) and 'ellipse'.
-  // Our config uses 'rect'/'ellipse'; map here so the inside-check uses the
-  // correct geometry (passing an unrecognised value falls through to ellipse,
-  // which would exclude images placed in the corners of a rectangular arena).
-  const pluginShape = config.display.sort_area_shape === 'ellipse' ? 'ellipse' : 'square';
-
   // ---------------------------------------------------------------------------
   // Catch-trial compliance blocking
   //   Polls image positions every 250 ms.  While the cluster centroid is not
@@ -455,9 +449,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     sort_area_height: sortH,
     stim_width:        stimSize,
     stim_height:       stimSize,
-    sort_area_shape:      pluginShape,
-    stim_starts_inside:   config.display.stim_starts_inside,
-    column_spread_factor: config.display.column_spread_factor,
     prompt: '<p style="font-size:0.9em;"><strong>Your task:</strong> Arrange these images by their ' +
         '<strong>visual similarity.</strong><br><br>' +
         'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
@@ -489,9 +480,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     sort_area_height: sortH,
     stim_width:        stimSize,
     stim_height:       stimSize,
-    sort_area_shape:      pluginShape,
-    stim_starts_inside:   config.display.stim_starts_inside,
-    column_spread_factor: config.display.column_spread_factor,
     prompt: '<p style="font-size:0.9em;"><strong>Your task:</strong> Place all images in the ' +
             '<strong>bottom right corner</strong> of the screen.<br><br>' +
             'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
@@ -530,9 +518,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Free-sort trial
     // NOTE: header_text must go in `prompt`, NOT counter_text_*.
     // counter_text_* wraps its content in a <p>; putting a <p> inside a <p> is
-    // invalid HTML, and the browser auto-corrects it by splitting them.  When
-    // stim_starts_inside:true the plugin then immediately overwrites the counter
-    // innerHTML, rendering the text a second time → duplicate instructions.
+    // invalid HTML, and the browser auto-corrects it by splitting them. Since
+    // stimuli always start inside the sort area, the plugin then immediately
+    // overwrites the counter innerHTML, rendering the text a second time →
+    // duplicate instructions.
     const header_text = trial.type === 'catch'
         ? '<p style="font-size:0.9em;"><strong>Your task:</strong> Place all images in the ' +
           '<strong>' + trial.target_location + '</strong> of the screen.</p>'
@@ -545,9 +534,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       sort_area_height: sortH,
       stim_width:        stimSize,
       stim_height:       stimSize,
-      sort_area_shape:      pluginShape,
-      stim_starts_inside:   config.display.stim_starts_inside,
-      column_spread_factor: config.display.column_spread_factor,
       prompt:                   header_text,
       counter_text_unfinished:  '',
       counter_text_finished:    '',
