@@ -448,13 +448,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   timeline.push({
     type:            jsPsychFreeSort,
     stimuli:         practiceUrls.slice(0, config.catch_trials.images_per_trial),
+    // Marks this trial's .jspsych-content for the top-anchoring CSS override (index.html) --
+    // non-trial screens keep jsPsych's default centering.
+    css_classes: 'spam-freesort',
     // Dynamic (function) parameters: jsPsych evaluates these at trial-run time, not
     // at timeline-build time, so they pick up the fullscreen-trial's layout recompute.
     sort_area_width:  () => sortW,
     sort_area_height: () => sortH,
     stim_width:        () => stimSize,
     stim_height:       () => stimSize,
-    prompt: '<p style="font-size:0.9em;"><strong>Your task:</strong> Arrange these images by their ' +
+    prompt: '<p style="font-size:0.9em; margin:0;"><strong>Your task:</strong> Arrange these images by their ' +
         '<strong>visual similarity.</strong><br><br>' +
         'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
     counter_text_unfinished:  '',
@@ -481,11 +484,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   timeline.push({
     type:             jsPsychFreeSort,
     stimuli:          catchUrls.slice(0, config.catch_trials.images_per_trial),
+    css_classes: 'spam-freesort',
     sort_area_width:  () => sortW,
     sort_area_height: () => sortH,
     stim_width:        () => stimSize,
     stim_height:       () => stimSize,
-    prompt: '<p style="font-size:0.9em;"><strong>Your task:</strong> Place all images in the ' +
+    prompt: '<p style="font-size:0.9em; margin:0;"><strong>Your task:</strong> Place all images in the ' +
             '<strong>bottom right corner</strong> of the screen.<br><br>' +
             'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
     counter_text_unfinished:  '',
@@ -528,13 +532,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     // overwrites the counter innerHTML, rendering the text a second time →
     // duplicate instructions.
     const header_text = trial.type === 'catch'
-        ? '<p style="font-size:0.9em;"><strong>Your task:</strong> Place all images in the ' +
+        ? '<p style="font-size:0.9em; margin:0;"><strong>Your task:</strong> Place all images in the ' +
           '<strong>' + trial.target_location + '</strong> of the screen.</p>'
-        : '<p style="font-size:0.9em;"><strong>Your task:</strong> Arrange the images by <strong>visual</strong> similarity. ' +
+        : '<p style="font-size:0.9em; margin:0;"><strong>Your task:</strong> Arrange the images by <strong>visual</strong> similarity. ' +
           'Close together = <strong>visually similar</strong> &nbsp;|&nbsp; Far apart = <strong>visually different</strong>.</p>';
     timeline.push({
       type:             jsPsychFreeSort,
       stimuli:          trial.images,
+      css_classes: 'spam-freesort',
       sort_area_width:  () => sortW,
       sort_area_height: () => sortH,
       stim_width:        () => stimSize,

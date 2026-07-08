@@ -195,13 +195,13 @@ var jsPsychFreeSort = (function (jspsych) {
       let html = '<div id="jspsych-free-sort-arena" class="jspsych-free-sort-arena" style="position: relative; width:' + trial.sort_area_width + "px; height:" + trial.sort_area_height + 'px; margin: auto;"</div>';
       html += '<div id="jspsych-free-sort-border" class="jspsych-free-sort-border" style="position: relative; width:' + trial.sort_area_width * 0.94 + "px; height:" + trial.sort_area_height * 0.94 + "px; border:" + border_width + "px solid " + border_color_out + "; margin: auto; line-height: 0em; ";
       html += 'webkit-border-radius: 0%; moz-border-radius: 0%; border-radius: 0%"></div>';
-      const html_text = '<div style="line-height: 1.0em;">' + trial.prompt + '<p id="jspsych-free-sort-counter" style="display: inline-block;">' + get_counter_text(stimuli.length) + "</p></div>";
+      const html_text = '<div style="line-height: 1.0em; margin-bottom: 6px;">' + trial.prompt + '<p id="jspsych-free-sort-counter" style="display: inline-block; margin: 0;">' + get_counter_text(stimuli.length) + "</p></div>";
       if (trial.prompt_location == "below") {
         html += html_text;
       } else {
         html = html_text + html;
       }
-      html += '<div><button id="jspsych-free-sort-done-btn" class="jspsych-btn" style="margin-top: 5px; margin-bottom: 15px; visibility: hidden;">' + trial.button_label + "</button></div>";
+      html += '<div><button id="jspsych-free-sort-done-btn" class="jspsych-btn" style="margin-top: 4px; margin-bottom: 4px; visibility: hidden;">' + trial.button_label + "</button></div>";
       display_element.innerHTML = html;
       let init_locations = [];
       for (let i = 0; i < stimuli.length; i++) {

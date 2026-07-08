@@ -113,11 +113,19 @@ jsPsych's own `jspsych.css` vertically centers `.jspsych-content` via `margin: a
 would decouple the visible spacing from `min_header_height_px`/`min_footer_height_px` entirely
 (the reserved budgets only shrink `sortH`; they don't create any actual DOM spacing) and can
 visually clip content on both edges when the block overflows the viewport. `index.html`
-overrides this (`.jspsych-content-wrapper { align-items: flex-start; }`,
-`.jspsych-content { margin: 0 auto; }`) to top-anchor the content instead, so the header/footer
-budgets directly determine the visible layout: content stacks from the top, and any
-under-budgeted content only ever overflows at the bottom (predictable, and directly diagnosable
-by widening `min_footer_height_px`).
+overrides this (`.jspsych-content.spam-freesort { margin: 0 auto; padding-top: 12px; }`) to
+top-anchor the content instead, so the header/footer budgets directly determine the visible
+layout: content stacks from the top, and any under-budgeted content only ever overflows at the
+bottom (predictable, and directly diagnosable by widening `min_footer_height_px`). Scoped to the
+`spam-freesort` marker class — each `jsPsychFreeSort` trial (practice, catch, main) sets
+`css_classes: 'spam-freesort'` in `task.js` — so non-trial screens (consent, instructions,
+transitions) keep jsPsych's default centering.
+
+The plugin's own prompt-to-arena gap (`html_text` wrapper's `margin-bottom`), counter/prompt
+`<p>` default browser margins, and Done-button `margin-top/bottom` are all explicitly reset to
+small fixed values in `plugin-free-sort-patched.js` (rather than left at browser/plugin
+defaults), since default `<p>` margins otherwise add up on both the header and footer sides
+without any of it being visible in `computeLayout`'s budget arithmetic.
 
 **Stimuli always start inside a rectangular sort area**: The SpAM literature (Goldstone 1994,
 Bracci et al. 2019) arranges stimuli randomly *within* the arena from the start; disengagement
