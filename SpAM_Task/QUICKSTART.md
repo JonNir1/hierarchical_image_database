@@ -75,8 +75,8 @@ change are:
   "shine": {
     "shine_variant": "pre"
   },
-  "deployment": {
-    "prolific_completion_url": ""
+  "prolific": {
+    "completion_url": ""
   }
 }
 ```
@@ -99,7 +99,7 @@ junctions or symlinks are required.
 `"post"` to load SHINE-preprocessed images. The selected variant is recorded in the
 manifest and in every saved trial row.
 
-**Leave `prolific_completion_url` empty for now** — you will fill it in after creating your
+**Leave `prolific.completion_url` empty for now** — you will fill it in after creating your
 Prolific study (Step 6).
 
 ### Tuning the trial design
@@ -249,7 +249,7 @@ following files and place them in `SpAM_Task/jspsych/`:
    completion URL (it looks like `https://app.prolific.com/submissions/complete?cc=XXXXXXXX`).
 4. Paste that completion URL into `task_config.json`:
    ```json
-   "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=XXXXXXXX"
+   "prolific": { "completion_url": "https://app.prolific.com/submissions/complete?cc=XXXXXXXX" }
    ```
 5. Commit the updated `task_config.json` to `main`, push to GitHub, then run
    `bash SpAM_Task/scripts/deploy_pavlovia.sh` (or `.\SpAM_Task\scripts\deploy_pavlovia.ps1` on

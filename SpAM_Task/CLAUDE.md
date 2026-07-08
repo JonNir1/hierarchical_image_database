@@ -15,7 +15,7 @@ Before first use:
 1. Populate the two stimulus directories (main + shared practice/catch) and set their paths in `task_config.json`
 2. Run `python generate_manifest.py` from `SpAM_Task/`
 3. Download jsPsych + plugins into `jspsych/` (see *Running Locally* below)
-4. Set `prolific_completion_url` in `task_config.json` before deploying to Prolific
+4. Set `prolific.completion_url` in `task_config.json` before deploying to Prolific
 
 ---
 
@@ -164,7 +164,7 @@ non-compliant catch trial cannot be submitted at all, making a post-hoc flag red
 
 **Pavlovia saving**: On Pavlovia, the `jsPsychPavlovia` plugin (`jspsych-7-pavlovia-2022.1.1.js`)
 handles data upload; the `finish` command node is appended to the timeline and calls
-`config.prolific_completion_url` on completion. Locally, `saveData()` downloads a filtered CSV
+`config.prolific.completion_url` on completion. Locally, `saveData()` downloads a filtered CSV
 (practice trials excluded) via a temporary `<a>` element.
 
 ---
@@ -269,7 +269,7 @@ manifest generator and the browser interpret them the same way.
 
 ## task_config.json Parameters
 
-task_config.json is organised into five sections:
+task_config.json is organised into six sections:
 
 ### `shine`
 | Key | Default | Description |
@@ -312,5 +312,9 @@ task_config.json is organised into five sections:
 | `version` | `"1.0"` | Task version string — bump on participant-facing changes; written to every output row |
 | `mode` | `"debug"` | `"debug"`: fixed PID + console logging; `"pilot"`: real users, always pre-SHINE; `"production"`: PID-hash cohort assignment |
 | `debug_shine_variant` | `"pre"` | SHINE variant used in `"debug"` mode |
-| `prolific_completion_url` | `""` | Prolific completion redirect URL — set before deploying |
-| `prolific_no_consent_url` | `""` | Prolific no-consent redirect URL — set before deploying |
+
+### `prolific`
+| Key | Default | Description |
+|---|---|---|
+| `completion_url` | `""` | Prolific completion redirect URL — set before deploying |
+| `no_consent_url` | `""` | Prolific no-consent redirect URL — set before deploying |

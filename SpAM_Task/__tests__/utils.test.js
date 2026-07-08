@@ -125,11 +125,13 @@ describe('verifyConfig', () => {
             line_height:          1.6,
         },
         deployment: {
-            mode:                    'debug',
-            debug_shine_variant:     'pre',
-            prolific_completion_url: 'https://example.com',
-            prolific_no_consent_url: 'https://example.com/no-consent',
-            version:                 '2.2',
+            mode:                'debug',
+            debug_shine_variant: 'pre',
+            version:             '2.2',
+        },
+        prolific: {
+            completion_url:  'https://example.com',
+            no_consent_url:  'https://example.com/no-consent',
         },
         consent: {
             researcher_name:        'Test Researcher',

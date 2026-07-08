@@ -100,10 +100,12 @@ function verifyConfig(config) {
             line_height:          'number',
         },
         deployment: {
-            mode:                    'string',
-            debug_shine_variant:     'string',
-            prolific_completion_url: 'string',
-            prolific_no_consent_url: 'string',
+            mode:                'string',
+            debug_shine_variant: 'string',
+        },
+        prolific: {
+            completion_url:  'string',
+            no_consent_url:  'string',
         },
         consent: {
             researcher_name:        'string',
@@ -252,7 +254,7 @@ function verifyConfig(config) {
     if (mode !== 'debug') {
         if (!config.design.stimuli_path)                   warn('"design.stimuli_path" is empty — no main images will load.');
         if (!config.catch_trials.stimuli_path)             warn('"catch_trials.stimuli_path" is empty — catch and practice trials will have no images.');
-        if (!config.deployment.prolific_completion_url)    warn('"deployment.prolific_completion_url" is empty — participants will not be redirected after completion.');
+        if (!config.prolific.completion_url)                warn('"prolific.completion_url" is empty — participants will not be redirected after completion.');
     }
 }
 

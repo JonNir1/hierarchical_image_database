@@ -363,8 +363,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (data.response === 1) {
         // Participant declined consent — redirect to Prolific no-consent URL if set,
         // otherwise show a neutral end screen.
-        if (config.deployment.prolific_no_consent_url) {
-          window.location.href = config.deployment.prolific_no_consent_url;
+        if (config.prolific.no_consent_url) {
+          window.location.href = config.prolific.no_consent_url;
         } else {
           jsPsych.abortExperiment(
             '<p style="text-align:center;margin-top:20%;">You have chosen not to participate.<br>You may now close this window.</p>'
@@ -653,7 +653,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       </div>`,
     choices: ['Finish'],
     on_finish: function() {
-      const completionUrl = config.deployment.prolific_completion_url;
+      const completionUrl = config.prolific.completion_url;
       if (isPavlovia && completionUrl) {
         window.location.href = completionUrl;
       }

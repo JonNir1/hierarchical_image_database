@@ -1,10 +1,13 @@
 {
   "deployment": {
-    "version": "3.14",
+    "version": "3.15",
     "mode": "production",
-    "debug_shine_variant": "pre",
-    "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=C12AB9X4",
-    "prolific_no_consent_url": "https://app.prolific.com/submissions/complete?cc=CRP3B455"
+    "debug_shine_variant": "pre"
+  },
+
+  "prolific": {
+    "completion_url":  "https://app.prolific.com/submissions/complete?cc=C12AB9X4",
+    "no_consent_url":  "https://app.prolific.com/submissions/complete?cc=CRP3B455"
   },
 
   "design": {
