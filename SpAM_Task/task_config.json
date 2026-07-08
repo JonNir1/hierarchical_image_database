@@ -1,4 +1,12 @@
 {
+  "deployment": {
+    "version": "3.13",
+    "mode": "production",
+    "debug_shine_variant": "pre",
+    "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=C12AB9X4",
+    "prolific_no_consent_url": "https://app.prolific.com/submissions/complete?cc=CRP3B455"
+  },
+
   "stimuli_paths": {
     "main_root": "./images/",
     "practice":  "SpAM_Task/assets/openmoji/",
@@ -35,14 +43,6 @@
     "font_family":          "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     "font_size":            "16px",
     "line_height":          1.6
-  },
-
-  "deployment": {
-    "version": "3.13",
-    "mode": "production",
-    "debug_shine_variant": "pre",
-    "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=C12AB9X4",
-    "prolific_no_consent_url": "https://app.prolific.com/submissions/complete?cc=CRP3B455"
   },
 
   "consent": {
