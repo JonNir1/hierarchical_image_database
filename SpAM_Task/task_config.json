@@ -1,6 +1,6 @@
 {
   "deployment": {
-    "version": "3.22",
+    "version": "3.23",
     "mode": "production",
     "debug_shine_variant": "pre"
   },
@@ -31,14 +31,14 @@
   "display": {
     "sort_area_min_width":  900,
     "sort_area_min_height": 550,
-    "min_header_height_px": 60,
+    "min_header_height_px": 80,
     "min_footer_height_px": 80,
     "image_size_fraction":  0.08,
     "background_color":     "#808080",
     "text_color":           "#111111",
     "font_family":          "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     "font_size":            "16px",
-    "line_height":          1.6
+    "line_height":          1.4
   },
 
   "consent": {

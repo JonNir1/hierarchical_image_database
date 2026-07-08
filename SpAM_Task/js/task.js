@@ -457,9 +457,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     sort_area_height: () => sortH,
     stim_width:        () => stimSize,
     stim_height:       () => stimSize,
-    prompt: '<p style="font-size:0.9em; margin:0;"><strong>Your task:</strong> Arrange these images by their ' +
-        '<strong>visual similarity.</strong><br><br>' +
-        'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
+    prompt: '<p style="font-size:0.9em; margin:0;"><strong>Your task:</strong> '+
+        'Arrange these images by their <strong>visual similarity.</strong></p>' +
+        '<p style="font-size:0.7em; margin-top:10px;">PRACTICE &ndash; this trial will ' +
+        '<strong>not</strong> be recorded.</p>',
     counter_text_unfinished:  '',
     counter_text_finished:    '',
     on_finish: function(data) {
@@ -489,9 +490,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     sort_area_height: () => sortH,
     stim_width:        () => stimSize,
     stim_height:       () => stimSize,
-    prompt: '<p style="font-size:0.9em; margin:0;"><strong>Your task:</strong> Place all images in the ' +
-            '<strong>bottom right corner</strong> of the screen.<br><br>' +
-            'PRACTICE &ndash; this trial will <strong>not</strong> be recorded.</p>',
+    prompt: '<p style="font-size:0.9em; margin:0;"><strong>Your task:</strong> ' +
+            'Place all images in the <strong>bottom right corner</strong> of the screen.</p>' +
+            '<p style="font-size:0.7em; margin-top:10px;">PRACTICE &ndash; this trial will ' +
+            '<strong>not</strong> be recorded.</p>',
     counter_text_unfinished:  '',
     counter_text_finished:    '',
     on_load() {
