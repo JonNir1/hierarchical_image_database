@@ -5,7 +5,7 @@
  * will use for a sequence of `t` main-trial slots with `numRepeats` of them
  * being verbatim repeats — derived from `t` and `numRepeats` alone, with no
  * RNG or trial data involved. Shared so verifyConfig can statically check
- * min_trial_repeat_separation feasibility before any trial is built.
+ * min_repeat_separation feasibility before any trial is built.
  * @param {number} t
  * @param {number} numRepeats
  * @returns {{ repeatPositions: number[], distinctPositions: number[] }}
@@ -27,7 +27,7 @@ function computeRepeatLayout(t, numRepeats) {
 }
 
 /**
- * Best-case feasibility check for min_trial_repeat_separation: true if some
+ * Best-case feasibility check for min_repeat_separation: true if some
  * assignment of distinct trials to repeat slots could satisfy the separation
  * constraint, assuming every distinct trial were eligible (i.e. singles-only).
  * Necessary but not sufficient — actual runtime feasibility also depends on
@@ -68,27 +68,35 @@ function verifyConfig(config) {
 
     // ── Group 1: section presence & key types ────────────────────────────────
     const SCHEMA = {
-        design: {
-            num_blocks:                  'number',
-            trials_per_block:            'number',
-            repeats_per_block:           'number',
-            images_per_trial:            'number',
-            min_trial_repeat_separation: 'number',
-            min_trial_duration_ms:       'number',
-            stimuli_path:                'string',
+        experimental_trials: {
+            stimuli_path:               'string',
+            images_per_trial:           'number',
+            min_trial_duration_ms:      'number',
+            min_move_item_ratio:        'number',
+            min_pairwise_distance_sd:   'number',
         },
         catch_trials: {
-            catch_per_block:     'number',
+            stimuli_path:       'string',
             images_per_trial:   'number',
             location_tolerance: 'number',
-            stimuli_path:       'string',
         },
-        screening: {
-            trial_min_move_item_ratio:      'number',
-            trial_min_pairwise_distance_sd: 'number',
-            max_move_ratio_fail_frac:       'number',
-            max_distance_sd_fail_frac:      'number',
-            min_overall_reliability:        'number',
+        screening_block: {
+            enabled:                  'boolean',
+            prolific_code:            'string',
+            num_catch_trials:         'number',
+            num_experimental_trials:  'number',
+            num_repeat_trials:        'number',
+            min_repeat_separation:    'number',
+            // thresholds is a nested object whose 4 fields may each be
+            // `null` (disabled) or a number — validated separately below
+            // (outside the generic scalar-type-check loop).
+        },
+        experimental_block: {
+            prolific_code:            'string',
+            num_catch_trials:         'number',
+            num_experimental_trials:  'number',
+            num_repeat_trials:        'number',
+            min_repeat_separation:    'number',
         },
         display: {
             sort_area_min_width:  'number',
@@ -106,12 +114,6 @@ function verifyConfig(config) {
             mode:                'string',
             debug_shine_variant: 'string',
         },
-        prolific_codes: {
-            completion_code:  'string',
-            no_consent_code:  'string',
-            // partial_completion_codes is an array, validated separately below
-            // (outside the generic scalar-type-check loop).
-        },
         consent: {
             researcher_name:        'string',
             researcher_email:       'string',
@@ -121,6 +123,7 @@ function verifyConfig(config) {
             lab_phone:              'string',
             institution:            'string',
             study_duration_minutes: 'number',
+            no_consent_code:        'string',
         },
     };
 
@@ -151,28 +154,28 @@ function verifyConfig(config) {
     if (config.consent.study_duration_minutes <= 0)
         err('"consent.study_duration_minutes" must be > 0, got ' + config.consent.study_duration_minutes + '.');
 
-    // ── Group 1c: prolific_codes.partial_completion_codes (array, validated outside the generic loop) ──
-    if (!('partial_completion_codes' in config.prolific_codes))
-        err('missing required key "prolific_codes.partial_completion_codes".');
-    if (!Array.isArray(config.prolific_codes.partial_completion_codes))
-        err('"prolific_codes.partial_completion_codes" must be an array.');
-    config.prolific_codes.partial_completion_codes.forEach((code, i) => {
-        if (typeof code !== 'string')
-            err('"prolific_codes.partial_completion_codes[' + i + ']" must be a string, got ' + typeof code + '.');
-    });
+    // ── Group 1c: screening_block.thresholds (nested, number|null fields, validated outside the generic loop) ──
+    if (!('thresholds' in config.screening_block) || typeof config.screening_block.thresholds !== 'object' || config.screening_block.thresholds === null)
+        err('missing required section "screening_block.thresholds".');
+    const THRESHOLD_KEYS = ['min_reliability', 'median_reliability', 'move_ratio_max_fail_rate', 'distance_sd_max_fail_rate'];
+    for (const key of THRESHOLD_KEYS) {
+        const fullKey = 'screening_block.thresholds.' + key;
+        if (!(key in config.screening_block.thresholds))
+            err('missing required key "' + fullKey + '".');
+        const v = config.screening_block.thresholds[key];
+        if (v !== null && typeof v !== 'number')
+            err('"' + fullKey + '" must be a number or null, got ' + typeof v + '.');
+        if (typeof v === 'number' && !Number.isFinite(v))
+            err('"' + fullKey + '" must be finite, got ' + v + '.');
+    }
 
     // ── Group 2: individual field ranges ─────────────────────────────────────
-    const { design: d, catch_trials: ct, display: disp, screening: sc } = config;
+    const { experimental_trials: et, catch_trials: ct, display: disp, screening_block: sb, experimental_block: eb } = config;
 
-    const numBlocks       = d.num_blocks;
-    const trialsPerBlock  = d.trials_per_block;
-    const repeatsPerBlock = d.repeats_per_block;
-    const k               = d.images_per_trial;
-    const minRepSep       = d.min_trial_repeat_separation;
-    const minDur          = d.min_trial_duration_ms;
-    const trialMinSd      = sc.trial_min_pairwise_distance_sd;
-    const trialMoveRatio  = sc.trial_min_move_item_ratio;
-    const catchPerBlock   = ct.catch_per_block;
+    const k               = et.images_per_trial;
+    const minDur          = et.min_trial_duration_ms;
+    const trialMinSd      = et.min_pairwise_distance_sd;
+    const trialMoveRatio  = et.min_move_item_ratio;
     const kCatch          = ct.images_per_trial;
     const catchTol        = ct.location_tolerance;
     const minW            = disp.sort_area_min_width;
@@ -181,27 +184,38 @@ function verifyConfig(config) {
     const minFooter       = disp.min_footer_height_px;
     const frac            = disp.image_size_fraction;
 
-    if (!Number.isInteger(numBlocks) || numBlocks < 1)
-        err('"design.num_blocks" must be a positive integer, got ' + numBlocks + '.');
-    if (!Number.isInteger(trialsPerBlock) || trialsPerBlock < 1)
-        err('"design.trials_per_block" must be a positive integer, got ' + trialsPerBlock + '.');
-    if (!Number.isInteger(repeatsPerBlock) || repeatsPerBlock < 0 || repeatsPerBlock > trialsPerBlock)
-        err('"design.repeats_per_block" must be an integer in [0, design.trials_per_block] (' + trialsPerBlock + '), got ' + repeatsPerBlock + '.');
-    if (!Number.isInteger(k)        || k < 1)        err('"design.images_per_trial" must be a positive integer, got ' + k + '.');
-    if (!Number.isInteger(minRepSep) || minRepSep < 1) err('"design.min_trial_repeat_separation" must be a positive integer, got ' + minRepSep + '.');
-    if (minDur < 0) err('"design.min_trial_duration_ms" must be >= 0, got ' + minDur + '.');
-    if (trialMinSd <= 0 || trialMinSd >= 1)     err('"screening.trial_min_pairwise_distance_sd" must be in (0, 1), got ' + trialMinSd      + '.');
-    if (trialMoveRatio <= 0 || trialMoveRatio > 1) err('"screening.trial_min_move_item_ratio" must be in (0, 1], got '   + trialMoveRatio  + '.');
-    if (sc.max_move_ratio_fail_frac  < 0 || sc.max_move_ratio_fail_frac  > 1)
-        err('"screening.max_move_ratio_fail_frac" must be in [0,1], got ' + sc.max_move_ratio_fail_frac + '.');
-    if (sc.max_distance_sd_fail_frac < 0 || sc.max_distance_sd_fail_frac > 1)
-        err('"screening.max_distance_sd_fail_frac" must be in [0,1], got ' + sc.max_distance_sd_fail_frac + '.');
-    if (sc.min_overall_reliability < -1 || sc.min_overall_reliability > 1)
-        err('"screening.min_overall_reliability" must be in [-1,1], got ' + sc.min_overall_reliability + '.');
-    if (!Number.isInteger(catchPerBlock) || catchPerBlock < 0)
-        err('"catch_trials.catch_per_block" must be a non-negative integer, got ' + catchPerBlock + '.');
+    if (!Number.isInteger(k)        || k < 1)        err('"experimental_trials.images_per_trial" must be a positive integer, got ' + k + '.');
+    if (minDur < 0) err('"experimental_trials.min_trial_duration_ms" must be >= 0, got ' + minDur + '.');
+    if (trialMinSd <= 0 || trialMinSd >= 1)     err('"experimental_trials.min_pairwise_distance_sd" must be in (0, 1), got ' + trialMinSd      + '.');
+    if (trialMoveRatio <= 0 || trialMoveRatio > 1) err('"experimental_trials.min_move_item_ratio" must be in (0, 1], got '   + trialMoveRatio  + '.');
     if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
     if (catchTol  <= 0 || catchTol  >= 1) err('"catch_trials.location_tolerance" must be in (0, 1), got '+ catchTol  + '.');
+
+    // 2a. screening_block / experimental_block, validated identically except
+    // screening_block additionally has thresholds (checked separately below).
+    const STAGES = [['screening_block', sb], ['experimental_block', eb]];
+    for (const [name, stage] of STAGES) {
+        if (!Number.isInteger(stage.num_experimental_trials) || stage.num_experimental_trials < 1)
+            err('"' + name + '.num_experimental_trials" must be a positive integer, got ' + stage.num_experimental_trials + '.');
+        if (!Number.isInteger(stage.num_repeat_trials) || stage.num_repeat_trials < 0 || stage.num_repeat_trials > stage.num_experimental_trials)
+            err('"' + name + '.num_repeat_trials" must be an integer in [0, ' + name + '.num_experimental_trials] (' + stage.num_experimental_trials + '), got ' + stage.num_repeat_trials + '.');
+        if (!Number.isInteger(stage.num_catch_trials) || stage.num_catch_trials < 0)
+            err('"' + name + '.num_catch_trials" must be a non-negative integer, got ' + stage.num_catch_trials + '.');
+        if (!Number.isInteger(stage.min_repeat_separation) || stage.min_repeat_separation < 0)
+            err('"' + name + '.min_repeat_separation" must be a non-negative integer, got ' + stage.min_repeat_separation + '.');
+    }
+
+    // 2b. screening_block.thresholds ranges (each may be null — skip range check if so)
+    const thr = sb.thresholds;
+    if (thr.min_reliability !== null && (thr.min_reliability < -1 || thr.min_reliability > 1))
+        err('"screening_block.thresholds.min_reliability" must be in [-1,1] or null, got ' + thr.min_reliability + '.');
+    if (thr.median_reliability !== null && (thr.median_reliability < -1 || thr.median_reliability > 1))
+        err('"screening_block.thresholds.median_reliability" must be in [-1,1] or null, got ' + thr.median_reliability + '.');
+    if (thr.move_ratio_max_fail_rate !== null && (thr.move_ratio_max_fail_rate < 0 || thr.move_ratio_max_fail_rate > 1))
+        err('"screening_block.thresholds.move_ratio_max_fail_rate" must be in [0,1] or null, got ' + thr.move_ratio_max_fail_rate + '.');
+    if (thr.distance_sd_max_fail_rate !== null && (thr.distance_sd_max_fail_rate < 0 || thr.distance_sd_max_fail_rate > 1))
+        err('"screening_block.thresholds.distance_sd_max_fail_rate" must be in [0,1] or null, got ' + thr.distance_sd_max_fail_rate + '.');
+
     if (minW <= 0) err('"display.sort_area_min_width" must be > 0, got '    + minW + '.');
     if (minH <= 0) err('"display.sort_area_min_height" must be > 0, got '   + minH + '.');
     if (minHeader < 0) err('"display.min_header_height_px" must be >= 0, got ' + minHeader + '.');
@@ -225,25 +239,27 @@ function verifyConfig(config) {
 
     // ── Group 3: cross-parameter arithmetic ──────────────────────────────────
 
-    // 3a. min_trial_repeat_separation structural feasibility, re-scoped to a
-    // single block's local slot count. The slot positions (which of a
-    // block's tBlock main-trial slots are repeats) are fully determined by
-    // trialsPerBlock and repeatsPerBlock alone — independent of the RNG —
-    // so this can be checked at config-load time. Every block shares the
-    // same trialsPerBlock/repeatsPerBlock, so checking once suffices.
-    // Failing here means insertTrialRepeats is guaranteed to fail too.
-    const tBlock = trialsPerBlock + repeatsPerBlock;
-    if (!canSatisfyTrialRepeatSeparation(tBlock, repeatsPerBlock, minRepSep))
-        err('design.min_trial_repeat_separation (' + minRepSep + ') cannot be satisfied within a single block ' +
-            '(trials_per_block=' + trialsPerBlock + ' + repeats_per_block=' + repeatsPerBlock + ' = ' + tBlock +
-            ' block-local slots). Lower min_trial_repeat_separation, lower repeats_per_block, or increase ' +
-            'trials_per_block. Note: catch trials are not counted toward this separation.');
-
-    // 3b. partial_completion_codes must have exactly num_blocks - 1 entries —
-    // one per possible screen-out boundary (never after the final block).
-    if (config.prolific_codes.partial_completion_codes.length !== numBlocks - 1)
-        err('"prolific_codes.partial_completion_codes" must have length design.num_blocks - 1 (' + (numBlocks - 1) +
-            '), got ' + config.prolific_codes.partial_completion_codes.length + '.');
+    // 3a. min_repeat_separation structural feasibility, checked INDEPENDENTLY
+    // for each stage (they can have different trial/repeat counts, unlike
+    // the old shared-uniform-block model where one check sufficed for all
+    // blocks). Slot positions are fully determined by num_experimental_trials
+    // and num_repeat_trials alone — independent of the RNG — so this can be
+    // checked at config-load time. Failing here means insertTrialRepeats is
+    // guaranteed to fail too. screening_block is skipped entirely if disabled.
+    if (sb.enabled) {
+        const tScreen = sb.num_experimental_trials + sb.num_repeat_trials;
+        if (!canSatisfyTrialRepeatSeparation(tScreen, sb.num_repeat_trials, sb.min_repeat_separation))
+            err('screening_block.min_repeat_separation (' + sb.min_repeat_separation + ') cannot be satisfied within ' +
+                'screening_block (num_experimental_trials=' + sb.num_experimental_trials + ' + num_repeat_trials=' +
+                sb.num_repeat_trials + ' = ' + tScreen + ' slots). Lower min_repeat_separation, lower num_repeat_trials, ' +
+                'or increase num_experimental_trials. Note: catch trials are not counted toward this separation.');
+    }
+    const tExp = eb.num_experimental_trials + eb.num_repeat_trials;
+    if (!canSatisfyTrialRepeatSeparation(tExp, eb.num_repeat_trials, eb.min_repeat_separation))
+        err('experimental_block.min_repeat_separation (' + eb.min_repeat_separation + ') cannot be satisfied within ' +
+            'experimental_block (num_experimental_trials=' + eb.num_experimental_trials + ' + num_repeat_trials=' +
+            eb.num_repeat_trials + ' = ' + tExp + ' slots). Lower min_repeat_separation, lower num_repeat_trials, ' +
+            'or increase num_experimental_trials. Note: catch trials are not counted toward this separation.');
 
     // 3c. Single image fits in minimum sort area
     const stimSize = Math.round(minW * frac);
@@ -272,12 +288,14 @@ function verifyConfig(config) {
 
     // ── Group 4: deployment warnings ─────────────────────────────────────────
     if (mode !== 'debug') {
-        if (!config.design.stimuli_path)                   warn('"design.stimuli_path" is empty — no main images will load.');
-        if (!config.catch_trials.stimuli_path)             warn('"catch_trials.stimuli_path" is empty — catch and practice trials will have no images.');
-        if (!config.prolific_codes.completion_code)          warn('"prolific_codes.completion_code" is empty — participants will not be redirected after completion.');
-        config.prolific_codes.partial_completion_codes.forEach((code, i) => {
-            if (!code) warn('"prolific_codes.partial_completion_codes[' + i + ']" is empty — participants screened out after block ' + (i + 1) + ' will not be redirected.');
-        });
+        if (!config.experimental_trials.stimuli_path) warn('"experimental_trials.stimuli_path" is empty — no main images will load.');
+        if (!config.catch_trials.stimuli_path)         warn('"catch_trials.stimuli_path" is empty — catch and practice trials will have no images.');
+        if (config.screening_block.enabled && !config.screening_block.prolific_code)
+            warn('"screening_block.prolific_code" is empty — participants screened out will not be redirected.');
+        if (!config.experimental_block.prolific_code)
+            warn('"experimental_block.prolific_code" is empty — participants who complete the experiment will not be redirected.');
+        if (!config.consent.no_consent_code)
+            warn('"consent.no_consent_code" is empty — participants who decline consent will not be redirected.');
     }
 }
 
@@ -489,13 +507,13 @@ function computeSD(values) {
  * @param {number} sd          - Sample SD of normalised pairwise distances
  * @param {number} numMoves    - Total drag-end events recorded by the plugin
  * @param {number} numItems    - Number of stimuli in the trial
- * @param {object} config      - Task config (reads screening.trial_min_pairwise_distance_sd / screening.trial_min_move_item_ratio)
+ * @param {object} config      - Task config (reads experimental_trials.min_pairwise_distance_sd / experimental_trials.min_move_item_ratio)
  * @returns {boolean} true if the trial should be flagged
  */
 function computeMainQcFlag(sd, numMoves, numItems, config) {
-    const s = config.screening;
-    const enoughMoves = numMoves >= s.trial_min_move_item_ratio * numItems;
-    return sd < s.trial_min_pairwise_distance_sd || !enoughMoves;
+    const et = config.experimental_trials;
+    const enoughMoves = numMoves >= et.min_move_item_ratio * numItems;
+    return sd < et.min_pairwise_distance_sd || !enoughMoves;
 }
 
 /**
@@ -559,48 +577,62 @@ function _pearsonCorrelation(a, b) {
 }
 
 /**
- * Evaluate cumulative screening criteria at a block boundary. Pure function
- * over already-computed per-trial stats — no DOM/jsPsych dependency, so it
- * is unit-testable in isolation.
+ * Evaluate cumulative screening criteria at the end of the screening stage.
+ * Pure function over already-computed per-trial stats — no DOM/jsPsych
+ * dependency, so it is unit-testable in isolation.
  *
- * moveRatioFailFrac/distanceSdFailFrac are deliberately independent counts
+ * moveRatioFailRate/distanceSdFailRate are deliberately independent counts
  * against independent thresholds — NOT computeMainQcFlag's OR-combined
  * boolean, which conflates the two failure modes. computeMainQcFlag remains
  * the sole driver of the per-trial qc_flag CSV column; this function is a
- * separate, cumulative, cross-trial aggregation for live screening.
+ * separate, cumulative aggregation for the one-time screening evaluation.
+ *
+ * Each of the 4 threshold criteria is independently skipped for two reasons:
+ * (1) its config value is `null` ("always disabled"), or (2) — for the two
+ * reliability criteria only — zero repeats have completed yet, so there is
+ * no data to evaluate regardless of the threshold's value.
  *
  * @param {{mainTrials: Array<{numMoves: number, numItems: number, sd: number}>,
  *          reliabilities: number[]}} dataSoFar
  *   mainTrials: one entry per completed main trial (both distinct and repeat)
- *   across ALL blocks completed so far this session, not just the current block.
- *   reliabilities: one Spearman R per completed repeat trial so far this session.
- * @param {{screening: {trial_min_move_item_ratio: number, trial_min_pairwise_distance_sd: number,
- *                      max_move_ratio_fail_frac: number, max_distance_sd_fail_frac: number,
- *                      min_overall_reliability: number}}} config
+ *   in the screening stage so far. reliabilities: one Spearman R per
+ *   completed repeat trial so far.
+ * @param {{screening_block: {thresholds: {min_reliability: (number|null), median_reliability: (number|null),
+ *                      move_ratio_max_fail_rate: (number|null), distance_sd_max_fail_rate: (number|null)}},
+ *          experimental_trials: {min_move_item_ratio: number, min_pairwise_distance_sd: number}}} config
  * @returns {{pass: boolean, reasons: string[],
- *            stats: {moveRatioFailFrac: number, distanceSdFailFrac: number, minReliability: (number|null)}}}
+ *            stats: {moveRatioFailRate: number, distanceSdFailRate: number,
+ *                    minReliability: (number|null), medianReliability: (number|null)}}}
  */
 function evaluateScreening(dataSoFar, config) {
     const { mainTrials, reliabilities } = dataSoFar;
-    const s = config.screening;
+    const thr = config.screening_block.thresholds;
+    const et  = config.experimental_trials;
 
     const n = mainTrials.length;
-    const moveFails = mainTrials.filter(t => t.numMoves < s.trial_min_move_item_ratio * t.numItems).length;
-    const sdFails    = mainTrials.filter(t => t.sd < s.trial_min_pairwise_distance_sd).length;
-    const moveRatioFailFrac  = n === 0 ? 0 : moveFails / n;
-    const distanceSdFailFrac = n === 0 ? 0 : sdFails   / n;
-    // Subject is excluded if ANY single repeat's reliability falls below the
-    // threshold, not just an aggregate — so the worst (minimum) observed
-    // value is what gets compared, not a median/mean.
-    const minReliability = reliabilities.length === 0 ? null : Math.min(...reliabilities);
+    const moveFails = mainTrials.filter(t => t.numMoves < et.min_move_item_ratio * t.numItems).length;
+    const sdFails    = mainTrials.filter(t => t.sd < et.min_pairwise_distance_sd).length;
+    const moveRatioFailRate  = n === 0 ? 0 : moveFails / n;
+    const distanceSdFailRate = n === 0 ? 0 : sdFails   / n;
+    const minReliability    = reliabilities.length === 0 ? null : Math.min(...reliabilities);
+    const medianReliability = reliabilities.length === 0 ? null : _median(reliabilities);
 
     const reasons = [];
-    if (moveRatioFailFrac > s.max_move_ratio_fail_frac)
-        reasons.push(`move-ratio fail fraction ${moveRatioFailFrac.toFixed(3)} exceeds max_move_ratio_fail_frac (${s.max_move_ratio_fail_frac})`);
-    if (distanceSdFailFrac > s.max_distance_sd_fail_frac)
-        reasons.push(`distance-SD fail fraction ${distanceSdFailFrac.toFixed(3)} exceeds max_distance_sd_fail_frac (${s.max_distance_sd_fail_frac})`);
-    if (minReliability !== null && minReliability < s.min_overall_reliability)
-        reasons.push(`minimum reliability ${minReliability.toFixed(3)} is below min_overall_reliability (${s.min_overall_reliability})`);
+    if (thr.move_ratio_max_fail_rate !== null && moveRatioFailRate > thr.move_ratio_max_fail_rate)
+        reasons.push(`move-ratio fail rate ${moveRatioFailRate.toFixed(3)} exceeds move_ratio_max_fail_rate (${thr.move_ratio_max_fail_rate})`);
+    if (thr.distance_sd_max_fail_rate !== null && distanceSdFailRate > thr.distance_sd_max_fail_rate)
+        reasons.push(`distance-SD fail rate ${distanceSdFailRate.toFixed(3)} exceeds distance_sd_max_fail_rate (${thr.distance_sd_max_fail_rate})`);
+    if (thr.min_reliability !== null && minReliability !== null && minReliability < thr.min_reliability)
+        reasons.push(`minimum reliability ${minReliability.toFixed(3)} is below min_reliability (${thr.min_reliability})`);
+    if (thr.median_reliability !== null && medianReliability !== null && medianReliability < thr.median_reliability)
+        reasons.push(`median reliability ${medianReliability.toFixed(3)} is below median_reliability (${thr.median_reliability})`);
 
-    return { pass: reasons.length === 0, reasons, stats: { moveRatioFailFrac, distanceSdFailFrac, minReliability } };
+    return { pass: reasons.length === 0, reasons, stats: { moveRatioFailRate, distanceSdFailRate, minReliability, medianReliability } };
+}
+
+/** Median of a numeric array (average of the two middle values for even length). */
+function _median(values) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }

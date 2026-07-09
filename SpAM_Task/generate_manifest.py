@@ -31,13 +31,13 @@ def resolve_path(raw: str) -> Path:
 
 
 def resolve_main_root(config: dict) -> Path:
-    """Resolve the main-stimulus root directory from design.stimuli_path.
+    """Resolve the main-stimulus root directory from experimental_trials.stimuli_path.
 
     Returns the resolved Path. Raises ValueError if the key is missing or empty.
     """
-    main_root_raw = config.get("design", {}).get("stimuli_path", "")
+    main_root_raw = config.get("experimental_trials", {}).get("stimuli_path", "")
     if not main_root_raw:
-        raise ValueError("'design.stimuli_path' is missing or empty in task_config.json")
+        raise ValueError("'experimental_trials.stimuli_path' is missing or empty in task_config.json")
     return resolve_path(main_root_raw)
 
 

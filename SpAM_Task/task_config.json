@@ -5,38 +5,41 @@
     "debug_shine_variant": "pre"
   },
 
-  "prolific_codes": {
-    "completion_code":  "C12AB9X4",
-    "no_consent_code":  "CRP3B455",
-    "partial_completion_codes": [
-      "XXXX1",
-      "XXXX2"
-    ]
-  },
-
-  "design": {
-    "stimuli_path":                 "./images/",
-    "num_blocks":                   3,
-    "trials_per_block":             6,
-    "repeats_per_block":            1,
-    "images_per_trial":             20,
-    "min_trial_repeat_separation":  2,
-    "min_trial_duration_ms":        60000
+  "experimental_trials": {
+    "stimuli_path":              "./images/",
+    "images_per_trial":          20,
+    "min_trial_duration_ms":     60000,
+    "min_move_item_ratio":       0.65,
+    "min_pairwise_distance_sd":  0.1
   },
 
   "catch_trials": {
     "stimuli_path":       "SpAM_Task/assets/openmoji/",
-    "catch_per_block":    1,
     "images_per_trial":   10,
     "location_tolerance": 0.15
   },
 
-  "screening": {
-    "trial_min_move_item_ratio":      0.65,
-    "trial_min_pairwise_distance_sd": 0.1,
-    "max_move_ratio_fail_frac":       0.20,
-    "max_distance_sd_fail_frac":      0.20,
-    "min_overall_reliability":        0.00
+  "screening_block": {
+    "enabled":                 true,
+    "prolific_code":           "XXXX1",
+    "num_catch_trials":        1,
+    "num_experimental_trials": 3,
+    "num_repeat_trials":       1,
+    "min_repeat_separation":   1,
+    "thresholds": {
+      "min_reliability":           0.0,
+      "median_reliability":        null,
+      "move_ratio_max_fail_rate":  0.20,
+      "distance_sd_max_fail_rate": 0.20
+    }
+  },
+
+  "experimental_block": {
+    "prolific_code":           "C12AB9X4",
+    "num_catch_trials":        2,
+    "num_experimental_trials": 15,
+    "num_repeat_trials":       0,
+    "min_repeat_separation":   3
   },
 
   "display": {
@@ -60,6 +63,7 @@
     "lab_name":               "Human Cognitive Neuroscience Lab",
     "lab_phone":              "+972-25880014",
     "institution":            "The Hebrew University of Jerusalem",
-    "study_duration_minutes": 30
+    "study_duration_minutes": 30,
+    "no_consent_code":        "CRP3B455"
   }
 }

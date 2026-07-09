@@ -19,24 +19,32 @@ const makeRng = (seed = 42) => {
 
 const ALL_IMAGES = Array.from({ length: 754 }, (_, i) => `img_${i}.png`);
 const CONFIG = {
-    design: {
-        num_blocks:                  2,
-        trials_per_block:            5,
-        images_per_trial:            20,
-        repeats_per_block:           0,
-        min_trial_repeat_separation: 2,
+    experimental_trials: {
+        images_per_trial: 20,
+    },
+    screening_block: {
+        enabled: true,
+        num_experimental_trials: 5,
+        num_repeat_trials:       0,
+        min_repeat_separation:   2,
+        num_catch_trials:        1,
+    },
+    experimental_block: {
+        num_experimental_trials: 5,
+        num_repeat_trials:       0,
+        min_repeat_separation:   2,
+        num_catch_trials:        1,
     },
     catch_trials: {
-        catch_per_block:   1,
-        images_per_trial:  10,
+        images_per_trial: 10,
     },
 };
 
 // ── buildTrialLists ───────────────────────────────────────────────────────────
 describe('buildTrialLists', () => {
-    it('returns num_blocks*trials_per_block trials each with exactly images_per_trial images', () => {
+    it('returns the sum of both stages\' num_experimental_trials, each with exactly images_per_trial images', () => {
         const trials = buildTrialLists(ALL_IMAGES, CONFIG, makeRng());
-        assert.equal(trials.length, 10);
+        assert.equal(trials.length, 10); // 5 (screening) + 5 (experimental)
         trials.forEach(t => assert.equal(t.length, 20));
     });
     it('no duplicates within a single trial', () => {
@@ -56,53 +64,82 @@ describe('buildTrialLists', () => {
         );
     });
     it('throws when the image pool cannot fill all trials', () => {
-        // 2 images, num_blocks=1 * trials_per_block=3 * images_per_trial=2 = 6 needed — impossible
+        // 2 images, screening (disabled, 0) + experimental (3) * images_per_trial=2 = 6 needed — impossible
+        const cfg = {
+            experimental_trials: { images_per_trial: 2 },
+            screening_block:     { enabled: false, num_experimental_trials: 1 },
+            experimental_block:  { num_experimental_trials: 3 },
+        };
         assert.throws(() =>
-            buildTrialLists(['x.png','y.png'],
-                { design: { num_blocks: 1, trials_per_block: 3, images_per_trial: 2 } },
-                makeRng()),
+            buildTrialLists(['x.png', 'y.png'], cfg, makeRng()),
             { message: /image pool has 2 image\(s\), need 6/ }
         );
     });
-    it('returns num_blocks*trials_per_block trials regardless of repeats_per_block (additive, not substitutive)', () => {
-        const cfg = { design: { ...CONFIG.design, repeats_per_block: 2 } };
+    it('sums to 0 screening trials when screening_block.enabled is false', () => {
+        const cfg = { ...CONFIG, screening_block: { ...CONFIG.screening_block, enabled: false } };
+        const trials = buildTrialLists(ALL_IMAGES, cfg, makeRng());
+        assert.equal(trials.length, 5); // experimental_block only
+    });
+    it('returns the same total regardless of num_repeat_trials (additive, not substitutive)', () => {
+        const cfg = { ...CONFIG, screening_block: { ...CONFIG.screening_block, num_repeat_trials: 2 } };
         const trials = buildTrialLists(ALL_IMAGES, cfg, makeRng());
         assert.equal(trials.length, 10); // unchanged — repeats are added on top, not carved out
     });
 });
 
-// ── partitionIntoBlocks ────────────────────────────────────────────────────────
-describe('partitionIntoBlocks', () => {
-    it('splits into num_blocks consecutive groups of trials_per_block, order preserved, no overlap', () => {
-        const cfg = { design: { num_blocks: 3, trials_per_block: 4 } };
-        const distinctTrials = Array.from({ length: 12 }, (_, i) => [`t${i}_a`, `t${i}_b`]);
-        const blocks = partitionIntoBlocks(distinctTrials, cfg);
-        assert.equal(blocks.length, 3);
-        blocks.forEach(b => assert.equal(b.length, 4));
-        assert.deepEqual(blocks[0], distinctTrials.slice(0, 4));
-        assert.deepEqual(blocks[1], distinctTrials.slice(4, 8));
-        assert.deepEqual(blocks[2], distinctTrials.slice(8, 12));
+// ── partitionIntoStages ───────────────────────────────────────────────────────
+describe('partitionIntoStages', () => {
+    it('splits into a screening slice and an experimental slice, order preserved, no overlap', () => {
+        const cfg = {
+            screening_block:    { enabled: true, num_experimental_trials: 3 },
+            experimental_block: { num_experimental_trials: 4 },
+        };
+        const distinctTrials = Array.from({ length: 7 }, (_, i) => [`t${i}_a`, `t${i}_b`]);
+        const { screening, experimental } = partitionIntoStages(distinctTrials, cfg);
+        assert.deepEqual(screening, distinctTrials.slice(0, 3));
+        assert.deepEqual(experimental, distinctTrials.slice(3, 7));
+    });
+
+    it('screening slice is empty when screening_block.enabled is false', () => {
+        const cfg = {
+            screening_block:    { enabled: false, num_experimental_trials: 3 },
+            experimental_block: { num_experimental_trials: 4 },
+        };
+        const distinctTrials = Array.from({ length: 4 }, (_, i) => [`t${i}`]);
+        const { screening, experimental } = partitionIntoStages(distinctTrials, cfg);
+        assert.deepEqual(screening, []);
+        assert.deepEqual(experimental, distinctTrials);
+    });
+
+    it('slice lengths are independently correct when unequal (not uniform groups)', () => {
+        const cfg = {
+            screening_block:    { enabled: true, num_experimental_trials: 3 },
+            experimental_block: { num_experimental_trials: 15 },
+        };
+        const distinctTrials = Array.from({ length: 18 }, (_, i) => [`t${i}`]);
+        const { screening, experimental } = partitionIntoStages(distinctTrials, cfg);
+        assert.equal(screening.length, 3);
+        assert.equal(experimental.length, 15);
     });
 });
 
 // ── insertTrialRepeats ────────────────────────────────────────────────────────
 describe('insertTrialRepeats', () => {
-    it('returns trials unchanged (wrapped) when repeats_per_block is 0', () => {
+    it('returns trials unchanged (wrapped) when numRepeats is 0', () => {
         const trials = buildTrialLists(ALL_IMAGES, CONFIG, makeRng()).slice(0, 5);
-        const result = insertTrialRepeats(trials, CONFIG, makeRng(), 0);
+        const result = insertTrialRepeats(trials, 0, 2, 'screening', makeRng());
         assert.equal(result.length, 5);
         result.forEach((r, i) => {
             assert.equal(r.isRepeat, false);
             assert.equal(r.repeatOfTrialId, null);
-            assert.equal(r.trialId, '0_' + i);
+            assert.equal(r.trialId, 'screening_' + i);
             assert.deepEqual(r.images, trials[i]);
         });
     });
 
-    it('produces exactly repeats_per_block repeat entries with matching image sets', () => {
-        const cfg = { design: { ...CONFIG.design, repeats_per_block: 3 } }; // block-local: 5 distinct + 3 repeats
-        const trials = buildTrialLists(ALL_IMAGES, cfg, makeRng()).slice(0, 5);
-        const result = insertTrialRepeats(trials, cfg, makeRng(), 0);
+    it('produces exactly numRepeats repeat entries with matching image sets', () => {
+        const trials = buildTrialLists(ALL_IMAGES, CONFIG, makeRng()).slice(0, 5); // 5 distinct
+        const result = insertTrialRepeats(trials, 3, 2, 'screening', makeRng()); // 5 distinct + 3 repeats
 
         assert.equal(result.length, 8);
         const repeats = result.filter(r => r.isRepeat);
@@ -116,16 +153,18 @@ describe('insertTrialRepeats', () => {
 
     it('any distinct trial may be repeated (no eligibility restriction)', () => {
         const trials = [['a','b','c'], ['d','e','f'], ['g','h','i'], ['j','k','l']];
-        const cfg = { design: { trials_per_block: 4, repeats_per_block: 1, min_trial_repeat_separation: 1 } };
-        const result = insertTrialRepeats(trials, cfg, makeRng(), 0);
+        const result = insertTrialRepeats(trials, 1, 1, 'screening', makeRng());
         assert.equal(result.filter(r => r.isRepeat).length, 1);
     });
 
-    it('respects min_trial_repeat_separation (block-local)', () => {
-        // trials_per_block=7 + repeats_per_block=3 -> tBlock=10, minSep=3: known-feasible layout.
-        const cfg = { design: { ...CONFIG.design, trials_per_block: 7, repeats_per_block: 3, min_trial_repeat_separation: 3 } };
-        const trials = buildTrialLists(ALL_IMAGES, { design: { num_blocks: 1, trials_per_block: 7, images_per_trial: cfg.design.images_per_trial } }, makeRng());
-        const result = insertTrialRepeats(trials, cfg, makeRng(), 0);
+    it('respects minSep (stage-local)', () => {
+        // 7 distinct + 3 repeats -> t=10, minSep=3: known-feasible layout.
+        const trials = buildTrialLists(ALL_IMAGES, {
+            experimental_trials: { images_per_trial: 20 },
+            screening_block: { enabled: false, num_experimental_trials: 0 },
+            experimental_block: { num_experimental_trials: 7 },
+        }, makeRng());
+        const result = insertTrialRepeats(trials, 3, 3, 'experimental', makeRng());
         const positionOf = id => result.findIndex(r => r.trialId === id);
         result.forEach((rep, pos) => {
             if (rep.isRepeat) {
@@ -135,50 +174,51 @@ describe('insertTrialRepeats', () => {
     });
 
     it('is deterministic with the same seed', () => {
-        const cfg = { design: { ...CONFIG.design, repeats_per_block: 3 } };
         const run = seed => {
             const rng = makeRng(seed);
-            const trials = buildTrialLists(ALL_IMAGES, cfg, rng).slice(0, 5);
-            return insertTrialRepeats(trials, cfg, rng, 0);
+            const trials = buildTrialLists(ALL_IMAGES, CONFIG, rng).slice(0, 5);
+            return insertTrialRepeats(trials, 3, 2, 'screening', rng);
         };
         assert.deepEqual(run(7), run(7));
     });
 
-    it('namespaces trialId by blockIndex, disjoint across blocks', () => {
+    it('namespaces trialId by stageLabel, disjoint across stages', () => {
         const trials = [['a','b'], ['c','d']];
-        const cfg = { design: { trials_per_block: 2, repeats_per_block: 0, min_trial_repeat_separation: 1 } };
-        const resultBlock0 = insertTrialRepeats(trials, cfg, makeRng(1), 0);
-        const resultBlock1 = insertTrialRepeats(trials, cfg, makeRng(1), 1);
-        assert.deepEqual(resultBlock0.map(r => r.trialId), ['0_0', '0_1']);
-        assert.deepEqual(resultBlock1.map(r => r.trialId), ['1_0', '1_1']);
+        const resultScreening   = insertTrialRepeats(trials, 0, 1, 'screening', makeRng(1));
+        const resultExperimental = insertTrialRepeats(trials, 0, 1, 'experimental', makeRng(1));
+        assert.deepEqual(resultScreening.map(r => r.trialId), ['screening_0', 'screening_1']);
+        assert.deepEqual(resultExperimental.map(r => r.trialId), ['experimental_0', 'experimental_1']);
     });
 
-    it('throws when min_trial_repeat_separation cannot be satisfied within a block', () => {
-        const cfg = {
-            design: {
-                trials_per_block: 2, images_per_trial: 20,
-                repeats_per_block: 2, // block-local t = 2+2 = 4
-                min_trial_repeat_separation: 3, // impossible to fit 2 repeats with gap 3 in 4 slots
-            },
-        };
-        const trials = buildTrialLists(ALL_IMAGES, { design: { num_blocks: 1, ...cfg.design } }, makeRng());
+    it('throws when minSep cannot be satisfied within a stage', () => {
+        // 2 distinct + 2 repeats -> t=4; minSep=3 impossible to fit 2 repeats with gap 3 in 4 slots
+        const trials = buildTrialLists(ALL_IMAGES, {
+            experimental_trials: { images_per_trial: 20 },
+            screening_block: { enabled: false, num_experimental_trials: 0 },
+            experimental_block: { num_experimental_trials: 2 },
+        }, makeRng());
         assert.throws(
-            () => insertTrialRepeats(trials, cfg, makeRng(), 0),
-            { message: /min_trial_repeat_separation/ }
+            () => insertTrialRepeats(trials, 2, 3, 'experimental', makeRng()),
+            { message: /min_repeat_separation/ }
         );
     });
 });
 
-// ── buildBlock ────────────────────────────────────────────────────────────────
-describe('buildBlock', () => {
-    it('returns trials_per_block + repeats_per_block + catch_per_block trials, all stamped with block', () => {
-        const cfg = { design: { ...CONFIG.design, repeats_per_block: 1 }, catch_trials: CONFIG.catch_trials };
-        const distinctTrials = buildTrialLists(ALL_IMAGES, { design: { num_blocks: 1, trials_per_block: cfg.design.trials_per_block, images_per_trial: cfg.design.images_per_trial } }, makeRng());
+// ── buildStage ────────────────────────────────────────────────────────────────
+describe('buildStage', () => {
+    it('returns num_experimental_trials + num_repeat_trials + num_catch_trials trials, all stamped with the stage label', () => {
+        const stageConfig = { num_repeat_trials: 1, min_repeat_separation: 2, num_catch_trials: 1 };
+        const catchTrialsConfig = { images_per_trial: 10 };
+        const distinctTrials = buildTrialLists(ALL_IMAGES, {
+            experimental_trials: { images_per_trial: 20 },
+            screening_block: { enabled: false, num_experimental_trials: 0 },
+            experimental_block: { num_experimental_trials: 5 },
+        }, makeRng());
         const catchPool = Array.from({ length: 50 }, (_, i) => `catch_${i}.png`);
-        const combined = buildBlock(distinctTrials, catchPool, cfg, makeRng(), 2); // blockIndex 2 -> block 3
+        const combined = buildStage(distinctTrials, catchPool, stageConfig, catchTrialsConfig, makeRng(), 'experimental');
 
-        assert.equal(combined.length, 5 + 1 + 1); // trials_per_block + repeats_per_block + catch_per_block
-        combined.forEach(t => assert.equal(t.block, 3));
+        assert.equal(combined.length, 5 + 1 + 1); // num_experimental_trials + num_repeat_trials + num_catch_trials
+        combined.forEach(t => assert.equal(t.block, 'experimental'));
 
         const repeat = combined.find(t => t.type === 'main' && t.isRepeat);
         const original = combined.find(t => t.type === 'main' && t.trialId === repeat.repeatOfTrialId);
@@ -186,31 +226,34 @@ describe('buildBlock', () => {
     });
 });
 
-// ── Cross-block disjointness (full-session integration) ────────────────────────
-describe('cross-block disjointness', () => {
-    it('no image appears as a distinct-trial image in two different blocks', () => {
+// ── Cross-stage disjointness (full-session integration) ─────────────────────────
+describe('cross-stage disjointness', () => {
+    it('no image appears as a distinct-trial image in both stages', () => {
         const cfg = {
-            design: { num_blocks: 3, trials_per_block: 2, images_per_trial: 5, repeats_per_block: 1, min_trial_repeat_separation: 1 },
-            catch_trials: { catch_per_block: 1, images_per_trial: 4 },
+            experimental_trials: { images_per_trial: 5 },
+            screening_block:     { enabled: true, num_experimental_trials: 2, num_repeat_trials: 1, min_repeat_separation: 1, num_catch_trials: 1 },
+            experimental_block:  { num_experimental_trials: 2, num_repeat_trials: 1, min_repeat_separation: 1, num_catch_trials: 1 },
+            catch_trials:        { images_per_trial: 4 },
         };
-        const nNeeded = cfg.design.num_blocks * cfg.design.trials_per_block * cfg.design.images_per_trial;
+        const nNeeded = (cfg.screening_block.num_experimental_trials + cfg.experimental_block.num_experimental_trials) * cfg.experimental_trials.images_per_trial;
         const images = Array.from({ length: nNeeded }, (_, i) => `img_${i}.png`);
         const catchPool = Array.from({ length: 20 }, (_, i) => `catch_${i}.png`);
 
         const rng = makeRng(99);
-        const distinctTrials   = buildTrialLists(images, cfg, rng);
-        const blocksOfDistinct = partitionIntoBlocks(distinctTrials, cfg);
-        const blocks = blocksOfDistinct.map((bt, i) => buildBlock(bt, catchPool, cfg, rng, i));
+        const distinctTrials = buildTrialLists(images, cfg, rng);
+        const { screening: screeningDistinct, experimental: experimentalDistinct } = partitionIntoStages(distinctTrials, cfg);
+        const screeningTrials = buildStage(screeningDistinct, catchPool, cfg.screening_block, cfg.catch_trials, rng, 'screening');
+        const experimentalTrials = buildStage(experimentalDistinct, catchPool, cfg.experimental_block, cfg.catch_trials, rng, 'experimental');
 
-        const imageToBlocks = {};
-        blocks.forEach((blockTrials, blockIdx) => {
-            blockTrials.filter(t => t.type === 'main' && !t.isRepeat).forEach(t => {
+        const imageToStages = {};
+        [screeningTrials, experimentalTrials].forEach(stageTrials => {
+            stageTrials.filter(t => t.type === 'main' && !t.isRepeat).forEach(t => {
                 t.images.forEach(img => {
-                    imageToBlocks[img] = imageToBlocks[img] || new Set();
-                    imageToBlocks[img].add(blockIdx);
+                    imageToStages[img] = imageToStages[img] || new Set();
+                    imageToStages[img].add(t.block);
                 });
             });
         });
-        Object.values(imageToBlocks).forEach(blockSet => assert.equal(blockSet.size, 1));
+        Object.values(imageToStages).forEach(stageSet => assert.equal(stageSet.size, 1));
     });
 });
