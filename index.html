@@ -42,10 +42,17 @@
     }
   </script>
 
-  <!-- Experiment modules (load order matters: utils → trial_generator → task) -->
-  <script src="SpAM_Task/js/utils.js"></script>
-  <script src="SpAM_Task/js/trial_generator.js"></script>
-  <script src="SpAM_Task/js/task.js"></script>
+  <!-- Experiment modules (load order matters: utils → trial_generator → task).
+       Cache-busted with a static ?v= query string tied to deployment.version:
+       local dev servers (e.g. `python -m http.server`) send no cache-control
+       headers, so browsers can silently keep serving a stale cached copy of
+       one of these files across edits while the others reload fresh, causing
+       spurious "X is not defined" errors between modules that are actually
+       in sync on disk. Bump this alongside deployment.version in
+       task_config.json whenever these files change. -->
+  <script src="SpAM_Task/js/utils.js?v=4.0"></script>
+  <script src="SpAM_Task/js/trial_generator.js?v=4.0"></script>
+  <script src="SpAM_Task/js/task.js?v=4.0"></script>
 </head>
 <body></body>
 </html>
