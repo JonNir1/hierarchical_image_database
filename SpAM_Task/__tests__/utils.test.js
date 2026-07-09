@@ -113,7 +113,7 @@ describe('verifyConfig', () => {
             trial_min_pairwise_distance_sd: 0.04,
             max_move_ratio_fail_frac:       0.30,
             max_distance_sd_fail_frac:      0.30,
-            min_median_reliability:         0.30,
+            min_overall_reliability:        0.30,
         },
         display: {
             sort_area_min_width:  900,
@@ -441,15 +441,29 @@ describe('evaluateScreening', () => {
             trial_min_pairwise_distance_sd: 0.04,
             max_move_ratio_fail_frac:       0.30,
             max_distance_sd_fail_frac:      0.30,
-            min_median_reliability:         0.30,
+            min_overall_reliability:        0.30,
         },
     };
 
     it('skips (does not fail) the reliability criterion when zero repeats completed so far', () => {
         const result = evaluateScreening({ mainTrials: [{ numMoves: 20, numItems: 20, sd: 0.1 }], reliabilities: [] }, cfg);
-        assert.equal(result.stats.medianReliability, null);
+        assert.equal(result.stats.minReliability, null);
         assert.ok(!result.reasons.some(r => /reliability/.test(r)));
         assert.equal(result.pass, true);
+    });
+
+    it('fails on the MINIMUM reliability, not an average/median — one bad repeat is enough', () => {
+        // Median/mean of these would be well above threshold (0.3); the min (0.05) is not.
+        const result = evaluateScreening({ mainTrials: [], reliabilities: [0.9, 0.95, 0.05] }, cfg);
+        assert.equal(result.stats.minReliability, 0.05);
+        assert.equal(result.pass, false);
+        assert.ok(/minimum reliability/.test(result.reasons[0]));
+    });
+
+    it('passes when every individual reliability is at or above the threshold', () => {
+        const result = evaluateScreening({ mainTrials: [], reliabilities: [0.9, 0.5, 0.30] }, cfg);
+        assert.equal(result.stats.minReliability, 0.30);
+        assert.equal(result.pass, true); // exactly-at-threshold passes (strict inequality)
     });
 
     it('passes when the fail-fraction is exactly at the threshold (strict inequality)', () => {

@@ -196,8 +196,9 @@ thresholds:
   `screening.max_move_ratio_fail_frac`
 - Fraction of main trials with `sd < screening.trial_min_pairwise_distance_sd` `>`
   `screening.max_distance_sd_fail_frac`
-- Median reliability across completed repeats `<` `screening.min_median_reliability` (skipped, not
-  failed, if zero repeats have completed yet)
+- Minimum reliability across completed repeats `<` `screening.min_overall_reliability` — the
+  subject is excluded if ANY single repeat's test-retest R falls below the threshold, not an
+  aggregate (median/mean) across repeats (skipped, not failed, if zero repeats have completed yet)
 
 All comparisons are strict — a value exactly at the configured threshold still passes. If any
 criterion is violated, the participant is screened out: `task.js` sets a `screenedOut` flag,
@@ -304,7 +305,7 @@ boundary, pushed via `jsPsych.data.get().push(...)` rather than a real trial):
 | `reasons` | JSON array of human-readable strings, one per violated criterion (empty if `pass` is `true`) |
 | `move_ratio_fail_frac` | Cumulative fraction of main trials so far failing the move-ratio check |
 | `distance_sd_fail_frac` | Cumulative fraction of main trials so far failing the distance-SD check |
-| `median_reliability` | Median Spearman ρ across completed repeats so far, or `null` if none completed yet |
+| `min_reliability` | Minimum Spearman ρ across completed repeats so far (the worst single repeat, not an aggregate), or `null` if none completed yet |
 
 ---
 
@@ -376,7 +377,7 @@ screen text in `task.js` for its keys):
 | `trial_min_pairwise_distance_sd` | 0.1 | **Within-trial**: minimum SD of normalised pairwise distances for a single main trial to pass per-trial QC (below this, images are piled up). Drives the per-trial `qc_flag` column. |
 | `max_move_ratio_fail_frac` | 0.30 | **Cross-trial**: max cumulative fraction of main trials (session so far) allowed to fail the move-ratio check before the participant is screened out at the next block boundary. |
 | `max_distance_sd_fail_frac` | 0.30 | **Cross-trial**: max cumulative fraction of main trials (session so far) allowed to fail the distance-SD check before the participant is screened out at the next block boundary. |
-| `min_median_reliability` | 0.30 | **Cross-trial**: minimum median Spearman ρ across completed repeats (session so far) before the participant is screened out at the next block boundary. Skipped (not failed) if zero repeats have completed yet. |
+| `min_overall_reliability` | 0.30 | **Cross-trial**: minimum acceptable Spearman ρ for EVERY individual completed repeat (session so far) — the subject is screened out if any single repeat's reliability falls below this, not an aggregate across repeats. Skipped (not failed) if zero repeats have completed yet. |
 
 All three cross-trial thresholds use strict inequality (`>`/`<`) — a value exactly at the
 configured threshold still passes. See "Live per-block screening" above.
