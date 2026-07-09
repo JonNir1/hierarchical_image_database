@@ -69,20 +69,26 @@ function verifyConfig(config) {
     // ── Group 1: section presence & key types ────────────────────────────────
     const SCHEMA = {
         design: {
-            trials_per_subject:          'number',
+            num_blocks:                  'number',
+            trials_per_block:            'number',
+            repeats_per_block:           'number',
             images_per_trial:            'number',
-            frac_trials_repeated:        'number',
             min_trial_repeat_separation: 'number',
             min_trial_duration_ms:       'number',
-            min_pairwise_distance_sd:    'number',
-            min_move_item_ratio:         'number',
             stimuli_path:                'string',
         },
         catch_trials: {
-            num_trials:         'number',
+            catch_per_block:     'number',
             images_per_trial:   'number',
             location_tolerance: 'number',
             stimuli_path:       'string',
+        },
+        screening: {
+            trial_min_move_item_ratio:      'number',
+            trial_min_pairwise_distance_sd: 'number',
+            max_move_ratio_fail_frac:       'number',
+            max_distance_sd_fail_frac:      'number',
+            min_median_reliability:         'number',
         },
         display: {
             sort_area_min_width:  'number',
@@ -103,6 +109,8 @@ function verifyConfig(config) {
         prolific: {
             completion_url:  'string',
             no_consent_url:  'string',
+            // partial_completion_urls is an array, validated separately below
+            // (outside the generic scalar-type-check loop).
         },
         consent: {
             researcher_name:        'string',
@@ -143,34 +151,55 @@ function verifyConfig(config) {
     if (config.consent.study_duration_minutes <= 0)
         err('"consent.study_duration_minutes" must be > 0, got ' + config.consent.study_duration_minutes + '.');
 
+    // ── Group 1c: prolific.partial_completion_urls (array, validated outside the generic loop) ──
+    if (!('partial_completion_urls' in config.prolific))
+        err('missing required key "prolific.partial_completion_urls".');
+    if (!Array.isArray(config.prolific.partial_completion_urls))
+        err('"prolific.partial_completion_urls" must be an array.');
+    config.prolific.partial_completion_urls.forEach((url, i) => {
+        if (typeof url !== 'string')
+            err('"prolific.partial_completion_urls[' + i + ']" must be a string, got ' + typeof url + '.');
+    });
+
     // ── Group 2: individual field ranges ─────────────────────────────────────
-    const { design: d, catch_trials: ct, display: disp } = config;
+    const { design: d, catch_trials: ct, display: disp, screening: sc } = config;
 
-    const t          = d.trials_per_subject;
-    const k          = d.images_per_trial;
-    const fr         = d.frac_trials_repeated;
-    const minRepSep  = d.min_trial_repeat_separation;
-    const minDur     = d.min_trial_duration_ms;
-    const minSd      = d.min_pairwise_distance_sd;
-    const moveRatio  = d.min_move_item_ratio;
-    const nCatch     = ct.num_trials;
-    const kCatch     = ct.images_per_trial;
-    const catchTol   = ct.location_tolerance;
-    const minW       = disp.sort_area_min_width;
-    const minH       = disp.sort_area_min_height;
-    const minHeader  = disp.min_header_height_px;
-    const minFooter  = disp.min_footer_height_px;
-    const frac       = disp.image_size_fraction;
+    const numBlocks       = d.num_blocks;
+    const trialsPerBlock  = d.trials_per_block;
+    const repeatsPerBlock = d.repeats_per_block;
+    const k               = d.images_per_trial;
+    const minRepSep       = d.min_trial_repeat_separation;
+    const minDur          = d.min_trial_duration_ms;
+    const trialMinSd      = sc.trial_min_pairwise_distance_sd;
+    const trialMoveRatio  = sc.trial_min_move_item_ratio;
+    const catchPerBlock   = ct.catch_per_block;
+    const kCatch          = ct.images_per_trial;
+    const catchTol        = ct.location_tolerance;
+    const minW            = disp.sort_area_min_width;
+    const minH            = disp.sort_area_min_height;
+    const minHeader       = disp.min_header_height_px;
+    const minFooter       = disp.min_footer_height_px;
+    const frac            = disp.image_size_fraction;
 
-    if (!Number.isInteger(t)        || t < 1)        err('"design.trials_per_subject" must be a positive integer, got ' + t + '.');
+    if (!Number.isInteger(numBlocks) || numBlocks < 1)
+        err('"design.num_blocks" must be a positive integer, got ' + numBlocks + '.');
+    if (!Number.isInteger(trialsPerBlock) || trialsPerBlock < 1)
+        err('"design.trials_per_block" must be a positive integer, got ' + trialsPerBlock + '.');
+    if (!Number.isInteger(repeatsPerBlock) || repeatsPerBlock < 0 || repeatsPerBlock > trialsPerBlock)
+        err('"design.repeats_per_block" must be an integer in [0, design.trials_per_block] (' + trialsPerBlock + '), got ' + repeatsPerBlock + '.');
     if (!Number.isInteger(k)        || k < 1)        err('"design.images_per_trial" must be a positive integer, got ' + k + '.');
-    if (fr < 0 || fr >= 1)                            err('"design.frac_trials_repeated" must be in [0, 1), got ' + fr + '.');
-    if (fr >= 0.4) warn('WARNING: "design.frac_trials_repeated" is ' + fr + ' (>= 0.4). High values leave little room to satisfy "design.min_trial_repeat_separation", raising the risk that insertTrialRepeats fails at runtime. Keep below 0.4 for reliable behaviour.');
     if (!Number.isInteger(minRepSep) || minRepSep < 1) err('"design.min_trial_repeat_separation" must be a positive integer, got ' + minRepSep + '.');
     if (minDur < 0) err('"design.min_trial_duration_ms" must be >= 0, got ' + minDur + '.');
-    if (minSd <= 0 || minSd >= 1)     err('"design.min_pairwise_distance_sd" must be in (0, 1), got ' + minSd      + '.');
-    if (moveRatio <= 0 || moveRatio > 1) err('"design.min_move_item_ratio" must be in (0, 1], got '   + moveRatio  + '.');
-    if (!Number.isInteger(nCatch)   || nCatch < 0)   err('"catch_trials.num_trials" must be a non-negative integer, got ' + nCatch + '.');
+    if (trialMinSd <= 0 || trialMinSd >= 1)     err('"screening.trial_min_pairwise_distance_sd" must be in (0, 1), got ' + trialMinSd      + '.');
+    if (trialMoveRatio <= 0 || trialMoveRatio > 1) err('"screening.trial_min_move_item_ratio" must be in (0, 1], got '   + trialMoveRatio  + '.');
+    if (sc.max_move_ratio_fail_frac  < 0 || sc.max_move_ratio_fail_frac  > 1)
+        err('"screening.max_move_ratio_fail_frac" must be in [0,1], got ' + sc.max_move_ratio_fail_frac + '.');
+    if (sc.max_distance_sd_fail_frac < 0 || sc.max_distance_sd_fail_frac > 1)
+        err('"screening.max_distance_sd_fail_frac" must be in [0,1], got ' + sc.max_distance_sd_fail_frac + '.');
+    if (sc.min_median_reliability < -1 || sc.min_median_reliability > 1)
+        err('"screening.min_median_reliability" must be in [-1,1], got ' + sc.min_median_reliability + '.');
+    if (!Number.isInteger(catchPerBlock) || catchPerBlock < 0)
+        err('"catch_trials.catch_per_block" must be a non-negative integer, got ' + catchPerBlock + '.');
     if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
     if (catchTol  <= 0 || catchTol  >= 1) err('"catch_trials.location_tolerance" must be in (0, 1), got '+ catchTol  + '.');
     if (minW <= 0) err('"display.sort_area_min_width" must be > 0, got '    + minW + '.');
@@ -196,22 +225,25 @@ function verifyConfig(config) {
 
     // ── Group 3: cross-parameter arithmetic ──────────────────────────────────
 
-    // 3a. min_trial_repeat_separation structural feasibility. The slot
-    // positions (which of the t main-trial slots are repeats) are fully
-    // determined by t and numTrialRepeats alone — independent of the RNG —
-    // so this can be checked at config-load time. Failing here means
-    // insertTrialRepeats is guaranteed to fail too.
-    const tDistinct       = t - Math.round(fr * t);
-    const numTrialRepeats = t - tDistinct;
-    if (!canSatisfyTrialRepeatSeparation(t, numTrialRepeats, minRepSep))
-        err('design.min_trial_repeat_separation (' + minRepSep + ') cannot be satisfied with ' +
-            'trials_per_subject=' + t + ' and frac_trials_repeated=' + fr + ' (' + numTrialRepeats +
-            ' repeat slot(s) needed). Lower min_trial_repeat_separation, lower frac_trials_repeated, ' +
-            'or increase trials_per_subject. Note: catch trials are not counted toward this separation.');
+    // 3a. min_trial_repeat_separation structural feasibility, re-scoped to a
+    // single block's local slot count. The slot positions (which of a
+    // block's tBlock main-trial slots are repeats) are fully determined by
+    // trialsPerBlock and repeatsPerBlock alone — independent of the RNG —
+    // so this can be checked at config-load time. Every block shares the
+    // same trialsPerBlock/repeatsPerBlock, so checking once suffices.
+    // Failing here means insertTrialRepeats is guaranteed to fail too.
+    const tBlock = trialsPerBlock + repeatsPerBlock;
+    if (!canSatisfyTrialRepeatSeparation(tBlock, repeatsPerBlock, minRepSep))
+        err('design.min_trial_repeat_separation (' + minRepSep + ') cannot be satisfied within a single block ' +
+            '(trials_per_block=' + trialsPerBlock + ' + repeats_per_block=' + repeatsPerBlock + ' = ' + tBlock +
+            ' block-local slots). Lower min_trial_repeat_separation, lower repeats_per_block, or increase ' +
+            'trials_per_block. Note: catch trials are not counted toward this separation.');
 
-    // 3b. Catch trial count
-    if (nCatch >= t)
-        err('catch_trials.num_trials (' + nCatch + ') must be < design.trials_per_subject (' + t + '). At least one main trial is required.');
+    // 3b. partial_completion_urls must have exactly num_blocks - 1 entries —
+    // one per possible screen-out boundary (never after the final block).
+    if (config.prolific.partial_completion_urls.length !== numBlocks - 1)
+        err('"prolific.partial_completion_urls" must have length design.num_blocks - 1 (' + (numBlocks - 1) +
+            '), got ' + config.prolific.partial_completion_urls.length + '.');
 
     // 3c. Single image fits in minimum sort area
     const stimSize = Math.round(minW * frac);
@@ -243,6 +275,9 @@ function verifyConfig(config) {
         if (!config.design.stimuli_path)                   warn('"design.stimuli_path" is empty — no main images will load.');
         if (!config.catch_trials.stimuli_path)             warn('"catch_trials.stimuli_path" is empty — catch and practice trials will have no images.');
         if (!config.prolific.completion_url)                warn('"prolific.completion_url" is empty — participants will not be redirected after completion.');
+        config.prolific.partial_completion_urls.forEach((url, i) => {
+            if (!url) warn('"prolific.partial_completion_urls[' + i + ']" is empty — participants screened out after block ' + (i + 1) + ' will not be redirected.');
+        });
     }
 }
 
@@ -454,11 +489,121 @@ function computeSD(values) {
  * @param {number} sd          - Sample SD of normalised pairwise distances
  * @param {number} numMoves    - Total drag-end events recorded by the plugin
  * @param {number} numItems    - Number of stimuli in the trial
- * @param {object} config      - Task config (reads design.min_pairwise_distance_sd / design.min_move_item_ratio)
+ * @param {object} config      - Task config (reads screening.trial_min_pairwise_distance_sd / screening.trial_min_move_item_ratio)
  * @returns {boolean} true if the trial should be flagged
  */
 function computeMainQcFlag(sd, numMoves, numItems, config) {
-    const d = config.design;
-    const enoughMoves = numMoves >= d.min_move_item_ratio * numItems;
-    return sd < d.min_pairwise_distance_sd || !enoughMoves;
+    const s = config.screening;
+    const enoughMoves = numMoves >= s.trial_min_move_item_ratio * numItems;
+    return sd < s.trial_min_pairwise_distance_sd || !enoughMoves;
+}
+
+/**
+ * Spearman rank correlation between two pairwise-distance vectors, matched
+ * by UNORDERED image-pair identity {src1,src2} (not array order —
+ * computePairwiseDistances' output order depends on final_locations' order,
+ * which differs between an original trial and its verbatim repeat because
+ * insertTrialRepeats reshuffles the repeat's presentation order).
+ *
+ * @param {Array<{src1: string, src2: string, distance: number}>} pairsA - original trial's pairwise distances
+ * @param {Array<{src1: string, src2: string, distance: number}>} pairsB - repeat trial's pairwise distances
+ * @returns {number} Spearman rho in [-1,1], or NaN if either vector has <2 pairs or zero variance
+ * @throws {Error} if pairsA/pairsB don't cover exactly the same set of unordered pairs
+ */
+function computeSpearmanCorrelation(pairsA, pairsB) {
+    const keyOf = p => [p.src1, p.src2].sort().join(' ');
+    const mapA  = new Map(pairsA.map(p => [keyOf(p), p.distance]));
+    const mapB  = new Map(pairsB.map(p => [keyOf(p), p.distance]));
+    if (mapA.size !== pairsA.length) throw new Error('computeSpearmanCorrelation: pairsA has duplicate pair keys.');
+    if (mapB.size !== pairsB.length) throw new Error('computeSpearmanCorrelation: pairsB has duplicate pair keys.');
+    if (mapA.size !== mapB.size)
+        throw new Error(`computeSpearmanCorrelation: pairsA has ${mapA.size} unique pairs, pairsB has ${mapB.size} — image sets differ.`);
+
+    const valuesA = [], valuesB = [];
+    for (const [key, distA] of mapA) {
+        if (!mapB.has(key)) throw new Error(`computeSpearmanCorrelation: pair "${key}" present in pairsA but not pairsB.`);
+        valuesA.push(distA);
+        valuesB.push(mapB.get(key));
+    }
+    return _pearsonCorrelation(_averageRanks(valuesA), _averageRanks(valuesB));
+}
+
+/** Rank values 1..n, tied values get the AVERAGE of their tied-block ranks. */
+function _averageRanks(values) {
+    const n   = values.length;
+    const idx = values.map((_, i) => i).sort((a, b) => values[a] - values[b]);
+    const ranks = new Array(n);
+    let i = 0;
+    while (i < n) {
+        let j = i;
+        while (j + 1 < n && values[idx[j + 1]] === values[idx[i]]) j++;
+        const avgRank = (i + j) / 2 + 1; // 1-based
+        for (let m = i; m <= j; m++) ranks[idx[m]] = avgRank;
+        i = j + 1;
+    }
+    return ranks;
+}
+
+function _pearsonCorrelation(a, b) {
+    const n = a.length;
+    if (n < 2) return NaN;
+    const meanA = a.reduce((s, v) => s + v, 0) / n;
+    const meanB = b.reduce((s, v) => s + v, 0) / n;
+    let num = 0, denA = 0, denB = 0;
+    for (let i = 0; i < n; i++) {
+        const da = a[i] - meanA, db = b[i] - meanB;
+        num += da * db; denA += da * da; denB += db * db;
+    }
+    if (denA === 0 || denB === 0) return NaN;
+    return num / Math.sqrt(denA * denB);
+}
+
+/**
+ * Evaluate cumulative screening criteria at a block boundary. Pure function
+ * over already-computed per-trial stats — no DOM/jsPsych dependency, so it
+ * is unit-testable in isolation.
+ *
+ * moveRatioFailFrac/distanceSdFailFrac are deliberately independent counts
+ * against independent thresholds — NOT computeMainQcFlag's OR-combined
+ * boolean, which conflates the two failure modes. computeMainQcFlag remains
+ * the sole driver of the per-trial qc_flag CSV column; this function is a
+ * separate, cumulative, cross-trial aggregation for live screening.
+ *
+ * @param {{mainTrials: Array<{numMoves: number, numItems: number, sd: number}>,
+ *          reliabilities: number[]}} dataSoFar
+ *   mainTrials: one entry per completed main trial (both distinct and repeat)
+ *   across ALL blocks completed so far this session, not just the current block.
+ *   reliabilities: one Spearman R per completed repeat trial so far this session.
+ * @param {{screening: {trial_min_move_item_ratio: number, trial_min_pairwise_distance_sd: number,
+ *                      max_move_ratio_fail_frac: number, max_distance_sd_fail_frac: number,
+ *                      min_median_reliability: number}}} config
+ * @returns {{pass: boolean, reasons: string[],
+ *            stats: {moveRatioFailFrac: number, distanceSdFailFrac: number, medianReliability: (number|null)}}}
+ */
+function evaluateScreening(dataSoFar, config) {
+    const { mainTrials, reliabilities } = dataSoFar;
+    const s = config.screening;
+
+    const n = mainTrials.length;
+    const moveFails = mainTrials.filter(t => t.numMoves < s.trial_min_move_item_ratio * t.numItems).length;
+    const sdFails    = mainTrials.filter(t => t.sd < s.trial_min_pairwise_distance_sd).length;
+    const moveRatioFailFrac  = n === 0 ? 0 : moveFails / n;
+    const distanceSdFailFrac = n === 0 ? 0 : sdFails   / n;
+    const medianReliability  = reliabilities.length === 0 ? null : _median(reliabilities);
+
+    const reasons = [];
+    if (moveRatioFailFrac > s.max_move_ratio_fail_frac)
+        reasons.push(`move-ratio fail fraction ${moveRatioFailFrac.toFixed(3)} exceeds max_move_ratio_fail_frac (${s.max_move_ratio_fail_frac})`);
+    if (distanceSdFailFrac > s.max_distance_sd_fail_frac)
+        reasons.push(`distance-SD fail fraction ${distanceSdFailFrac.toFixed(3)} exceeds max_distance_sd_fail_frac (${s.max_distance_sd_fail_frac})`);
+    if (medianReliability !== null && medianReliability < s.min_median_reliability)
+        reasons.push(`median reliability ${medianReliability.toFixed(3)} is below min_median_reliability (${s.min_median_reliability})`);
+
+    return { pass: reasons.length === 0, reasons, stats: { moveRatioFailFrac, distanceSdFailFrac, medianReliability } };
+}
+
+function _median(values) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }

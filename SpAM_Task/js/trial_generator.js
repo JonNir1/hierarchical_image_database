@@ -7,57 +7,77 @@
 // ---------------------------------------------------------------------------
 
 /**
- * Number of genuinely distinct trial combinations to generate, after setting
- * aside slots that will instead hold verbatim repeats of earlier trials
- * (see insertTrialRepeats).
- * @param {{design: {trials_per_subject: number, frac_trials_repeated: number}}} config
+ * Total number of genuinely distinct trial combinations needed across the
+ * whole session: every block contributes trials_per_block distinct trials,
+ * and (unlike the old per-session frac_trials_repeated scheme) repeats are
+ * additive on top of that, not carved out of it.
+ * @param {{design: {num_blocks: number, trials_per_block: number}}} config
  * @returns {number}
  */
-function _distinctTrialCount(config) {
-    const t  = config.design.trials_per_subject;
-    const fr = config.design.frac_trials_repeated || 0;
-    return t - Math.round(fr * t);
+function _totalDistinctTrialCount(config) {
+    return config.design.num_blocks * config.design.trials_per_block;
 }
 
 /**
- * Build per-subject trial lists with each image appearing in exactly one
+ * Build session-wide trial lists with each image appearing in exactly one
  * distinct trial.
  *
- * Each subject sees t_distinct * k unique images across t_distinct distinct
- * trials of k images each, where t_distinct = trials_per_subject -
- * round(frac_trials_repeated * trials_per_subject). The only way an image
- * can ever appear more than once per subject is via a verbatim whole-trial
- * repeat (see insertTrialRepeats), independent of this function.
+ * The subject sees (num_blocks * trials_per_block) * images_per_trial unique
+ * images across that many distinct trials of images_per_trial images each.
+ * The only way an image can ever appear more than once per subject is via a
+ * verbatim whole-trial repeat within a single block (see insertTrialRepeats),
+ * independent of this function. Partitioning this flat list into per-block
+ * groups is handled separately by partitionIntoBlocks.
  *
  * @param {string[]} allImages - All available image paths (from stimuli_manifest.json)
- * @param {{design: {trials_per_subject: number,
- *                   images_per_trial: number,
- *                   frac_trials_repeated: number}}} config
+ * @param {{design: {num_blocks: number,
+ *                   trials_per_block: number,
+ *                   images_per_trial: number}}} config
  * @param {function(): number} rng - Seeded RNG returning float in [0, 1)
- * @returns {string[][]} `t_distinct` trials of exactly `k` images each
- * @throws {Error} If the image pool is too small to fill `t_distinct * k` slots
+ * @returns {string[][]} `num_blocks * trials_per_block` trials of exactly `images_per_trial` images each
+ * @throws {Error} If the image pool is too small to fill all slots
  */
 function buildTrialLists(allImages, config, rng) {
-    const t_distinct = _distinctTrialCount(config);
-    const k          = config.design.images_per_trial;
-    const n_needed   = t_distinct * k;
+    const nDistinctTotal = _totalDistinctTrialCount(config);
+    const k              = config.design.images_per_trial;
+    const n_needed        = nDistinctTotal * k;
 
     if (allImages.length < n_needed) {
         throw new Error(
             `buildTrialLists: image pool has ${allImages.length} image(s), need ${n_needed} ` +
-            `(trials_per_subject × images_per_trial, accounting for frac_trials_repeated). ` +
-            'Add more images, or lower trials_per_subject/images_per_trial.'
+            `(num_blocks × trials_per_block × images_per_trial). ` +
+            'Add more images, or lower num_blocks/trials_per_block/images_per_trial.'
         );
     }
 
-    // Subject-specific random subset, sliced into t_distinct trials of k images each.
+    // Session-wide random subset, sliced into nDistinctTotal trials of k images each.
     const activeSet = seededShuffle(allImages, rng).slice(0, n_needed);
     const trials    = [];
-    for (let i = 0; i < t_distinct; i++) {
+    for (let i = 0; i < nDistinctTotal; i++) {
         trials.push(activeSet.slice(i * k, (i + 1) * k));
     }
 
     return trials;
+}
+
+/**
+ * Partition the session-wide flat list of distinct trials (buildTrialLists'
+ * output) into num_blocks consecutive groups of trials_per_block each. Each
+ * block's group is disjoint by construction, since buildTrialLists already
+ * guarantees no image is shared between any two distinct trials.
+ *
+ * @param {string[][]} distinctTrials - length num_blocks * trials_per_block
+ * @param {{design: {num_blocks: number, trials_per_block: number}}} config
+ * @returns {string[][][]} length num_blocks, each element length trials_per_block
+ */
+function partitionIntoBlocks(distinctTrials, config) {
+    const B = config.design.num_blocks;
+    const k = config.design.trials_per_block;
+    const blocks = [];
+    for (let b = 0; b < B; b++) {
+        blocks.push(distinctTrials.slice(b * k, (b + 1) * k));
+    }
+    return blocks;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,63 +85,72 @@ function buildTrialLists(allImages, config, rng) {
 // ---------------------------------------------------------------------------
 
 /**
- * Fill the remaining `trials_per_subject - trials.length` slots with verbatim
- * repeats of earlier trials, for test-retest reliability of the arrangement
- * response itself.
+ * Fill in `repeats_per_block` additional slots with verbatim repeats of
+ * trials from this same block, for test-retest reliability of the
+ * arrangement response itself.
  *
- * Every distinct trial is eligible to be repeated (each image already
- * appears in exactly one distinct trial, by construction of buildTrialLists).
- * Each repeat is placed at least `min_trial_repeat_separation` slots after
- * the trial it duplicates (image order is reshuffled so the repeat isn't
+ * Every distinct trial in the block is eligible to be repeated (each image
+ * already appears in exactly one distinct trial, by construction of
+ * buildTrialLists). Each repeat is placed at least `min_trial_repeat_separation`
+ * slots after the trial it duplicates, scoped to this block's own local
+ * slot numbering (image order is reshuffled so the repeat isn't
  * pixel-identical to the original, though the image set is).
  *
- * @param {string[][]} trials - Output of buildTrialLists, length t_distinct
- * @param {{design: {trials_per_subject: number, min_trial_repeat_separation: number}}} config
- * @param {function(): number} rng - Seeded RNG (same instance used throughout)
- * @returns {Array<{images: string[], isRepeat: boolean, repeatOfTrialId: (number|null), trialId: (number|string)}>}
- *          Array of length `trials_per_subject`
- * @throws {Error} If no placement satisfies min_trial_repeat_separation
+ * @param {string[][]} trials - This block's distinct trials (one block's slice of buildTrialLists' output)
+ * @param {{design: {repeats_per_block: number, min_trial_repeat_separation: number}}} config
+ * @param {function(): number} rng - Seeded RNG (same instance used throughout the session)
+ * @param {number} [blockIndex=0] - 0-based block index, used to namespace trialId globally across blocks
+ * @returns {Array<{images: string[], isRepeat: boolean, repeatOfTrialId: (string|null), trialId: string}>}
+ *          Array of length `trials.length + repeats_per_block`
+ * @throws {Error} If no placement satisfies min_trial_repeat_separation within this block
  */
-function insertTrialRepeats(trials, config, rng) {
-    const t           = config.design.trials_per_subject;
-    const numRepeats  = t - trials.length;
-    const minSep      = config.design.min_trial_repeat_separation;
+function insertTrialRepeats(trials, config, rng, blockIndex = 0) {
+    const numRepeats = config.design.repeats_per_block;
+    const t          = trials.length + numRepeats; // block-local slot count
+    const minSep     = config.design.min_trial_repeat_separation;
 
     if (numRepeats === 0) {
-        return trials.map((images, i) => ({ images, isRepeat: false, repeatOfTrialId: null, trialId: i }));
+        return trials.map((images, i) => ({
+            images, isRepeat: false, repeatOfTrialId: null, trialId: blockIndex + '_' + i,
+        }));
     }
 
     // Structural layout (which of the t slots are repeats vs. distinct
     // trials) is shared with verifyConfig's static feasibility pre-check —
-    // see computeRepeatLayout in utils.js.
+    // see computeRepeatLayout in utils.js. Block-scoped: t/numRepeats are
+    // this block's local counts, not session-wide.
     const { repeatPositions, distinctPositions } = computeRepeatLayout(t, numRepeats);
 
     const sequence         = new Array(t).fill(null);
     const originalPosition = {};
     distinctPositions.forEach((pos, distinctIdx) => {
-        sequence[pos] = { images: trials[distinctIdx], isRepeat: false, repeatOfTrialId: null, trialId: distinctIdx };
+        const trialId = blockIndex + '_' + distinctIdx;
+        sequence[pos] = { images: trials[distinctIdx], isRepeat: false, repeatOfTrialId: null, trialId };
         originalPosition[distinctIdx] = pos;
     });
 
     // Assign originals to repeat slots in increasing position order
     // (most-constrained first), enforcing min_trial_repeat_separation.
+    // Keep the pool keyed by bare distinct-index internally (matching
+    // originalPosition's keys) and only namespace into a trialId string
+    // when constructing the final repeat object below.
     const remaining = seededShuffle([...trials.keys()], rng);
     for (const pos of repeatPositions) {
-        const eligibleIdx = remaining.findIndex(id => pos - originalPosition[id] >= minSep);
+        const eligibleIdx = remaining.findIndex(distinctIdx => pos - originalPosition[distinctIdx] >= minSep);
         if (eligibleIdx === -1) {
             throw new Error(
-                `insertTrialRepeats: cannot place a repeat at position ${pos} satisfying ` +
-                `min_trial_repeat_separation=${minSep}. Reduce frac_trials_repeated, lower ` +
-                'min_trial_repeat_separation, or increase trials_per_subject.'
+                `insertTrialRepeats: cannot place a repeat at block-local position ${pos} satisfying ` +
+                `min_trial_repeat_separation=${minSep} within block ${blockIndex}. Reduce repeats_per_block, ` +
+                'lower min_trial_repeat_separation, or increase trials_per_block.'
             );
         }
-        const id = remaining[eligibleIdx];
+        const distinctIdx = remaining[eligibleIdx];
         remaining.splice(eligibleIdx, 1);
         sequence[pos] = {
-            images:          seededShuffle(trials[id], rng),
+            images:          seededShuffle(trials[distinctIdx], rng),
             isRepeat:        true,
-            repeatOfTrialId: id,
-            trialId:         id + '_repeat',
+            repeatOfTrialId: blockIndex + '_' + distinctIdx,
+            trialId:         blockIndex + '_' + distinctIdx + '_repeat',
         };
     }
 
@@ -173,13 +202,13 @@ function buildCatchTrial(catchPool, config, rng) {
  * @param {Array<{images: string[], isRepeat?: boolean, repeatOfTrialId?: (number|string|null), trialId?: (number|string)}>} mainTrials
  *        Output of insertTrialRepeats (or plain `string[][]`, for backward compatibility)
  * @param {string[]}           catchPool  - Images reserved for catch trials
- * @param {{catch_trials: {num_trials: number, images_per_trial: number}}} config
+ * @param {{catch_trials: {catch_per_block: number, images_per_trial: number}}} config
  * @param {function(): number} rng        - Seeded RNG (same instance used throughout)
  * @returns {Array<{type: 'main'|'catch', images: string[], target_location?: string, isRepeat?: boolean, repeatOfTrialId?: (number|string|null), trialId?: (number|string)}>}
  */
 function insertCatchTrials(mainTrials, catchPool, config, rng) {
     const numMain  = mainTrials.length;
-    const numCatch = config.catch_trials.num_trials;
+    const numCatch = config.catch_trials.catch_per_block;
 
     const catchPositions = [];
     for (let i = 1; i <= numCatch; i++) {
@@ -203,4 +232,29 @@ function insertCatchTrials(mainTrials, catchPool, config, rng) {
     }
 
     return combined;
+}
+
+// ---------------------------------------------------------------------------
+// Block orchestration
+// ---------------------------------------------------------------------------
+
+/**
+ * Compose the block-scoped repeat + catch logic for a single block, and
+ * stamp every returned trial (main and catch) with its 1-based block number
+ * for downstream data-column output.
+ *
+ * @param {string[][]} blockDistinctTrials - This block's slice of trials_per_block distinct trials
+ *        (one group from partitionIntoBlocks' output)
+ * @param {string[]} catchPool - Images reserved for catch trials
+ * @param {object} config - Full task config (design.repeats_per_block, design.min_trial_repeat_separation,
+ *        catch_trials.catch_per_block, catch_trials.images_per_trial)
+ * @param {function(): number} rng - Seeded RNG (same instance used throughout the session)
+ * @param {number} blockIndex - 0-based block index
+ * @returns {Array<{type: 'main'|'catch', images: string[], block: number, [otherFields]: *}>}
+ *          Length trials_per_block + repeats_per_block + catch_per_block
+ */
+function buildBlock(blockDistinctTrials, catchPool, config, rng, blockIndex) {
+    const mainTrials = insertTrialRepeats(blockDistinctTrials, config, rng, blockIndex);
+    const combined    = insertCatchTrials(mainTrials, catchPool, config, rng);
+    return combined.map(t => ({ ...t, block: blockIndex + 1 }));
 }

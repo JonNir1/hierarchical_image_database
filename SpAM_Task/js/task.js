@@ -199,25 +199,58 @@ document.addEventListener('DOMContentLoaded', async () => {
   //    buildTrialLists expects rng as a function (not a seed integer).
   //    rng must not be called between here and buildTrialLists — any prior call
   //    shifts the sequence and breaks per-PID reproducibility.
-  //    insertCatchTrials uses the same rng instance (continued sequence) so
-  //    catch location assignment is also seeded and recorded in trial data.
+  //    One session-wide image pool is drawn up front (buildTrialLists), then
+  //    partitioned into num_blocks disjoint groups (partitionIntoBlocks), and
+  //    each group is expanded into its block's full trial sequence (buildBlock,
+  //    which internally calls insertTrialRepeats/insertCatchTrials scoped to
+  //    that block, using the same shared rng instance so the whole session
+  //    remains fully reproducible from PID).
   // ---------------------------------------------------------------------------
-  const distinctTrials = buildTrialLists(imageUrls, config, rng);
-  const mainTrials = insertTrialRepeats(distinctTrials, config, rng);
-  const allTrials   = insertCatchTrials(mainTrials, catchUrls, config, rng);
+  const distinctTrials   = buildTrialLists(imageUrls, config, rng);
+  const blocksOfDistinct = partitionIntoBlocks(distinctTrials, config);
+  const blocks = blocksOfDistinct.map((blockTrials, blockIndex) =>
+    buildBlock(blockTrials, catchUrls, config, rng, blockIndex));
+  const allTrials = blocks.flat();
 
   // Maps each main trial's trialId to its 1-based trial number in the
   // "trial_N" numbering scheme (main trials only, matching trial_type), so a
   // repeat's repeatOfTrialId can be resolved directly to a value comparable
-  // to trial_type without any downstream re-indexing.
+  // to trial_type without any downstream re-indexing. Numbering is a single
+  // continuous counter across the whole session, not reset per block.
   const trialIdToTrialNumber = {};
   let trialNumberCounter = 0;
   allTrials.forEach((trial) => {
     if (trial.type === 'main') trialIdToTrialNumber[trial.trialId] = ++trialNumberCounter;
   });
 
+  // ---------------------------------------------------------------------------
+  // Live per-block screening state
+  //   originalPairwiseDistancesByTrialId: trialId -> pairs[], set when a
+  //     non-repeat main trial finishes, so its later repeat can compute
+  //     test-retest reliability against it.
+  //   mainTrialStatsSoFar / reliabilitiesSoFar: cumulative across the WHOLE
+  //     session so far (not just the current block) — evaluateScreening
+  //     always looks at everything completed up to that point.
+  //   blockBoundaryTrials: the last trial (main or catch) of each of the
+  //     first (num_blocks - 1) blocks — screening is evaluated there, and
+  //     ONLY there can screenedOut be set (never on the final block, since a
+  //     participant who reaches the end cannot be retroactively excluded).
+  //   finalBlockLastTrial: last trial of the FINAL block — stats are still
+  //     computed and logged there for audit, but never gate screenedOut.
+  // ---------------------------------------------------------------------------
+  const originalPairwiseDistancesByTrialId = {};
+  const mainTrialStatsSoFar = [];
+  const reliabilitiesSoFar  = [];
+
+  const blockBoundaryTrials = new Set(
+    blocks.slice(0, blocks.length - 1).map(b => b[b.length - 1]));
+  const finalBlockLastTrial = blocks[blocks.length - 1][blocks[blocks.length - 1].length - 1];
+
+  let screenedOut = false;
+  let screenedOutAtBlock = null; // 1-based
+
   if (mode === 'debug') {
-    console.log('[SpAM] Trial sequence:', allTrials.map((t, i) => i + ':' + t.type + (t.isRepeat ? ' (repeat)' : '')));
+    console.log('[SpAM] Trial sequence:', allTrials.map((t, i) => i + ':' + t.type + ' block=' + t.block + (t.isRepeat ? ' (repeat)' : '')));
   }
 
   // ---------------------------------------------------------------------------
@@ -233,7 +266,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (isPavlovia) return;
       const csv  = jsPsych.data.get()
                      .filterCustom(d => d.trial_type.startsWith('trial_') ||
-                                        d.trial_type.startsWith('catch_'))
+                                        d.trial_type.startsWith('catch_') ||
+                                        d.trial_type.startsWith('block_eval_'))
                      .csv();
       const blob = new Blob([csv], { type: 'text/csv' });
       const url  = URL.createObjectURL(blob);
@@ -517,14 +551,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   allTrials.forEach((trial, idx) => {
 
     // Per-trial preload (only this trial's images)
-    timeline.push({
+    const preloadNode = {
       type:    jsPsychPreload,
       images:  trial.images,
       message: '<p>Loading images…</p>',
       show_progress_bar: true,
       continue_after_error: true,
       error_message: '<p>One or more images failed to load. Please contact the researcher.</p>',
-    });
+    };
 
     // Free-sort trial
     // NOTE: header_text must go in `prompt`, NOT counter_text_*.
@@ -538,7 +572,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           '<strong>' + trial.target_location + '</strong> of the screen.</p>'
         : '<p style="font-size:0.9em; margin:0;"><strong>Your task:</strong> Arrange the images by <strong>visual</strong> similarity. ' +
           'Close together = <strong>visually similar</strong> &nbsp;|&nbsp; Far apart = <strong>visually different</strong>.</p>';
-    timeline.push({
+    const freesortNode = {
       type:             jsPsychFreeSort,
       stimuli:          trial.images,
       css_classes: 'spam-freesort',
@@ -566,15 +600,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         data.num_moves = numMoves;
 
         // trial_type: 'trial_N' for main trials, 'catch_N' for catch trials
-        // (1-based running index within each category)
+        // (1-based running index within each category, continuous across blocks)
         data.trial_type  = trial.type === 'catch'
           ? 'catch_' + (++catchCount)
           : 'trial_' + (++mainCount);
         data.trial_index = idx;
+        data.block        = trial.block;
 
         if (trial.type === 'main') {
           data.is_trial_repeat       = !!trial.isRepeat;
           data.repeat_of_trial_number = trial.isRepeat ? trialIdToTrialNumber[trial.repeatOfTrialId] : null;
+
+          mainTrialStatsSoFar.push({ numMoves, numItems: trial.images.length, sd });
+          if (!trial.isRepeat) {
+            originalPairwiseDistancesByTrialId[trial.trialId] = pairs;
+          } else {
+            const origPairs = originalPairwiseDistancesByTrialId[trial.repeatOfTrialId];
+            const reliability = origPairs ? computeSpearmanCorrelation(origPairs, pairs) : NaN;
+            data.reliability = reliability;
+            if (Number.isFinite(reliability)) reliabilitiesSoFar.push(reliability);
+          }
         }
 
         if (trial.type === 'catch') {
@@ -596,9 +641,42 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         data.pairwise_distances = JSON.stringify(pairs);
 
+        // Block-boundary live screening evaluation. Runs at the last trial
+        // of every block 1..(num_blocks-1) (screenedOut can be set) AND at
+        // the last trial of the final block (audit-only, never sets
+        // screenedOut — a participant who completes the whole session can
+        // never be retroactively excluded).
+        if (blockBoundaryTrials.has(trial) || trial === finalBlockLastTrial) {
+          const evalResult = evaluateScreening(
+            { mainTrials: mainTrialStatsSoFar, reliabilities: reliabilitiesSoFar },
+            config,
+          );
+          // jsPsych.data.write() expects an internal Trial instance (it calls
+          // trial.getResult() before merging session-level dataProperties) --
+          // not usable for a synthetic row here. Push directly onto the
+          // results DataCollection instead, replicating write()'s own
+          // dataProperties merge so this row carries the same session-level
+          // columns (participant_id, task_version, etc.) as every trial row.
+          jsPsych.data.get().push({
+            ...jsPsych.data.dataProperties,
+            trial_type:            'block_eval_' + trial.block,
+            block:                 trial.block,
+            pass:                  evalResult.pass,
+            reasons:               JSON.stringify(evalResult.reasons),
+            move_ratio_fail_frac:  evalResult.stats.moveRatioFailFrac,
+            distance_sd_fail_frac: evalResult.stats.distanceSdFailFrac,
+            median_reliability:    evalResult.stats.medianReliability,
+          });
+          if (blockBoundaryTrials.has(trial) && !evalResult.pass) {
+            screenedOut = true;
+            screenedOutAtBlock = trial.block;
+            if (mode === 'debug') console.log('[SpAM] Screened out after block', trial.block, evalResult.reasons);
+          }
+        }
+
         if (mode === 'debug') {
           console.log(
-            '[SpAM] Trial', idx, '(' + trial.type + ')',
+            '[SpAM] Trial', idx, '(' + trial.type + ')', 'block=' + trial.block,
             '| sd=' + sd.toFixed(4),
             '| moves=' + numMoves + '/' + trial.images.length,
             '| rt=' + data.rt + 'ms',
@@ -606,7 +684,30 @@ document.addEventListener('DOMContentLoaded', async () => {
           );
         }
       },
-    });
+    };
+
+    // Block 1's nodes always run (screen-out is only ever detected at the
+    // earliest at block 1's own boundary evaluation, so block 1 itself can
+    // never be skipped). Blocks after the first are wrapped in a nested
+    // timeline gated by conditional_function — jsPsych only honors
+    // conditional_function on nested-timeline nodes (an object with a
+    // `timeline` array), NOT on a bare trial description, so preload+free-sort
+    // must be grouped together here rather than each getting their own
+    // top-level conditional_function property (which jsPsych would silently
+    // ignore). Once screenedOut is set, this lets execution skip straight to
+    // the existing Pavlovia-finish + debrief tail, preserving the
+    // already-collected blocks' data upload — see the on_finish comment above
+    // for why jsPsych.abortExperiment()/endExperiment() is deliberately not
+    // used for this instead.
+    if (trial.block > 1) {
+      timeline.push({
+        timeline: [preloadNode, freesortNode],
+        conditional_function: () => !screenedOut,
+      });
+    } else {
+      timeline.push(preloadNode);
+      timeline.push(freesortNode);
+    }
   });
 
   // --- Pavlovia finish (Pavlovia only) ---
@@ -651,7 +752,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       </div>`,
     choices: ['Finish'],
     on_finish: function() {
-      const completionUrl = config.prolific.completion_url;
+      const completionUrl = screenedOut
+        ? config.prolific.partial_completion_urls[screenedOutAtBlock - 1]
+        : config.prolific.completion_url;
       if (isPavlovia && completionUrl) {
         window.location.href = completionUrl;
       }
