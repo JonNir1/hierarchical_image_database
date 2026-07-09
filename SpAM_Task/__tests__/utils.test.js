@@ -404,6 +404,22 @@ describe('computeSpearmanCorrelation', () => {
         assert.ok(Math.abs(computeSpearmanCorrelation(a, b) - expected) < 1e-10);
     });
 
+    it('matches an externally-verified (scipy spearmanr) mock-distance value', () => {
+        // Mock pairwise distances for 8 image-pairs with no ties, one shuffled
+        // and relabeled (src1/src2 swapped, different array order) to also
+        // exercise unordered-pair matching. Expected value cross-checked via
+        // scipy.stats.spearmanr(a, b) == 0.9285714285714287 (not derived from
+        // this codebase's own implementation).
+        const keys = [['a','b'], ['a','c'], ['a','d'], ['a','e'], ['a','f'], ['a','g'], ['a','h'], ['b','c']];
+        const distA = [0.12, 0.45, 0.33, 0.78, 0.21, 0.60, 0.05, 0.90];
+        const distB = [0.20, 0.30, 0.50, 0.65, 0.40, 0.55, 0.10, 0.80];
+        const a = keys.map(([s1, s2], i) => ({ src1: s1, src2: s2, distance: distA[i] }));
+        // b: reversed order, src1/src2 swapped on every pair.
+        const b = keys.map(([s1, s2], i) => ({ src1: s2, src2: s1, distance: distB[i] })).reverse();
+        const rho = computeSpearmanCorrelation(a, b);
+        assert.ok(Math.abs(rho - 0.9285714285714287) < 1e-10, `expected ~0.9285714285714287, got ${rho}`);
+    });
+
     it('throws when the two pair sets cover different image sets', () => {
         const a = pairs([['a', 'b', 1], ['a', 'c', 2]]);
         const b = pairs([['a', 'b', 1], ['a', 'd', 2]]);
