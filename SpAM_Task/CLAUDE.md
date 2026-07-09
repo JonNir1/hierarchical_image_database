@@ -30,7 +30,8 @@ SpAM_Task/
     utils.js                ← computeLayout, hashString, seededShuffle,
                               computePairwiseDistances, computeCentroid,
                               allImagesNearTarget, _targetPoint, computeSD
-    trial_generator.js      ← buildTrialLists, buildCatchTrial, insertCatchTrials, CATCH_LOCATIONS
+    trial_generator.js      ← buildTrialLists, partitionIntoBlocks, insertTrialRepeats,
+                              buildCatchTrial, insertCatchTrials, buildBlock, CATCH_LOCATIONS
     task.js                 ← jsPsych timeline construction, saveData, Pavlovia integration
   jspsych/                      ← local copies of jsPsych core + plugins + seedrandom:
                               jspsych.js, plugin-free-sort-patched.js (v2.1.0 + move
@@ -80,14 +81,17 @@ python generate_manifest.py
 
 ## Key Design Decisions
 
-**Stimulus assignment**: Client-side seeded RNG. Seed = `hashString(PROLIFIC_PID)` (djb2).
-Each subject sees `t_distinct × k` unique images across `t_distinct` distinct trials of `k`
-images each, where `t_distinct = trials_per_subject - round(frac_trials_repeated ×
-trials_per_subject)`. Every image appears in exactly one distinct trial — the only way an image
-can appear more than once per subject is via a verbatim whole-trial repeat (see "Trial-level
-repeats" below). No image repeats within a single trial. The same `rng` instance is passed
-through `buildTrialLists` → `insertTrialRepeats` → `insertCatchTrials` so the entire session
-sequence — including trial-level repeats, catch image selection, and target locations — is fully
+**Stimulus assignment (v4.0 block structure)**: Client-side seeded RNG. Seed =
+`hashString(PROLIFIC_PID)` (djb2). The session is split into `num_blocks` blocks, each with
+`trials_per_block` distinct trials, `repeats_per_block` verbatim repeats, and `catch_per_block`
+catch trials. One session-wide image pool is drawn up front: `buildTrialLists` produces
+`num_blocks × trials_per_block` distinct trials of `images_per_trial` images each (every image
+appears in exactly one distinct trial, no image repeats within a trial), `partitionIntoBlocks`
+slices that flat list into `num_blocks` disjoint groups (so no image ever appears in two
+different blocks), and `buildBlock` expands each group into its block's full trial sequence —
+repeats and catch trials are both scoped to that one block. The single `rng` instance flows
+through `buildTrialLists` → `partitionIntoBlocks` → `buildBlock` (× `num_blocks`, which internally
+calls `insertTrialRepeats`/`insertCatchTrials`) so the entire session sequence is fully
 reproducible from the PID.
 
 **Pre-loading**: `jsPsychPreload` inserted immediately before each free-sort trial â€” loads only
@@ -142,8 +146,9 @@ file's header comment for the full list of deviations from upstream.
 by the sort-area diagonal `âˆš(sortWÂ²+sortHÂ²)` ←’ [0, 1]. Removes dependence on screen resolution
 and sort-area size, making distances comparable across participants.
 
-**Catch trial design**: 2 catch trials are interleaved among main trials at evenly-spaced
-interior positions (e.g. trials 3 and 7 in a 10-trial sequence). Each catch trial:
+**Catch trial design**: `catch_per_block` catch trials are interleaved among each block's own main
+trials (distinct + repeats) at evenly-spaced interior positions (e.g. trials 3 and 7 in a
+10-trial block). Each catch trial:
 - Samples `catch_images_per_trial` (default 10) images from the catch pool via the shared
   seeded RNG, so the selection is reproducible per participant.
 - Draws a **target location** from `CATCH_LOCATIONS` (`center`, `top left corner`,
@@ -157,23 +162,51 @@ so a catch trial cannot be submitted non-compliant. `qc_flag` is therefore hard-
 catch trials (see "Quality control" below) — `cluster_mean_distance`/centroid are still logged as
 diagnostics, not QC criteria.
 
-**Trial-level repeats**: `frac_trials_repeated` repeats some whole trials verbatim (same k-image
-set, reshuffled presentation order) later in the session, for test-retest reliability of the
-arrangement response itself — the only mechanism by which an image can appear more than once per
-subject. `insertTrialRepeats` may repeat any distinct trial (every distinct trial's images are,
-by construction, unique to it), and places each repeat at least `min_trial_repeat_separation`
-slots after its original. This is substitutive, not additive: `trials_per_subject` is the total
-main trial count a subject sees; some of those slots are repeats, so distinct combinations drop
-to `t_distinct`.
+**Trial-level repeats**: `repeats_per_block` repeats whole trials *within the same block* verbatim
+(same image set, reshuffled presentation order), for test-retest reliability of the arrangement
+response itself — the only mechanism by which an image can appear more than once per subject.
+`insertTrialRepeats` may repeat any distinct trial from that block, and places each repeat at
+least `min_trial_repeat_separation` slots after its original, scoped to the block's own local slot
+numbering. This is **additive**, not substitutive: `repeats_per_block` is added on top of
+`trials_per_block`, so a block has `trials_per_block + repeats_per_block` main-trial slots (plus
+`catch_per_block` catch trials).
 
-**Quality control â€” main trials**: Flag a trial if ANY of the following hold:
-- `SD(normalised pairwise distances) < min_pairwise_distance_sd` â€” all images piled up
-- `num_moves < min_move_item_ratio Ã— numItems` â€” too few drag-end events for the number of
-  images shown, indicating the participant barely engaged with the trial
+**Quality control — main trials**: Flag a trial if ANY of the following hold:
+- `SD(normalised pairwise distances) < screening.trial_min_pairwise_distance_sd` — all images
+  piled up
+- `num_moves < screening.trial_min_move_item_ratio × numItems` — too few drag-end events for the
+  number of images shown, indicating the participant barely engaged with the trial
 
 There is no RT-based flag: the `min_trial_duration_ms` floor is UI-enforced (Done button
-disabled for that duration), so a too-fast completion is impossible. Exclude a participant
-if > 30% of their main trials are flagged.
+disabled for that duration), so a too-fast completion is impossible. This per-trial `qc_flag` is
+a diagnostic column only; it does not by itself trigger exclusion — see "Live per-block
+screening" below for how session-level exclusion actually works in v4.0.
+
+**Test-retest reliability**: For each completed repeat trial, `computeSpearmanCorrelation`
+correlates its pairwise-distance vector against its original's (matched by unordered image-pair
+identity, since the repeat reshuffles presentation order) and writes the result to that row's
+`reliability` column.
+
+**Live per-block screening**: After each of the first `num_blocks − 1` blocks (never after the
+final block — a participant who completes the whole session cannot be retroactively excluded,
+though its stats are still computed and logged for audit), `evaluateScreening` checks cumulative
+stats across every trial completed so far in the session against three independent, absolute
+thresholds:
+- Fraction of main trials with `numMoves < screening.trial_min_move_item_ratio × numItems` `>`
+  `screening.max_move_ratio_fail_frac`
+- Fraction of main trials with `sd < screening.trial_min_pairwise_distance_sd` `>`
+  `screening.max_distance_sd_fail_frac`
+- Median reliability across completed repeats `<` `screening.min_median_reliability` (skipped, not
+  failed, if zero repeats have completed yet)
+
+All comparisons are strict — a value exactly at the configured threshold still passes. If any
+criterion is violated, the participant is screened out: `task.js` sets a `screenedOut` flag,
+remaining blocks are skipped via a `conditional_function`-gated nested timeline (chosen
+specifically because `jsPsych.abortExperiment()`/`endExperiment()` would also skip the Pavlovia
+data-upload node, silently losing the already-collected blocks), and the debrief redirects to
+`prolific.partial_completion_urls[screenedOutAtBlock - 1]` instead of `completion_url`. Every
+boundary evaluation (pass or fail) is also logged as a synthetic `block_eval_N` data row via
+`jsPsych.data.get().push(...)`.
 
 **Quality control â€” catch trials**: `qc_flag` is always `false`. Any post-hoc metric (cluster
 tightness, move count) can be trivially satisfied without engagement whenever a catch trial's
@@ -204,16 +237,21 @@ handles data upload; the `finish` command node is appended to the timeline and c
 | `_targetPoint` | `(targetLocation, sortW, sortH) ←’ {x, y}` | Maps a CATCH_LOCATIONS string to an absolute pixel coordinate (5% from edge for corners) |
 | `allImagesNearTarget` | `(locations, targetLocation, sortW, sortH, tolerance) ←’ boolean` | True iff every image is within `tolerance` (normalised diagonal) of the target point; used for catch-trial blocking and QC |
 | `computeSD` | `(values) ←’ number` | Sample SD (denominator nâˆ’1); returns 0 for < 2 values |
+| `computeMainQcFlag` | `(sd, numMoves, numItems, config) → boolean` | True if `sd < screening.trial_min_pairwise_distance_sd` or `numMoves < screening.trial_min_move_item_ratio × numItems`. Drives the per-trial `qc_flag` column. |
+| `computeSpearmanCorrelation` | `(pairsA, pairsB) → number` | Spearman ρ between two pairwise-distance vectors, matched by unordered `{src1,src2}` pair identity (order-independent). `NaN` if either vector has <2 pairs or zero variance. Throws if the two pair sets don't cover the same image pairs. |
+| `evaluateScreening` | `(dataSoFar, config) → {pass, reasons, stats}` | Pure, DOM-free. Evaluates cumulative move-ratio-fail-fraction, distance-SD-fail-fraction, and median-reliability thresholds against `config.screening`. `dataSoFar` covers every trial completed so far this session, not just the current block. |
 
 ### `trial_generator.js`
 
 | Function / Constant | Description |
 |---|---|
 | `CATCH_LOCATIONS` | Array of 5 target location strings: `center` + 4 corners. Shared between trial_generator and task.js. |
-| `buildTrialLists(allImages, config, rng)` | Computes `t_distinct = t − round(frac_trials_repeated×t)`; shuffles `allImages` and slices the first `t_distinct×k` into `t_distinct` trials of `k` images each, so every image appears in exactly one distinct trial. Returns `string[][]`. Throws if the image pool is smaller than `t_distinct×k`. |
-| `insertTrialRepeats(trials, config, rng)` | Fills the remaining `t − trials.length` slots with verbatim repeats of earlier trials — any distinct trial may be repeated — placed at least `min_trial_repeat_separation` slots after their original. Returns an array of length `t`: `{images, isRepeat, repeatOfTrialId, trialId}[]`. Throws if no placement satisfies the separation constraint. |
-| `buildCatchTrial(catchPool, config, rng)` | Samples `catch_images_per_trial` images from the catch pool and picks a target location, both via the shared RNG. Returns `{type:'catch', images, target_location}`. |
-| `insertCatchTrials(mainTrials, catchPool, config, rng)` | Interleaves `num_catch_trials` catch trials at evenly-spaced interior positions. `mainTrials` is the output of `insertTrialRepeats` (or plain `string[][]`). Returns the combined sequence as `{type:'main'|'catch', images, target_location?, isRepeat?, repeatOfTrialId?, trialId?}[]`. |
+| `buildTrialLists(allImages, config, rng)` | Shuffles `allImages` and slices the first `(num_blocks×trials_per_block)×images_per_trial` into `num_blocks×trials_per_block` distinct trials of `images_per_trial` images each, so every image appears in exactly one distinct trial. Returns `string[][]`. Throws if the image pool is too small. |
+| `partitionIntoBlocks(distinctTrials, config)` | Slices `buildTrialLists`' flat output into `num_blocks` consecutive, disjoint groups of `trials_per_block` each. Returns `string[][][]`. |
+| `insertTrialRepeats(trials, config, rng, blockIndex=0)` | Fills `repeats_per_block` additional (additive) slots with verbatim repeats of trials from this same block, placed at least `min_trial_repeat_separation` block-local slots after their original. Returns an array of length `trials.length + repeats_per_block`: `{images, isRepeat, repeatOfTrialId, trialId}[]`, with `trialId` namespaced as `"<blockIndex>_<distinctIdx>"` (`"..._repeat"` for repeats) so IDs stay globally unique across blocks. Throws if no placement satisfies the separation constraint within the block. |
+| `buildCatchTrial(catchPool, config, rng)` | Samples `catch_trials.images_per_trial` images from the catch pool and picks a target location, both via the shared RNG. Returns `{type:'catch', images, target_location}`. |
+| `insertCatchTrials(mainTrials, catchPool, config, rng)` | Interleaves `catch_trials.catch_per_block` catch trials at evenly-spaced interior positions within one block. `mainTrials` is the output of `insertTrialRepeats` (or plain `string[][]`). Returns the combined sequence as `{type:'main'|'catch', images, target_location?, isRepeat?, repeatOfTrialId?, trialId?}[]`. |
+| `buildBlock(blockDistinctTrials, catchPool, config, rng, blockIndex)` | Composes `insertTrialRepeats` + `insertCatchTrials` for one block and stamps every returned trial with `block: blockIndex + 1`. Returns length `trials_per_block + repeats_per_block + catch_per_block`. |
 
 ### `task.js`
 
@@ -223,8 +261,8 @@ Single async `DOMContentLoaded` handler. Execution order:
 3. Seed RNG: `new Math.seedrandom(hashString(PID))` â€” **no RNG calls before `buildTrialLists`**
 4. Build image URL arrays from manifest keys (`images`, `practice_images`, `catch_images`) + config paths
 5. Compute layout via `computeLayout`
-6. Build trial sequence: `buildTrialLists` → `insertTrialRepeats` → `insertCatchTrials`; build a `trialId → trial_number` map (1-based, main trials only, matching `trial_type`'s numbering) for resolving repeat references
-7. Construct jsPsych timeline: Pavlovia init → consent → fullscreen → instructions → before/after examples → practice → post-practice transition → [preload + free-sort] × n → Pavlovia finish → debrief
+6. Build trial sequence: `buildTrialLists` → `partitionIntoBlocks` → `buildBlock` × `num_blocks`, flattened into `allTrials`; build a `trialId → trial_number` map (1-based, main trials only, matching `trial_type`'s numbering, continuous across blocks) for resolving repeat references
+7. Construct jsPsych timeline: Pavlovia init → consent → fullscreen → instructions → before/after examples → practice → post-practice transition → [preload + free-sort] × n (blocks after block 1 wrapped in a `conditional_function`-gated nested timeline, skipped once `screenedOut` is set) → Pavlovia finish → debrief (redirects to `prolific.partial_completion_urls[screenedOutAtBlock-1]` if screened out, else `completion_url`)
 8. `jsPsych.run(timeline)`
 
 **Session-level fields** (written to every row via `jsPsych.data.addProperties`):
@@ -242,17 +280,31 @@ Single async `DOMContentLoaded` handler. Execution order:
 
 | Column | Trials | Description |
 |---|---|---|
-| `trial_type` | all | `"trial_N"` (main) or `"catch_N"` (catch), 1-based |
+| `trial_type` | all | `"trial_N"` (main) or `"catch_N"` (catch), 1-based, continuous across blocks |
 | `trial_index` | all | 0-based position in the full trial sequence |
-| `num_moves` | all | Total drag-end events recorded by the free-sort plugin (`data.moves.length`); used by the `min_move_item_ratio` QC flag |
-| `is_trial_repeat` | main only | `true` if this trial is a verbatim repeat of an earlier trial (see `frac_trials_repeated`) |
+| `block` | all | 1-based block number this trial belongs to |
+| `num_moves` | all | Total drag-end events recorded by the free-sort plugin (`data.moves.length`); used by the `screening.trial_min_move_item_ratio` QC flag |
+| `is_trial_repeat` | main only | `true` if this trial is a verbatim repeat of an earlier trial in the same block (see `repeats_per_block`) |
 | `repeat_of_trial_number` | main only | The original occurrence's trial number (the `N` in its `trial_N` value) if `is_trial_repeat` is `true`, else `null`. Directly comparable to `trial_type`/`trial_number` — no re-indexing needed. |
-| `qc_flag` | all | `true` if trial failed any QC criterion |
+| `reliability` | main, repeats only | Spearman ρ (`computeSpearmanCorrelation`) between this repeat's pairwise-distance vector and its original's |
+| `qc_flag` | all | `true` if trial failed any per-trial QC criterion (diagnostic only — see "Live per-block screening" above for actual exclusion) |
 | `pairwise_distances` | all | JSON array of `{src_a, src_b, distance}` objects; distances normalised by arena diagonal |
 | `catch_trial_target_location` | catch only | String describing the required corner (e.g. `"bottom right corner"`) |
 | `centroid_x` | catch only | Horizontal centroid of placed images, normalised to `[0, 1]` by `sort_area_width` |
 | `centroid_y` | catch only | Vertical centroid of placed images, normalised to `[0, 1]` by `sort_area_height` |
 | `cluster_mean_distance` | catch only | Mean of normalised pairwise distances (cluster tightness) |
+
+**Block-boundary audit rows** (`trial_type: "block_eval_N"`, one synthetic row per evaluated block
+boundary, pushed via `jsPsych.data.get().push(...)` rather than a real trial):
+
+| Column | Description |
+|---|---|
+| `block` | 1-based block number this evaluation ran after |
+| `pass` | `true` if all three screening criteria passed |
+| `reasons` | JSON array of human-readable strings, one per violated criterion (empty if `pass` is `true`) |
+| `move_ratio_fail_frac` | Cumulative fraction of main trials so far failing the move-ratio check |
+| `distance_sd_fail_frac` | Cumulative fraction of main trials so far failing the distance-SD check |
+| `median_reliability` | Median Spearman ρ across completed repeats so far, or `null` if none completed yet |
 
 ---
 
@@ -290,7 +342,8 @@ manifest generator and the browser interpret them the same way.
 
 ## task_config.json Parameters
 
-task_config.json is organised into six sections:
+task_config.json is organised into these sections (`consent` omitted below — see the consent
+screen text in `task.js` for its keys):
 
 ### `shine`
 | Key | Default | Description |
@@ -300,22 +353,33 @@ task_config.json is organised into six sections:
 ### `design`
 | Key | Default | Description |
 |---|---|---|
-| `trials_per_subject` | 10 | Number of main free-sort trials |
+| `num_blocks` | 4 | Number of experimental blocks in the session |
+| `trials_per_block` | 5 | Number of distinct main free-sort trials per block |
+| `repeats_per_block` | 1 | Additional (**additive**, not substitutive) verbatim repeats of a block's own distinct trials, for test-retest reliability — the only mechanism by which an image can appear more than once per subject. A block has `trials_per_block + repeats_per_block` main-trial slots. Must be in `[0, trials_per_block]`. |
 | `images_per_trial` | 20 | Images shown per main trial |
-| `frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are verbatim repeats of an earlier trial (test-retest reliability) — the only mechanism by which an image can appear more than once per subject. `t_distinct = t − round(frac_trials_repeated×t)`. Keep below 0.4, since high values leave little room to satisfy `min_trial_repeat_separation`. |
-| `min_trial_repeat_separation` | 3 | Minimum number of other main-trial slots between an original trial and its verbatim repeat. |
+| `min_trial_repeat_separation` | 3 | Minimum number of other block-local main-trial slots between an original trial and its verbatim repeat. Re-scoped per block in v4.0 (was session-wide in v3.x). |
 | `min_trial_duration_ms` | 60000 | UI-enforced minimum on main trials: "Done" button stays disabled for this many ms (countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. Not applied to practice or catch trials. |
-| `min_pairwise_distance_sd` | 0.1 | Minimum SD of normalised distances for a main trial to pass QC |
-| `min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a main trial to pass QC. Flags participants who place few or no images. |
 | `stimuli_path` | `"./images/"` | Parent of the per-variant main-stimulus directories. Resolves to `<stimuli_path>/<shine_variant>_shine/`. Relative to the **project root** (where `index.html` lives), so the browser and `generate_manifest.py` resolve it identically. |
 
 ### `catch_trials`
 | Key | Default | Description |
 |---|---|---|
-| `num_trials` | 2 | Catch trials interleaved among main trials |
+| `catch_per_block` | 1 | Catch trials interleaved among each block's own main trials |
 | `images_per_trial` | 10 | Images shown per catch trial. **Dual-use**: also sizes the (discarded) practice trial — there is no separate `design.practice_images_per_trial` key. |
 | `location_tolerance` | 0.15 | Max normalised per-image distance to target for catch trial to pass. Live-enforced by `attachCatchCompliance`, not a post-hoc QC flag. |
 | `stimuli_path` | `"SpAM_Task/assets/openmoji/"` | Path to catch trial images. **Dual-use**: also the practice trial's image source — there is no separate practice path. Relative to the **project root**. |
+
+### `screening`
+| Key | Default | Description |
+|---|---|---|
+| `trial_min_move_item_ratio` | 0.65 | **Within-trial**: minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a single main trial to pass per-trial QC. Flags participants who place few or no images. Drives the per-trial `qc_flag` column. |
+| `trial_min_pairwise_distance_sd` | 0.1 | **Within-trial**: minimum SD of normalised pairwise distances for a single main trial to pass per-trial QC (below this, images are piled up). Drives the per-trial `qc_flag` column. |
+| `max_move_ratio_fail_frac` | 0.30 | **Cross-trial**: max cumulative fraction of main trials (session so far) allowed to fail the move-ratio check before the participant is screened out at the next block boundary. |
+| `max_distance_sd_fail_frac` | 0.30 | **Cross-trial**: max cumulative fraction of main trials (session so far) allowed to fail the distance-SD check before the participant is screened out at the next block boundary. |
+| `min_median_reliability` | 0.30 | **Cross-trial**: minimum median Spearman ρ across completed repeats (session so far) before the participant is screened out at the next block boundary. Skipped (not failed) if zero repeats have completed yet. |
+
+All three cross-trial thresholds use strict inequality (`>`/`<`) — a value exactly at the
+configured threshold still passes. See "Live per-block screening" above.
 
 ### `display`
 | Key | Default | Description |
@@ -335,5 +399,6 @@ task_config.json is organised into six sections:
 ### `prolific`
 | Key | Default | Description |
 |---|---|---|
-| `completion_url` | `""` | Prolific completion redirect URL — set before deploying |
+| `completion_url` | `""` | Prolific completion redirect URL for participants who complete all blocks — set before deploying |
 | `no_consent_url` | `""` | Prolific no-consent redirect URL — set before deploying |
+| `partial_completion_urls` | `[]` | Array of length `num_blocks - 1`. Index `i` (0-based) is the redirect URL for a participant screened out after completing block `i + 1`, so they're paid proportionally to blocks completed. Empty array when `num_blocks === 1` (no boundary is ever evaluated). Set one distinct Prolific completion code per partial-payment tier before deploying. |

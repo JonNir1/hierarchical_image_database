@@ -1,31 +1,43 @@
 {
   "deployment": {
-    "version": "3.24",
+    "version": "4.0",
     "mode": "production",
     "debug_shine_variant": "pre"
   },
 
   "prolific": {
     "completion_url":  "https://app.prolific.com/submissions/complete?cc=C12AB9X4",
-    "no_consent_url":  "https://app.prolific.com/submissions/complete?cc=CRP3B455"
+    "no_consent_url":  "https://app.prolific.com/submissions/complete?cc=CRP3B455",
+    "partial_completion_urls": [
+      "https://app.prolific.com/submissions/complete?cc=XXXX1",
+      "https://app.prolific.com/submissions/complete?cc=XXXX2",
+      "https://app.prolific.com/submissions/complete?cc=XXXX3"
+    ]
   },
 
   "design": {
     "stimuli_path":                 "./images/",
-    "trials_per_subject":           20,
+    "num_blocks":                   4,
+    "trials_per_block":             5,
+    "repeats_per_block":            1,
     "images_per_trial":             20,
-    "frac_trials_repeated":         0.15,
     "min_trial_repeat_separation":  3,
-    "min_trial_duration_ms":        60000,
-    "min_pairwise_distance_sd":     0.1,
-    "min_move_item_ratio":          0.65
+    "min_trial_duration_ms":        60000
   },
 
   "catch_trials": {
     "stimuli_path":       "SpAM_Task/assets/openmoji/",
-    "num_trials":         4,
+    "catch_per_block":    1,
     "images_per_trial":   10,
     "location_tolerance": 0.15
+  },
+
+  "screening": {
+    "trial_min_move_item_ratio":      0.65,
+    "trial_min_pairwise_distance_sd": 0.1,
+    "max_move_ratio_fail_frac":       0.30,
+    "max_distance_sd_fail_frac":      0.30,
+    "min_median_reliability":         0.30
   },
 
   "display": {

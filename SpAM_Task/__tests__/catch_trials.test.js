@@ -20,11 +20,12 @@ const makeRng = (seed = 42) => {
 const CATCH_POOL = Array.from({ length: 20 }, (_, i) => `catch_${i}.png`);
 const CONFIG = {
     design: {
-        trials_per_subject:        10,
+        num_blocks:                1,
+        trials_per_block:          10,
         images_per_trial:          20,
     },
     catch_trials: {
-        num_trials:       2,
+        catch_per_block:  2,
         images_per_trial: 10,
     },
 };
