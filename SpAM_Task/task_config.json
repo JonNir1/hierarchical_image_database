@@ -5,13 +5,13 @@
     "debug_shine_variant": "pre"
   },
 
-  "prolific": {
-    "completion_url":  "https://app.prolific.com/submissions/complete?cc=C12AB9X4",
-    "no_consent_url":  "https://app.prolific.com/submissions/complete?cc=CRP3B455",
-    "partial_completion_urls": [
-      "https://app.prolific.com/submissions/complete?cc=XXXX1",
-      "https://app.prolific.com/submissions/complete?cc=XXXX2",
-      "https://app.prolific.com/submissions/complete?cc=XXXX3"
+  "prolific_codes": {
+    "completion_code":  "C12AB9X4",
+    "no_consent_code":  "CRP3B455",
+    "partial_completion_codes": [
+      "XXXX1",
+      "XXXX2",
+      "XXXX3"
     ]
   },
 

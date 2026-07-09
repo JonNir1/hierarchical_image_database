@@ -5,6 +5,10 @@
 //   plugin-fullscreen.js, plugin-free-sort-patched.js, seedrandom.js,
 //   jspsych-7-pavlovia-2022.1.1.js, utils.js, trial_generator.js
 
+// All Prolific completion redirect URLs share this prefix; task_config.json's
+// prolific_codes section stores only the trailing "cc=" code, not the full URL.
+const PROLIFIC_URL_PREFIX = 'https://app.prolific.com/submissions/complete?cc=';
+
 document.addEventListener('DOMContentLoaded', async () => {
 
   // ---------------------------------------------------------------------------
@@ -391,8 +395,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (data.response === 1) {
         // Participant declined consent — redirect to Prolific no-consent URL if set,
         // otherwise show a neutral end screen.
-        if (config.prolific.no_consent_url) {
-          window.location.href = config.prolific.no_consent_url;
+        if (config.prolific_codes.no_consent_code) {
+          window.location.href = PROLIFIC_URL_PREFIX + config.prolific_codes.no_consent_code;
         } else {
           jsPsych.abortExperiment(
             '<p style="text-align:center;margin-top:20%;">You have chosen not to participate.<br>You may now close this window.</p>'
@@ -762,9 +766,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     },
     choices: ['Finish'],
     on_finish: function() {
-      const completionUrl = screenedOut
-        ? config.prolific.partial_completion_urls[screenedOutAtBlock - 1]
-        : config.prolific.completion_url;
+      const completionCode = screenedOut
+        ? config.prolific_codes.partial_completion_codes[screenedOutAtBlock - 1]
+        : config.prolific_codes.completion_code;
+      const completionUrl = completionCode ? PROLIFIC_URL_PREFIX + completionCode : '';
       if (isPavlovia && completionUrl) {
         window.location.href = completionUrl;
       }

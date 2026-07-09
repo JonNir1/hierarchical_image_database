@@ -15,7 +15,7 @@ Before first use:
 1. Populate the two stimulus directories (main + shared practice/catch) and set their paths in `task_config.json`
 2. Run `python generate_manifest.py` from `SpAM_Task/`
 3. Download jsPsych + plugins into `jspsych/` (see *Running Locally* below)
-4. Set `prolific.completion_url` in `task_config.json` before deploying to Prolific
+4. Set `prolific_codes.completion_code` in `task_config.json` before deploying to Prolific
 
 ---
 
@@ -205,9 +205,9 @@ criterion is violated, the participant is screened out: `task.js` sets a `screen
 remaining blocks are skipped via a `conditional_function`-gated nested timeline (chosen
 specifically because `jsPsych.abortExperiment()`/`endExperiment()` would also skip the Pavlovia
 data-upload node, silently losing the already-collected blocks), and the debrief redirects to
-`prolific.partial_completion_urls[screenedOutAtBlock - 1]` instead of `completion_url`. Every
-boundary evaluation (pass or fail) is also logged as a synthetic `block_eval_N` data row via
-`jsPsych.data.get().push(...)`.
+`PROLIFIC_URL_PREFIX + prolific_codes.partial_completion_codes[screenedOutAtBlock - 1]` instead
+of `completion_code`. Every boundary evaluation (pass or fail) is also logged as a synthetic
+`block_eval_N` data row via `jsPsych.data.get().push(...)`.
 
 **Quality control â€” catch trials**: `qc_flag` is always `false`. Any post-hoc metric (cluster
 tightness, move count) can be trivially satisfied without engagement whenever a catch trial's
@@ -219,7 +219,7 @@ non-compliant catch trial cannot be submitted at all, making a post-hoc flag red
 
 **Pavlovia saving**: On Pavlovia, the `jsPsychPavlovia` plugin (`jspsych-7-pavlovia-2022.1.1.js`)
 handles data upload; the `finish` command node is appended to the timeline and calls
-`config.prolific.completion_url` on completion. Locally, `saveData()` downloads a filtered CSV
+`PROLIFIC_URL_PREFIX + config.prolific_codes.completion_code` on completion. Locally, `saveData()` downloads a filtered CSV
 (practice trials excluded) via a temporary `<a>` element.
 
 ---
@@ -263,7 +263,7 @@ Single async `DOMContentLoaded` handler. Execution order:
 4. Build image URL arrays from manifest keys (`images`, `practice_images`, `catch_images`) + config paths
 5. Compute layout via `computeLayout`
 6. Build trial sequence: `buildTrialLists` → `partitionIntoBlocks` → `buildBlock` × `num_blocks`, flattened into `allTrials`; build a `trialId → trial_number` map (1-based, main trials only, matching `trial_type`'s numbering, continuous across blocks) for resolving repeat references
-7. Construct jsPsych timeline: Pavlovia init → consent → fullscreen → instructions → before/after examples → practice → post-practice transition → [preload + free-sort] × n (blocks after block 1 wrapped in a `conditional_function`-gated nested timeline, skipped once `screenedOut` is set) → Pavlovia finish → debrief (redirects to `prolific.partial_completion_urls[screenedOutAtBlock-1]` if screened out, else `completion_url`)
+7. Construct jsPsych timeline: Pavlovia init → consent → fullscreen → instructions → before/after examples → practice → post-practice transition → [preload + free-sort] × n (blocks after block 1 wrapped in a `conditional_function`-gated nested timeline, skipped once `screenedOut` is set) → Pavlovia finish → debrief (redirects to `PROLIFIC_URL_PREFIX + prolific_codes.partial_completion_codes[screenedOutAtBlock-1]` if screened out, else `completion_code`)
 8. `jsPsych.run(timeline)`
 
 **Session-level fields** (written to every row via `jsPsych.data.addProperties`):
@@ -397,9 +397,13 @@ configured threshold still passes. See "Live per-block screening" above.
 | `mode` | `"debug"` | `"debug"`: fixed PID + console logging; `"pilot"`: real users, always pre-SHINE; `"production"`: PID-hash cohort assignment |
 | `debug_shine_variant` | `"pre"` | SHINE variant used in `"debug"` mode |
 
-### `prolific`
+### `prolific_codes`
+Every Prolific completion redirect is `https://app.prolific.com/submissions/complete?cc=<code>`;
+this section stores only the trailing `cc=` code, not the full URL. `task.js` builds the full URL
+by prepending the shared `PROLIFIC_URL_PREFIX` constant.
+
 | Key | Default | Description |
 |---|---|---|
-| `completion_url` | `""` | Prolific completion redirect URL for participants who complete all blocks — set before deploying |
-| `no_consent_url` | `""` | Prolific no-consent redirect URL — set before deploying |
-| `partial_completion_urls` | `[]` | Array of length `num_blocks - 1`. Index `i` (0-based) is the redirect URL for a participant screened out after completing block `i + 1`, so they're paid proportionally to blocks completed. Empty array when `num_blocks === 1` (no boundary is ever evaluated). Set one distinct Prolific completion code per partial-payment tier before deploying. |
+| `completion_code` | `""` | Prolific completion code for participants who complete all blocks — set before deploying |
+| `no_consent_code` | `""` | Prolific no-consent code — set before deploying |
+| `partial_completion_codes` | `[]` | Array of length `num_blocks - 1`. Index `i` (0-based) is the completion code for a participant screened out after completing block `i + 1`, so they're paid proportionally to blocks completed. Empty array when `num_blocks === 1` (no boundary is ever evaluated). Set one distinct Prolific completion code per partial-payment tier before deploying. |
