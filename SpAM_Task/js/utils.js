@@ -252,8 +252,8 @@ function verifyConfig(config) {
 const STIM_STARTS_INSIDE = true;
 
 // Fraction of viewport width the sort area fills (floor-protected by
-// display.sort_area_min_width). ~90-95% target per design goal.
-const WIDTH_FILL_FRACTION = 0.92;
+// display.sort_area_min_width).
+const WIDTH_FILL_FRACTION = 0.97;
 
 /**
  * Compute the sort-area dimensions and stimulus size for the current viewport.

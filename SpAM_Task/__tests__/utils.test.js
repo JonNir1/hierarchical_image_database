@@ -315,7 +315,7 @@ describe('computeMainQcFlag', () => {
 
 // ── computeLayout ─────────────────────────────────────────────────────────────
 describe('computeLayout', () => {
-    // Helper: build a minimal config. Sort area fills WIDTH_FILL_FRACTION (0.92) of
+    // Helper: build a minimal config. Sort area fills WIDTH_FILL_FRACTION (0.97) of
     // viewport width and all remaining viewport height after reserving
     // min_header_height_px/min_footer_height_px, each floor-protected by
     // sort_area_min_width/height.
@@ -330,18 +330,18 @@ describe('computeLayout', () => {
     });
 
     it('large screen — fill formula wins over the floor on both axes', () => {
-        // floor(1920 * 0.92) = 1766 > min 900 → 1766
+        // floor(1920 * 0.97) = 1862 > min 900 → 1862
         // 1080 - 120 - 100 = 860 > min 550 → 860
         const { sortW, sortH, stimSize } = computeLayout(1920, 1080, cfg(900, 550, 120, 100));
-        assert.equal(sortW,    1766);
+        assert.equal(sortW,    1862);
         assert.equal(sortH,     860);
-        assert.equal(stimSize,  194); // round(1766 * 0.11)
+        assert.equal(stimSize,  205); // round(1862 * 0.11)
     });
 
     it('small screen — floor wins over the fill formula on both axes', () => {
-        // floor(950 * 0.92) = 874 < min 900 → 900
+        // floor(900 * 0.97) = 873 < min 900 → 900
         // 700 - 120 - 100 = 480 < min 550 → 550
-        const { sortW, sortH } = computeLayout(950, 700, cfg(900, 550, 120, 100));
+        const { sortW, sortH } = computeLayout(900, 700, cfg(900, 550, 120, 100));
         assert.equal(sortW, 900);
         assert.equal(sortH, 550);
     });

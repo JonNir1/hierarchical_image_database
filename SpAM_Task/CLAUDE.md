@@ -101,7 +101,7 @@ sort area (origin at top-left).
 **Responsive layout**: Sort-area dimensions and stimulus size are computed once at page-load
 time by `computeLayout(window.innerWidth, window.innerHeight, config)` (utils.js), before any
 trial DOM exists — there's no DOM-measurement infrastructure, so sizing is purely arithmetic
-against `window.innerWidth/innerHeight`. Width fills `WIDTH_FILL_FRACTION` (0.92) of the
+against `window.innerWidth/innerHeight`. Width fills `WIDTH_FILL_FRACTION` (0.97) of the
 viewport; height fills the viewport minus fixed pixel budgets reserved for the prompt
 (`display.min_header_height_px`, above the arena) and the counter + Done button
 (`display.min_footer_height_px`, below the arena). Both axes are floor-protected by
