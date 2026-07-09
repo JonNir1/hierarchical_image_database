@@ -23,22 +23,22 @@
     "enabled":                 true,
     "prolific_code":           "XXXX1",
     "num_catch_trials":        1,
-    "num_experimental_trials": 3,
-    "num_repeat_trials":       1,
-    "min_repeat_separation":   1,
+    "num_experimental_trials": 6,
+    "num_repeat_trials":       2,
+    "min_repeat_separation":   2,
     "thresholds": {
       "min_reliability":           0.0,
       "median_reliability":        null,
-      "move_ratio_max_fail_rate":  0.20,
-      "distance_sd_max_fail_rate": 0.20
+      "move_ratio_max_fail_rate":  0.13,
+      "distance_sd_max_fail_rate": 0.13
     }
   },
 
   "experimental_block": {
     "prolific_code":           "C12AB9X4",
     "num_catch_trials":        2,
-    "num_experimental_trials": 15,
-    "num_repeat_trials":       0,
+    "num_experimental_trials": 12,
+    "num_repeat_trials":       2,
     "min_repeat_separation":   3
   },
 
@@ -56,14 +56,14 @@
   },
 
   "consent": {
+    "no_consent_code":        "CRP3B455",
+    "study_duration_minutes": 40,
     "researcher_name":        "Nir Jonathan",
     "researcher_email":       "nir.jonathan@mail.huji.ac.il",
     "pi_name":                "Leon Deouell",
     "pi_email":               "leon.deouell@mail.huji.ac.il",
     "lab_name":               "Human Cognitive Neuroscience Lab",
     "lab_phone":              "+972-25880014",
-    "institution":            "The Hebrew University of Jerusalem",
-    "study_duration_minutes": 30,
-    "no_consent_code":        "CRP3B455"
+    "institution":            "The Hebrew University of Jerusalem"
   }
 }
