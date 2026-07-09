@@ -742,14 +742,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Debrief ---
   // On Pavlovia: shown after save completes; "Finish" redirects immediately.
   // Locally: shown last; global on_finish downloads the CSV.
+  // stimulus is a function (evaluated at trial-run time, not timeline-build
+  // time) because screenedOut/screenedOutAtBlock are only known once the
+  // main-loop trials have actually run — at build time neither is set yet.
   timeline.push({
     type:     jsPsychHtmlButtonResponse,
-    stimulus: `
+    stimulus: function() {
+      const completionText = screenedOut
+        ? `<p>You have completed ${Math.round(screenedOutAtBlock / config.design.num_blocks * 100)}% of the trials.</p>
+           <p>Unfortunately, you have been screened out of the experiment.</p>`
+        : `<p>You have completed all trials and your responses have been saved.</p>`;
+      const creditText = screenedOut ? 'partial completion credit' : 'completion credit';
+      return `
       <div style="max-width:600px; text-align:center;">
         <h2>Thank you!</h2>
-        <p>You have completed all trials and your responses have been saved.</p>
-        <p>Click <strong>Finish</strong> to return to Prolific and receive your completion credit.</p>
-      </div>`,
+        ${completionText}
+        <p>Click <strong>Finish</strong> to return to Prolific and receive your ${creditText}.</p>
+      </div>`;
+    },
     choices: ['Finish'],
     on_finish: function() {
       const completionUrl = screenedOut
