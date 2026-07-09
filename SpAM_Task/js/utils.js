@@ -88,7 +88,7 @@ function verifyConfig(config) {
             trial_min_pairwise_distance_sd: 'number',
             max_move_ratio_fail_frac:       'number',
             max_distance_sd_fail_frac:      'number',
-            min_median_reliability:         'number',
+            min_overall_reliability:        'number',
         },
         display: {
             sort_area_min_width:  'number',
@@ -196,8 +196,8 @@ function verifyConfig(config) {
         err('"screening.max_move_ratio_fail_frac" must be in [0,1], got ' + sc.max_move_ratio_fail_frac + '.');
     if (sc.max_distance_sd_fail_frac < 0 || sc.max_distance_sd_fail_frac > 1)
         err('"screening.max_distance_sd_fail_frac" must be in [0,1], got ' + sc.max_distance_sd_fail_frac + '.');
-    if (sc.min_median_reliability < -1 || sc.min_median_reliability > 1)
-        err('"screening.min_median_reliability" must be in [-1,1], got ' + sc.min_median_reliability + '.');
+    if (sc.min_overall_reliability < -1 || sc.min_overall_reliability > 1)
+        err('"screening.min_overall_reliability" must be in [-1,1], got ' + sc.min_overall_reliability + '.');
     if (!Number.isInteger(catchPerBlock) || catchPerBlock < 0)
         err('"catch_trials.catch_per_block" must be a non-negative integer, got ' + catchPerBlock + '.');
     if (!Number.isInteger(kCatch)   || kCatch < 1)   err('"catch_trials.images_per_trial" must be a positive integer, got ' + kCatch + '.');
@@ -576,9 +576,9 @@ function _pearsonCorrelation(a, b) {
  *   reliabilities: one Spearman R per completed repeat trial so far this session.
  * @param {{screening: {trial_min_move_item_ratio: number, trial_min_pairwise_distance_sd: number,
  *                      max_move_ratio_fail_frac: number, max_distance_sd_fail_frac: number,
- *                      min_median_reliability: number}}} config
+ *                      min_overall_reliability: number}}} config
  * @returns {{pass: boolean, reasons: string[],
- *            stats: {moveRatioFailFrac: number, distanceSdFailFrac: number, medianReliability: (number|null)}}}
+ *            stats: {moveRatioFailFrac: number, distanceSdFailFrac: number, minReliability: (number|null)}}}
  */
 function evaluateScreening(dataSoFar, config) {
     const { mainTrials, reliabilities } = dataSoFar;
@@ -589,21 +589,18 @@ function evaluateScreening(dataSoFar, config) {
     const sdFails    = mainTrials.filter(t => t.sd < s.trial_min_pairwise_distance_sd).length;
     const moveRatioFailFrac  = n === 0 ? 0 : moveFails / n;
     const distanceSdFailFrac = n === 0 ? 0 : sdFails   / n;
-    const medianReliability  = reliabilities.length === 0 ? null : _median(reliabilities);
+    // Subject is excluded if ANY single repeat's reliability falls below the
+    // threshold, not just an aggregate — so the worst (minimum) observed
+    // value is what gets compared, not a median/mean.
+    const minReliability = reliabilities.length === 0 ? null : Math.min(...reliabilities);
 
     const reasons = [];
     if (moveRatioFailFrac > s.max_move_ratio_fail_frac)
         reasons.push(`move-ratio fail fraction ${moveRatioFailFrac.toFixed(3)} exceeds max_move_ratio_fail_frac (${s.max_move_ratio_fail_frac})`);
     if (distanceSdFailFrac > s.max_distance_sd_fail_frac)
         reasons.push(`distance-SD fail fraction ${distanceSdFailFrac.toFixed(3)} exceeds max_distance_sd_fail_frac (${s.max_distance_sd_fail_frac})`);
-    if (medianReliability !== null && medianReliability < s.min_median_reliability)
-        reasons.push(`median reliability ${medianReliability.toFixed(3)} is below min_median_reliability (${s.min_median_reliability})`);
+    if (minReliability !== null && minReliability < s.min_overall_reliability)
+        reasons.push(`minimum reliability ${minReliability.toFixed(3)} is below min_overall_reliability (${s.min_overall_reliability})`);
 
-    return { pass: reasons.length === 0, reasons, stats: { moveRatioFailFrac, distanceSdFailFrac, medianReliability } };
-}
-
-function _median(values) {
-    const sorted = [...values].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    return { pass: reasons.length === 0, reasons, stats: { moveRatioFailFrac, distanceSdFailFrac, minReliability } };
 }

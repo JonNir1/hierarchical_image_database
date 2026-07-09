@@ -37,7 +37,7 @@
     "trial_min_pairwise_distance_sd": 0.1,
     "max_move_ratio_fail_frac":       0.30,
     "max_distance_sd_fail_frac":      0.30,
-    "min_median_reliability":         0.30
+    "min_overall_reliability":        0.30
   },
 
   "display": {

@@ -665,7 +665,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             reasons:               JSON.stringify(evalResult.reasons),
             move_ratio_fail_frac:  evalResult.stats.moveRatioFailFrac,
             distance_sd_fail_frac: evalResult.stats.distanceSdFailFrac,
-            median_reliability:    evalResult.stats.medianReliability,
+            min_reliability:       evalResult.stats.minReliability,
           });
           if (blockBoundaryTrials.has(trial) && !evalResult.pass) {
             screenedOut = true;
