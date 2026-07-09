@@ -106,10 +106,10 @@ function verifyConfig(config) {
             mode:                'string',
             debug_shine_variant: 'string',
         },
-        prolific: {
-            completion_url:  'string',
-            no_consent_url:  'string',
-            // partial_completion_urls is an array, validated separately below
+        prolific_codes: {
+            completion_code:  'string',
+            no_consent_code:  'string',
+            // partial_completion_codes is an array, validated separately below
             // (outside the generic scalar-type-check loop).
         },
         consent: {
@@ -151,14 +151,14 @@ function verifyConfig(config) {
     if (config.consent.study_duration_minutes <= 0)
         err('"consent.study_duration_minutes" must be > 0, got ' + config.consent.study_duration_minutes + '.');
 
-    // ── Group 1c: prolific.partial_completion_urls (array, validated outside the generic loop) ──
-    if (!('partial_completion_urls' in config.prolific))
-        err('missing required key "prolific.partial_completion_urls".');
-    if (!Array.isArray(config.prolific.partial_completion_urls))
-        err('"prolific.partial_completion_urls" must be an array.');
-    config.prolific.partial_completion_urls.forEach((url, i) => {
-        if (typeof url !== 'string')
-            err('"prolific.partial_completion_urls[' + i + ']" must be a string, got ' + typeof url + '.');
+    // ── Group 1c: prolific_codes.partial_completion_codes (array, validated outside the generic loop) ──
+    if (!('partial_completion_codes' in config.prolific_codes))
+        err('missing required key "prolific_codes.partial_completion_codes".');
+    if (!Array.isArray(config.prolific_codes.partial_completion_codes))
+        err('"prolific_codes.partial_completion_codes" must be an array.');
+    config.prolific_codes.partial_completion_codes.forEach((code, i) => {
+        if (typeof code !== 'string')
+            err('"prolific_codes.partial_completion_codes[' + i + ']" must be a string, got ' + typeof code + '.');
     });
 
     // ── Group 2: individual field ranges ─────────────────────────────────────
@@ -239,11 +239,11 @@ function verifyConfig(config) {
             ' block-local slots). Lower min_trial_repeat_separation, lower repeats_per_block, or increase ' +
             'trials_per_block. Note: catch trials are not counted toward this separation.');
 
-    // 3b. partial_completion_urls must have exactly num_blocks - 1 entries —
+    // 3b. partial_completion_codes must have exactly num_blocks - 1 entries —
     // one per possible screen-out boundary (never after the final block).
-    if (config.prolific.partial_completion_urls.length !== numBlocks - 1)
-        err('"prolific.partial_completion_urls" must have length design.num_blocks - 1 (' + (numBlocks - 1) +
-            '), got ' + config.prolific.partial_completion_urls.length + '.');
+    if (config.prolific_codes.partial_completion_codes.length !== numBlocks - 1)
+        err('"prolific_codes.partial_completion_codes" must have length design.num_blocks - 1 (' + (numBlocks - 1) +
+            '), got ' + config.prolific_codes.partial_completion_codes.length + '.');
 
     // 3c. Single image fits in minimum sort area
     const stimSize = Math.round(minW * frac);
@@ -274,9 +274,9 @@ function verifyConfig(config) {
     if (mode !== 'debug') {
         if (!config.design.stimuli_path)                   warn('"design.stimuli_path" is empty — no main images will load.');
         if (!config.catch_trials.stimuli_path)             warn('"catch_trials.stimuli_path" is empty — catch and practice trials will have no images.');
-        if (!config.prolific.completion_url)                warn('"prolific.completion_url" is empty — participants will not be redirected after completion.');
-        config.prolific.partial_completion_urls.forEach((url, i) => {
-            if (!url) warn('"prolific.partial_completion_urls[' + i + ']" is empty — participants screened out after block ' + (i + 1) + ' will not be redirected.');
+        if (!config.prolific_codes.completion_code)          warn('"prolific_codes.completion_code" is empty — participants will not be redirected after completion.');
+        config.prolific_codes.partial_completion_codes.forEach((code, i) => {
+            if (!code) warn('"prolific_codes.partial_completion_codes[' + i + ']" is empty — participants screened out after block ' + (i + 1) + ' will not be redirected.');
         });
     }
 }

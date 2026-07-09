@@ -132,10 +132,10 @@ describe('verifyConfig', () => {
             debug_shine_variant: 'pre',
             version:             '4.0',
         },
-        prolific: {
-            completion_url:  'https://example.com',
-            no_consent_url:  'https://example.com/no-consent',
-            partial_completion_urls: ['https://example.com/p1', 'https://example.com/p2', 'https://example.com/p3'],
+        prolific_codes: {
+            completion_code:  'C12AB9X4',
+            no_consent_code:  'CRP3B455',
+            partial_completion_codes: ['P1CODE1', 'P2CODE2', 'P3CODE3'],
         },
         consent: {
             researcher_name:        'Test Researcher',
@@ -271,28 +271,28 @@ describe('verifyConfig', () => {
         assert.doesNotThrow(() => verifyConfig(cfg));
     });
 
-    it('throws when partial_completion_urls length does not equal num_blocks - 1', () => {
+    it('throws when partial_completion_codes length does not equal num_blocks - 1', () => {
         const cfg = validConfig();
-        cfg.prolific.partial_completion_urls = ['only-one'];
+        cfg.prolific_codes.partial_completion_codes = ['only-one'];
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"prolific\.partial_completion_urls" must have length design\.num_blocks - 1 \(3\), got 1/ },
+            { message: /"prolific_codes\.partial_completion_codes" must have length design\.num_blocks - 1 \(3\), got 1/ },
         );
     });
 
-    it('throws when a partial_completion_urls element is not a string', () => {
+    it('throws when a partial_completion_codes element is not a string', () => {
         const cfg = validConfig();
-        cfg.prolific.partial_completion_urls = ['a', 42, 'c'];
+        cfg.prolific_codes.partial_completion_codes = ['a', 42, 'c'];
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"prolific\.partial_completion_urls\[1\]" must be a string/ },
+            { message: /"prolific_codes\.partial_completion_codes\[1\]" must be a string/ },
         );
     });
 
-    it('accepts num_blocks === 1 with an empty partial_completion_urls array', () => {
+    it('accepts num_blocks === 1 with an empty partial_completion_codes array', () => {
         const cfg = validConfig();
         cfg.design.num_blocks = 1;
-        cfg.prolific.partial_completion_urls = [];
+        cfg.prolific_codes.partial_completion_codes = [];
         assert.doesNotThrow(() => verifyConfig(cfg));
     });
 
