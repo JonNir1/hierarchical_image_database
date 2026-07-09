@@ -6,7 +6,8 @@
 //   jspsych-7-pavlovia-2022.1.1.js, utils.js, trial_generator.js
 
 // All Prolific completion redirect URLs share this prefix; task_config.json's
-// prolific_codes section stores only the trailing "cc=" code, not the full URL.
+// screening_block.prolific_code / experimental_block.prolific_code / consent.no_consent_code
+// fields each store only the trailing "cc=" code, not the full URL.
 const PROLIFIC_URL_PREFIX = 'https://app.prolific.com/submissions/complete?cc=';
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -107,12 +108,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ---------------------------------------------------------------------------
   // 5. Build image URL arrays
   //    Manifest paths are filenames relative to each stimulus directory.
-  //    Main URL = design.stimuli_path + "<variant>_shine/" + filename.
+  //    Main URL = experimental_trials.stimuli_path + "<variant>_shine/" + filename.
   //    Practice trials reuse catch_trials.stimuli_path (no separate practice path).
   //    Both are relative to the repo root (where index.html lives), so
   //    concatenating them with filenames yields browser-resolvable URLs.
   // ---------------------------------------------------------------------------
-  const mainPrefix   = config.design.stimuli_path + assignedVariant + '_shine';
+  const mainPrefix   = config.experimental_trials.stimuli_path + assignedVariant + '_shine';
   const imageUrls    = (manifest.images          || []).map(f => mainPrefix                       + '/' + f);
   const catchUrls    = (manifest.catch_images    || []).map(f => config.catch_trials.stimuli_path  + '/' + f);
   const practiceUrls = (manifest.practice_images || []).map(f => config.catch_trials.stimuli_path  + '/' + f);
@@ -204,23 +205,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   //    rng must not be called between here and buildTrialLists — any prior call
   //    shifts the sequence and breaks per-PID reproducibility.
   //    One session-wide image pool is drawn up front (buildTrialLists), then
-  //    partitioned into num_blocks disjoint groups (partitionIntoBlocks), and
-  //    each group is expanded into its block's full trial sequence (buildBlock,
-  //    which internally calls insertTrialRepeats/insertCatchTrials scoped to
-  //    that block, using the same shared rng instance so the whole session
-  //    remains fully reproducible from PID).
+  //    partitioned into a screening slice and an experimental slice
+  //    (partitionIntoStages). Each slice is expanded into its stage's full
+  //    trial sequence (buildStage, which internally calls
+  //    insertTrialRepeats/insertCatchTrials scoped to that stage, using the
+  //    same shared rng instance so the whole session remains fully
+  //    reproducible from PID). The screening stage is skipped entirely if
+  //    screening_block.enabled is false.
   // ---------------------------------------------------------------------------
-  const distinctTrials   = buildTrialLists(imageUrls, config, rng);
-  const blocksOfDistinct = partitionIntoBlocks(distinctTrials, config);
-  const blocks = blocksOfDistinct.map((blockTrials, blockIndex) =>
-    buildBlock(blockTrials, catchUrls, config, rng, blockIndex));
-  const allTrials = blocks.flat();
+  const distinctTrials = buildTrialLists(imageUrls, config, rng);
+  const { screening: screeningDistinct, experimental: experimentalDistinct } = partitionIntoStages(distinctTrials, config);
+
+  const screeningTrials = config.screening_block.enabled
+    ? buildStage(screeningDistinct, catchUrls, config.screening_block, config.catch_trials, rng, 'screening')
+    : [];
+  const experimentalTrials = buildStage(experimentalDistinct, catchUrls, config.experimental_block, config.catch_trials, rng, 'experimental');
+
+  const allTrials = [...screeningTrials, ...experimentalTrials];
 
   // Maps each main trial's trialId to its 1-based trial number in the
   // "trial_N" numbering scheme (main trials only, matching trial_type), so a
   // repeat's repeatOfTrialId can be resolved directly to a value comparable
   // to trial_type without any downstream re-indexing. Numbering is a single
-  // continuous counter across the whole session, not reset per block.
+  // continuous counter across the whole session, not reset per stage.
   const trialIdToTrialNumber = {};
   let trialNumberCounter = 0;
   allTrials.forEach((trial) => {
@@ -228,30 +235,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Live per-block screening state
+  // Live screening state
   //   originalPairwiseDistancesByTrialId: trialId -> pairs[], set when a
   //     non-repeat main trial finishes, so its later repeat can compute
   //     test-retest reliability against it.
-  //   mainTrialStatsSoFar / reliabilitiesSoFar: cumulative across the WHOLE
-  //     session so far (not just the current block) — evaluateScreening
-  //     always looks at everything completed up to that point.
-  //   blockBoundaryTrials: the last trial (main or catch) of each of the
-  //     first (num_blocks - 1) blocks — screening is evaluated there, and
-  //     ONLY there can screenedOut be set (never on the final block, since a
-  //     participant who reaches the end cannot be retroactively excluded).
-  //   finalBlockLastTrial: last trial of the FINAL block — stats are still
-  //     computed and logged there for audit, but never gate screenedOut.
+  //   mainTrialStatsSoFar / reliabilitiesSoFar: cumulative across the
+  //     screening stage's own trials — evaluateScreening runs exactly once,
+  //     at the end of the screening stage.
+  //   screeningLastTrial: the last trial of the screening stage, if enabled
+  //     and non-empty — the single point where screening is evaluated and
+  //     screenedOut can be set. null if screening_block.enabled is false,
+  //     in which case no evaluation ever happens and everyone passes.
+  //     There is only ever one possible screen-out gate now (Prolific's
+  //     completion-code API supports exactly one), unlike the old N-1
+  //     arbitrary block-boundary model.
   // ---------------------------------------------------------------------------
   const originalPairwiseDistancesByTrialId = {};
   const mainTrialStatsSoFar = [];
   const reliabilitiesSoFar  = [];
 
-  const blockBoundaryTrials = new Set(
-    blocks.slice(0, blocks.length - 1).map(b => b[b.length - 1]));
-  const finalBlockLastTrial = blocks[blocks.length - 1][blocks[blocks.length - 1].length - 1];
+  const screeningLastTrial = config.screening_block.enabled
+    ? screeningTrials[screeningTrials.length - 1]
+    : null;
 
   let screenedOut = false;
-  let screenedOutAtBlock = null; // 1-based
 
   if (mode === 'debug') {
     console.log('[SpAM] Trial sequence:', allTrials.map((t, i) => i + ':' + t.type + ' block=' + t.block + (t.isRepeat ? ' (repeat)' : '')));
@@ -271,7 +278,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const csv  = jsPsych.data.get()
                      .filterCustom(d => d.trial_type.startsWith('trial_') ||
                                         d.trial_type.startsWith('catch_') ||
-                                        d.trial_type.startsWith('block_eval_'))
+                                        d.trial_type === 'screening_eval')
                      .csv();
       const blob = new Blob([csv], { type: 'text/csv' });
       const url  = URL.createObjectURL(blob);
@@ -395,8 +402,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (data.response === 1) {
         // Participant declined consent — redirect to Prolific no-consent URL if set,
         // otherwise show a neutral end screen.
-        if (config.prolific_codes.no_consent_code) {
-          window.location.href = PROLIFIC_URL_PREFIX + config.prolific_codes.no_consent_code;
+        if (config.consent.no_consent_code) {
+          window.location.href = PROLIFIC_URL_PREFIX + config.consent.no_consent_code;
         } else {
           jsPsych.abortExperiment(
             '<p style="text-align:center;margin-top:20%;">You have chosen not to participate.<br>You may now close this window.</p>'
@@ -589,7 +596,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       counter_text_finished:    '',
       on_load: trial.type === 'catch'
         ? function () { attachCatchCompliance(trial.target_location); }
-        : function () { attachTrialTimer(mode === 'debug' ? 5000 : config.design.min_trial_duration_ms); },
+        : function () { attachTrialTimer(mode === 'debug' ? 5000 : config.experimental_trials.min_trial_duration_ms); },
       on_finish: function(data) {
         // QC metrics
         const pairs = computePairwiseDistances(
@@ -645,12 +652,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         data.pairwise_distances = JSON.stringify(pairs);
 
-        // Block-boundary live screening evaluation. Runs at the last trial
-        // of every block 1..(num_blocks-1) (screenedOut can be set) AND at
-        // the last trial of the final block (audit-only, never sets
-        // screenedOut — a participant who completes the whole session can
-        // never be retroactively excluded).
-        if (blockBoundaryTrials.has(trial) || trial === finalBlockLastTrial) {
+        // Live screening evaluation. Runs exactly once, at the last trial of
+        // the screening stage (if enabled) — there is only ever one possible
+        // screen-out gate now, matching Prolific's single conditional
+        // completion-code constraint.
+        if (trial === screeningLastTrial) {
           const evalResult = evaluateScreening(
             { mainTrials: mainTrialStatsSoFar, reliabilities: reliabilitiesSoFar },
             config,
@@ -663,18 +669,17 @@ document.addEventListener('DOMContentLoaded', async () => {
           // columns (participant_id, task_version, etc.) as every trial row.
           jsPsych.data.get().push({
             ...jsPsych.data.dataProperties,
-            trial_type:            'block_eval_' + trial.block,
-            block:                 trial.block,
+            trial_type:            'screening_eval',
             pass:                  evalResult.pass,
             reasons:               JSON.stringify(evalResult.reasons),
-            move_ratio_fail_frac:  evalResult.stats.moveRatioFailFrac,
-            distance_sd_fail_frac: evalResult.stats.distanceSdFailFrac,
+            move_ratio_fail_rate:  evalResult.stats.moveRatioFailRate,
+            distance_sd_fail_rate: evalResult.stats.distanceSdFailRate,
             min_reliability:       evalResult.stats.minReliability,
+            median_reliability:    evalResult.stats.medianReliability,
           });
-          if (blockBoundaryTrials.has(trial) && !evalResult.pass) {
+          if (!evalResult.pass) {
             screenedOut = true;
-            screenedOutAtBlock = trial.block;
-            if (mode === 'debug') console.log('[SpAM] Screened out after block', trial.block, evalResult.reasons);
+            if (mode === 'debug') console.log('[SpAM] Screened out after screening stage', evalResult.reasons);
           }
         }
 
@@ -690,20 +695,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
     };
 
-    // Block 1's nodes always run (screen-out is only ever detected at the
-    // earliest at block 1's own boundary evaluation, so block 1 itself can
-    // never be skipped). Blocks after the first are wrapped in a nested
-    // timeline gated by conditional_function — jsPsych only honors
-    // conditional_function on nested-timeline nodes (an object with a
-    // `timeline` array), NOT on a bare trial description, so preload+free-sort
-    // must be grouped together here rather than each getting their own
-    // top-level conditional_function property (which jsPsych would silently
-    // ignore). Once screenedOut is set, this lets execution skip straight to
-    // the existing Pavlovia-finish + debrief tail, preserving the
-    // already-collected blocks' data upload — see the on_finish comment above
-    // for why jsPsych.abortExperiment()/endExperiment() is deliberately not
-    // used for this instead.
-    if (trial.block > 1) {
+    // Screening-stage nodes always run (screen-out is only ever detected at
+    // the end of the screening stage itself, so its own trials can never be
+    // skipped). Experimental-stage nodes are wrapped in a nested timeline
+    // gated by conditional_function — jsPsych only honors conditional_function
+    // on nested-timeline nodes (an object with a `timeline` array), NOT on a
+    // bare trial description, so preload+free-sort must be grouped together
+    // here rather than each getting their own top-level conditional_function
+    // property (which jsPsych would silently ignore). Once screenedOut is
+    // set, this lets execution skip straight to the existing Pavlovia-finish
+    // + debrief tail, preserving the already-collected screening-stage data
+    // upload — see the on_finish comment above for why
+    // jsPsych.abortExperiment()/endExperiment() is deliberately not used for
+    // this instead.
+    if (trial.block === 'experimental') {
       timeline.push({
         timeline: [preloadNode, freesortNode],
         conditional_function: () => !screenedOut,
@@ -747,13 +752,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // On Pavlovia: shown after save completes; "Finish" redirects immediately.
   // Locally: shown last; global on_finish downloads the CSV.
   // stimulus is a function (evaluated at trial-run time, not timeline-build
-  // time) because screenedOut/screenedOutAtBlock are only known once the
-  // main-loop trials have actually run — at build time neither is set yet.
+  // time) because screenedOut is only known once the screening stage's
+  // trials have actually run — at build time it isn't set yet.
   timeline.push({
     type:     jsPsychHtmlButtonResponse,
     stimulus: function() {
       const completionText = screenedOut
-        ? `<p>You have completed ${Math.round(screenedOutAtBlock / config.design.num_blocks * 100)}% of the trials.</p>
+        ? `<p>You did not qualify to continue to the main experiment.</p>
            <p>Unfortunately, you have been screened out of the experiment.</p>`
         : `<p>You have completed all trials and your responses have been saved.</p>`;
       const creditText = screenedOut ? 'partial completion credit' : 'completion credit';
@@ -767,8 +772,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     choices: ['Finish'],
     on_finish: function() {
       const completionCode = screenedOut
-        ? config.prolific_codes.partial_completion_codes[screenedOutAtBlock - 1]
-        : config.prolific_codes.completion_code;
+        ? config.screening_block.prolific_code
+        : config.experimental_block.prolific_code;
       const completionUrl = completionCode ? PROLIFIC_URL_PREFIX + completionCode : '';
       if (isPavlovia && completionUrl) {
         window.location.href = completionUrl;

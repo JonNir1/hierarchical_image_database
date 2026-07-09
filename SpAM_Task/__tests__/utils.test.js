@@ -93,27 +93,38 @@ describe('canSatisfyTrialRepeatSeparation', () => {
 describe('verifyConfig', () => {
     // Minimal valid config that passes all checks.
     const validConfig = () => ({
-        design: {
-            num_blocks:                   4,
-            trials_per_block:             5,
-            repeats_per_block:            1,
-            images_per_trial:             20,
-            min_trial_repeat_separation:  2,
-            min_trial_duration_ms:        5000,
-            stimuli_path:                 'images',
+        experimental_trials: {
+            stimuli_path:              'images',
+            images_per_trial:          20,
+            min_trial_duration_ms:     5000,
+            min_move_item_ratio:       0.75,
+            min_pairwise_distance_sd:  0.04,
         },
         catch_trials: {
-            catch_per_block:     2,
+            stimuli_path:        'catch',
             images_per_trial:    10,
             location_tolerance:  0.20,
-            stimuli_path:        'catch',
         },
-        screening: {
-            trial_min_move_item_ratio:      0.75,
-            trial_min_pairwise_distance_sd: 0.04,
-            max_move_ratio_fail_frac:       0.30,
-            max_distance_sd_fail_frac:      0.30,
-            min_overall_reliability:        0.30,
+        screening_block: {
+            enabled:                  true,
+            prolific_code:            'SCREENCODE1',
+            num_catch_trials:         1,
+            num_experimental_trials:  5,
+            num_repeat_trials:        1,
+            min_repeat_separation:    2,
+            thresholds: {
+                min_reliability:           0.30,
+                median_reliability:        null,
+                move_ratio_max_fail_rate:  0.30,
+                distance_sd_max_fail_rate: 0.30,
+            },
+        },
+        experimental_block: {
+            prolific_code:            'EXPCODE1',
+            num_catch_trials:         2,
+            num_experimental_trials:  15,
+            num_repeat_trials:        0,
+            min_repeat_separation:    3,
         },
         display: {
             sort_area_min_width:  900,
@@ -132,11 +143,6 @@ describe('verifyConfig', () => {
             debug_shine_variant: 'pre',
             version:             '4.0',
         },
-        prolific_codes: {
-            completion_code:  'C12AB9X4',
-            no_consent_code:  'CRP3B455',
-            partial_completion_codes: ['P1CODE1', 'P2CODE2', 'P3CODE3'],
-        },
         consent: {
             researcher_name:        'Test Researcher',
             researcher_email:       'test@example.com',
@@ -146,6 +152,7 @@ describe('verifyConfig', () => {
             lab_phone:              '+1-555-0000',
             institution:            'Test University',
             study_duration_minutes: 45,
+            no_consent_code:        'NOCONSENT1',
         },
     });
 
@@ -155,19 +162,19 @@ describe('verifyConfig', () => {
 
     it('throws on missing key', () => {
         const cfg = validConfig();
-        delete cfg.design.images_per_trial;
+        delete cfg.experimental_trials.images_per_trial;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /missing required key "design\.images_per_trial"/ },
+            { message: /missing required key "experimental_trials\.images_per_trial"/ },
         );
     });
 
     it('throws on wrong type', () => {
         const cfg = validConfig();
-        cfg.design.num_blocks = '4';  // string instead of number
+        cfg.screening_block.num_experimental_trials = '5';  // string instead of number
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"design\.num_blocks" must be a number/ },
+            { message: /"screening_block\.num_experimental_trials" must be a number/ },
         );
     });
 
@@ -189,111 +196,172 @@ describe('verifyConfig', () => {
         );
     });
 
-    it('throws on missing screening.trial_min_move_item_ratio', () => {
+    it('throws on missing experimental_trials.min_move_item_ratio', () => {
         const cfg = validConfig();
-        delete cfg.screening.trial_min_move_item_ratio;
+        delete cfg.experimental_trials.min_move_item_ratio;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /missing required key "screening\.trial_min_move_item_ratio"/ },
+            { message: /missing required key "experimental_trials\.min_move_item_ratio"/ },
         );
     });
 
-    it('throws when screening.trial_min_move_item_ratio is out of range (> 1)', () => {
+    it('throws when experimental_trials.min_move_item_ratio is out of range (> 1)', () => {
         const cfg = validConfig();
-        cfg.screening.trial_min_move_item_ratio = 1.5;
+        cfg.experimental_trials.min_move_item_ratio = 1.5;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"screening\.trial_min_move_item_ratio" must be in \(0, 1\]/ },
+            { message: /"experimental_trials\.min_move_item_ratio" must be in \(0, 1\]/ },
         );
     });
 
-    it('throws when screening.trial_min_move_item_ratio is 0', () => {
+    it('throws when experimental_trials.min_move_item_ratio is 0', () => {
         const cfg = validConfig();
-        cfg.screening.trial_min_move_item_ratio = 0;
+        cfg.experimental_trials.min_move_item_ratio = 0;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"screening\.trial_min_move_item_ratio" must be in \(0, 1\]/ },
+            { message: /"experimental_trials\.min_move_item_ratio" must be in \(0, 1\]/ },
         );
     });
 
-    it('throws when repeats_per_block is out of range (negative)', () => {
+    for (const stageName of ['screening_block', 'experimental_block']) {
+        it(`throws when ${stageName}.num_repeat_trials is out of range (negative)`, () => {
+            const cfg = validConfig();
+            cfg[stageName].num_repeat_trials = -1;
+            assert.throws(
+                () => verifyConfig(cfg),
+                { message: new RegExp(`"${stageName}\\.num_repeat_trials" must be an integer in \\[0, ${stageName}\\.num_experimental_trials\\]`) },
+            );
+        });
+
+        it(`throws when ${stageName}.num_repeat_trials exceeds num_experimental_trials`, () => {
+            const cfg = validConfig();
+            cfg[stageName].num_repeat_trials = cfg[stageName].num_experimental_trials + 1;
+            assert.throws(
+                () => verifyConfig(cfg),
+                { message: new RegExp(`"${stageName}\\.num_repeat_trials" must be an integer in \\[0, ${stageName}\\.num_experimental_trials\\]`) },
+            );
+        });
+
+        it(`throws on missing ${stageName}.min_repeat_separation`, () => {
+            const cfg = validConfig();
+            delete cfg[stageName].min_repeat_separation;
+            assert.throws(
+                () => verifyConfig(cfg),
+                { message: new RegExp(`missing required key "${stageName}\\.min_repeat_separation"`) },
+            );
+        });
+
+        it(`allows ${stageName}.min_repeat_separation of 0 (loosened floor)`, () => {
+            const cfg = validConfig();
+            cfg[stageName].min_repeat_separation = 0;
+            assert.doesNotThrow(() => verifyConfig(cfg));
+        });
+
+        it(`throws when ${stageName}.min_repeat_separation is negative`, () => {
+            const cfg = validConfig();
+            cfg[stageName].min_repeat_separation = -1;
+            assert.throws(
+                () => verifyConfig(cfg),
+                { message: new RegExp(`"${stageName}\\.min_repeat_separation" must be a non-negative integer`) },
+            );
+        });
+
+        it(`does not check ${stageName} min_repeat_separation feasibility when num_repeat_trials is 0`, () => {
+            const cfg = validConfig();
+            cfg[stageName].num_repeat_trials = 0;
+            cfg[stageName].min_repeat_separation = 1000;
+            assert.doesNotThrow(() => verifyConfig(cfg));
+        });
+    }
+
+    it('throws at init when screening_block.min_repeat_separation cannot be satisfied within screening_block', () => {
         const cfg = validConfig();
-        cfg.design.repeats_per_block = -1;
+        // num_experimental_trials=5, num_repeat_trials=1 -> t=6; minSep=100 is impossible.
+        cfg.screening_block.min_repeat_separation = 100;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"design\.repeats_per_block" must be an integer in \[0, design\.trials_per_block\]/ },
+            { message: /screening_block\.min_repeat_separation \(100\) cannot be satisfied within screening_block/ },
         );
     });
 
-    it('throws when repeats_per_block exceeds trials_per_block', () => {
+    it('throws at init when experimental_block.min_repeat_separation cannot be satisfied within experimental_block', () => {
         const cfg = validConfig();
-        cfg.design.repeats_per_block = cfg.design.trials_per_block + 1;
+        cfg.experimental_block.num_repeat_trials = 3;
+        cfg.experimental_block.min_repeat_separation = 1000;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"design\.repeats_per_block" must be an integer in \[0, design\.trials_per_block\]/ },
+            { message: /experimental_block\.min_repeat_separation \(1000\) cannot be satisfied within experimental_block/ },
         );
     });
 
-    it('throws on missing min_trial_repeat_separation', () => {
+    it('skips screening_block feasibility check entirely when disabled, even if infeasible', () => {
         const cfg = validConfig();
-        delete cfg.design.min_trial_repeat_separation;
-        assert.throws(
-            () => verifyConfig(cfg),
-            { message: /missing required key "design\.min_trial_repeat_separation"/ },
-        );
-    });
-
-    it('throws when min_trial_repeat_separation is not a positive integer', () => {
-        const cfg = validConfig();
-        cfg.design.min_trial_repeat_separation = 0;
-        assert.throws(
-            () => verifyConfig(cfg),
-            { message: /"design\.min_trial_repeat_separation" must be a positive integer/ },
-        );
-    });
-
-    it('throws at init when min_trial_repeat_separation cannot be satisfied within a single block', () => {
-        const cfg = validConfig();
-        // trials_per_block=5, repeats_per_block=1 -> tBlock=6; minSep=100 is
-        // impossible regardless of which trial ends up single.
-        cfg.design.min_trial_repeat_separation = 100;
-        assert.throws(
-            () => verifyConfig(cfg),
-            { message: /design\.min_trial_repeat_separation \(100\) cannot be satisfied within a single block/ },
-        );
-    });
-
-    it('does not check min_trial_repeat_separation feasibility when repeats_per_block is 0', () => {
-        const cfg = validConfig();
-        // No repeat slots are ever created, so an absurd separation is moot.
-        cfg.design.repeats_per_block = 0;
-        cfg.design.min_trial_repeat_separation = 1000;
+        cfg.screening_block.enabled = false;
+        cfg.screening_block.min_repeat_separation = 1000; // would be infeasible if enabled
         assert.doesNotThrow(() => verifyConfig(cfg));
     });
 
-    it('throws when partial_completion_codes length does not equal num_blocks - 1', () => {
+    it('still validates screening_block numeric fields even when disabled', () => {
         const cfg = validConfig();
-        cfg.prolific_codes.partial_completion_codes = ['only-one'];
+        cfg.screening_block.enabled = false;
+        cfg.screening_block.num_experimental_trials = -1;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"prolific_codes\.partial_completion_codes" must have length design\.num_blocks - 1 \(3\), got 1/ },
+            { message: /"screening_block\.num_experimental_trials" must be a positive integer/ },
         );
     });
 
-    it('throws when a partial_completion_codes element is not a string', () => {
+    it('throws on missing screening_block.thresholds', () => {
         const cfg = validConfig();
-        cfg.prolific_codes.partial_completion_codes = ['a', 42, 'c'];
+        delete cfg.screening_block.thresholds;
         assert.throws(
             () => verifyConfig(cfg),
-            { message: /"prolific_codes\.partial_completion_codes\[1\]" must be a string/ },
+            { message: /missing required section "screening_block\.thresholds"/ },
         );
     });
 
-    it('accepts num_blocks === 1 with an empty partial_completion_codes array', () => {
+    for (const key of ['min_reliability', 'median_reliability', 'move_ratio_max_fail_rate', 'distance_sd_max_fail_rate']) {
+        it(`accepts null for screening_block.thresholds.${key}`, () => {
+            const cfg = validConfig();
+            cfg.screening_block.thresholds[key] = null;
+            assert.doesNotThrow(() => verifyConfig(cfg));
+        });
+
+        it(`throws when screening_block.thresholds.${key} is a string`, () => {
+            const cfg = validConfig();
+            cfg.screening_block.thresholds[key] = 'not-a-number';
+            assert.throws(
+                () => verifyConfig(cfg),
+                { message: new RegExp(`"screening_block\\.thresholds\\.${key}" must be a number or null`) },
+            );
+        });
+    }
+
+    it('throws when screening_block.thresholds.min_reliability is out of [-1,1]', () => {
         const cfg = validConfig();
-        cfg.design.num_blocks = 1;
-        cfg.prolific_codes.partial_completion_codes = [];
-        assert.doesNotThrow(() => verifyConfig(cfg));
+        cfg.screening_block.thresholds.min_reliability = 1.5;
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /"screening_block\.thresholds\.min_reliability" must be in \[-1,1\] or null/ },
+        );
+    });
+
+    it('throws when screening_block.thresholds.move_ratio_max_fail_rate is out of [0,1]', () => {
+        const cfg = validConfig();
+        cfg.screening_block.thresholds.move_ratio_max_fail_rate = 1.5;
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /"screening_block\.thresholds\.move_ratio_max_fail_rate" must be in \[0,1\] or null/ },
+        );
+    });
+
+    it('throws on missing consent.no_consent_code', () => {
+        const cfg = validConfig();
+        delete cfg.consent.no_consent_code;
+        assert.throws(
+            () => verifyConfig(cfg),
+            { message: /missing required key "consent\.no_consent_code"/ },
+        );
     });
 
 });
@@ -301,7 +369,7 @@ describe('verifyConfig', () => {
 // ── computeMainQcFlag ─────────────────────────────────────────────────────────
 describe('computeMainQcFlag', () => {
     const cfg = {
-        screening: { trial_min_pairwise_distance_sd: 0.04, trial_min_move_item_ratio: 0.75 },
+        experimental_trials: { min_pairwise_distance_sd: 0.04, min_move_item_ratio: 0.75 },
     };
 
     it('passes when sd is high enough and moves are sufficient', () => {
@@ -436,18 +504,24 @@ describe('computeSpearmanCorrelation', () => {
 // ── evaluateScreening ─────────────────────────────────────────────────────────
 describe('evaluateScreening', () => {
     const cfg = {
-        screening: {
-            trial_min_move_item_ratio:      0.75,
-            trial_min_pairwise_distance_sd: 0.04,
-            max_move_ratio_fail_frac:       0.30,
-            max_distance_sd_fail_frac:      0.30,
-            min_overall_reliability:        0.30,
+        experimental_trials: {
+            min_move_item_ratio:      0.75,
+            min_pairwise_distance_sd: 0.04,
+        },
+        screening_block: {
+            thresholds: {
+                min_reliability:           0.30,
+                median_reliability:        0.30,
+                move_ratio_max_fail_rate:  0.30,
+                distance_sd_max_fail_rate: 0.30,
+            },
         },
     };
 
-    it('skips (does not fail) the reliability criterion when zero repeats completed so far', () => {
+    it('skips (does not fail) the reliability criteria when zero repeats completed so far', () => {
         const result = evaluateScreening({ mainTrials: [{ numMoves: 20, numItems: 20, sd: 0.1 }], reliabilities: [] }, cfg);
         assert.equal(result.stats.minReliability, null);
+        assert.equal(result.stats.medianReliability, null);
         assert.ok(!result.reasons.some(r => /reliability/.test(r)));
         assert.equal(result.pass, true);
     });
@@ -457,7 +531,31 @@ describe('evaluateScreening', () => {
         const result = evaluateScreening({ mainTrials: [], reliabilities: [0.9, 0.95, 0.05] }, cfg);
         assert.equal(result.stats.minReliability, 0.05);
         assert.equal(result.pass, false);
-        assert.ok(/minimum reliability/.test(result.reasons[0]));
+        assert.ok(result.reasons.some(r => /minimum reliability/.test(r)));
+    });
+
+    it('median_reliability is independent of min_reliability — fails on median even when min passes threshold, and vice versa', () => {
+        // min=0.05 fails min_reliability(0.30); median=0.9 passes median_reliability(0.30).
+        const onlyMinFails = evaluateScreening({ mainTrials: [], reliabilities: [0.05, 0.9, 0.95] }, cfg);
+        assert.ok(onlyMinFails.reasons.some(r => /minimum reliability/.test(r)));
+        assert.ok(!onlyMinFails.reasons.some(r => /median reliability/.test(r)));
+
+        // min=0.10 passes min_reliability(0.05 threshold below); median=0.15 fails median_reliability(0.30).
+        const lenientCfg = { ...cfg, screening_block: { thresholds: { ...cfg.screening_block.thresholds, min_reliability: 0.05 } } };
+        const onlyMedianFails = evaluateScreening({ mainTrials: [], reliabilities: [0.10, 0.15, 0.20] }, lenientCfg);
+        assert.ok(!onlyMedianFails.reasons.some(r => /minimum reliability/.test(r)));
+        assert.ok(onlyMedianFails.reasons.some(r => /median reliability/.test(r)));
+    });
+
+    it('null disables each threshold criterion individually, even when the underlying stat would otherwise fail it', () => {
+        const allDisabled = {
+            experimental_trials: cfg.experimental_trials,
+            screening_block: { thresholds: { min_reliability: null, median_reliability: null, move_ratio_max_fail_rate: null, distance_sd_max_fail_rate: null } },
+        };
+        const mainTrials = Array.from({ length: 10 }, () => ({ numMoves: 1, numItems: 20, sd: 0.01 })); // would fail both rate criteria
+        const result = evaluateScreening({ mainTrials, reliabilities: [0.01, 0.02] }, allDisabled); // would fail both reliability criteria
+        assert.equal(result.pass, true);
+        assert.equal(result.reasons.length, 0);
     });
 
     it('passes when every individual reliability is at or above the threshold', () => {
@@ -466,14 +564,14 @@ describe('evaluateScreening', () => {
         assert.equal(result.pass, true); // exactly-at-threshold passes (strict inequality)
     });
 
-    it('passes when the fail-fraction is exactly at the threshold (strict inequality)', () => {
-        // 3/10 = 0.30 exactly equals max_move_ratio_fail_frac -> should pass
+    it('passes when the fail-rate is exactly at the threshold (strict inequality)', () => {
+        // 3/10 = 0.30 exactly equals move_ratio_max_fail_rate -> should pass
         const mainTrials = [
             ...Array.from({ length: 3 }, () => ({ numMoves: 1, numItems: 20, sd: 0.1 })), // fail move ratio
             ...Array.from({ length: 7 }, () => ({ numMoves: 20, numItems: 20, sd: 0.1 })),
         ];
         const result = evaluateScreening({ mainTrials, reliabilities: [] }, cfg);
-        assert.equal(result.stats.moveRatioFailFrac, 0.3);
+        assert.equal(result.stats.moveRatioFailRate, 0.3);
         assert.equal(result.pass, true);
     });
 
@@ -487,15 +585,15 @@ describe('evaluateScreening', () => {
 
     it('fails with multiple reasons when multiple criteria are violated', () => {
         const mainTrials = Array.from({ length: 10 }, () => ({ numMoves: 1, numItems: 20, sd: 0.01 })); // fail both
-        const result = evaluateScreening({ mainTrials, reliabilities: [0.1, 0.05] }, cfg); // also fail reliability
+        const result = evaluateScreening({ mainTrials, reliabilities: [0.1, 0.05] }, cfg); // also fail both reliability criteria
         assert.equal(result.pass, false);
-        assert.equal(result.reasons.length, 3);
+        assert.equal(result.reasons.length, 4);
     });
 
     it('does not divide by zero with an empty mainTrials array', () => {
         const result = evaluateScreening({ mainTrials: [], reliabilities: [] }, cfg);
-        assert.equal(result.stats.moveRatioFailFrac, 0);
-        assert.equal(result.stats.distanceSdFailFrac, 0);
+        assert.equal(result.stats.moveRatioFailRate, 0);
+        assert.equal(result.stats.distanceSdFailRate, 0);
         assert.equal(result.pass, true);
     });
 });

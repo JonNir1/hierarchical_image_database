@@ -18,16 +18,12 @@ const makeRng = (seed = 42) => {
 };
 
 const CATCH_POOL = Array.from({ length: 20 }, (_, i) => `catch_${i}.png`);
+const IMAGES_PER_CATCH_TRIAL = 10;
+const IMAGES_PER_TRIAL = 20;
 const CONFIG = {
-    design: {
-        num_blocks:                1,
-        trials_per_block:          10,
-        images_per_trial:          20,
-    },
-    catch_trials: {
-        catch_per_block:  2,
-        images_per_trial: 10,
-    },
+    experimental_trials: { images_per_trial: IMAGES_PER_TRIAL },
+    screening_block:     { enabled: false, num_experimental_trials: 0 },
+    experimental_block:  { num_experimental_trials: 10 },
 };
 const SORT_W = 900;
 const SORT_H = 700;
@@ -35,31 +31,31 @@ const SORT_H = 700;
 // ── buildCatchTrial ───────────────────────────────────────────────────────────
 describe('buildCatchTrial', () => {
     it('returns an object with type catch, images, and target_location', () => {
-        const trial = buildCatchTrial(CATCH_POOL, CONFIG, makeRng());
+        const trial = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng());
         assert.equal(trial.type, 'catch');
         assert.ok(Array.isArray(trial.images));
         assert.ok(typeof trial.target_location === 'string');
     });
 
-    it('samples exactly catch_images_per_trial images', () => {
-        const trial = buildCatchTrial(CATCH_POOL, CONFIG, makeRng());
-        assert.equal(trial.images.length, CONFIG.catch_trials.images_per_trial);
+    it('samples exactly imagesPerTrial images', () => {
+        const trial = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng());
+        assert.equal(trial.images.length, IMAGES_PER_CATCH_TRIAL);
     });
 
     it('target_location is one of the five valid options', () => {
-        const trial = buildCatchTrial(CATCH_POOL, CONFIG, makeRng());
+        const trial = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng());
         assert.ok(CATCH_LOCATIONS.includes(trial.target_location));
     });
 
     it('is deterministic with the same rng seed', () => {
-        const a = buildCatchTrial(CATCH_POOL, CONFIG, makeRng(99));
-        const b = buildCatchTrial(CATCH_POOL, CONFIG, makeRng(99));
+        const a = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng(99));
+        const b = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng(99));
         assert.deepEqual(a, b);
     });
 
     it('produces different results with different seeds', () => {
-        const a = buildCatchTrial(CATCH_POOL, CONFIG, makeRng(1));
-        const b = buildCatchTrial(CATCH_POOL, CONFIG, makeRng(2));
+        const a = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng(1));
+        const b = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng(2));
         // Not guaranteed but overwhelmingly likely with any reasonable RNG
         assert.ok(
             a.target_location !== b.target_location || !a.images.every((x, i) => x === b.images[i]),
@@ -74,25 +70,25 @@ describe('insertCatchTrials', () => {
     const freshMains = () => buildTrialLists(ALL_IMAGES, CONFIG, makeRng());
 
     it('combined length is numMain + numCatch', () => {
-        const result = insertCatchTrials(freshMains(), CATCH_POOL, CONFIG, makeRng());
+        const result = insertCatchTrials(freshMains(), CATCH_POOL, 2, IMAGES_PER_CATCH_TRIAL, makeRng());
         assert.equal(result.length, 12);
     });
 
     it('catch trials land at positions 3 and 7', () => {
-        const result = insertCatchTrials(freshMains(), CATCH_POOL, CONFIG, makeRng());
+        const result = insertCatchTrials(freshMains(), CATCH_POOL, 2, IMAGES_PER_CATCH_TRIAL, makeRng());
         assert.equal(result[3].type, 'catch');
         assert.equal(result[7].type, 'catch');
     });
 
     it('catch trials carry a target_location string', () => {
-        const result = insertCatchTrials(freshMains(), CATCH_POOL, CONFIG, makeRng());
+        const result = insertCatchTrials(freshMains(), CATCH_POOL, 2, IMAGES_PER_CATCH_TRIAL, makeRng());
         const catches = result.filter(t => t.type === 'catch');
         catches.forEach(t => assert.ok(CATCH_LOCATIONS.includes(t.target_location)));
     });
 
     it('main trials are preserved in order', () => {
         const mains  = freshMains();
-        const result = insertCatchTrials(mains, CATCH_POOL, CONFIG, makeRng());
+        const result = insertCatchTrials(mains, CATCH_POOL, 2, IMAGES_PER_CATCH_TRIAL, makeRng());
         const mainOut = result.filter(t => t.type === 'main');
         assert.equal(mainOut.length, 10);
         mainOut.forEach((t, i) => assert.deepEqual(t.images, mains[i]));
