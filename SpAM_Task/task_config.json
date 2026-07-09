@@ -1,7 +1,7 @@
 {
   "deployment": {
     "version": "4.0",
-    "mode": "production",
+    "mode": "debug",
     "debug_shine_variant": "pre"
   },
 
@@ -10,18 +10,17 @@
     "no_consent_code":  "CRP3B455",
     "partial_completion_codes": [
       "XXXX1",
-      "XXXX2",
-      "XXXX3"
+      "XXXX2"
     ]
   },
 
   "design": {
     "stimuli_path":                 "./images/",
-    "num_blocks":                   4,
-    "trials_per_block":             5,
+    "num_blocks":                   3,
+    "trials_per_block":             6,
     "repeats_per_block":            1,
     "images_per_trial":             20,
-    "min_trial_repeat_separation":  3,
+    "min_trial_repeat_separation":  2,
     "min_trial_duration_ms":        60000
   },
 
@@ -35,9 +34,9 @@
   "screening": {
     "trial_min_move_item_ratio":      0.65,
     "trial_min_pairwise_distance_sd": 0.1,
-    "max_move_ratio_fail_frac":       0.30,
-    "max_distance_sd_fail_frac":      0.30,
-    "min_overall_reliability":        0.30
+    "max_move_ratio_fail_frac":       0.20,
+    "max_distance_sd_fail_frac":      0.20,
+    "min_overall_reliability":        0.00
   },
 
   "display": {
