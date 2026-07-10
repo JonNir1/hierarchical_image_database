@@ -401,9 +401,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     on_finish: function(data) {
       if (data.response === 1) {
         // Participant declined consent — redirect to Prolific no-consent URL if set,
-        // otherwise show a neutral end screen.
-        if (config.consent.no_consent_code) {
-          window.location.href = PROLIFIC_URL_PREFIX + config.consent.no_consent_code;
+        // otherwise show a neutral end screen. Debug sessions must never actually hit
+        // Prolific (mirrors the debrief's Finish redirect, which is gated by
+        // isPavlovia): in debug mode we always abort locally and just log what the
+        // redirect would have been, instead of navigating.
+        const noConsentUrl = config.consent.no_consent_code
+          ? PROLIFIC_URL_PREFIX + config.consent.no_consent_code
+          : '';
+        if (mode === 'debug') {
+          console.log('[SpAM] No-consent redirect (not followed in debug mode):', noConsentUrl || '(empty — no code configured)');
+          jsPsych.abortExperiment(
+            '<p style="text-align:center;margin-top:20%;">You have chosen not to participate.<br>You may now close this window.</p>'
+          );
+        } else if (noConsentUrl) {
+          window.location.href = noConsentUrl;
         } else {
           jsPsych.abortExperiment(
             '<p style="text-align:center;margin-top:20%;">You have chosen not to participate.<br>You may now close this window.</p>'
