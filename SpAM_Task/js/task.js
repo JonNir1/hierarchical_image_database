@@ -345,7 +345,7 @@ document.addEventListener('DOMContentLoaded', async () => {
            this will not affect your Prolific account in any way.<br>
            You will receive payment from Prolific for your time. Otherwise, the experiment
            will not benefit you personally, but we expect the results to improve our
-           understanding of human cognitive and neural function.<br>
+           understanding of human cognitive functions.<br>
            Your performance will be evaluated as you perform the task, and you may be
            screened out before completing the full task. In that case, you will be
            redirected back to Prolific and will receive partial compensation for your
