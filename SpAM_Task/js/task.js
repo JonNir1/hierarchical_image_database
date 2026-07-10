@@ -775,6 +775,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         ? config.screening_block.prolific_code
         : config.experimental_block.prolific_code;
       const completionUrl = completionCode ? PROLIFIC_URL_PREFIX + completionCode : '';
+      // The actual redirect only fires on Pavlovia (isPavlovia gates it below), so
+      // locally there's otherwise no way to see which URL would have been used —
+      // log it in debug mode so this is verifiable without a real deployment.
+      if (mode === 'debug') console.log('[SpAM] Completion redirect would be:', completionUrl || '(empty — no code configured)');
       if (isPavlovia && completionUrl) {
         window.location.href = completionUrl;
       }
