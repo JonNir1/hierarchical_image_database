@@ -21,7 +21,7 @@
 
   "screening_block": {
     "enabled":                 true,
-    "prolific_code":           "XXXX1",
+    "prolific_code":           "C10AANYT",
     "num_catch_trials":        1,
     "num_experimental_trials": 6,
     "num_repeat_trials":       2,
