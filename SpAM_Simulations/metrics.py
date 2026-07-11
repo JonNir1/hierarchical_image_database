@@ -76,11 +76,19 @@ def test_retest_summary(exp_results) -> dict:
     """
     rel = np.asarray(exp_results.subject_test_retest, dtype=np.float64)
     valid = rel[~np.isnan(rel)]
-    return {
+    out = {
         "mean_test_retest": float(np.mean(valid)) if valid.size else np.nan,
         "median_test_retest": float(np.median(valid)) if valid.size else np.nan,
         "frac_nan_test_retest": float(np.mean(np.isnan(rel))),
     }
+    # Task-v3 additionally reports a Procrustes M^2 test-retest (LOWER = better); absent for v2.4.
+    m2 = getattr(exp_results, "subject_test_retest_procrustes", None)
+    if m2 is not None:
+        m2 = np.asarray(m2, dtype=np.float64)
+        v2 = m2[~np.isnan(m2)]
+        out["mean_test_retest_procrustes"] = float(np.mean(v2)) if v2.size else np.nan
+        out["median_test_retest_procrustes"] = float(np.median(v2)) if v2.size else np.nan
+    return out
 
 
 def spearman_correlation(exp1: ExperimentResults, exp2: ExperimentResults) -> float:

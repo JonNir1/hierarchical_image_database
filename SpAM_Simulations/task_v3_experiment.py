@@ -52,6 +52,7 @@ from datetime import datetime
 from typing import List, NamedTuple, Optional, Tuple
 
 import numpy as np
+from scipy.spatial import procrustes
 from scipy.spatial.distance import num_obs_y, pdist
 from scipy.stats import spearmanr
 from tqdm import trange
@@ -75,7 +76,8 @@ TaskV3ExperimentResults = NamedTuple("TaskV3ExperimentResults", [
     ("distances", np.ndarray),
     ("num_obs", np.ndarray),
     ("subject_noises", np.ndarray),
-    ("subject_test_retest", np.ndarray),
+    ("subject_test_retest", np.ndarray),                 # Spearman(orig, repeat) 2-D distances; higher=better
+    ("subject_test_retest_procrustes", np.ndarray),      # Procrustes M^2 of the 2-D arrangements; LOWER=better
 ])
 
 
@@ -151,6 +153,7 @@ def simulate_task_v3_experiment(
     all_observations = np.zeros(n_pairs, dtype=np.float64)
     all_n_obs = np.zeros(n_pairs, dtype=np.float64)
     subject_test_retest = np.empty(params.num_subjects, dtype=np.float64)
+    subject_test_retest_procrustes = np.empty(params.num_subjects, dtype=np.float64)
     per_subject = np.empty((params.num_subjects, n_pairs), dtype=np.float32) if return_per_subject else None
     # Canvas placement noise is a *ratio* to each trial's own 2-D arrangement spread (applied per trial
     # in `_simulate_trial`), so `subjects_noise_scale` is unitless here - do NOT rescale by the GT spread.
@@ -162,7 +165,7 @@ def simulate_task_v3_experiment(
         rng
     )
     for s in trange(params.num_subjects, desc="Simulating subjects", disable=not verbose):
-        observations, n_obs, test_retest = simulate_task_v3_single_subject(
+        observations, n_obs, test_retest, test_retest_m2 = simulate_task_v3_single_subject(
             subject_noise=subject_noises[s],
             perspective_dispersion=params.perspective_dispersion,
             t_distinct=t_distinct,
@@ -175,13 +178,15 @@ def simulate_task_v3_experiment(
         all_observations += observations
         all_n_obs += n_obs
         subject_test_retest[s] = test_retest
+        subject_test_retest_procrustes[s] = test_retest_m2
         if per_subject is not None:
             per_subject[s] = mean_from_sum_and_count(observations, n_obs).astype(np.float32)
     all_observations = np.where(  # unmeasured pairs -> NaN
         all_n_obs > 0, all_observations, np.nan
     )
     results = TaskV3ExperimentResults(
-        datetime.now(), all_observations, all_n_obs.astype(np.int16), subject_noises, subject_test_retest
+        datetime.now(), all_observations, all_n_obs.astype(np.int16), subject_noises,
+        subject_test_retest, subject_test_retest_procrustes,
     )
     if return_per_subject:
         return params, results, per_subject
@@ -197,14 +202,16 @@ def simulate_task_v3_single_subject(
         n_repeats: int,
         gt_embeddings: np.ndarray,
         rng: np.random.Generator,
-) -> Tuple[np.ndarray, np.ndarray, float]:
+) -> Tuple[np.ndarray, np.ndarray, float, float]:
     """Simulate one subject: ``t_distinct`` distinct trials plus ``n_repeats`` verbatim repeats.
 
-    Returns ``(observations, n_obs, test_retest)``: condensed (1-D) sum/count vectors over all
-    completed trials (repeats included, unmeasured pairs 0), and the mean per-repeat Spearman
-    correlation between a trial's original and repeat 2-D distance vectors (NaN if ``n_repeats==0``
-    or every repeat is degenerate). Perspective weights are drawn once and shared by all of this
-    subject's trials (a stable trait); each presentation re-draws its own item-level noise.
+    Returns ``(observations, n_obs, test_retest, test_retest_procrustes)``: condensed (1-D) sum/count
+    vectors over all completed trials (repeats included, unmeasured pairs 0), plus two per-repeat
+    reliability summaries averaged over this subject's repeats - the mean Spearman correlation between a
+    trial's original and repeat 2-D *distance* vectors (higher = better), and the mean Procrustes M^2
+    between the original and repeat 2-D *arrangements* (lower = better). Both NaN if ``n_repeats==0`` or
+    every repeat is degenerate. Perspective weights are drawn once and shared by all of this subject's
+    trials (a stable trait); each presentation re-draws its own placement noise.
     """
     assert subject_noise >= 0, "`subject_noise` must be non-negative"
     assert n_repeats >= 0, "`n_repeats` must be non-negative"
@@ -220,25 +227,30 @@ def simulate_task_v3_single_subject(
     n_obs = np.zeros(n_pairs, dtype=np.float64)
     pair_rows, pair_cols = np.triu_indices(k, k=1)
     distinct_obs: List[np.ndarray] = []  # per-trial 2-D distance vectors, indexed like `trials`
+    distinct_arr: List[np.ndarray] = []  # per-trial 2-D arrangements (k, 2), indexed like `trials`
     for trial_images in trials:
-        cond_idx, trial_dists = _simulate_trial(
+        cond_idx, trial_dists, arrangement = _simulate_trial(
             trial_images, pair_rows, pair_cols, N, gt_embeddings, weights, subject_noise,
             observations, n_obs, rng
         )
         distinct_obs.append(trial_dists)
+        distinct_arr.append(arrangement)
 
     # Whole-trial repeats: re-present `n_repeats` trials with fresh noise (same items + weights).
     repeat_idxs = select_repeat_trials(trials, n_repeats, rng)
     retest_corrs: List[float] = []
+    retest_m2: List[float] = []
     for orig_idx in repeat_idxs:
-        _, repeat_dists = _simulate_trial(
+        _, repeat_dists, repeat_arr = _simulate_trial(
             trials[orig_idx], pair_rows, pair_cols, N, gt_embeddings, weights, subject_noise,
             observations, n_obs, rng
         )
         retest_corrs.append(_trial_test_retest(distinct_obs[orig_idx], repeat_dists))
+        retest_m2.append(_trial_test_retest_procrustes(distinct_arr[orig_idx], repeat_arr))
 
     test_retest = float(np.nanmean(retest_corrs)) if retest_corrs else np.nan
-    return observations, n_obs, test_retest
+    test_retest_m2 = float(np.nanmean(retest_m2)) if retest_m2 else np.nan
+    return observations, n_obs, test_retest, test_retest_m2
 
 
 def _simulate_trial(
@@ -252,7 +264,7 @@ def _simulate_trial(
         observations: np.ndarray,
         n_obs: np.ndarray,
         rng: np.random.Generator,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Generate one trial's 2-D arrangement distances, accumulate them, and return them.
 
     Reweight the trial items' coordinates by the subject's perspective and project to a local 2-D
@@ -261,8 +273,9 @@ def _simulate_trial(
     spread. Placing the noise after the projection (rather than in coordinate space before it) makes
     within-subject reliability a pure placement effect, independent of the subject's perspective (the
     projection no longer has its retained axes perturbed by the noise). Mutates ``observations``/
-    ``n_obs`` in place and returns ``(cond_idx, trial_dists)`` (global condensed indices and the
-    matching 2-D distance vector, ordered like ``triu_indices(k)`` / ``pdist``).
+    ``n_obs`` in place and returns ``(cond_idx, trial_dists, Y)`` - global condensed indices, the
+    matching 2-D distance vector (ordered like ``triu_indices(k)`` / ``pdist``), and the noisy 2-D
+    arrangement ``Y`` (k, 2) itself (needed for the Procrustes test-retest).
     """
     coords = gt_embeddings[trial_images] * weights  # (k, D), perspective-weighted (deterministic)
     Y = project_2d(coords)                           # adaptive per-trial top-2 (deterministic given weights)
@@ -271,7 +284,7 @@ def _simulate_trial(
     cond_idx = _condensed_pair_indices(trial_images[pair_rows], trial_images[pair_cols], N)
     observations[cond_idx] += trial_dists
     n_obs[cond_idx] += 1
-    return cond_idx, trial_dists
+    return cond_idx, trial_dists, Y
 
 
 def _trial_test_retest(orig: np.ndarray, repeat: np.ndarray) -> float:
@@ -284,3 +297,21 @@ def _trial_test_retest(orig: np.ndarray, repeat: np.ndarray) -> float:
     if np.ptp(orig) == 0 or np.ptp(repeat) == 0:
         return np.nan
     return float(spearmanr(orig, repeat).statistic)
+
+
+def _trial_test_retest_procrustes(orig: np.ndarray, repeat: np.ndarray) -> float:
+    """Procrustes disparity M^2 between a trial's original and repeat 2-D arrangements ``(k, 2)``.
+
+    ``scipy.spatial.procrustes`` centres and scales both configurations to unit norm and finds the
+    optimal orthogonal (rotation+reflection) map, so this is invariant to the arbitrary
+    position/scale/orientation of a SpAM canvas. Returns M^2 in ``[0, 1]`` - 0 = identical shape,
+    1 = unrelated. **Direction is opposite to the Spearman test-retest: LOWER M^2 = more reliable.**
+    NaN if either arrangement is degenerate (zero spread -> undefined unit-norm scaling).
+    """
+    if orig.shape[0] < 2 or np.ptp(orig) == 0 or np.ptp(repeat) == 0:
+        return np.nan
+    try:
+        _, _, m2 = procrustes(orig, repeat)
+    except ValueError:      # raised when an input has zero variance / can't be standardised
+        return np.nan
+    return float(m2)

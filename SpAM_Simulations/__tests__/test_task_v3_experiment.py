@@ -100,20 +100,21 @@ class TestSingleSubject:
     def test_output_shapes(self):
         emb = build_ground_truth_embeddings(120, 5, seed=1)
         n_pairs = 120 * 119 // 2
-        obs, n_obs, retest = simulate_task_v3_single_subject(
+        obs, n_obs, retest, retest_m2 = simulate_task_v3_single_subject(
             subject_noise=0.3, perspective_dispersion=0.2, t_distinct=6, k=10,
             n_unique=60, n_repeats=2, gt_embeddings=emb, rng=np.random.default_rng(0),
         )
         assert obs.shape == (n_pairs,) and n_obs.shape == (n_pairs,)
-        assert isinstance(retest, float)
+        assert isinstance(retest, float) and isinstance(retest_m2, float)
+        assert 0.0 <= retest_m2 <= 1.0    # Procrustes M^2 disparity is normalised to [0, 1]
 
     def test_no_repeats_gives_nan_retest(self):
         emb = build_ground_truth_embeddings(120, 5, seed=1)
-        _, _, retest = simulate_task_v3_single_subject(
+        _, _, retest, retest_m2 = simulate_task_v3_single_subject(
             subject_noise=0.3, perspective_dispersion=0.0, t_distinct=6, k=10,
             n_unique=60, n_repeats=0, gt_embeddings=emb, rng=np.random.default_rng(0),
         )
-        assert np.isnan(retest)
+        assert np.isnan(retest) and np.isnan(retest_m2)
 
 
 class TestSimulateExperiment:
@@ -165,6 +166,18 @@ class TestScientificValidity:
         _, hi = simulate_task_v3_experiment(_make_params(subjects_noise_scale=1.0), emb,
                                             np.random.default_rng(0), verbose=False)
         assert np.nanmean(lo.subject_test_retest) > np.nanmean(hi.subject_test_retest)
+
+    def test_procrustes_retest_rises_with_noise(self):
+        """Procrustes M^2 test-retest is a disparity (lower=better), so MORE noise -> HIGHER M^2,
+        and it stays within [0, 1]."""
+        emb = build_ground_truth_embeddings(120, 5, seed=1)
+        _, lo = simulate_task_v3_experiment(_make_params(subjects_noise_scale=0.1), emb,
+                                            np.random.default_rng(0), verbose=False)
+        _, hi = simulate_task_v3_experiment(_make_params(subjects_noise_scale=1.0), emb,
+                                            np.random.default_rng(0), verbose=False)
+        m2_lo, m2_hi = np.nanmean(lo.subject_test_retest_procrustes), np.nanmean(hi.subject_test_retest_procrustes)
+        assert 0.0 <= m2_lo <= 1.0 and 0.0 <= m2_hi <= 1.0
+        assert m2_hi > m2_lo                       # opposite direction to the Spearman test-retest
 
     def test_test_retest_decoupled_from_dispersion(self):
         """Canvas placement noise makes test-retest a pure placement effect: at fixed
