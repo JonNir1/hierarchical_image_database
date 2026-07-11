@@ -319,3 +319,62 @@ def compute_embedding_stability(
                              if len(corrs) > 1 else np.nan),
         })
     return pd.DataFrame(rows)
+
+
+def _topk_similar_jaccard(a: np.ndarray, b: np.ndarray, frac: float) -> float:
+    """Jaccard overlap of the *smallest* ``frac`` fraction of two distance vectors.
+
+    The smallest distances are the most-similar (closest) pairs - the 'too-similar' candidates. Both
+    vectors index the same pair set, so we compare which pairs each rep flags as closest. Returns
+    ``|A n B| / |A u B|`` (equal set sizes, so 0..1; 1 = identical closest-pair set).
+    """
+    n = a.shape[0]
+    k = max(1, int(round(frac * n)))
+    ma = np.zeros(n, dtype=bool); ma[np.argpartition(a, k - 1)[:k]] = True
+    mb = np.zeros(n, dtype=bool); mb[np.argpartition(b, k - 1)[:k]] = True
+    union = int(np.count_nonzero(ma | mb))
+    return int(np.count_nonzero(ma & mb)) / union if union else np.nan
+
+
+def compute_topk_similar_pair_stability(
+    store: ResultStore, top_fracs: Sequence[float] = (0.05, 0.1, 0.25),
+    group_fields: Optional[Sequence[str]] = None, verbose: bool = True,
+) -> pd.DataFrame:
+    """Reproducibility of the *most-similar pairs* across reps - the decision-relevant reliability
+    when the goal is flagging items that are 'too similar'.
+
+    For each configuration group and each fraction ``f`` in ``top_fracs`` (e.g. 0.05, 0.25 = the top
+    5%/25% closest pairs), takes the ``f``-smallest entries of each rep's reconstructed distance vector
+    and reports the mean pairwise **Jaccard** overlap of those closest-pair sets across reps. Unlike the
+    full-RDM ``mean_spearman`` this ignores the noisy mid/far range and measures only whether the near
+    neighbourhood is stable. Returns one row per (group, ``top_frac``) with ``mean_jaccard``/``sem``.
+
+    Jaccard (not precision/recall/F1) because the two rep sets are the same size (top-``f``), so
+    precision = recall = F1 = the overlap coefficient - all monotone transforms of Jaccard; there is
+    no ground-truth 'positive' set in a rep-vs-rep comparison, so a d-prime/SDT framing doesn't apply
+    (that would need recovery-vs-GT, a different, simulation-only question).
+    """
+    fracs = [float(top_fracs)] if isinstance(top_fracs, (int, float)) else [float(x) for x in top_fracs]
+    if any(not (0 < f <= 1) for f in fracs):
+        raise ValueError(f"top_fracs must be in (0, 1], got {fracs}")
+    df = store.metadata()
+    if group_fields is None:
+        _non_param_columns = {"rep", "niter", "stress", "status", "confdist_row"}
+        group_fields = [c for c in df.columns if c not in _non_param_columns]
+    group_fields = list(group_fields)
+    df = df[df["status"].isin(_SUCCESS_STATUSES) & (df["confdist_row"] >= 0)]
+
+    grouped = df.groupby(group_fields)
+    rows = []
+    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Top-k pair stability", disable=not verbose):
+        confdists = [store.confdist(int(r)) for r in grp["confdist_row"]]
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        for f in fracs:
+            js = [_topk_similar_jaccard(a, b, f) for a, b in combinations(confdists, 2)]
+            js = [j for j in js if not np.isnan(j)]
+            rows.append({
+                **dict(zip(group_fields, key_tuple)), "top_frac": f, "n_reps": len(confdists),
+                "mean_jaccard": float(np.mean(js)) if js else np.nan,
+                "sem_jaccard": (float(np.std(js, ddof=1) / np.sqrt(len(js))) if len(js) > 1 else np.nan),
+            })
+    return pd.DataFrame(rows)
