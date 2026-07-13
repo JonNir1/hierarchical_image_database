@@ -14,6 +14,9 @@ _SESSION_COLUMNS = [
     "pairwise_distances", "final_locations", "init_locations",
     "is_trial_repeat", "repeat_of_trial_number",
     "catch_trial_target_location", "centroid_x", "centroid_y", "cluster_mean_distance",
+    "block", "reliability",
+    "pass", "reasons", "move_ratio_fail_rate", "distance_sd_fail_rate",
+    "min_reliability", "median_reliability",
 ]
 
 

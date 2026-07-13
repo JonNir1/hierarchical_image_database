@@ -43,6 +43,18 @@ def _main_trial_row(**overrides) -> dict:
     return row
 
 
+def _screening_eval_row(**overrides) -> dict:
+    row = {
+        "participant_id": "p1", "trial_type": "screening_eval",
+        "task_version": "4.0", "deployment_mode": "pilot",
+        "pass": "true", "reasons": "[]",
+        "move_ratio_fail_rate": "0.0", "distance_sd_fail_rate": "0.0",
+        "min_reliability": "0.37", "median_reliability": "0.4",
+    }
+    row.update(overrides)
+    return row
+
+
 def _catch_trial_row(**overrides) -> dict:
     row = {
         "participant_id": "p1", "trial_type": "catch_1",
@@ -69,7 +81,7 @@ class TestLoadPilotData:
 
         data = load_pilot_data(tmp_path)
 
-        assert list(data.keys()) == ["trials", "status", "catch_trials"]
+        assert list(data.keys()) == ["trials", "status", "catch_trials", "screening"]
 
         df_trials = data["trials"]
         assert len(df_trials) == 1
@@ -96,9 +108,43 @@ class TestLoadPilotData:
         assert len(df_status) == 1
         assert df_status.iloc[0]["completion_status"] == "completed"
 
+        assert data["screening"].empty
+
     def test_missing_dir_raises_file_not_found(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             load_pilot_data(tmp_path / "does_not_exist")
+
+    def test_v4_screening_eval_row(self, tmp_path):
+        """v4.0+ sessions log a synthetic screening_eval row plus block/reliability
+        columns on main trials; neither should leak into df_trials as a fake trial."""
+        write_demographics_csv(tmp_path, [_demo_row()])
+        write_session_csv(
+            tmp_path,
+            [
+                _main_trial_row(task_version="4.0", block="screening"),
+                _main_trial_row(
+                    trial_type="trial_2", task_version="4.0", block="screening",
+                    is_trial_repeat="true", repeat_of_trial_number="1", reliability="0.37",
+                ),
+                _screening_eval_row(),
+            ],
+            "session1.csv",
+        )
+
+        data = load_pilot_data(tmp_path)
+
+        df_trials = data["trials"]
+        assert set(df_trials["trial_type"]) == {"trial_1", "trial_2"}
+        assert list(df_trials["block"]) == ["screening", "screening"]
+        repeat_row = df_trials[df_trials["trial_type"] == "trial_2"].iloc[0]
+        assert repeat_row["reliability"] == pytest.approx(0.37)
+
+        df_screening = data["screening"]
+        assert len(df_screening) == 1
+        srow = df_screening.iloc[0]
+        assert srow["participant_id"] == "p1"
+        assert bool(srow["pass"]) is True
+        assert srow["min_reliability"] == "0.37" or float(srow["min_reliability"]) == pytest.approx(0.37)
 
     def test_path_is_file_raises_not_a_directory(self, tmp_path):
         file_path = tmp_path / "not_a_dir.txt"

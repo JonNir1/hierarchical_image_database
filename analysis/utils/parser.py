@@ -10,9 +10,11 @@ used, so callers never have to know which directory they're pointed at.
 Usage (from repo root):
     from analysis.utils.parser import load_pilot_data
     data = load_pilot_data("data/pilot")   # or "data/prod"
-    df_trials = data["trials"]        # one row per experimental trial, completed subjects only
-    df_status = data["status"]        # one row per participant with completion_status
-    df_catch  = data["catch_trials"]  # one row per catch trial, completed subjects only
+    df_trials    = data["trials"]        # one row per experimental trial, completed subjects only
+    df_status    = data["status"]        # one row per participant with completion_status
+    df_catch     = data["catch_trials"]  # one row per catch trial, completed subjects only
+    df_screening = data["screening"]     # one row per completed participant with a
+                                          # screening_eval row (v4.0+ only; empty otherwise)
 """
 from __future__ import annotations
 
@@ -74,6 +76,8 @@ _SESSION_KEEP = [
     "init_locations",
     "is_trial_repeat",
     "repeat_of_trial_number",
+    "block",
+    "reliability",
 ]
 
 _CATCH_SESSION_KEEP = [
@@ -90,6 +94,20 @@ _CATCH_SESSION_KEEP = [
     "centroid_x",
     "centroid_y",
     "cluster_mean_distance",
+    "block",
+]
+
+# v4.0+: synthetic screening_eval row, one per session with screening_block.enabled
+_SCREENING_EVAL_TRIAL_TYPE = "screening_eval"
+_SCREENING_EVAL_KEEP = [
+    "task_version",
+    "deployment_mode",
+    "pass",
+    "reasons",
+    "move_ratio_fail_rate",
+    "distance_sd_fail_rate",
+    "min_reliability",
+    "median_reliability",
 ]
 
 _PROLIFIC_SENTINEL = "CONSENT_REVOKED"
@@ -105,10 +123,13 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
     """
     Load SpAM pilot data from *data_dir*.
 
-    Returns a dict with three keys:
+    Returns a dict with four keys:
       "trials"       -- one row per experimental trial per completed participant
       "status"       -- one row per participant with a completion_status column
       "catch_trials" -- one row per catch trial per completed participant (QC validation)
+      "screening"    -- one row per completed participant with a screening_eval row
+                        (v4.0+, only present for sessions with screening_block.enabled);
+                        empty DataFrame for data with no screening stage
 
     Raises
     ------
@@ -145,6 +166,7 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
     status_rows: list[dict] = []
     trial_rows: list[pd.DataFrame] = []
     catch_rows: list[pd.DataFrame] = []
+    screening_rows: list[dict] = []
 
     for _, participant in df_demo.iterrows():
         pid = participant["participant_id"]
@@ -177,6 +199,9 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
         df_trials = _load_session_trials(session_path, participant)
         trial_rows.append(df_trials)
         catch_rows.append(_load_session_catch_trials(session_path, participant))
+        screening_row = _load_session_screening_eval(session_path, participant)
+        if screening_row is not None:
+            screening_rows.append(screening_row)
         status_rows.append({**participant.to_dict(), "completion_status": "completed"})
 
     df_status = pd.DataFrame(status_rows).reset_index(drop=True)
@@ -203,7 +228,16 @@ def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
     else:
         df_catch_all = pd.DataFrame()
 
-    return {"trials": df_trials_all, "status": df_status, "catch_trials": df_catch_all}
+    df_screening = pd.DataFrame(screening_rows) if screening_rows else pd.DataFrame()
+    if "pass" in df_screening.columns:
+        df_screening["pass"] = df_screening["pass"].isin([True, "true", "True", 1])
+
+    return {
+        "trials": df_trials_all,
+        "status": df_status,
+        "catch_trials": df_catch_all,
+        "screening": df_screening,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +374,24 @@ def _load_session_catch_trials(session_path: Path, participant: pd.Series) -> pd
     return df.reset_index(drop=True)
 
 
+def _load_session_screening_eval(session_path: Path, participant: pd.Series) -> dict | None:
+    """v4.0+: the synthetic screening_eval row logged once per session with
+    screening_block.enabled (jsPsych.data.get().push(...), not a real trial).
+    Returns None if the session has no such row (screening disabled, or a
+    pre-v4.0 session).
+    """
+    df = pd.read_csv(session_path)
+    rows = df[df["trial_type"] == _SCREENING_EVAL_TRIAL_TYPE]
+    if rows.empty:
+        return None
+    row = rows.iloc[0]
+
+    out = {k: row[k] for k in _SCREENING_EVAL_KEEP if k in row.index}
+    out["participant_id"] = participant["participant_id"]
+    out["session_file"] = session_path.stem
+    return out
+
+
 def _normalise_locations(locs_json: str, canvas_w: int, canvas_h: int) -> str:
     """Normalise pixel x/y to [0, 1] in a final_locations, init_locations, or moves JSON string."""
     if pd.isna(locs_json) or locs_json == "":
@@ -443,11 +495,18 @@ def validate_trial_repeat_image_sets(df_trials: pd.DataFrame) -> pd.DataFrame:
 # {task_version: (expected main trials per subject, expected repeated trials per subject)}
 # v1.0/v2.0 predate the whole-trial-repeat mechanism (frac_trials_repeated); v3.x always
 # repeats exactly 3 of its 20 trials (see SpAM_Task/js/trial_generator.js).
+# v4.0 introduces a screening_block + experimental_block split (see task_config.json):
+# screening (6 distinct + 2 repeats) + experimental (12 distinct + 2 repeats) = 22 main
+# trials / 4 repeats for a subject who completes the full session. A subject screened out
+# at the end of the screening stage will have fewer trials than this (experimental-block
+# trials are skipped) -- validate_trial_counts will correctly flag them as a mismatch;
+# cross-check against df_screening["pass"] before treating that as a data-quality issue.
 _EXPECTED_TRIAL_COUNTS: dict[float, tuple[int, int]] = {
     1.0:  (10, 0),
     2.0:  (10, 0),
     3.0:  (20, 3),
     3.06: (20, 3),
+    4.0:  (22, 4),
 }
 
 
