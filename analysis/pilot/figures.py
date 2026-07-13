@@ -9,9 +9,9 @@ Usage (from repo root):
     from analysis.pilot.figures import (
         fig_completion_status, fig_trial_duration_per_subject,
         fig_moves_per_subject, fig_duration_progression,
-        fig_moves_progression, fig_duration_vs_moves,
-        fig_within_subject_variability, fig_demographics,
-        fig_pairwise_distance_distribution,
+        fig_moves_progression, fig_reliability_progression,
+        fig_duration_vs_moves, fig_within_subject_variability,
+        fig_demographics, fig_pairwise_distance_distribution,
     )
 """
 from __future__ import annotations
@@ -441,6 +441,135 @@ def fig_moves_progression(df_trials: pd.DataFrame) -> go.Figure:
     return _fig_progression(
         df_trials, "n_moves", "Moves per trial", "Number of moves over task progression",
     )
+
+
+# ---------------------------------------------------------------------------
+# Fig — Reliability (Spearman r) over repeat trials (v3+ only)
+# ---------------------------------------------------------------------------
+
+# Aggregated by major version group (v3.* pools 3.0/3.06, v4.* pools 4.0/...),
+# not exact version -- the point of this figure is comparing the two repeat
+# designs (3 repeats/session for v3.x, 4 for v4.x), not individual sub-versions.
+_GROUP_COLORS: dict[str, dict[str, str]] = {
+    "v3.*": {"main": "#1e7a45", "subj": "rgba(46,160,90,0.25)"},
+    "v4.*": {"main": "#8e44ad", "subj": "rgba(142,68,173,0.25)"},
+}
+_GROUP_COLOR_FALLBACK: dict[str, str] = {"main": "#555555", "subj": "rgba(85,85,85,0.25)"}
+
+
+def _repeat_reliability_by_index(df_trials: pd.DataFrame) -> pd.DataFrame:
+    """
+    Per-subject, per-repeat-ordinal Spearman r (v3+ trial-repeat mechanism only;
+    v1/v2 have no verbatim trial repeats). repeat_index is 1-based, ordered by
+    ascending trial_number within each subject's session -- repeat #1 is the
+    earliest repeat trial encountered, etc. v3.x sessions have 3 repeats; v4.x
+    sessions have 4 (2 in the screening stage, 2 in the experimental stage).
+
+    Returns one row per (participant_id, repeat_index): participant_id,
+    task_version, version_group ("v3.*"/"v4.*"/...), repeat_index, spearman_r.
+    """
+    df_v3plus = df_trials[df_trials["task_version"] >= 3.0]
+    rows = []
+    for pid, df_s in df_v3plus.groupby("participant_id"):
+        pw_by_trial_number = dict(zip(df_s["trial_number"], df_s["pairwise_distances"]))
+        version = float(df_s["task_version"].iloc[0])
+        repeats = (
+            df_s[df_s["is_trial_repeat"] & df_s["repeat_of_trial_number"].notna()]
+            .sort_values("trial_number")
+        )
+        for i, (_, row) in enumerate(repeats.iterrows(), start=1):
+            orig_pw_json = pw_by_trial_number.get(int(row["repeat_of_trial_number"]))
+            if orig_pw_json is None:
+                continue
+            orig_dists = parse_pairwise_distances(orig_pw_json)
+            repeat_dists = parse_pairwise_distances(row["pairwise_distances"])
+            common = [p for p in repeat_dists if p in orig_dists]
+            if len(common) < 3:
+                continue
+            d1 = [orig_dists[p] for p in common]
+            d2 = [repeat_dists[p] for p in common]
+            r, _ = spearmanr(d1, d2)
+            rows.append({
+                "participant_id": pid,
+                "task_version": version,
+                "version_group": f"v{int(version)}.*",
+                "repeat_index": i,
+                "spearman_r": r,
+            })
+    return pd.DataFrame(
+        rows,
+        columns=["participant_id", "task_version", "version_group", "repeat_index", "spearman_r"],
+    )
+
+
+def fig_reliability_progression(df_trials: pd.DataFrame) -> go.Figure:
+    """
+    Test-retest Spearman r across repeat trials (repeat #1, #2, ... in session
+    order), styled like fig_duration_progression/fig_moves_progression: thin
+    semi-transparent per-subject lines + a mean ± SE trace per version group.
+    """
+    r_df = _repeat_reliability_by_index(df_trials)
+    if r_df.empty:
+        raise ValueError("fig_reliability_progression: no v3+ trial repeats found in df_trials")
+
+    groups = sorted(r_df["version_group"].unique())
+    fig = go.Figure()
+    for group in groups:
+        gc = _GROUP_COLORS.get(group, _GROUP_COLOR_FALLBACK)
+        gdf = r_df[r_df["version_group"] == group]
+
+        # Individual subject traces
+        for _pid, grp in gdf.groupby("participant_id"):
+            grp_sorted = grp.sort_values("repeat_index")
+            fig.add_trace(go.Scatter(
+                x=grp_sorted["repeat_index"],
+                y=grp_sorted["spearman_r"],
+                mode="lines",
+                line={"color": gc["subj"], "width": 1},
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
+        # Mean ± SE
+        agg = (
+            gdf.groupby("repeat_index")["spearman_r"]
+            .agg(mean="mean", std="std", n="count")
+            .assign(se=lambda x: x["std"] / np.sqrt(x["n"]))
+            .reset_index()
+        )
+        x = agg["repeat_index"].tolist()
+        mean = agg["mean"].tolist()
+        se = agg["se"].tolist()
+
+        fig.add_trace(go.Scatter(
+            x=x + x[::-1],
+            y=[m + s for m, s in zip(mean, se)] + [m - s for m, s in zip(mean[::-1], se[::-1])],
+            fill="toself",
+            fillcolor=gc["main"],
+            opacity=0.2,
+            line={"color": "rgba(0,0,0,0)"},
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+        fig.add_trace(go.Scatter(
+            x=x,
+            y=mean,
+            mode="lines+markers",
+            line={"color": gc["main"], "width": 3},
+            marker={"size": 8, "color": gc["main"]},
+            name=f"{group} mean ± SE",
+        ))
+
+    max_repeat = int(r_df["repeat_index"].max())
+    fig.update_layout(
+        title="Test-retest reliability (Spearman r) over repeat trials",
+        xaxis={"title": "Repeat #", "tickvals": list(range(1, max_repeat + 1))},
+        yaxis_title="Spearman r (repeat vs. original)",
+        height=400,
+        margin={"l": 60, "r": 40, "t": 50, "b": 60},
+        showlegend=True,
+    )
+    return fig
 
 
 # ---------------------------------------------------------------------------
