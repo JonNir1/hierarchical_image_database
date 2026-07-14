@@ -76,6 +76,21 @@ def _vlabel(version) -> str:
     return f"v{version:g}"
 
 
+def _major_version(version) -> float:
+    """Floor a task_version to its major version for display grouping -- e.g.
+    3.0 and 3.06 both group as 3.0 (shown as "v3"), 4.0 stays 4.0 ("v4")."""
+    return float(int(version))
+
+
+def _with_major_version(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of *df* with task_version replaced by its major-version
+    group (see _major_version), so figures show one trace/colour per major
+    version (e.g. v3.0 and v3.06 merge into a single "v3") instead of one per
+    exact sub-version. Does not mutate the input; unrelated to the raw
+    task_version values used elsewhere (QC tables, cohort-comparison tests)."""
+    return df.assign(task_version=df["task_version"].apply(_major_version))
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -224,6 +239,7 @@ def fig_completion_status(df_status: pd.DataFrame) -> go.Figure:
 
 
 def fig_trial_duration_per_subject(df_trials: pd.DataFrame) -> go.Figure:
+    df_trials = _with_major_version(df_trials)
     versions = _sorted_versions(df_trials)
     multi = len(versions) > 1
     fig = go.Figure()
@@ -292,6 +308,7 @@ def fig_trial_duration_per_subject(df_trials: pd.DataFrame) -> go.Figure:
 
 
 def fig_moves_per_subject(df_trials: pd.DataFrame) -> go.Figure:
+    df_trials = _with_major_version(df_trials)
     versions = _sorted_versions(df_trials)
     multi = len(versions) > 1
     fig = go.Figure()
@@ -359,7 +376,7 @@ def _fig_progression(
     title: str,
 ) -> go.Figure:
     """Line plot of *col* over trial_number with mean±SE per task_version."""
-    df = df_trials.copy()
+    df = _with_major_version(df_trials)
     df["_y"] = df[col]
     versions = _sorted_versions(df)
     multi = len(versions) > 1
@@ -578,7 +595,7 @@ def fig_reliability_progression(df_trials: pd.DataFrame) -> go.Figure:
 
 
 def fig_duration_vs_moves(df_trials: pd.DataFrame) -> go.Figure:
-    df = df_trials.assign(rt_s=_rt_s(df_trials))
+    df = _with_major_version(df_trials).assign(rt_s=_rt_s(df_trials))
     versions = _sorted_versions(df)
     multi = len(versions) > 1
 
@@ -640,6 +657,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
     and Spearman r are computed identically once that pair is obtained — but the
     two measures are not strictly comparable in absolute magnitude (see subtitle).
     """
+    df_trials = _with_major_version(df_trials)
     subjects = sorted(df_trials["participant_id"].unique())
     subj_short = {pid: f"S{i+1:02d}" for i, pid in enumerate(subjects)}
 
@@ -863,6 +881,7 @@ def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
     Bottom right: average move rate (moves/s, 5 s bins) over absolute time
                   with ±1 SE ribbon and a 60 s reference line.
     """
+    df_trials = _with_major_version(df_trials)
     versions = _sorted_versions(df_trials)
     n_versions = len(versions)
 
@@ -1061,6 +1080,7 @@ def fig_pairwise_distance_distribution(
         version + null as a grey filled area; bottom panel = per-version
         deviation from null (KDE_version − KDE_null).
     """
+    df_trials = _with_major_version(df_trials)
     versions = _sorted_versions(df_trials)
     multi = len(versions) > 1
 
@@ -1206,6 +1226,7 @@ def fig_ks_distance_per_subject(
     Dots: per-subject mean D, with error bars = SE across that subject's
     trials (between-trial, within-subject standard error).
     """
+    df_trials = _with_major_version(df_trials)
     versions = _sorted_versions(df_trials)
     multi = len(versions) > 1
     fig = go.Figure()
