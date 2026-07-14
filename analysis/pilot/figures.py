@@ -260,6 +260,7 @@ def fig_trial_duration_per_subject(df_trials: pd.DataFrame) -> go.Figure:
             fillcolor=vc["violin"],
             line_color=vc["violin_line"],
             name=_vlabel(v),
+            legendgroup=_vlabel(v),
             showlegend=multi,
             width=0.6,
             points=False,
@@ -272,6 +273,7 @@ def fig_trial_duration_per_subject(df_trials: pd.DataFrame) -> go.Figure:
             error_x={"type": "data", "array": stats["std"].tolist(), "visible": True,
                      "color": vc["dot_err"], "thickness": 1.5, "width": 4},
             showlegend=False,
+            legendgroup=_vlabel(v),
             name=f"{_vlabel(v)} subject mean ± SD",
         ))
 
@@ -298,6 +300,7 @@ def fig_trial_duration_per_subject(df_trials: pd.DataFrame) -> go.Figure:
         height=300 + 100 * len(versions),
         margin={"l": 60, "r": 40, "t": 50, "b": 60},
         showlegend=multi,
+        legend={"groupclick": "togglegroup"},
     )
     return fig
 
@@ -328,6 +331,7 @@ def fig_moves_per_subject(df_trials: pd.DataFrame) -> go.Figure:
             fillcolor=vc["violin"],
             line_color=vc["violin_line"],
             name=_vlabel(v),
+            legendgroup=_vlabel(v),
             showlegend=multi,
             width=0.6,
             points=False,
@@ -340,6 +344,7 @@ def fig_moves_per_subject(df_trials: pd.DataFrame) -> go.Figure:
             error_x={"type": "data", "array": stats["std"].tolist(), "visible": True,
                      "color": vc["dot_err"], "thickness": 1.5, "width": 4},
             showlegend=False,
+            legendgroup=_vlabel(v),
             name=f"{_vlabel(v)} subject mean ± SD",
         ))
 
@@ -360,6 +365,7 @@ def fig_moves_per_subject(df_trials: pd.DataFrame) -> go.Figure:
         height=300 + 100 * len(versions),
         margin={"l": 60, "r": 40, "t": 50, "b": 60},
         showlegend=multi,
+        legend={"groupclick": "togglegroup"},
     )
     return fig
 
@@ -961,6 +967,7 @@ def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
                 fillcolor=vc["violin"],
                 line_color=vc["violin_line"],
                 name=_vlabel(v),
+                legendgroup=_vlabel(v),
                 showlegend=True,
                 width=0.6,
                 points=False,
@@ -976,6 +983,7 @@ def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
                     "thickness": 1.5, "width": 4,
                 },
                 showlegend=False,
+                legendgroup=_vlabel(v),
                 name=f"{_vlabel(v)} subject mean ± SD",
             ), row=1, col=1)
 
@@ -1055,6 +1063,7 @@ def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
         height=620,
         margin={"l": 70, "r": 40, "t": 80, "b": 60},
         showlegend=True,
+        legend={"groupclick": "togglegroup"},
     )
     return fig
 
@@ -1250,6 +1259,7 @@ def fig_ks_distance_per_subject(
             fillcolor=vc["violin"],
             line_color=vc["violin_line"],
             name=_vlabel(v),
+            legendgroup=_vlabel(v),
             showlegend=multi,
             width=0.6,
             points=False,
@@ -1262,6 +1272,7 @@ def fig_ks_distance_per_subject(
             error_x={"type": "data", "array": stats["se"].tolist(), "visible": True,
                      "color": vc["dot_err"], "thickness": 1.5, "width": 4},
             showlegend=False,
+            legendgroup=_vlabel(v),
             name=f"{_vlabel(v)} subject mean ± SE",
         ))
 
@@ -1282,5 +1293,6 @@ def fig_ks_distance_per_subject(
         height=300 + 100 * len(versions),
         margin={"l": 60, "r": 40, "t": 50, "b": 60},
         showlegend=multi,
+        legend={"groupclick": "togglegroup"},
     )
     return fig
