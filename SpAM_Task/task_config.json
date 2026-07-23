@@ -1,7 +1,7 @@
 {
   "deployment": {
     "version": "4.0",
-    "mode": "pilot",
+    "mode": "production",
     "debug_shine_variant": "pre"
   },
 
