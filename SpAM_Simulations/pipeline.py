@@ -11,6 +11,9 @@ Functions:
                                    results to a ``ResultStore`` (resumable).
 * ``compute_embedding_stability``- post-MDS Spearman agreement of reconstructed distances
                                    across repetitions.
+* ``compute_embedding_generalizability`` - post-MDS Procrustes disparity between the *spaces*
+                                   two independent cohorts recover.
+* ``compute_item_generalizability``      - the same, resolved per image.
 
 ``run_mds`` (and therefore R) is imported lazily inside ``run_mds_sweep`` so the rest of the
 module is usable without an R/smacof installation.
@@ -24,6 +27,7 @@ from typing import Iterator, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+from scipy.spatial import procrustes
 from scipy.stats import spearmanr
 from tqdm import tqdm
 
@@ -234,11 +238,14 @@ def _iter_pending_payloads(sim: Simulation, sweep_config: MDSSweepConfig, comple
         yield _build_mds_payload(task, sweep_config)
 
 
-def _execute_mds_payload(payload: tuple) -> Tuple[dict, Optional[np.ndarray]]:
-    """Run one MDS payload, returning (metadata, confdist-or-None). Failures are recorded, not raised.
+def _execute_mds_payload(payload: tuple) -> Tuple[dict, Optional[np.ndarray], Optional[np.ndarray]]:
+    """Run one MDS payload, returning (metadata, confdist, conf). Failures are recorded, not raised.
 
-    Module-level and picklable so it can run in a joblib worker process. ``run_mds`` (and R)
-    is imported here so each worker initialises its own R instance exactly once.
+    ``conf`` is SMACOF's fitted configuration - the ``(n_images, ndim)`` coordinates. It is
+    returned alongside ``confdist`` because comparing two cohorts' embedding *spaces* (Procrustes)
+    needs coordinates, which cannot be recovered from a distance vector; both are ``None`` for a
+    failed run. Module-level and picklable so it can run in a joblib worker process. ``run_mds``
+    (and R) is imported here so each worker initialises its own R instance exactly once.
     """
     from SpAM_Simulations.multi_dimensional_scaling import run_mds
     meta_base, dists, weights, ndim, max_iters, tol, precalc = payload
@@ -249,11 +256,12 @@ def _execute_mds_payload(payload: tuple) -> Tuple[dict, Optional[np.ndarray]]:
     except RuntimeError as e:
         meta["status"] = "disconnected" if "connected components" in str(e) else "error"
         logger.warning("MDS task (ndim=%s, rep=%s) failed: %s", ndim, meta_base.get("rep"), e)
-        return meta, None
+        return meta, None, None
     meta["niter"] = float(out["niter"])
     meta["stress"] = float(out["stress"])
     meta["status"] = "max_iters" if out["needs_more_iters"] else "success"
-    return meta, np.asarray(out["confdist"], dtype=np.float32)
+    conf = np.asarray(out["conf"], dtype=np.float32).reshape(-1, ndim)
+    return meta, np.asarray(out["confdist"], dtype=np.float32), conf
 
 
 def run_mds_sweep(
@@ -264,6 +272,7 @@ def run_mds_sweep(
     parallel: bool = False,
     n_jobs: Optional[int] = None,
     overwrite: bool = False,
+    store_conf: bool = True,
     verbose: bool = True,
 ) -> ResultStore:
     """Fit MDS across all (configuration, repetition, dimension) tasks, streaming to disk.
@@ -276,6 +285,12 @@ def run_mds_sweep(
     finishes, so peak memory stays bounded. MDS itself is unaffected numerically - each run is
     independent - so the parallel path produces statistically equivalent results to serial
     (exactness depends only on the solver's own init, not on the scheduling).
+
+    ``store_conf=True`` (the default) also records each fit's configuration, which
+    :func:`compute_embedding_generalizability` and :func:`compute_item_generalizability` need;
+    it costs a few percent of the store's size (see ``storage``). It is ignored when resuming a
+    store that was created without configurations, so a resumed pre-existing sweep keeps its
+    original format rather than desynchronising mid-run.
     """
     store_path = Path(store_path)
     confdist_len = sim.num_images * (sim.num_images - 1) // 2
@@ -285,7 +300,11 @@ def run_mds_sweep(
         completed = _completed_keys(store, param_type)
     else:
         meta_columns = list(param_type._fields) + ["rep", "ndim", "niter", "stress", "status"]
-        store = ResultStore.create(store_path, confdist_len, meta_columns, overwrite=overwrite)
+        conf_kwargs = ({"n_images": sim.num_images,
+                        "max_ndim": max(sweep_config.target_dims(sim.gt_dimensions))}
+                       if store_conf else {})
+        store = ResultStore.create(store_path, confdist_len, meta_columns, overwrite=overwrite,
+                                   **conf_kwargs)
         completed = set()
 
     # Count pending tasks for the progress bar without building any payloads (cheap: iterating
@@ -300,12 +319,12 @@ def run_mds_sweep(
             results = Parallel(n_jobs=n_jobs, return_as="generator_unordered")(
                 delayed(_execute_mds_payload)(payload) for payload in payloads
             )
-            for meta, confdist in tqdm(results, total=total, desc="Running MDS", disable=not verbose):
-                store.append(meta, confdist)
+            for meta, confdist, conf in tqdm(results, total=total, desc="Running MDS", disable=not verbose):
+                store.append(meta, confdist, conf if store.stores_conf else None)
         else:
             for payload in tqdm(payloads, total=total, desc="Running MDS", disable=not verbose):
-                meta, confdist = _execute_mds_payload(payload)
-                store.append(meta, confdist)
+                meta, confdist, conf = _execute_mds_payload(payload)
+                store.append(meta, confdist, conf if store.stores_conf else None)
     finally:
         store.close()
     return store
@@ -321,18 +340,12 @@ def compute_embedding_stability(
     correlates the stored confdist vectors across repetitions within each group. Each group
     does a few pairwise Spearman correlations over full-length confdist vectors, so for large
     sweeps this loop can take minutes with no other output - hence the progress bar.
+
+    See :func:`compute_embedding_generalizability` for the configuration-space counterpart: this
+    function compares the *rank order* of the pairwise distances, that one compares the recovered
+    *spaces*. Both are reported; they can disagree.
     """
-    df = store.metadata()
-    if group_fields is None:
-        # Every metadata column is a swept parameter or `ndim` except these fixed,
-        # solver-outcome columns - this works for any params type (task-v0.1 or task-v2.3).
-        _non_param_columns = {"rep", "niter", "stress", "status", "confdist_row"}
-        group_fields = [c for c in df.columns if c not in _non_param_columns]
-    group_fields = list(group_fields)
-
-    df = df[df["status"].isin(_SUCCESS_STATUSES) & (df["confdist_row"] >= 0)]
-
-    grouped = df.groupby(group_fields)
+    grouped, group_fields = _grouped_successful(store, group_fields)
     rows = []
     for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Embedding stability", disable=not verbose):
         confdists = [store.confdist(int(r)) for r in grp["confdist_row"]]
@@ -345,6 +358,127 @@ def compute_embedding_stability(
             "sem_spearman": (float(np.std(corrs, ddof=1) / np.sqrt(len(corrs)))
                              if len(corrs) > 1 else np.nan),
         })
+    return pd.DataFrame(rows)
+
+
+def _grouped_successful(store: ResultStore, group_fields: Optional[Sequence[str]]):
+    """Shared grouping for the post-MDS metrics: successful, confdist-bearing records by config."""
+    df = store.metadata()
+    if group_fields is None:
+        # Every metadata column is a swept parameter or `ndim` except these fixed,
+        # solver-outcome columns - this works for any params type.
+        _non_param_columns = {"rep", "niter", "stress", "status", "confdist_row"}
+        group_fields = [c for c in df.columns if c not in _non_param_columns]
+    group_fields = list(group_fields)
+    df = df[df["status"].isin(_SUCCESS_STATUSES) & (df["confdist_row"] >= 0)]
+    return df.groupby(group_fields), group_fields
+
+
+def _require_conf_store(store: ResultStore) -> None:
+    if not store.stores_conf:
+        raise ValueError(
+            "this store has no MDS configurations, so embedding *spaces* cannot be compared. "
+            "Re-run the sweep with `run_mds_sweep(..., store_conf=True)` (the default); stores "
+            "written before configurations were recorded only support `compute_embedding_stability`."
+        )
+
+
+def _aligned_pair(store: ResultStore, row_a: int, row_b: int, ndim: int):
+    """Procrustes-align two cohorts' configurations, returning ``(a, b, m2)``.
+
+    ``scipy.spatial.procrustes`` centres both configurations, scales each to unit Frobenius norm
+    and applies the optimal orthogonal map to the second. That is exactly the invariance an MDS
+    solution has - position, scale, rotation and reflection are all arbitrary - so what remains is
+    the genuine disagreement in relative geometry.
+    """
+    a, b = store.conf(row_a, ndim), store.conf(row_b, ndim)
+    std_a, std_b, m2 = procrustes(np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64))
+    return std_a, std_b, float(m2)
+
+
+def compute_embedding_generalizability(
+    store: ResultStore, group_fields: Optional[Sequence[str]] = None, verbose: bool = True
+) -> pd.DataFrame:
+    """How similar are the embedding **spaces** recovered by two independent cohorts of N subjects?
+
+    Each ``rep`` in a sweep is an independently simulated cohort, so the pairwise comparison within
+    a configuration group answers the study-planning question directly: *if I ran this study twice,
+    would I get the same space?* For every pair of reps this Procrustes-aligns the two
+    configurations and reports the residual disparity ``M^2`` in ``[0, 1]`` - **0 = identical
+    shape, lower is better**, the opposite direction to :func:`compute_embedding_stability`'s
+    ``mean_spearman``.
+
+    The two metrics are complementary, not redundant, and both are worth reporting.
+    ``mean_spearman`` correlates *distance vectors*, so it only asks whether the pairs are ordered
+    the same way; ``M^2`` compares the *configurations*, so it is sensitive to metric distortion
+    that leaves the rank order intact. A configuration pair can rank-correlate well while sitting
+    in a measurably different space.
+
+    Returns one row per group with ``mean_procrustes_m2``/``sem_procrustes_m2``/``n_reps``.
+    Requires a store written with configurations (see :func:`run_mds_sweep`).
+    """
+    _require_conf_store(store)
+    grouped, group_fields = _grouped_successful(store, group_fields)
+    rows = []
+    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Embedding generalizability",
+                         disable=not verbose):
+        ndim = int(grp["ndim"].iloc[0])
+        m2s = [_aligned_pair(store, int(i), int(j), ndim)[2]
+               for i, j in combinations(grp["confdist_row"], 2)]
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        rows.append({
+            **dict(zip(group_fields, key_tuple)),
+            "n_reps": len(grp),
+            "mean_procrustes_m2": float(np.mean(m2s)) if m2s else np.nan,
+            "sem_procrustes_m2": (float(np.std(m2s, ddof=1) / np.sqrt(len(m2s)))
+                                  if len(m2s) > 1 else np.nan),
+        })
+    return pd.DataFrame(rows)
+
+
+def compute_item_generalizability(
+    store: ResultStore, group_fields: Optional[Sequence[str]] = None, verbose: bool = True
+) -> pd.DataFrame:
+    """Per-**image** contribution to the between-cohort Procrustes disparity.
+
+    Same alignment as :func:`compute_embedding_generalizability`, but instead of collapsing to one
+    number per group it keeps each image's residual distance between the two aligned
+    configurations, averaged over rep-pairs. Images with large residuals are the ones whose
+    position does not generalise across cohorts - useful for flagging unstable stimuli, and the
+    item-level Procrustes diagnostic listed as exploratory in the pre-registration.
+
+    Returns one row per (group, ``image_index``) with ``mean_residual``/``sem_residual``. Note this
+    is ``n_images`` rows per group, so it is much larger than the group-level table; pass
+    ``group_fields`` to restrict it to the configurations you actually want to inspect.
+
+    **Read this alongside the group-level ``M^2``, not on its own.** Procrustes is a *global* fit
+    that scales both configurations to unit norm, so residuals are only attributable to individual
+    images while the two spaces broadly agree. Once they diverge badly (empirically around
+    ``M^2 > 0.5``) a single grossly displaced image dominates the scaling and distorts the
+    alignment of every other image, at which point the largest residual no longer identifies the
+    image that actually moved. Cohort pairs in a calibrated sweep sit far below that threshold.
+    """
+    _require_conf_store(store)
+    grouped, group_fields = _grouped_successful(store, group_fields)
+    rows = []
+    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Item generalizability",
+                         disable=not verbose):
+        ndim = int(grp["ndim"].iloc[0])
+        residuals = []
+        for i, j in combinations(grp["confdist_row"], 2):
+            std_a, std_b, _ = _aligned_pair(store, int(i), int(j), ndim)
+            residuals.append(np.linalg.norm(std_a - std_b, axis=1))
+        if not residuals:
+            continue
+        stacked = np.vstack(residuals)
+        mean = stacked.mean(axis=0)
+        sem = (stacked.std(axis=0, ddof=1) / np.sqrt(stacked.shape[0])
+               if stacked.shape[0] > 1 else np.full(stacked.shape[1], np.nan))
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        base = dict(zip(group_fields, key_tuple))
+        rows.extend({**base, "image_index": idx, "n_pairs": stacked.shape[0],
+                     "mean_residual": float(mean[idx]), "sem_residual": float(sem[idx])}
+                    for idx in range(stacked.shape[1]))
     return pd.DataFrame(rows)
 
 
@@ -384,14 +518,7 @@ def compute_topk_similar_pair_stability(
     fracs = [float(top_fracs)] if isinstance(top_fracs, (int, float)) else [float(x) for x in top_fracs]
     if any(not (0 < f <= 1) for f in fracs):
         raise ValueError(f"top_fracs must be in (0, 1], got {fracs}")
-    df = store.metadata()
-    if group_fields is None:
-        _non_param_columns = {"rep", "niter", "stress", "status", "confdist_row"}
-        group_fields = [c for c in df.columns if c not in _non_param_columns]
-    group_fields = list(group_fields)
-    df = df[df["status"].isin(_SUCCESS_STATUSES) & (df["confdist_row"] >= 0)]
-
-    grouped = df.groupby(group_fields)
+    grouped, group_fields = _grouped_successful(store, group_fields)
     rows = []
     for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Top-k pair stability", disable=not verbose):
         confdists = [store.confdist(int(r)) for r in grp["confdist_row"]]

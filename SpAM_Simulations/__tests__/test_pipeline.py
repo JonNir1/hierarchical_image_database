@@ -8,6 +8,15 @@ from SpAM_Simulations.config import (
 from SpAM_Simulations import pipeline
 
 
+def _fake_conf(sim, payload):
+    """A stand-in MDS configuration for a monkeypatched `_execute_mds_payload`.
+
+    Shaped `(n_images, ndim)` from the payload's own `ndim` so the store's shape validation and
+    per-record padding are exercised; the values themselves are irrelevant to these tests.
+    """
+    return np.zeros((sim.num_images, int(payload[0]["ndim"])), np.float32)
+
+
 def _task_v3_config(**over):
     base = dict(n_images=120, n_dims=4, num_subjects=[15], trials_per_subject=[8],
                 images_per_trial=[6], subjects_noise_scale=[0.0, 0.5], subjects_noise_df=[1],
@@ -100,7 +109,7 @@ def test_run_mds_sweep_streams_payloads_lazily(tmp_path, monkeypatch):
     def fake_exec(payload):
         events.append("exec")
         meta = {**payload[0], "niter": 1.0, "stress": 0.0, "status": "success"}
-        return meta, np.zeros(L, np.float32)
+        return meta, np.zeros(L, np.float32), _fake_conf(sim, payload)
 
     monkeypatch.setattr(pipeline, "_build_mds_payload", spy_build)
     monkeypatch.setattr(pipeline, "_execute_mds_payload", fake_exec)
@@ -178,7 +187,7 @@ def test_task_v2_3_run_mds_sweep_streams_payloads_lazily(tmp_path, monkeypatch):
     def fake_exec(payload):
         events.append("exec")
         meta = {**payload[0], "niter": 1.0, "stress": 0.0, "status": "success"}
-        return meta, np.zeros(L, np.float32)
+        return meta, np.zeros(L, np.float32), _fake_conf(sim, payload)
 
     monkeypatch.setattr(pipeline, "_build_mds_payload", spy_build)
     monkeypatch.setattr(pipeline, "_execute_mds_payload", fake_exec)
@@ -242,7 +251,7 @@ def test_task_v2_4_run_mds_sweep_store_roundtrips_seven_field_params(tmp_path, m
 
     def fake_exec(payload):
         meta = {**payload[0], "niter": 1.0, "stress": 0.0, "status": "success"}
-        return meta, np.zeros(L, np.float32)
+        return meta, np.zeros(L, np.float32), _fake_conf(sim, payload)
 
     monkeypatch.setattr(pipeline, "_execute_mds_payload", fake_exec)
 
@@ -324,7 +333,7 @@ def test_task_v3_run_mds_sweep_store_roundtrips_seven_field_params(tmp_path, mon
 
     def fake_exec(payload):
         meta = {**payload[0], "niter": 1.0, "stress": 0.0, "status": "success"}
-        return meta, np.zeros(L, np.float32)
+        return meta, np.zeros(L, np.float32), _fake_conf(sim, payload)
 
     monkeypatch.setattr(pipeline, "_execute_mds_payload", fake_exec)
 
@@ -354,3 +363,144 @@ class TestTopKSimilarJaccard:
     def test_frac_rounds_to_at_least_one(self):
         v = np.arange(10, dtype=float)
         assert pipeline._topk_similar_jaccard(v, v.copy(), 0.001) == 1.0   # k floored to 1
+
+
+# ------------------------------------------------------- configuration-space generalizability
+
+def _conf_store(tmp_path, confs, n_images, max_ndim, ndim=None, statuses=None):
+    """Build a ResultStore holding the given configurations, one per rep, in one config group."""
+    from SpAM_Simulations.storage import ResultStore
+    ndim = ndim if ndim is not None else max_ndim
+    L = n_images * (n_images - 1) // 2
+    cols = ["num_subjects", "rep", "ndim", "niter", "stress", "status"]
+    store = ResultStore.create(tmp_path / "s", confdist_len=L, meta_columns=cols,
+                               n_images=n_images, max_ndim=max_ndim)
+    for rep, conf in enumerate(confs):
+        status = statuses[rep] if statuses else "success"
+        meta = dict(num_subjects=10, rep=rep, ndim=ndim, niter=1.0, stress=0.0, status=status)
+        keep = status in ("success", "max_iters")
+        store.append(meta, np.zeros(L, np.float32) if keep else None,
+                     np.asarray(conf, np.float32) if keep else None)
+    store.close()
+    return ResultStore.open(tmp_path / "s")
+
+
+class TestEmbeddingGeneralizability:
+    N, D = 12, 3
+
+    def _random_conf(self, seed=0):
+        return np.random.default_rng(seed).normal(size=(self.N, self.D))
+
+    def test_identical_configurations_have_zero_disparity(self, tmp_path):
+        c = self._random_conf()
+        store = _conf_store(tmp_path, [c, c], self.N, self.D)
+        out = pipeline.compute_embedding_generalizability(store, verbose=False)
+        assert out["mean_procrustes_m2"].iloc[0] == pytest.approx(0.0, abs=1e-10)
+
+    @pytest.mark.parametrize("transform", ["rotate", "reflect", "scale", "translate"])
+    def test_disparity_is_invariant_to_mds_gauge_freedom(self, tmp_path, transform):
+        """Position, scale, rotation and reflection are arbitrary in an MDS solution, so a
+        configuration transformed by any of them is the SAME space and must score 0."""
+        c = self._random_conf()
+        if transform == "rotate":
+            theta = 0.7
+            rot = np.eye(self.D)
+            rot[:2, :2] = [[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]]
+            other = c @ rot
+        elif transform == "reflect":
+            other = c * np.array([-1.0] + [1.0] * (self.D - 1))
+        elif transform == "scale":
+            other = c * 4.2
+        else:
+            other = c + np.array([3.0] * self.D)
+        store = _conf_store(tmp_path, [c, other], self.N, self.D)
+        out = pipeline.compute_embedding_generalizability(store, verbose=False)
+        assert out["mean_procrustes_m2"].iloc[0] == pytest.approx(0.0, abs=1e-9)
+
+    def test_disparity_rises_with_divergence(self, tmp_path):
+        c = self._random_conf()
+        rng = np.random.default_rng(99)
+        scores = []
+        for i, jitter in enumerate((0.05, 0.5)):
+            store = _conf_store(tmp_path / f"run{i}", [c, c + rng.normal(0, jitter, c.shape)],
+                                self.N, self.D)
+            scores.append(pipeline.compute_embedding_generalizability(store, verbose=False)
+                          ["mean_procrustes_m2"].iloc[0])
+        assert scores[0] < scores[1]
+
+    def test_disparity_is_bounded_in_unit_interval(self, tmp_path):
+        store = _conf_store(tmp_path, [self._random_conf(1), self._random_conf(2)], self.N, self.D)
+        m2 = pipeline.compute_embedding_generalizability(store, verbose=False)["mean_procrustes_m2"].iloc[0]
+        assert 0.0 <= m2 <= 1.0
+
+    def test_padded_rows_are_trimmed_to_ndim(self, tmp_path):
+        """A 2-D fit stored in a max_ndim=5 store must be compared as 2-D, not against zero pad."""
+        c = np.random.default_rng(0).normal(size=(self.N, 2))
+        store = _conf_store(tmp_path, [c, c], self.N, max_ndim=5, ndim=2)
+        out = pipeline.compute_embedding_generalizability(store, verbose=False)
+        assert out["mean_procrustes_m2"].iloc[0] == pytest.approx(0.0, abs=1e-10)
+
+    def test_failed_runs_are_excluded(self, tmp_path):
+        c = self._random_conf()
+        store = _conf_store(tmp_path, [c, c, None], self.N, self.D,
+                            statuses=["success", "success", "error"])
+        out = pipeline.compute_embedding_generalizability(store, verbose=False)
+        assert out["n_reps"].iloc[0] == 2
+
+    def test_store_without_configurations_raises_clearly(self, tmp_path):
+        from SpAM_Simulations.storage import ResultStore
+        L = self.N * (self.N - 1) // 2
+        cols = ["num_subjects", "rep", "ndim", "niter", "stress", "status"]
+        s = ResultStore.create(tmp_path / "s", confdist_len=L, meta_columns=cols)
+        s.append(dict(num_subjects=10, rep=0, ndim=3, niter=1.0, stress=0.0, status="success"),
+                 np.zeros(L, np.float32))
+        s.close()
+        with pytest.raises(ValueError, match="no MDS configurations"):
+            pipeline.compute_embedding_generalizability(ResultStore.open(tmp_path / "s"), verbose=False)
+
+
+class TestItemGeneralizability:
+    N, D = 12, 3
+
+    def test_one_row_per_image(self, tmp_path):
+        rng = np.random.default_rng(0)
+        c = rng.normal(size=(self.N, self.D))
+        store = _conf_store(tmp_path, [c, c + rng.normal(0, 0.2, c.shape)], self.N, self.D)
+        out = pipeline.compute_item_generalizability(store, verbose=False)
+        assert len(out) == self.N
+        assert sorted(out["image_index"]) == list(range(self.N))
+
+    def test_identical_configurations_give_zero_residuals(self, tmp_path):
+        c = np.random.default_rng(0).normal(size=(self.N, self.D))
+        store = _conf_store(tmp_path, [c, c], self.N, self.D)
+        out = pipeline.compute_item_generalizability(store, verbose=False)
+        np.testing.assert_allclose(out["mean_residual"], 0.0, atol=1e-8)
+
+    @pytest.mark.parametrize("displacement", [0.3, 1.0, 3.0])
+    def test_a_displaced_image_gets_the_largest_residual(self, tmp_path, displacement):
+        """The point of the per-item table: locate WHICH stimuli fail to generalise."""
+        c = np.random.default_rng(0).normal(size=(self.N, self.D))
+        other = c.copy()
+        other[7] += displacement
+        store = _conf_store(tmp_path / f"d{displacement}", [c, other], self.N, self.D)
+        out = pipeline.compute_item_generalizability(store, verbose=False)
+        assert out.loc[out["mean_residual"].idxmax(), "image_index"] == 7
+
+    def test_a_gross_outlier_smears_residuals_across_all_items(self, tmp_path):
+        """Documents the limitation stated in the docstring rather than hiding it.
+
+        Procrustes is a *global* fit that scales both configurations to unit norm, so one grossly
+        displaced item dominates that norm and distorts the alignment for everything else: the
+        residual is then no longer attributable to the item that actually moved. Here the
+        displacement drives M^2 past ~0.5 (two barely-related spaces) and the argmax leaves 7.
+        Cohort pairs in the real sweep sit far below that, so the per-item table stays usable -
+        but it must be read alongside the group-level M^2, not on its own.
+        """
+        c = np.random.default_rng(0).normal(size=(self.N, self.D))
+        other = c.copy()
+        other[7] += 5.0
+        store = _conf_store(tmp_path, [c, other], self.N, self.D)
+        group_m2 = pipeline.compute_embedding_generalizability(store, verbose=False)
+        out = pipeline.compute_item_generalizability(store, verbose=False)
+        assert group_m2["mean_procrustes_m2"].iloc[0] > 0.5      # the spaces barely relate
+        assert out.loc[out["mean_residual"].idxmax(), "image_index"] != 7
