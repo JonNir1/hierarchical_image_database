@@ -9,7 +9,7 @@ MANIFEST_PATH = TASK_DIR / "stimuli_manifest.json"
 
 # Practice and catch sets are variant-agnostic and resolved directly from config.
 # Both are scanned from catch_trials.stimuli_path -- practice has no separate path,
-# it reuses the catch directory. The main set is resolved from design.stimuli_path;
+# it reuses the catch directory. The main set is resolved from experimental_trials.stimuli_path;
 # both pre_shine/ and post_shine/ subdirectories are scanned and verified to be identical.
 SECONDARY_SETS = [
     ("catch_trials", "stimuli_path", "practice_images"),
@@ -76,7 +76,6 @@ def main() -> None:
     with CONFIG_PATH.open() as fh:
         config = json.load(fh)
 
-    design       = config.get("design", {})
     catch_trials = config.get("catch_trials", {})
 
     main_root = resolve_main_root(config)
@@ -89,7 +88,7 @@ def main() -> None:
     if not pre_dir.exists():
         raise FileNotFoundError(
             f"Main stimulus directory does not exist: {pre_dir}\n"
-            f"Populate pre_shine/ under design.stimuli_path and retry."
+            f"Populate pre_shine/ under experimental_trials.stimuli_path and retry."
         )
     pre_images = scan_pngs(pre_dir)
     if not pre_images:
@@ -103,7 +102,7 @@ def main() -> None:
     if not post_dir.exists():
         raise FileNotFoundError(
             f"post_shine directory does not exist: {post_dir}\n"
-            f"Populate post_shine/ under design.stimuli_path and retry."
+            f"Populate post_shine/ under experimental_trials.stimuli_path and retry."
         )
     post_images = scan_pngs(post_dir)
     if set(pre_images) != set(post_images):
@@ -136,13 +135,15 @@ def main() -> None:
             print(f"WARNING: No .png images found in {directory}.")
 
     # Validation against config thresholds
+    # The practice trial is sized by catch_trials.images_per_trial as well (task.js slices
+    # practiceUrls to that length) — there is no separate practice count in task_config.json.
     if "practice_images" in manifest:
-        threshold = design.get("practice_images_per_trial", 0)
+        threshold = catch_trials.get("images_per_trial", 0)
         n = len(manifest["practice_images"])
         if n < threshold:
             print(
                 f"WARNING: 'practice_images' has {n} image(s) but config requires "
-                f"at least {threshold} (design.practice_images_per_trial)."
+                f"at least {threshold} (catch_trials.images_per_trial)."
             )
 
     if "catch_images" in manifest:

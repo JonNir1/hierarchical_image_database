@@ -237,7 +237,7 @@ class TestMainValidation:
         make_config(task_env,
                     main_root=str(task_env / "images"),
                     stimuli_path=str(shared_dir),
-                    practice_images_per_trial=8)
+                    images_per_trial=8)
         gm.main()
         out = capsys.readouterr().out
         assert "WARNING" in out
@@ -266,7 +266,7 @@ class TestMainValidation:
         make_config(task_env,
                     main_root=str(task_env / "images"),
                     stimuli_path=str(shared_dir),
-                    practice_images_per_trial=8)
+                    images_per_trial=8)
         gm.main()
         out = capsys.readouterr().out
         assert "practice_images' has" not in out  # no threshold warning
