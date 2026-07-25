@@ -529,7 +529,10 @@ function computeMainQcFlag(sd, numMoves, numItems, config) {
  * @throws {Error} if pairsA/pairsB don't cover exactly the same set of unordered pairs
  */
 function computeSpearmanCorrelation(pairsA, pairsB) {
-    const keyOf = p => [p.src1, p.src2].sort().join(' ');
+    // NUL separator: it cannot occur inside an image URL, so no filename can
+    // forge another pair's key. Written as an escape sequence, not a literal
+    // NUL byte -- a literal makes git and grep treat this file as binary.
+    const keyOf = p => [p.src1, p.src2].sort().join('\u0000');
     const mapA  = new Map(pairsA.map(p => [keyOf(p), p.distance]));
     const mapB  = new Map(pairsB.map(p => [keyOf(p), p.distance]));
     if (mapA.size !== pairsA.length) throw new Error('computeSpearmanCorrelation: pairsA has duplicate pair keys.');
