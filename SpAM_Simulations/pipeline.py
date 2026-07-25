@@ -29,11 +29,12 @@ from tqdm import tqdm
 
 from SpAM_Simulations.config import (
     SimulationConfig, TaskV2_3SimulationConfig, TaskV2_4SimulationConfig, TaskV3SimulationConfig,
-    MDSSweepConfig
+    TaskV4SimulationConfig, MDSSweepConfig
 )
 from SpAM_Simulations.experiment import ExperimentParameters, ExperimentResults
 from SpAM_Simulations.metrics import (
-    coverage, snr_summary, test_retest_summary, spearman_correlation, _calculate_mean_distances
+    coverage, snr_summary, test_retest_summary, screening_summary, spearman_correlation,
+    _calculate_mean_distances
 )
 from SpAM_Simulations.simulation import Simulation, build_ground_truth_embeddings
 from SpAM_Simulations.storage import ResultStore
@@ -112,18 +113,44 @@ def generate_task_v3_simulation(config: TaskV3SimulationConfig, verbose: bool = 
     return sim
 
 
+def generate_task_v4_simulation(config: TaskV4SimulationConfig, verbose: bool = True) -> Simulation:
+    """Same as `generate_task_v3_simulation`, but for task-v4 (v3 model + the screening block).
+
+    Ground truth is built identically (explicit eigenvalue spectrum, or a supplied
+    ``gt_embeddings`` such as the pilot-calibrated embedding); only the per-experiment model
+    differs. Note that a screened configuration simulates *more* subjects than ``num_subjects`` -
+    rejected candidates are generated and discarded - so generation is slower than v3 at the same
+    grid size, by roughly the reciprocal of the pass rate.
+    """
+    if config.uses_random_ground_truth:
+        embeddings = build_ground_truth_embeddings(
+            config.n_images, config.n_dims, use_isotropic=config.use_isotropic,
+            decay=config.decay, n_clusters=config.n_clusters, seed=config.seed
+        )
+    else:
+        embeddings = config.gt_embeddings
+    sim = Simulation.from_embeddings(embeddings, config.seed)
+    schedule = config.param_grid() * config.reps
+    for params in tqdm(schedule, desc="Running experiments", disable=not verbose):
+        sim.run_task_v4_experiment(params, verbose=False)
+    return sim
+
+
 # --------------------------------------------------------------------------- metric tables
 def compute_coverage_table(sim: Simulation) -> pd.DataFrame:
     """One row per (configuration, repetition) with all coverage metrics.
 
     For a task-v2.3/v2.4 simulation (whose results carry a `subject_snr` field) also includes
     the SNR summary stats from `metrics.snr_summary`; for task-v2.4 (which additionally carries
-    `subject_test_retest`) it includes the test-retest summary from `metrics.test_retest_summary`.
+    `subject_test_retest`) it includes the test-retest summary from `metrics.test_retest_summary`;
+    and for task-v4 (which carries `n_candidates_screened`) the screening/recruitment-cost stats
+    from `metrics.screening_summary`.
     """
     rows = [
         {**params._asdict(), "rep": rep, **coverage(res),
          **(snr_summary(res) if hasattr(res, "subject_snr") else {}),
-         **(test_retest_summary(res) if hasattr(res, "subject_test_retest") else {})}
+         **(test_retest_summary(res) if hasattr(res, "subject_test_retest") else {}),
+         **(screening_summary(res) if hasattr(res, "n_candidates_screened") else {})}
         for params, results in sim._results.items()
         for rep, res in enumerate(results)
     ]

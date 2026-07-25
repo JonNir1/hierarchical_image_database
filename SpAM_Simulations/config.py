@@ -17,6 +17,7 @@ from SpAM_Simulations.experiment import ExperimentParameters
 from SpAM_Simulations.task_v2_3_experiment import TaskV2_3ExperimentParameters
 from SpAM_Simulations.task_v2_4_experiment import TaskV2_4ExperimentParameters
 from SpAM_Simulations.task_v3_experiment import TaskV3ExperimentParameters
+from SpAM_Simulations.task_v4_experiment import TaskV4ExperimentParameters
 
 
 @dataclass
@@ -191,6 +192,71 @@ class TaskV3SimulationConfig(SimulationConfig):
                 self.subjects_noise_df,
                 self.frac_trials_repeated,
                 self.perspective_dispersion,
+            )
+        ]
+
+
+@dataclass
+class TaskV4SimulationConfig(TaskV3SimulationConfig):
+    """``TaskV3SimulationConfig`` extended with the deployed v4.0 **screening block**.
+
+    Adds three swept levers (see ``task_v4_experiment``):
+
+    * ``screening_trials`` - screening-stage main-trial slots per candidate (deployed: 8);
+      ``0`` skips the block entirely and reduces the model to task-v3.
+    * ``screening_repeats`` - how many of those are verbatim repeats (deployed: 2). Must leave at
+      least one original, so it is swept jointly with ``screening_trials`` in practice.
+    * ``screening_min_reliability`` - exclude a candidate whose *minimum* per-repeat test-retest
+      Spearman falls below this (deployed: 0.0). ``-1.0`` runs the block but excludes nobody,
+      which is the right control arm: it isolates the effect of *exclusion* while holding the
+      number of collected trials constant.
+
+    Ground truth may be synthetic or a supplied ``gt_embeddings`` (the pilot-calibrated
+    embedding), exactly as for task-v3.
+    """
+    screening_trials: Sequence[int] = field(default_factory=tuple)
+    screening_repeats: Sequence[int] = field(default_factory=tuple)
+    screening_min_reliability: Sequence[float] = field(default_factory=tuple)
+
+    _SCREENING_GRIDS = ("screening_trials", "screening_repeats", "screening_min_reliability")
+
+    def __post_init__(self):
+        super().__post_init__()
+        empty = [name for name in self._SCREENING_GRIDS if len(getattr(self, name)) == 0]
+        if empty:
+            raise ValueError(f"parameter grid(s) must be non-empty: {empty}")
+        if any(st < 0 for st in self.screening_trials):
+            raise ValueError("`screening_trials` values must be non-negative")
+        if any(sr < 0 for sr in self.screening_repeats):
+            raise ValueError("`screening_repeats` values must be non-negative")
+        bad = [mr for mr in self.screening_min_reliability if not (-1 <= mr <= 1)]
+        if bad:
+            raise ValueError(f"`screening_min_reliability` values must be in [-1, 1], got {bad}")
+        # Every (trials, repeats) pair in the Cartesian product is actually simulated, so reject a
+        # grid whose product contains a combination with no un-repeated original trial - it would
+        # only surface as an assertion deep inside the sweep, hours in.
+        infeasible = [(st, sr) for st in self.screening_trials for sr in self.screening_repeats
+                      if st > 0 and sr > st - 1]
+        if infeasible:
+            raise ValueError(
+                f"`screening_repeats` must leave at least one distinct trial; infeasible "
+                f"(screening_trials, screening_repeats) combinations: {infeasible}"
+            )
+
+    def param_grid(self) -> List[TaskV4ExperimentParameters]:
+        return [
+            TaskV4ExperimentParameters(*p)
+            for p in product(
+                self.num_subjects,
+                self.trials_per_subject,
+                self.images_per_trial,
+                self.subjects_noise_scale,
+                self.subjects_noise_df,
+                self.frac_trials_repeated,
+                self.perspective_dispersion,
+                self.screening_trials,
+                self.screening_repeats,
+                self.screening_min_reliability,
             )
         ]
 

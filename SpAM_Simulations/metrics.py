@@ -91,6 +91,28 @@ def test_retest_summary(exp_results) -> dict:
     return out
 
 
+def screening_summary(exp_results) -> dict:
+    """Recruitment cost and retained-cohort precision for a task-v4 (screened) experiment.
+
+    `n_candidates_screened` is how many candidates had to be simulated to retain
+    `num_subjects` - the Prolific cost of the screening threshold, and the quantity that has to be
+    weighed against the reliability it buys. `mean_subject_noise` describes the **retained**
+    cohort's placement precision: screening truncates the heavy upper tail of the `|t(df)|` noise
+    population, so a stricter threshold should push this below the configured
+    `subjects_noise_scale`. `frac_nan_*` is absent here because both fields are always defined.
+
+    :param exp_results: a `TaskV4ExperimentResults` (has `n_candidates_screened`)
+    """
+    noises = np.asarray(exp_results.subject_noises, dtype=np.float64)
+    return {
+        "n_candidates_screened": int(exp_results.n_candidates_screened),
+        "screening_pass_rate": float(exp_results.screening_pass_rate),
+        "mean_subject_noise": float(np.mean(noises)) if noises.size else np.nan,
+        "median_subject_noise": float(np.median(noises)) if noises.size else np.nan,
+        "max_subject_noise": float(np.max(noises)) if noises.size else np.nan,
+    }
+
+
 def spearman_correlation(exp1: ExperimentResults, exp2: ExperimentResults) -> float:
     """
     Calculates the Spearman rank correlation between the mean distances of two experiments.
