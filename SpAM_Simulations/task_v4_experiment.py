@@ -24,6 +24,10 @@ Screening model (mirrors ``SpAM_Task/js/utils.js::evaluateScreening``):
 * Candidates are drawn until ``num_subjects`` are retained, mirroring the real recruit-until-N
   stopping rule ("excluded subjects are replaced"), so the ``num_subjects`` axis keeps meaning
   "analysed cohort size" and stays comparable to the v3 sweeps.
+* Each candidate gets ONE image pool, partitioned across the screening and main stages so no image
+  appears in both (``trial_generator.js::partitionIntoStages``). ``trials_per_subject`` therefore
+  counts the **main stage only** - at the deployed design that is 14 (12 distinct + 2 repeats), on
+  top of which the screening block adds 8, for 22 trials and 360 distinct images per subject.
 * A retained subject's screening trials **are data** - the screening stage uses the same stimuli
   and the same task, and the pre-registered analysis includes it - so their observations are
   accumulated. Screened-out candidates contribute nothing.
@@ -120,8 +124,12 @@ def simulate_task_v4_experiment(
         f"`n_unique`(={n_unique} = t_distinct*images_per_trial) exceeds the image pool size (N={N})"
     )
     screen_distinct = params.screening_trials - params.screening_repeats
-    assert screen_distinct * k <= N, (
-        f"screening block needs {screen_distinct * k} unique images, exceeding the pool size (N={N})"
+    screen_unique = screen_distinct * k
+    # Both stages draw from ONE disjoint per-subject pool (see the candidate loop), so the pool
+    # must accommodate their sum, not each separately.
+    assert screen_unique + n_unique <= N or params.screening_trials == 0, (
+        f"screening block needs {screen_unique} unique images on top of the main stage's "
+        f"{n_unique}, exceeding the pool size (N={N})"
     )
 
     n_pairs = N * (N - 1) // 2
@@ -143,11 +151,20 @@ def simulate_task_v4_experiment(
             noise = noise_pool.next()
 
             screening = None
+            screen_images, main_images = None, None
             if params.screening_trials > 0:
+                # ONE pool per candidate, partitioned across the two stages, so no image appears in
+                # both - matching `trial_generator.js::partitionIntoStages`. Drawing the two stages
+                # independently would overlap them (at the deployed design, ~40 of a subject's 360
+                # images), manufacturing within-subject cross-stage pair observations the real task
+                # cannot produce.
+                pool = rng.choice(N, size=screen_unique + n_unique, replace=False)
+                screen_images, main_images = pool[:screen_unique], pool[screen_unique:]
                 screening = simulate_task_v4_single_subject(
                     subject_noise=noise, perspective_dispersion=params.perspective_dispersion,
-                    t_distinct=screen_distinct, k=k, n_unique=screen_distinct * k,
+                    t_distinct=screen_distinct, k=k, n_unique=screen_unique,
                     n_repeats=params.screening_repeats, gt_embeddings=gt_embeddings, rng=rng,
+                    image_indices=screen_images,
                 )
                 if not _passes_screening(screening.repeat_correlations,
                                          params.screening_min_reliability):
@@ -156,7 +173,7 @@ def simulate_task_v4_experiment(
             main = simulate_task_v4_single_subject(
                 subject_noise=noise, perspective_dispersion=params.perspective_dispersion,
                 t_distinct=t_distinct, k=k, n_unique=n_unique, n_repeats=n_repeats,
-                gt_embeddings=gt_embeddings, rng=rng,
+                gt_embeddings=gt_embeddings, rng=rng, image_indices=main_images,
             )
             # A retained subject's screening trials are analysed data, so pool both stages.
             observations = main.observations
@@ -232,6 +249,7 @@ def simulate_task_v4_single_subject(
         n_repeats: int,
         gt_embeddings: np.ndarray,
         rng: np.random.Generator,
+        image_indices: Optional[np.ndarray] = None,
 ) -> SubjectRun:
     """Simulate one stage for one subject: ``t_distinct`` distinct trials plus ``n_repeats`` repeats.
 
@@ -248,6 +266,11 @@ def simulate_task_v4_single_subject(
     partially predictive of the main stage's *perspective* as well as its precision, which is not
     what the deployed screening measures. Placement precision, the trait screening actually selects
     on, IS shared: both calls receive the same ``subject_noise``.
+
+    ``image_indices`` supplies this stage's image pool explicitly instead of drawing it here. The
+    caller uses it to partition ONE per-subject pool across the screening and main stages, so no
+    image appears in both - mirroring ``trial_generator.js::partitionIntoStages``. Left as ``None``
+    the pool is drawn here, which is what task-v3 does and keeps the no-screening arm bit-exact.
     """
     assert subject_noise >= 0, "`subject_noise` must be non-negative"
     assert n_repeats >= 0, "`n_repeats` must be non-negative"
@@ -255,7 +278,13 @@ def simulate_task_v4_single_subject(
     assert n_unique <= N, f"`n_unique`(={n_unique}) must not exceed the image pool size (N={N})"
 
     weights = _draw_perspective_weights(D, perspective_dispersion, rng)
-    active_indices = rng.choice(N, size=n_unique, replace=False)
+    if image_indices is None:
+        active_indices = rng.choice(N, size=n_unique, replace=False)
+    else:
+        active_indices = np.asarray(image_indices)
+        assert active_indices.size == n_unique, (
+            f"`image_indices` has {active_indices.size} entries, expected n_unique={n_unique}"
+        )
     trials = build_trial_lists(active_indices, t_distinct, k, n_double=0, rng=rng)
 
     n_pairs = N * (N - 1) // 2

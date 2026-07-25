@@ -160,6 +160,38 @@ class TestScreeningDataIsAnalysed:
         assert np.isfinite(no_screening.subject_test_retest).all()
 
 
+class TestStagesUseDisjointImages:
+    """`partitionIntoStages` guarantees no image crosses stages; the simulation must match.
+
+    Drawing the two stages' pools independently would overlap them - at the deployed design about
+    40 of a subject's 360 images - manufacturing within-subject cross-stage pair observations the
+    real task cannot produce, and inflating coverage.
+    """
+
+    def test_no_pair_is_observed_across_both_stages(self):
+        """With disjoint pools every within-subject pair count stays at 1 (2 for a repeated trial).
+
+        A shared image across stages would put some pair in both stages' trials, so its count for
+        a single subject would exceed what one stage alone can produce.
+        """
+        params = _params(num_subjects=1, trials_per_subject=6, images_per_trial=10,
+                         frac_trials_repeated=0.0, screening_trials=3, screening_repeats=0,
+                         screening_min_reliability=-1.0)
+        _, res = simulate_task_v4_experiment(params, GT, np.random.default_rng(0), verbose=False)
+        # 6 main + 3 screening trials of 10 images, all disjoint -> every observed pair seen once
+        assert res.num_obs.max() == 1
+        assert res.num_obs.sum() == 9 * (10 * 9 // 2)
+
+    def test_pool_larger_than_the_image_set_is_rejected(self):
+        """The two stages share one pool, so the check must be on their SUM."""
+        with pytest.raises(AssertionError, match="on top of the main stage"):
+            simulate_task_v4_experiment(
+                _params(trials_per_subject=10, images_per_trial=10, frac_trials_repeated=0.0,
+                        screening_trials=4, screening_repeats=0),
+                build_ground_truth_embeddings(130, 5, seed=1),  # needs 40 + 100 = 140 > 130
+                np.random.default_rng(0), verbose=False)
+
+
 class TestSingleSubject:
     def test_returns_per_repeat_values_not_means(self):
         run = simulate_task_v4_single_subject(

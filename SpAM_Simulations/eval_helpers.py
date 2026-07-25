@@ -110,6 +110,7 @@ def load_run(run_results_dir: str | Path) -> RunData:
 def plateau_num_subjects(
         embedding_stability_df: pd.DataFrame, *, x: str = "num_subjects",
         y: str = "mean_spearman", group_by: Sequence[str] = ("ndim",), tol: float = 0.01,
+        higher_is_better: bool = True,
 ) -> pd.DataFrame:
     """Smallest ``num_subjects`` whose stability is within ``tol`` of the group's asymptote.
 
@@ -120,6 +121,12 @@ def plateau_num_subjects(
     reaching ``asymptote - tol``. Returns one row per group with ``plateau_num_subjects``,
     ``asymptote``, and ``max_num_subjects`` (the N the asymptote was read from - if the plateau N
     equals it, the sweep has not yet saturated and needs larger N).
+
+    Set ``higher_is_better=False`` for a *disparity* measure that improves downward - notably
+    ``compute_embedding_generalizability``'s ``mean_procrustes_m2``, which falls toward 0 as N
+    grows. The plateau criterion then becomes ``asymptote + tol``. Leaving it True on a disparity
+    column would return the smallest N in the sweep every time, since every point sits above an
+    asymptote that is the curve's minimum.
     """
     group_by = [c for c in group_by if c in embedding_stability_df.columns]
     rows = []
@@ -130,7 +137,8 @@ def plateau_num_subjects(
         if grp.empty:
             continue
         asymptote = grp[y].iloc[-1]
-        reached = grp[grp[y] >= asymptote - tol]
+        reached = (grp[grp[y] >= asymptote - tol] if higher_is_better
+                   else grp[grp[y] <= asymptote + tol])
         plateau_n = reached[x].iloc[0] if not reached.empty else grp[x].iloc[-1]
         key_tuple = key if isinstance(key, tuple) else (key,)
         rows.append({
