@@ -1,0 +1,233 @@
+"""Tests for the task-v4 simulation (task-v3's generative model plus the v4.0 screening block).
+
+The generative core is imported unchanged from ``task_v3_experiment`` and is covered by
+``test_task_v3_experiment.py``; this suite therefore focuses on what v4 adds - the screening
+block, the recruit-until-N loop, the pooling of screening data into the analysed aggregate - plus
+a regression guard that v4 without screening still reproduces v3 exactly.
+"""
+import numpy as np
+import pytest
+
+from SpAM_Simulations.simulation import build_ground_truth_embeddings
+from SpAM_Simulations.task_v3_experiment import (
+    simulate_task_v3_experiment, TaskV3ExperimentParameters,
+)
+from SpAM_Simulations.task_v4_experiment import (
+    simulate_task_v4_experiment, simulate_task_v4_single_subject, TaskV4ExperimentParameters,
+    _CandidateNoisePool, _passes_screening,
+)
+
+GT = build_ground_truth_embeddings(120, 5, seed=1)
+
+
+def _params(**overrides):
+    fields = dict(
+        num_subjects=20, trials_per_subject=8, images_per_trial=10,
+        subjects_noise_scale=0.6, subjects_noise_df=5,
+        frac_trials_repeated=0.25, perspective_dispersion=0.2,
+        screening_trials=4, screening_repeats=1, screening_min_reliability=-1.0,
+    )
+    fields.update(overrides)
+    return TaskV4ExperimentParameters(**fields)
+
+
+def _run(seed=0, **overrides):
+    _, res = simulate_task_v4_experiment(_params(**overrides), GT,
+                                         np.random.default_rng(seed), verbose=False)
+    return res
+
+
+class TestEquivalenceToTaskV3:
+    """With the screening block switched off, v4 must be the v3 model - bit for bit.
+
+    This is the guard that keeps every previously-run v3 sweep comparable to the v4 results: if
+    the port drifted, the no-screening arm would no longer be a valid baseline.
+    """
+
+    COMMON = dict(num_subjects=15, trials_per_subject=8, images_per_trial=10,
+                  subjects_noise_scale=0.5, subjects_noise_df=3,
+                  frac_trials_repeated=0.25, perspective_dispersion=0.3)
+
+    def _pair(self, seed=7):
+        _, v3 = simulate_task_v3_experiment(
+            TaskV3ExperimentParameters(**self.COMMON), GT, np.random.default_rng(seed), verbose=False)
+        _, v4 = simulate_task_v4_experiment(
+            TaskV4ExperimentParameters(**self.COMMON, screening_trials=0, screening_repeats=0,
+                                       screening_min_reliability=-1.0),
+            GT, np.random.default_rng(seed), verbose=False)
+        return v3, v4
+
+    def test_distances_and_counts_identical(self):
+        v3, v4 = self._pair()
+        np.testing.assert_array_equal(np.nan_to_num(v3.distances, nan=-1),
+                                      np.nan_to_num(v4.distances, nan=-1))
+        np.testing.assert_array_equal(v3.num_obs, v4.num_obs)
+
+    def test_subject_level_diagnostics_identical(self):
+        v3, v4 = self._pair()
+        np.testing.assert_array_equal(v3.subject_noises, v4.subject_noises)
+        np.testing.assert_allclose(np.nan_to_num(v3.subject_test_retest, nan=-9),
+                                   np.nan_to_num(v4.subject_test_retest, nan=-9))
+        np.testing.assert_allclose(np.nan_to_num(v3.subject_test_retest_procrustes, nan=-9),
+                                   np.nan_to_num(v4.subject_test_retest_procrustes, nan=-9))
+
+    def test_no_screening_means_no_rejections(self):
+        _, v4 = self._pair()
+        assert v4.n_candidates_screened == self.COMMON["num_subjects"]
+        assert v4.screening_pass_rate == 1.0
+
+
+class TestCandidateNoisePool:
+    """The pool must preserve the |t(df)| heterogeneity that screening selects against."""
+
+    def test_single_draws_are_not_all_identical(self):
+        """Regression: drawing batches of 1 from `_draw_subject_noises` collapses every value to
+        the mean (it divides by the mean of one number), destroying the heavy tail entirely."""
+        pool = _CandidateNoisePool(df=5, scale=0.6, batch_size=32, rng=np.random.default_rng(0))
+        values = [pool.next() for _ in range(64)]
+        assert np.std(values) > 0.05
+
+    def test_batch_mean_matches_the_configured_scale(self):
+        pool = _CandidateNoisePool(df=5, scale=0.6, batch_size=50, rng=np.random.default_rng(0))
+        assert np.mean([pool.next() for _ in range(50)]) == pytest.approx(0.6)
+
+    def test_refills_beyond_the_first_batch(self):
+        pool = _CandidateNoisePool(df=5, scale=0.6, batch_size=4, rng=np.random.default_rng(0))
+        assert all(v >= 0 for v in (pool.next() for _ in range(17)))
+
+
+class TestScreeningRule:
+    """`_passes_screening` implements evaluateScreening's per-repeat MINIMUM rule."""
+
+    def test_any_single_bad_repeat_excludes(self):
+        assert not _passes_screening([0.9, 0.9, -0.1], 0.0)   # one bad repeat is enough
+        assert _passes_screening([0.9, 0.9, 0.05], 0.0)
+
+    def test_threshold_is_inclusive(self):
+        assert _passes_screening([0.2], 0.2)                  # exactly at threshold passes
+
+    def test_nan_repeats_are_skipped_not_failed(self):
+        assert _passes_screening([np.nan, 0.5], 0.2)          # the usable repeat decides
+        assert _passes_screening([np.nan], 0.9)               # no evidence -> retained
+
+
+class TestScreeningEffect:
+    def test_stricter_threshold_rejects_more_candidates(self):
+        rates = [_run(screening_min_reliability=t).screening_pass_rate
+                 for t in (-1.0, 0.2, 0.5)]
+        assert rates[0] == 1.0
+        assert rates[0] > rates[1] > rates[2]
+
+    def test_stricter_threshold_retains_more_precise_subjects(self):
+        noises = [_run(screening_min_reliability=t).subject_noises.mean()
+                  for t in (-1.0, 0.2, 0.5)]
+        assert noises[0] > noises[1] > noises[2]
+
+    def test_stricter_threshold_raises_retained_reliability(self):
+        rs = [np.nanmean(_run(screening_min_reliability=t).subject_test_retest)
+              for t in (-1.0, 0.2, 0.5)]
+        assert rs[0] < rs[1] < rs[2]
+
+    def test_screening_truncates_the_heavy_tail(self):
+        """Screening's mechanism is removing the worst subjects, not shifting everyone."""
+        assert _run(screening_min_reliability=0.5).subject_noises.max() < \
+               _run(screening_min_reliability=-1.0).subject_noises.max()
+
+    def test_retained_cohort_is_always_exactly_num_subjects(self):
+        """Recruit-until-N: the analysed cohort size is fixed, the recruitment cost varies."""
+        for thr in (-1.0, 0.0, 0.3, 0.6):
+            res = _run(screening_min_reliability=thr)
+            assert res.subject_noises.size == 20
+            assert res.n_candidates_screened >= 20
+
+    def test_pass_rate_matches_the_candidate_count(self):
+        res = _run(screening_min_reliability=0.4)
+        assert res.screening_pass_rate == pytest.approx(20 / res.n_candidates_screened)
+
+
+class TestScreeningDataIsAnalysed:
+    def test_screening_trials_add_observations(self):
+        """A retained subject's screening trials are data, so they must reach the aggregate."""
+        without = _run(screening_trials=0, screening_repeats=0)
+        with_screening = _run(screening_trials=4, screening_repeats=1)
+        assert with_screening.num_obs.sum() > without.num_obs.sum()
+
+    def test_screening_repeats_feed_the_test_retest_summary(self):
+        """Pooling both stages' repeats is why the per-subject values are returned unaggregated."""
+        one_repeat = _run(screening_trials=4, screening_repeats=1)
+        no_screening = _run(screening_trials=0, screening_repeats=0)
+        assert np.isfinite(one_repeat.subject_test_retest).all()
+        assert np.isfinite(no_screening.subject_test_retest).all()
+
+
+class TestStagesUseDisjointImages:
+    """`partitionIntoStages` guarantees no image crosses stages; the simulation must match.
+
+    Drawing the two stages' pools independently would overlap them - at the deployed design about
+    40 of a subject's 360 images - manufacturing within-subject cross-stage pair observations the
+    real task cannot produce, and inflating coverage.
+    """
+
+    def test_no_pair_is_observed_across_both_stages(self):
+        """With disjoint pools every within-subject pair count stays at 1 (2 for a repeated trial).
+
+        A shared image across stages would put some pair in both stages' trials, so its count for
+        a single subject would exceed what one stage alone can produce.
+        """
+        params = _params(num_subjects=1, trials_per_subject=6, images_per_trial=10,
+                         frac_trials_repeated=0.0, screening_trials=3, screening_repeats=0,
+                         screening_min_reliability=-1.0)
+        _, res = simulate_task_v4_experiment(params, GT, np.random.default_rng(0), verbose=False)
+        # 6 main + 3 screening trials of 10 images, all disjoint -> every observed pair seen once
+        assert res.num_obs.max() == 1
+        assert res.num_obs.sum() == 9 * (10 * 9 // 2)
+
+    def test_pool_larger_than_the_image_set_is_rejected(self):
+        """The two stages share one pool, so the check must be on their SUM."""
+        with pytest.raises(AssertionError, match="on top of the main stage"):
+            simulate_task_v4_experiment(
+                _params(trials_per_subject=10, images_per_trial=10, frac_trials_repeated=0.0,
+                        screening_trials=4, screening_repeats=0),
+                build_ground_truth_embeddings(130, 5, seed=1),  # needs 40 + 100 = 140 > 130
+                np.random.default_rng(0), verbose=False)
+
+
+class TestSingleSubject:
+    def test_returns_per_repeat_values_not_means(self):
+        run = simulate_task_v4_single_subject(
+            subject_noise=0.4, perspective_dispersion=0.2, t_distinct=6, k=10,
+            n_unique=60, n_repeats=3, gt_embeddings=GT, rng=np.random.default_rng(0),
+        )
+        assert len(run.repeat_correlations) == 3 and len(run.repeat_procrustes) == 3
+        assert all(0.0 <= m <= 1.0 for m in run.repeat_procrustes)
+
+    def test_no_repeats_gives_empty_lists(self):
+        run = simulate_task_v4_single_subject(
+            subject_noise=0.4, perspective_dispersion=0.0, t_distinct=6, k=10,
+            n_unique=60, n_repeats=0, gt_embeddings=GT, rng=np.random.default_rng(0),
+        )
+        assert run.repeat_correlations == [] and run.repeat_procrustes == []
+
+
+class TestValidation:
+    @pytest.mark.parametrize("bad", [
+        dict(screening_trials=-1),
+        dict(screening_trials=4, screening_repeats=4),      # every trial a repeat: no originals
+        dict(screening_min_reliability=1.5),
+        dict(screening_min_reliability=-2.0),
+    ])
+    def test_invalid_screening_params_raise(self, bad):
+        with pytest.raises(AssertionError):
+            simulate_task_v4_experiment(_params(**bad), GT, np.random.default_rng(0), verbose=False)
+
+    def test_screening_pool_larger_than_image_set_raises(self):
+        with pytest.raises(AssertionError, match="screening block needs"):
+            simulate_task_v4_experiment(_params(screening_trials=20, screening_repeats=1),
+                                        GT, np.random.default_rng(0), verbose=False)
+
+
+def test_determinism_same_seed():
+    a, b = _run(seed=3, screening_min_reliability=0.3), _run(seed=3, screening_min_reliability=0.3)
+    np.testing.assert_array_equal(np.nan_to_num(a.distances, nan=-1),
+                                  np.nan_to_num(b.distances, nan=-1))
+    assert a.n_candidates_screened == b.n_candidates_screened
