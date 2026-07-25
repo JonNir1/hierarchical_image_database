@@ -89,6 +89,118 @@ def test_create_no_overwrite(tmp_path):
     ResultStore.create(tmp_path / "s", confdist_len=45, meta_columns=META_COLS, overwrite=True)
 
 
+class TestConfigurationStorage:
+    """The optional ``confs.f32`` side-file (MDS configurations, zero-padded to ``max_ndim``)."""
+
+    N_IMAGES, MAX_NDIM, L = 10, 5, 45
+
+    def _store(self, tmp_path, **kw):
+        return ResultStore.create(tmp_path / "s", confdist_len=self.L, meta_columns=META_COLS,
+                                  n_images=self.N_IMAGES, max_ndim=self.MAX_NDIM, **kw)
+
+    def test_roundtrip_at_max_ndim(self, tmp_path):
+        conf = np.random.default_rng(0).random((self.N_IMAGES, self.MAX_NDIM)).astype(np.float32)
+        s = self._store(tmp_path)
+        s.append(_meta(ndim=self.MAX_NDIM), np.zeros(self.L, np.float32), conf)
+        s.close()
+        got = ResultStore.open(tmp_path / "s").conf(0, self.MAX_NDIM)
+        np.testing.assert_array_equal(got, conf)
+
+    def test_narrower_ndim_is_padded_and_trimmed_back(self, tmp_path):
+        """A 3-D fit is stored padded to 5 columns; reading with ndim=3 returns the original."""
+        conf = np.random.default_rng(1).random((self.N_IMAGES, 3)).astype(np.float32)
+        s = self._store(tmp_path)
+        s.append(_meta(ndim=3), np.zeros(self.L, np.float32), conf)
+        s.close()
+        reopened = ResultStore.open(tmp_path / "s")
+        np.testing.assert_array_equal(reopened.conf(0, 3), conf)
+        padded = reopened.conf(0)  # no ndim -> full padded width
+        assert padded.shape == (self.N_IMAGES, self.MAX_NDIM)
+        np.testing.assert_array_equal(padded[:, 3:], 0.0)
+
+    def test_mixed_ndims_stay_row_aligned(self, tmp_path):
+        """Rows of differing ndim share one fixed-width file; each must read back independently."""
+        rng = np.random.default_rng(2)
+        confs = {nd: rng.random((self.N_IMAGES, nd)).astype(np.float32) for nd in (2, 5, 3)}
+        s = self._store(tmp_path)
+        for rep, (nd, c) in enumerate(confs.items()):
+            s.append(_meta(rep=rep, ndim=nd), np.zeros(self.L, np.float32), c)
+        s.close()
+        reopened = ResultStore.open(tmp_path / "s")
+        for row, (nd, c) in enumerate(confs.items()):
+            np.testing.assert_array_equal(reopened.conf(row, nd), c)
+
+    def test_failed_run_consumes_no_row_in_either_file(self, tmp_path):
+        """A failed MDS run stores neither array, so the two binaries stay in lockstep."""
+        conf = np.ones((self.N_IMAGES, self.MAX_NDIM), np.float32)
+        s = self._store(tmp_path)
+        s.append(_meta(rep=0), np.zeros(self.L, np.float32), conf)
+        s.append(_meta(rep=1, status="error"), None)     # failed: no confdist, no conf
+        s.append(_meta(rep=2), np.zeros(self.L, np.float32), conf * 2)
+        s.close()
+        reopened = ResultStore.open(tmp_path / "s")
+        assert reopened.metadata()["confdist_row"].tolist() == [0, -1, 1]
+        np.testing.assert_array_equal(reopened.conf(1, self.MAX_NDIM), conf * 2)
+
+    def test_conf_required_alongside_confdist(self, tmp_path):
+        """Omitting conf would desynchronise the shared row index, so it must raise."""
+        s = self._store(tmp_path)
+        with pytest.raises(ValueError, match="required alongside"):
+            s.append(_meta(), np.zeros(self.L, np.float32))
+
+    @pytest.mark.parametrize("bad_shape", [(9, 5), (10, 6), (10, 0)])
+    def test_bad_conf_shape_raises(self, tmp_path, bad_shape):
+        s = self._store(tmp_path)
+        with pytest.raises(ValueError):
+            s.append(_meta(), np.zeros(self.L, np.float32), np.zeros(bad_shape, np.float32))
+
+    def test_create_requires_both_geometry_args(self, tmp_path):
+        with pytest.raises(ValueError, match="must be given together"):
+            ResultStore.create(tmp_path / "s", confdist_len=self.L,
+                               meta_columns=META_COLS, n_images=self.N_IMAGES)
+
+    def test_conf_is_a_small_fraction_of_confdist(self, tmp_path):
+        """The whole point of storing coordinates: they are far cheaper than distances."""
+        n_images, max_ndim = 725, 10
+        L = n_images * (n_images - 1) // 2
+        s = ResultStore.create(tmp_path / "s", confdist_len=L, meta_columns=META_COLS,
+                               n_images=n_images, max_ndim=max_ndim)
+        s.append(_meta(ndim=max_ndim), np.zeros(L, np.float32),
+                 np.zeros((n_images, max_ndim), np.float32))
+        s.close()
+        conf_bytes = (tmp_path / "s" / "confs.f32").stat().st_size
+        confdist_bytes = (tmp_path / "s" / "confdists.f32").stat().st_size
+        assert conf_bytes / confdist_bytes < 0.05      # under 5% overhead
+
+
+class TestBackwardCompatibility:
+    """Format-version-1 stores (confdist only) must keep working untouched."""
+
+    def test_v1_store_opens_and_reads(self, tmp_path):
+        L = 45
+        cd = np.random.default_rng(3).random(L).astype(np.float32)
+        s = ResultStore.create(tmp_path / "s", confdist_len=L, meta_columns=META_COLS)
+        s.append(_meta(), cd)
+        s.close()
+        reopened = ResultStore.open(tmp_path / "s")
+        assert not reopened.stores_conf
+        np.testing.assert_array_equal(reopened.confdist(0), cd)
+        assert not (tmp_path / "s" / "confs.f32").exists()   # no stray side-file
+
+    def test_conf_on_a_v1_store_raises_clearly(self, tmp_path):
+        s = ResultStore.create(tmp_path / "s", confdist_len=45, meta_columns=META_COLS)
+        s.append(_meta(), np.zeros(45, np.float32))
+        s.close()
+        reopened = ResultStore.open(tmp_path / "s")
+        with pytest.raises(ValueError, match="does not contain configurations"):
+            reopened.conf(0)
+
+    def test_passing_conf_to_a_v1_store_raises(self, tmp_path):
+        s = ResultStore.create(tmp_path / "s", confdist_len=45, meta_columns=META_COLS)
+        with pytest.raises(ValueError, match="without `n_images`"):
+            s.append(_meta(), np.zeros(45, np.float32), np.zeros((10, 5), np.float32))
+
+
 def test_storage_smaller_than_float64(tmp_path):
     # float32 binary store should be ~half the heavy-array footprint of float64
     L = 1000
