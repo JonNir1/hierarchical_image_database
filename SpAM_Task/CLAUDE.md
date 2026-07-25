@@ -94,15 +94,9 @@ The script also validates that each set has enough images for the configured thr
 prints warnings for any missing or empty directories. Run it once after any change to the
 stimulus directories, before testing or deploying.
 
-> **Known stale references (not yet fixed):** the script reads the main stimulus root from
-> `experimental_trials.stimuli_path` (correct), but its *validation* block still reads a
-> `design` section that no longer exists in `task_config.json` — so the
-> `practice_images_per_trial` threshold resolves to `0` and the "too few practice images"
-> warning can never fire (`generate_manifest.py:79,140`). The catch-image threshold
-> (`catch_trials.images_per_trial`) is unaffected. The pytest fixture
-> `__tests__/conftest.py::make_config` writes the same obsolete `design` section, so 15 of the
-> 28 Python tests currently fail with `ValueError: 'experimental_trials.stimuli_path' is missing
-> or empty`. The `node --test` JS suites are unaffected (112/112 pass).
+Both thresholds come from `catch_trials.images_per_trial`: the practice trial has no count of
+its own, since `task.js` slices `practiceUrls` to that same value. (`practice_images` and
+`catch_images` are two scans of the same directory, so in practice the two checks agree.)
 
 ```bash
 # from SpAM_Task/
