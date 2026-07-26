@@ -249,3 +249,48 @@ def test_calibrate_recovers_known_parameters():
                              np.round(np.arange(0.0, 0.81, 0.2), 2))
     assert abs(fit_noise - true_noise) <= 0.25  # within ~1 grid step
     assert abs(fit_disp - true_disp) <= 0.25
+
+
+class TestDispersionRefit:
+    """Dispersion must be re-fitted whenever the noise POPULATION changes, not just its mean."""
+
+    GT = None
+
+    def _gt(self):
+        from SpAM_Simulations.simulation import build_ground_truth_embeddings
+        if TestDispersionRefit.GT is None:
+            TestDispersionRefit.GT = build_ground_truth_embeddings(90, 4, seed=2)
+        return TestDispersionRefit.GT
+
+    def test_agreement_depends_on_the_noise_shape_not_only_its_mean(self):
+        """The reason a shape refit invalidates the old dispersion calibration.
+
+        Same mean noise, same dispersion, different noise SHAPE -> different between-subject
+        agreement. If this were not so, dispersion could be calibrated once and reused.
+        """
+        from SpAM_Simulations.pilot import _simulated_targets
+        common = dict(gt_embeddings=self._gt(), noise_scale=0.8, dispersion=0.3, num_subjects=25,
+                      trials_per_subject=8, images_per_trial=8, frac_trials_repeated=0.25,
+                      reps=2, seed=0, min_overlap=3)
+        concentrated = _simulated_targets(**common, noise_df=5, lognormal_sigma=0.15)[1]
+        dispersed = _simulated_targets(**common, noise_df=5, lognormal_sigma=1.0)[1]
+        assert abs(concentrated - dispersed) > 0.01
+
+    def test_sigma_zero_keeps_the_historical_t_family_path(self):
+        """Back-compat: the default routes through |t(df)|, so old calibrations still reproduce."""
+        from SpAM_Simulations.pilot import _simulated_targets
+        common = dict(gt_embeddings=self._gt(), noise_scale=0.8, dispersion=0.3, num_subjects=20,
+                      trials_per_subject=8, images_per_trial=8, frac_trials_repeated=0.25,
+                      reps=1, seed=0, min_overlap=3, noise_df=5)
+        a = _simulated_targets(**common)
+        b = _simulated_targets(**common, lognormal_sigma=0.0)
+        assert a == b
+
+    def test_fit_returns_a_grid_value_and_its_achieved_agreement(self):
+        from SpAM_Simulations.pilot import fit_dispersion_for_agreement
+        grid = (0.0, 0.2, 0.4)
+        disp, ach = fit_dispersion_for_agreement(
+            self._gt(), 0.5, noise_scale=0.8, noise_df=5, dispersion_grid=grid,
+            num_subjects=20, trials_per_subject=8, images_per_trial=8,
+            frac_trials_repeated=0.25, reps=1, min_overlap=3)
+        assert disp in grid and np.isfinite(ach)

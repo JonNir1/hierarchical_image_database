@@ -73,9 +73,11 @@
 #   # export REPS=6                   # cohorts per fit point -> C(6,2)=15 cohort PAIRS
 #   bash run_task_v4_sim.sh
 #
-# Grid: 3 R x (5 num_subjects x 4 min_reliability) = 60 leaf configs x 6 reps x 4 ndims = ~1440 MDS
-# fits (itmax=1000, precalc_init=True) - roughly 40% of the v3 multivariate sweep, so a c7i.4xlarge
-# is ample. Screened arms simulate MORE subjects than they retain (rejected candidates are generated
+# Grid: 3 R x 5 num_subjects x 4 min_reliability x 3 perspective_dispersion = 180 leaf configs
+# x 6 reps x 4 ndims = ~4320 MDS fits (itmax=1000, precalc_init=True). At the ~3.2 s/fit measured on
+# a c7i.4xlarge that is roughly 4 h. Dispersion is swept rather than fixed because it is identified
+# only through between-subject agreement - the noisiest of the three anchors - so the fitted value
+# is carried with one point either side. Screened arms simulate MORE subjects than they retain (rejected candidates are generated
 # and discarded), so generation is slower than v3 by about the reciprocal of the pass rate; that is
 # small next to SMACOF. REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
 
@@ -165,7 +167,8 @@ from SpAM_Simulations.config import TaskV4SimulationConfig, MDSSweepConfig
 from SpAM_Simulations import pipeline, eval_helpers
 from SpAM_Simulations.pilot import (
     load_pilot_subjects, build_gt_from_pilot, fit_noise_for_test_retest,
-    subject_reliability_sample, fit_noise_population,
+    subject_reliability_sample, fit_noise_population, fit_dispersion_for_agreement,
+    between_subject_agreement,
 )
 
 PILOT, MANIFEST = "data/pilot", "data/pilot/stimuli_manifest.json"
@@ -222,6 +225,29 @@ if FB["at_shape_boundary"]:
 LOGN_SIGMA = float(FB["shape"]) if FB["family"] == "lognormal" else 0.0
 SHAPE_DF = int(FB["shape"]) if FB["family"] == "t" else 5
 
+# B1: re-fit perspective_dispersion against the empirical between-subject agreement, UNDER the
+# newly fitted noise population. Agreement is g(noise_distribution, dispersion) - it depends on the
+# whole distribution, not just its mean - so refitting the noise shape moves the agreement curve and
+# invalidates any dispersion calibrated against the old one. Sequential, not joint: test-retest is
+# perspective-invariant, so the noise fit above needed no reference to dispersion.
+emp_agr = between_subject_agreement(np.vstack([s_.distances for s_ in allsub]),
+                                    min_overlap=20)["mean_agreement"]
+DISP_FIT, disp_ach = fit_dispersion_for_agreement(
+    coords, emp_agr, noise_scale=float(FB["noise_scale"]), noise_df=SHAPE_DF,
+    lognormal_sigma=LOGN_SIGMA, images_per_trial=IMAGES_PER_TRIAL, reps=REPS)
+print(f"[disp] empirical between-subject agreement={emp_agr:.4f} -> dispersion={DISP_FIT:.2f} "
+      f"(achieved {disp_ach:.4f}); previous runs assumed {DISP:.2f}")
+# Dispersion is identified only through between-subject agreement, which is measured on the sparse
+# pair overlap between subjects and is the noisiest of the three anchors - so it is carried as a
+# SENSITIVITY AXIS rather than trusted as a point estimate.
+DISP_LIST = sorted({round(max(DISP_FIT - 0.15, 0.0), 2), round(DISP_FIT, 2),
+                    round(DISP_FIT + 0.15, 2)})
+print(f"[disp] sweeping dispersion over {DISP_LIST}")
+with open("calibration/dispersion_fit.json", "w") as fh:
+    json.dump(dict(empirical_agreement=float(emp_agr), fitted=float(DISP_FIT),
+                   achieved=float(disp_ach), swept=DISP_LIST,
+                   noise_family=FB["family"], noise_shape=float(FB["shape"])), fh, indent=2)
+
 # B: invert subjects_noise_scale for each target test-retest at the DEPLOYED images=20, holding the
 # fitted shape fixed. Targets are nominal; the ACHIEVED R is recorded and is what the analysis
 # should group by. Note the achieved R here is the UNSCREENED population value - screening raises
@@ -252,7 +278,7 @@ for _, r in noise_map.iterrows():
         trials_per_subject=[TRIALS_PER_SUBJECT], images_per_trial=[IMAGES_PER_TRIAL],
         subjects_noise_scale=[noise], subjects_noise_df=[df],
         subjects_noise_lognormal_sigma=[LOGN_SIGMA],
-        frac_trials_repeated=[FRAC_REPEATED], perspective_dispersion=[DISP],
+        frac_trials_repeated=[FRAC_REPEATED], perspective_dispersion=DISP_LIST,
         screening_trials=[SCREEN_TRIALS], screening_repeats=[SCREEN_REPEATS],
         screening_min_reliability=MINREL_LIST,
         reps=REPS, seed=42,
@@ -281,7 +307,7 @@ for _, r in noise_map.iterrows():
     item = pipeline.compute_item_generalizability(store)
     item[item["num_subjects"] == max(FULL_N)].to_csv(f"{outd}/item_generalizability.csv", index=False)
 
-    group_by = ("ndim", "screening_min_reliability")
+    group_by = ("ndim", "screening_min_reliability", "perspective_dispersion")
     pl = eval_helpers.plateau_num_subjects(es, group_by=group_by)
     pl.insert(0, "target_test_retest", R); pl.insert(0, "noise_family", FB["family"])
     pl.insert(0, "noise_shape", FB["shape"])

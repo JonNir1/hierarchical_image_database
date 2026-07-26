@@ -320,26 +320,34 @@ def _simulated_targets(
         gt_embeddings: np.ndarray, noise_scale: float, dispersion: float,
         num_subjects: int, trials_per_subject: int, images_per_trial: int,
         frac_trials_repeated: float, reps: int, seed: int, min_overlap: int,
-        noise_df: int = 1,
+        noise_df: int = 1, lognormal_sigma: float = 0.0,
 ) -> Tuple[float, float]:
     """Run the matched simulation and return ``(median_test_retest, mean_between_agreement)``.
 
     Averaged over ``reps`` independent cohorts for stability (the cohort is only ``num_subjects``).
-    ``noise_df`` is the per-subject noise-heterogeneity df (the same value must be used in the sweep).
+    ``noise_df`` is the per-subject noise-heterogeneity df (the same value must be used in the sweep);
+    ``lognormal_sigma > 0`` instead selects the fitted lognormal noise population (see
+    ``noise_population``), which is what the shape fit produces.
     """
-    from SpAM_Simulations.task_v3_experiment import (
-        simulate_task_v3_experiment, TaskV3ExperimentParameters,
+    from SpAM_Simulations.task_v4_experiment import (
+        simulate_task_v4_experiment, TaskV4ExperimentParameters,
     )
-    params = TaskV3ExperimentParameters(
+    # Routed through task-v4 with the screening block switched off, which is bit-exact to
+    # task-v3 (see test_task_v4_experiment.TestEquivalenceToTaskV3) but additionally understands
+    # the fitted lognormal noise population. Calibrating the dispersion on the OLD |t(df)| family
+    # while the sweep runs on the fitted one would be worse than not recalibrating at all.
+    params = TaskV4ExperimentParameters(
         num_subjects=num_subjects, trials_per_subject=trials_per_subject,
         images_per_trial=images_per_trial, subjects_noise_scale=noise_scale,
         subjects_noise_df=noise_df, frac_trials_repeated=frac_trials_repeated,
         perspective_dispersion=dispersion,
+        screening_trials=0, screening_repeats=0, screening_min_reliability=-1.0,
+        subjects_noise_lognormal_sigma=lognormal_sigma,
     )
     trs, agrs = [], []
     for r in range(reps):
         rng = np.random.default_rng(seed + r)
-        _, res, per_subject = simulate_task_v3_experiment(
+        _, res, per_subject = simulate_task_v4_experiment(
             params, gt_embeddings, rng, verbose=False, return_per_subject=True
         )
         trs.append(float(np.nanmedian(res.subject_test_retest)))
@@ -628,3 +636,35 @@ def fit_noise_population(
         best["shape"] == max(t_shapes if best["family"] == "t" else lognormal_shapes)
         or best["shape"] == min(t_shapes if best["family"] == "t" else lognormal_shapes))
     return {"best": best, "grid": grid}
+
+
+def fit_dispersion_for_agreement(
+        gt_embeddings: np.ndarray, target_agreement: float, *,
+        noise_scale: float, noise_df: int = 5, lognormal_sigma: float = 0.0,
+        dispersion_grid: Sequence[float] = tuple(np.round(np.arange(0.0, 1.21, 0.05), 2)),
+        num_subjects: int = 20, trials_per_subject: int = 20, images_per_trial: int = 20,
+        frac_trials_repeated: float = 0.15, reps: int = 5, seed: int = 0, min_overlap: int = 20,
+) -> Tuple[float, float]:
+    """Fit ``perspective_dispersion`` to a target between-subject agreement, noise held fixed.
+
+    Step (2) of the sequential calibration, and it **must be re-run whenever the noise population
+    changes** - not only when its mean changes. Between-subject agreement is
+    ``g(noise_distribution, dispersion)``: it depends on the whole distribution, because two
+    subjects agree less when either is imprecise. Refitting the noise population's *shape* (see
+    :func:`fit_noise_population`) therefore moves the agreement curve, and a dispersion calibrated
+    against the old shape would be inconsistent with the sweep it feeds.
+
+    Direction, worth knowing before reading the result: a *less* dispersed noise population raises
+    agreement at any given dispersion, so matching the same empirical agreement requires a *higher*
+    fitted dispersion - which lowers the achievable stability asymptote and raises required-N.
+
+    Returns ``(dispersion, achieved_agreement)``.
+    """
+    def evaluate(disp):
+        return _simulated_targets(
+            gt_embeddings, noise_scale, disp, num_subjects, trials_per_subject, images_per_trial,
+            frac_trials_repeated, reps, seed, min_overlap, noise_df=noise_df,
+            lognormal_sigma=lognormal_sigma,
+        )[1]
+    fitted = _fit_1d(target_agreement, evaluate, np.asarray(dispersion_grid))
+    return float(fitted), float(evaluate(fitted))
