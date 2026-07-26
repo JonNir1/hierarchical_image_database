@@ -217,8 +217,14 @@ class TaskV4SimulationConfig(TaskV3SimulationConfig):
     screening_trials: Sequence[int] = field(default_factory=tuple)
     screening_repeats: Sequence[int] = field(default_factory=tuple)
     screening_min_reliability: Sequence[float] = field(default_factory=tuple)
+    # Shape of the per-subject noise population. >0 selects a lognormal with that sigma; 0.0 falls
+    # back to |t(subjects_noise_df)|, the historical family. Defaults to (0.0,) so an existing
+    # config keeps its exact meaning. See `noise_population` for why the t family is inadequate:
+    # its CV cannot go below ~0.756, but the pilot's reliability distribution needs ~0.47.
+    subjects_noise_lognormal_sigma: Sequence[float] = (0.0,)
 
-    _SCREENING_GRIDS = ("screening_trials", "screening_repeats", "screening_min_reliability")
+    _SCREENING_GRIDS = ("screening_trials", "screening_repeats", "screening_min_reliability",
+                        "subjects_noise_lognormal_sigma")
 
     def __post_init__(self):
         super().__post_init__()
@@ -229,6 +235,9 @@ class TaskV4SimulationConfig(TaskV3SimulationConfig):
             raise ValueError("`screening_trials` values must be non-negative")
         if any(sr < 0 for sr in self.screening_repeats):
             raise ValueError("`screening_repeats` values must be non-negative")
+        if any(s < 0 for s in self.subjects_noise_lognormal_sigma):
+            raise ValueError("`subjects_noise_lognormal_sigma` values must be >= 0 "
+                             "(0 = use the |t(subjects_noise_df)| family)")
         bad = [mr for mr in self.screening_min_reliability if not (-1 <= mr <= 1)]
         if bad:
             raise ValueError(f"`screening_min_reliability` values must be in [-1, 1], got {bad}")
@@ -257,6 +266,7 @@ class TaskV4SimulationConfig(TaskV3SimulationConfig):
                 self.screening_trials,
                 self.screening_repeats,
                 self.screening_min_reliability,
+                self.subjects_noise_lognormal_sigma,
             )
         ]
 

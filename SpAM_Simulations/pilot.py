@@ -320,26 +320,34 @@ def _simulated_targets(
         gt_embeddings: np.ndarray, noise_scale: float, dispersion: float,
         num_subjects: int, trials_per_subject: int, images_per_trial: int,
         frac_trials_repeated: float, reps: int, seed: int, min_overlap: int,
-        noise_df: int = 1,
+        noise_df: int = 1, lognormal_sigma: float = 0.0,
 ) -> Tuple[float, float]:
     """Run the matched simulation and return ``(median_test_retest, mean_between_agreement)``.
 
     Averaged over ``reps`` independent cohorts for stability (the cohort is only ``num_subjects``).
-    ``noise_df`` is the per-subject noise-heterogeneity df (the same value must be used in the sweep).
+    ``noise_df`` is the per-subject noise-heterogeneity df (the same value must be used in the sweep);
+    ``lognormal_sigma > 0`` instead selects the fitted lognormal noise population (see
+    ``noise_population``), which is what the shape fit produces.
     """
-    from SpAM_Simulations.task_v3_experiment import (
-        simulate_task_v3_experiment, TaskV3ExperimentParameters,
+    from SpAM_Simulations.task_v4_experiment import (
+        simulate_task_v4_experiment, TaskV4ExperimentParameters,
     )
-    params = TaskV3ExperimentParameters(
+    # Routed through task-v4 with the screening block switched off, which is bit-exact to
+    # task-v3 (see test_task_v4_experiment.TestEquivalenceToTaskV3) but additionally understands
+    # the fitted lognormal noise population. Calibrating the dispersion on the OLD |t(df)| family
+    # while the sweep runs on the fitted one would be worse than not recalibrating at all.
+    params = TaskV4ExperimentParameters(
         num_subjects=num_subjects, trials_per_subject=trials_per_subject,
         images_per_trial=images_per_trial, subjects_noise_scale=noise_scale,
         subjects_noise_df=noise_df, frac_trials_repeated=frac_trials_repeated,
         perspective_dispersion=dispersion,
+        screening_trials=0, screening_repeats=0, screening_min_reliability=-1.0,
+        subjects_noise_lognormal_sigma=lognormal_sigma,
     )
     trs, agrs = [], []
     for r in range(reps):
         rng = np.random.default_rng(seed + r)
-        _, res, per_subject = simulate_task_v3_experiment(
+        _, res, per_subject = simulate_task_v4_experiment(
             params, gt_embeddings, rng, verbose=False, return_per_subject=True
         )
         trs.append(float(np.nanmedian(res.subject_test_retest)))
@@ -524,3 +532,139 @@ def calibrate_params_from_pilot(
         if verbose:
             print(f"[save] fitted parameters -> {save_params}")
     return coords, fit, info
+
+
+# --------------------------------------------------------------------------- noise-population fit
+def subject_reliability_sample(subjects: Sequence[PilotSubject]) -> np.ndarray:
+    """Each subject's mean whole-trial test-retest Spearman, as a 1-D sample (NaN subjects dropped).
+
+    This is the empirical quantity the simulated noise population has to reproduce - not just its
+    median (which ``fit_noise_for_test_retest`` already matches) but its whole spread.
+    """
+    vals = np.array([within_subject_test_retest(s) for s in subjects], dtype=np.float64)
+    return vals[~np.isnan(vals)]
+
+
+def simulate_reliability_sample(
+        gt_embeddings: np.ndarray, noise_scale: float, *, family: str = "t", shape: float = 5.0,
+        n_subjects: int = 60, n_repeats: int = 4, images_per_trial: int = 20,
+        perspective_dispersion: float = 0.2, reps: int = 3, seed: int = 0,
+) -> np.ndarray:
+    """The simulated counterpart of :func:`subject_reliability_sample`.
+
+    Only repeated trials carry information about test-retest, so each simulated subject runs
+    ``n_repeats`` distinct trials plus ``n_repeats`` repeats rather than a full session - the
+    reliability distribution is identical and it is an order of magnitude cheaper, which is what
+    makes a 2-D grid search affordable.
+    """
+    from SpAM_Simulations.task_v4_experiment import simulate_task_v4_single_subject
+    from SpAM_Simulations.noise_population import draw_subject_noises
+    out = []
+    for r in range(reps):
+        rng = np.random.default_rng(seed + r)
+        noises = draw_subject_noises(n_subjects, noise_scale, rng=rng, family=family, shape=shape)
+        for s in range(n_subjects):
+            run = simulate_task_v4_single_subject(
+                subject_noise=noises[s], perspective_dispersion=perspective_dispersion,
+                t_distinct=n_repeats, k=images_per_trial, n_unique=n_repeats * images_per_trial,
+                n_repeats=n_repeats, gt_embeddings=gt_embeddings, rng=rng)
+            good = [c for c in run.repeat_correlations if not np.isnan(c)]
+            if good:
+                out.append(float(np.mean(good)))
+    return np.asarray(out)
+
+
+def fit_noise_population(
+        gt_embeddings: np.ndarray, empirical: np.ndarray, *,
+        families: Sequence[str] = ("t", "lognormal"),
+        t_shapes: Sequence[float] = (2, 3, 5, 8, 15, 30),
+        lognormal_shapes: Sequence[float] = (0.15, 0.25, 0.35, 0.45, 0.6, 0.8, 1.0),
+        noise_grid: Sequence[float] = tuple(np.round(np.arange(0.4, 2.61, 0.2), 2)),
+        n_subjects: int = 60, n_repeats: int = 4, images_per_trial: int = 20,
+        perspective_dispersion: float = 0.2, reps: int = 3, seed: int = 0, verbose: bool = True,
+) -> dict:
+    """Jointly fit the noise population's **scale and shape** to an empirical reliability sample.
+
+    ``fit_noise_for_test_retest`` matches only the median reliability, leaving the shape assumed;
+    that assumption proved wrong at both tails, and since screening can only truncate a
+    distribution its entire yield is set by the shape. This fits both by minimising the
+    1-Wasserstein (earth-mover) distance between the simulated and empirical *distributions* of
+    per-subject mean reliability.
+
+    Wasserstein rather than a few matched quantiles because the empirical sample is small (tens of
+    subjects): it uses every observation, needs no quantile choices, and is in the units of R, so
+    the returned ``distance`` is directly interpretable as "the average R-shift between the two
+    distributions". Both families are scanned unless ``families`` restricts it - ``"t"`` cannot
+    express a cohort more concentrated than a half-normal (CV floor ~0.756), so a fit that lands on
+    the largest ``t_shapes`` value is a signal the family is the binding constraint, not the data.
+
+    Returns the best ``{family, shape, noise_scale, distance, cv, simulated_median, ...}`` plus the
+    full scanned ``grid`` as a DataFrame, so the fit's sharpness can be inspected rather than
+    trusted.
+    """
+    from scipy.stats import wasserstein_distance
+    empirical = np.asarray(empirical, dtype=np.float64)
+    empirical = empirical[~np.isnan(empirical)]
+    if empirical.size < 5:
+        raise ValueError(f"need at least 5 empirical reliabilities to fit a distribution, got {empirical.size}")
+    rows = []
+    for family in families:
+        shapes = t_shapes if family == "t" else lognormal_shapes
+        for shape in shapes:
+            for scale in noise_grid:
+                sim = simulate_reliability_sample(
+                    gt_embeddings, float(scale), family=family, shape=float(shape),
+                    n_subjects=n_subjects, n_repeats=n_repeats, images_per_trial=images_per_trial,
+                    perspective_dispersion=perspective_dispersion, reps=reps, seed=seed)
+                rows.append(dict(family=family, shape=float(shape), noise_scale=float(scale),
+                                 distance=float(wasserstein_distance(sim, empirical)),
+                                 sim_median=float(np.median(sim)), sim_mean=float(np.mean(sim)),
+                                 sim_q10=float(np.quantile(sim, 0.10)),
+                                 sim_q90=float(np.quantile(sim, 0.90))))
+            if verbose:
+                best = min((r for r in rows if r["family"] == family and r["shape"] == shape),
+                           key=lambda r: r["distance"])
+                print(f"[fit] {family:<9} shape={shape:<5} -> best scale={best['noise_scale']:.2f} "
+                      f"W1={best['distance']:.4f} (median {best['sim_median']:.3f})", flush=True)
+    grid = pd.DataFrame(rows)
+    best = grid.loc[grid["distance"].idxmin()].to_dict()
+    from SpAM_Simulations.noise_population import population_cv
+    best["cv"] = population_cv(best["family"], best["shape"])
+    best["empirical_median"] = float(np.median(empirical))
+    best["empirical_n"] = int(empirical.size)
+    best["at_shape_boundary"] = bool(
+        best["shape"] == max(t_shapes if best["family"] == "t" else lognormal_shapes)
+        or best["shape"] == min(t_shapes if best["family"] == "t" else lognormal_shapes))
+    return {"best": best, "grid": grid}
+
+
+def fit_dispersion_for_agreement(
+        gt_embeddings: np.ndarray, target_agreement: float, *,
+        noise_scale: float, noise_df: int = 5, lognormal_sigma: float = 0.0,
+        dispersion_grid: Sequence[float] = tuple(np.round(np.arange(0.0, 1.21, 0.05), 2)),
+        num_subjects: int = 20, trials_per_subject: int = 20, images_per_trial: int = 20,
+        frac_trials_repeated: float = 0.15, reps: int = 5, seed: int = 0, min_overlap: int = 20,
+) -> Tuple[float, float]:
+    """Fit ``perspective_dispersion`` to a target between-subject agreement, noise held fixed.
+
+    Step (2) of the sequential calibration, and it **must be re-run whenever the noise population
+    changes** - not only when its mean changes. Between-subject agreement is
+    ``g(noise_distribution, dispersion)``: it depends on the whole distribution, because two
+    subjects agree less when either is imprecise. Refitting the noise population's *shape* (see
+    :func:`fit_noise_population`) therefore moves the agreement curve, and a dispersion calibrated
+    against the old shape would be inconsistent with the sweep it feeds.
+
+    Direction, worth knowing before reading the result: a *less* dispersed noise population raises
+    agreement at any given dispersion, so matching the same empirical agreement requires a *higher*
+    fitted dispersion - which lowers the achievable stability asymptote and raises required-N.
+
+    Returns ``(dispersion, achieved_agreement)``.
+    """
+    def evaluate(disp):
+        return _simulated_targets(
+            gt_embeddings, noise_scale, disp, num_subjects, trials_per_subject, images_per_trial,
+            frac_trials_repeated, reps, seed, min_overlap, noise_df=noise_df,
+            lognormal_sigma=lognormal_sigma,
+        )[1]
+    fitted = _fit_1d(target_agreement, evaluate, np.asarray(dispersion_grid))
+    return float(fitted), float(evaluate(fitted))

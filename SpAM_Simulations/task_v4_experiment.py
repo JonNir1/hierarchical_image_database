@@ -51,7 +51,7 @@ import numpy as np
 from tqdm import trange
 
 from SpAM_Simulations.design import build_trial_lists, distinct_trial_count, select_repeat_trials
-from SpAM_Simulations.experiment import _draw_subject_noises
+from SpAM_Simulations.noise_population import draw_subject_noises, resolve_family
 from SpAM_Simulations.helpers import mean_from_sum_and_count
 from SpAM_Simulations.task_v3_experiment import (
     _draw_perspective_weights, _simulate_trial, _trial_test_retest, _trial_test_retest_procrustes,
@@ -68,6 +68,8 @@ TaskV4ExperimentParameters = NamedTuple("TaskV4ExperimentParameters", [
     ("screening_trials", int),            # screening-stage main-trial slots (0 = no screening)
     ("screening_repeats", int),           # of which verbatim repeats (test-retest probes)
     ("screening_min_reliability", float), # exclude if min per-repeat rho < this (-1 = exclude nobody)
+    ("subjects_noise_lognormal_sigma", float),  # >0 -> lognormal noise population with this sigma;
+                                                # 0.0 -> |t(subjects_noise_df)| (historical default)
 ])
 
 SubjectRun = NamedTuple("SubjectRun", [
@@ -141,7 +143,8 @@ def simulate_task_v4_experiment(
     per_subject = np.empty((params.num_subjects, n_pairs), dtype=np.float32) if return_per_subject else None
 
     noise_pool = _CandidateNoisePool(
-        params.subjects_noise_df, params.subjects_noise_scale, params.num_subjects, rng
+        params.subjects_noise_df, params.subjects_noise_scale, params.num_subjects, rng,
+        params.subjects_noise_lognormal_sigma,
     )
     retained = 0
     n_candidates = 0
@@ -226,14 +229,17 @@ class _CandidateNoisePool:
     models agree bit-for-bit.
     """
 
-    def __init__(self, df: int, scale: float, batch_size: int, rng: np.random.Generator):
-        self._df, self._scale, self._batch_size, self._rng = df, scale, max(batch_size, 1), rng
+    def __init__(self, df: int, scale: float, batch_size: int, rng: np.random.Generator,
+                 lognormal_sigma: float = 0.0):
+        self._scale, self._batch_size, self._rng = scale, max(batch_size, 1), rng
+        self._family, self._shape = resolve_family(df, lognormal_sigma)
         self._buffer: np.ndarray = np.empty(0, dtype=np.float64)
         self._pos = 0
 
     def next(self) -> float:
         if self._pos >= self._buffer.size:
-            self._buffer = _draw_subject_noises(self._df, self._scale, self._batch_size, self._rng)
+            self._buffer = draw_subject_noises(self._batch_size, self._scale, rng=self._rng,
+                                               family=self._family, shape=self._shape)
             self._pos = 0
         value = float(self._buffer[self._pos])
         self._pos += 1
@@ -353,4 +359,8 @@ def _validate(params: TaskV4ExperimentParameters) -> None:
     )
     assert -1 <= params.screening_min_reliability <= 1, (
         f"`screening_min_reliability` must be in [-1, 1] (got {params.screening_min_reliability})"
+    )
+    assert params.subjects_noise_lognormal_sigma >= 0, (
+        f"`subjects_noise_lognormal_sigma` must be >= 0, with 0 meaning 'use the t family' "
+        f"(got {params.subjects_noise_lognormal_sigma})"
     )
