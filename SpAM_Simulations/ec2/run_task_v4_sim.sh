@@ -21,11 +21,20 @@
 #
 # THE DESIGN GRID IS FIXED TO THE DEPLOYED TASK, not swept:
 #   * images_per_trial = 20                     (task_config.json experimental_trials)
-#   * trials_per_subject = 22                   screening 6+2 PLUS experimental 12+2: a retained
-#                                               subject's screening trials ARE analysed data
-#   * frac_trials_repeated = 4/22               the 2 screening + 2 experimental repeats
+#   * trials_per_subject = 14                   the MAIN stage (12 distinct + 2 repeats); the
+#                                               screening block's 8 trials are simulated separately
+#                                               and pooled in, for 22 trials / 360 images per subject
+#   * frac_trials_repeated = 2/14               the experimental block's 2 repeats
 #   * screening_trials = 8, repeats = 2         the deployed screening block
-# Swept: num_subjects x screening_min_reliability x target test-retest R (x noise df, single value).
+# Swept: num_subjects x screening_min_reliability x target test-retest R.
+#
+# THE NOISE POPULATION'S SHAPE IS FITTED, NOT ASSUMED (step B0). Earlier runs calibrated only the
+# median reliability and left the shape at |t(df=5)|, which checking against 36 real subjects showed
+# is far too dispersed (CV 0.92 against roughly 0.36 empirically) - it invents a class of subjects
+# with a catastrophic repeat that barely exists, and screening's entire apparent benefit came from
+# truncating that invented tail. fit_noise_population fits scale AND shape jointly to the measured
+# per-subject reliabilities, and the fitted shape is then held fixed while only the scale is
+# re-inverted per target R, so the R axis stays a clean sensitivity on a realistic population.
 #
 # SCREENING SEMANTICS. screening_min_reliability = -1 runs the block but excludes nobody: that is
 # the control arm, and it holds the number of COLLECTED trials fixed so the comparison isolates the
@@ -60,7 +69,6 @@
 #   export S3_URI=s3://<your-bucket>/spam-simulations/task-v4   # FRESH prefix; PRIVATE
 #   # export TR_LIST=0.24,0.35,0.5    # target within-subject test-retest R values
 #   # export MINREL_LIST=-1,0,0.2,0.4 # screening thresholds (-1 = no exclusion control)
-#   # export DF_LIST=5                # per-subject noise-heterogeneity df
 #   # export DISP=0.2                 # fixed perspective dispersion (empirical)
 #   # export REPS=6                   # cohorts per fit point -> C(6,2)=15 cohort PAIRS
 #   bash run_task_v4_sim.sh
@@ -149,6 +157,7 @@ mkdir -p calibration
 N_JOBS="$N_JOBS" GT_METHOD="$GT_METHOD" REPS="$REPS" DF_LIST="${DF_LIST:-5}" \
   TR_LIST="${TR_LIST:-0.24,0.35,0.5}" MINREL_LIST="${MINREL_LIST:--1,0,0.2,0.4}" \
   DISP="${DISP:-0.2}" python - <<'PY' 2>&1 | tee calibration/calibrate.log
+import json
 import os
 import numpy as np
 import pandas as pd
@@ -156,12 +165,12 @@ from SpAM_Simulations.config import TaskV4SimulationConfig, MDSSweepConfig
 from SpAM_Simulations import pipeline, eval_helpers
 from SpAM_Simulations.pilot import (
     load_pilot_subjects, build_gt_from_pilot, fit_noise_for_test_retest,
+    subject_reliability_sample, fit_noise_population,
 )
 
 PILOT, MANIFEST = "data/pilot", "data/pilot/stimuli_manifest.json"
 GT_METHOD = os.environ.get("GT_METHOD", "smacof")
 N_JOBS = int(os.environ["N_JOBS"])
-DF_LIST = [int(x) for x in os.environ["DF_LIST"].split(",")]
 TR_LIST = [float(x) for x in os.environ["TR_LIST"].split(",")]
 MINREL_LIST = [float(x) for x in os.environ["MINREL_LIST"].split(",")]
 DISP = float(os.environ["DISP"])                 # perspective dispersion, FIXED (empirical 0.2)
@@ -188,18 +197,43 @@ np.save("calibration/gt_pilot_coords.npy", coords)
 print(f"[gt] {gt_info['method']}: N={coords.shape[0]}, n_dims={gt_info['n_dims']}, "
       f"observed {gt_info['observed_frac']:.1%} of pairs")
 
-# B: invert subjects_noise_scale for each (df, target test-retest) at the DEPLOYED images=20.
-# Targets are nominal; the ACHIEVED R is recorded and is what the analysis should group by. Note the
-# achieved R here is the UNSCREENED population value - screening raises the retained cohort's R, and
-# that realised value is reported per cell in coverage.csv's mean_test_retest.
+# B0: fit the noise population's SHAPE to the empirical reliability distribution.
+# Matching only the median (step B) leaves the shape assumed, and the assumed |t(df)| shape is
+# wrong at both tails - it invents too many catastrophic subjects and too many excellent ones.
+# Screening can only truncate a distribution, so its entire yield is set by that shape. This fits
+# scale AND shape jointly against the per-subject reliabilities measured from the real repeats.
+emp = subject_reliability_sample(allsub)
+print(f"\n[shape] empirical reliability sample: n={len(emp)} median={np.median(emp):.3f} "
+      f"q10={np.quantile(emp,.1):.3f} q90={np.quantile(emp,.9):.3f}", flush=True)
+fit = fit_noise_population(coords, emp, images_per_trial=IMAGES_PER_TRIAL,
+                           perspective_dispersion=DISP, n_subjects=80, reps=3, verbose=True)
+FB = fit["best"]
+fit["grid"].to_csv("calibration/noise_shape_grid.csv", index=False)
+with open("calibration/noise_shape_fit.json", "w") as fh:
+    json.dump({k: (float(v) if isinstance(v, (int, float, np.floating)) else v)
+               for k, v in FB.items()}, fh, indent=2, default=str)
+print(f"[shape] best: family={FB['family']} shape={FB['shape']} scale={FB['noise_scale']} "
+      f"W1={FB['distance']:.4f} CV={FB['cv']:.3f} boundary={FB['at_shape_boundary']}")
+if FB["at_shape_boundary"]:
+    print("[shape] WARNING: fit sits on a shape-grid boundary - the family, not the data, is the "
+          "binding constraint. Widen the grid before trusting the required-N numbers.")
+# The fitted shape is held FIXED across the sweep; only the scale is re-inverted per target R below,
+# so the R axis stays a clean "what if reliability were higher" sensitivity on a realistic shape.
+LOGN_SIGMA = float(FB["shape"]) if FB["family"] == "lognormal" else 0.0
+SHAPE_DF = int(FB["shape"]) if FB["family"] == "t" else 5
+
+# B: invert subjects_noise_scale for each target test-retest at the DEPLOYED images=20, holding the
+# fitted shape fixed. Targets are nominal; the ACHIEVED R is recorded and is what the analysis
+# should group by. Note the achieved R here is the UNSCREENED population value - screening raises
+# the retained cohort's R, and that realised value is reported per cell in coverage.csv.
 rows = []
-for df in DF_LIST:
-    for R in TR_LIST:
-        noise, ach = fit_noise_for_test_retest(coords, R, noise_df=df,
-                                               images_per_trial=IMAGES_PER_TRIAL, reps=REPS)
-        rows.append(dict(subjects_noise_df=df, target_test_retest=R,
-                         subjects_noise_scale=noise, achieved_tr_unscreened=ach))
-        print(f"[invert] df={df} targetR={R:.2f} -> noise={noise:.2f} (achieved {ach:.3f} @img20)")
+for R in TR_LIST:
+    noise, ach = fit_noise_for_test_retest(coords, R, noise_df=SHAPE_DF,
+                                           images_per_trial=IMAGES_PER_TRIAL, reps=REPS)
+    rows.append(dict(subjects_noise_df=SHAPE_DF, noise_family=FB["family"],
+                     lognormal_sigma=LOGN_SIGMA, target_test_retest=R,
+                     subjects_noise_scale=noise, achieved_tr_unscreened=ach))
+    print(f"[invert] targetR={R:.2f} -> noise={noise:.2f} (achieved {ach:.3f} @img20)")
 noise_map = pd.DataFrame(rows)
 noise_map.to_csv("calibration/noise_map.csv", index=False)
 print("[save] noise map -> calibration/noise_map.csv")
@@ -211,12 +245,13 @@ sweep = MDSSweepConfig(ndims=NDIMS, max_iters=1000, convergence_tol=1e-6, precal
 plateaus = []
 for _, r in noise_map.iterrows():
     df = int(r.subjects_noise_df); R = float(r.target_test_retest); noise = float(r.subjects_noise_scale)
-    tag = f"df{df}_tr{int(round(R * 100)):02d}"
+    tag = f"tr{int(round(R * 100)):02d}"
     print(f"\n===== {tag}: noise={noise:.2f}, disp={DISP}, N={FULL_N}, min_rel={MINREL_LIST} =====")
     cfg = TaskV4SimulationConfig(
         gt_embeddings=coords, num_subjects=FULL_N,
         trials_per_subject=[TRIALS_PER_SUBJECT], images_per_trial=[IMAGES_PER_TRIAL],
         subjects_noise_scale=[noise], subjects_noise_df=[df],
+        subjects_noise_lognormal_sigma=[LOGN_SIGMA],
         frac_trials_repeated=[FRAC_REPEATED], perspective_dispersion=[DISP],
         screening_trials=[SCREEN_TRIALS], screening_repeats=[SCREEN_REPEATS],
         screening_min_reliability=MINREL_LIST,
@@ -248,7 +283,8 @@ for _, r in noise_map.iterrows():
 
     group_by = ("ndim", "screening_min_reliability")
     pl = eval_helpers.plateau_num_subjects(es, group_by=group_by)
-    pl.insert(0, "target_test_retest", R); pl.insert(0, "subjects_noise_df", df)
+    pl.insert(0, "target_test_retest", R); pl.insert(0, "noise_family", FB["family"])
+    pl.insert(0, "noise_shape", FB["shape"])
     # the same plateau read off the Procrustes curve, which DECREASES with N - hence higher_is_better
     pl_m2 = eval_helpers.plateau_num_subjects(eg, y="mean_procrustes_m2", group_by=group_by,
                                               higher_is_better=False)
