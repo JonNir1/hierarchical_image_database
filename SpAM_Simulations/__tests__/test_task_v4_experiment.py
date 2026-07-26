@@ -26,6 +26,7 @@ def _params(**overrides):
         subjects_noise_scale=0.6, subjects_noise_df=5,
         frac_trials_repeated=0.25, perspective_dispersion=0.2,
         screening_trials=4, screening_repeats=1, screening_min_reliability=-1.0,
+        subjects_noise_lognormal_sigma=0.0,     # 0.0 = the historical |t(df)| family
     )
     fields.update(overrides)
     return TaskV4ExperimentParameters(**fields)
@@ -53,7 +54,8 @@ class TestEquivalenceToTaskV3:
             TaskV3ExperimentParameters(**self.COMMON), GT, np.random.default_rng(seed), verbose=False)
         _, v4 = simulate_task_v4_experiment(
             TaskV4ExperimentParameters(**self.COMMON, screening_trials=0, screening_repeats=0,
-                                       screening_min_reliability=-1.0),
+                                       screening_min_reliability=-1.0,
+                                       subjects_noise_lognormal_sigma=0.0),
             GT, np.random.default_rng(seed), verbose=False)
         return v3, v4
 
@@ -231,3 +233,45 @@ def test_determinism_same_seed():
     np.testing.assert_array_equal(np.nan_to_num(a.distances, nan=-1),
                                   np.nan_to_num(b.distances, nan=-1))
     assert a.n_candidates_screened == b.n_candidates_screened
+
+
+class TestNoisePopulationFamily:
+    """The per-subject noise population's SHAPE is now a fitted parameter, not an assumption.
+
+    Checking the simulation against 36 real subjects showed |t(df)| is the wrong family: its
+    coefficient of variation cannot fall below ~0.756 (the half-normal limit) however large df
+    gets, while the pilot's reliability distribution needs ~0.47. The lognormal option exists to
+    span that range.
+    """
+
+    def test_sigma_zero_is_the_historical_t_family(self):
+        """The 0.0 sentinel must reproduce |t(df)| exactly, so old parameter tuples keep meaning."""
+        a = _run(seed=5, subjects_noise_lognormal_sigma=0.0)
+        b = _run(seed=5, subjects_noise_lognormal_sigma=0.0, subjects_noise_df=3)
+        assert not np.array_equal(a.subject_noises, b.subject_noises)   # df still matters
+        c = _run(seed=5, subjects_noise_lognormal_sigma=0.0)
+        np.testing.assert_array_equal(a.subject_noises, c.subject_noises)
+
+    def test_lognormal_sigma_controls_dispersion(self):
+        lo = _run(seed=5, subjects_noise_lognormal_sigma=0.2).subject_noises
+        hi = _run(seed=5, subjects_noise_lognormal_sigma=0.9).subject_noises
+        assert np.std(lo) / np.mean(lo) < np.std(hi) / np.mean(hi)
+
+    def test_lognormal_reaches_below_the_t_family_floor(self):
+        """The whole reason the family was added: |t| cannot express a concentrated cohort."""
+        from SpAM_Simulations.noise_population import population_cv
+        t_floor = min(population_cv("t", df) for df in (5, 30, 200))
+        assert t_floor > 0.74                                   # the half-normal limit
+        assert population_cv("lognormal", 0.45) < 0.6           # comfortably below it
+        assert population_cv("lognormal", 0.15) < 0.2           # near-homogeneous is reachable
+
+    def test_mean_scale_is_preserved_across_families(self):
+        """`subjects_noise_scale` keeps its meaning (and its calibration) when the shape changes."""
+        for sigma in (0.0, 0.3, 0.7):
+            r = _run(seed=5, screening_min_reliability=-1.0, subjects_noise_lognormal_sigma=sigma)
+            assert r.subject_noises.mean() == pytest.approx(0.6, rel=1e-6)
+
+    def test_negative_sigma_rejected(self):
+        with pytest.raises(AssertionError, match="lognormal_sigma"):
+            simulate_task_v4_experiment(_params(subjects_noise_lognormal_sigma=-0.1), GT,
+                                        np.random.default_rng(0), verbose=False)

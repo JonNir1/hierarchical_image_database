@@ -524,3 +524,107 @@ def calibrate_params_from_pilot(
         if verbose:
             print(f"[save] fitted parameters -> {save_params}")
     return coords, fit, info
+
+
+# --------------------------------------------------------------------------- noise-population fit
+def subject_reliability_sample(subjects: Sequence[PilotSubject]) -> np.ndarray:
+    """Each subject's mean whole-trial test-retest Spearman, as a 1-D sample (NaN subjects dropped).
+
+    This is the empirical quantity the simulated noise population has to reproduce - not just its
+    median (which ``fit_noise_for_test_retest`` already matches) but its whole spread.
+    """
+    vals = np.array([within_subject_test_retest(s) for s in subjects], dtype=np.float64)
+    return vals[~np.isnan(vals)]
+
+
+def simulate_reliability_sample(
+        gt_embeddings: np.ndarray, noise_scale: float, *, family: str = "t", shape: float = 5.0,
+        n_subjects: int = 60, n_repeats: int = 4, images_per_trial: int = 20,
+        perspective_dispersion: float = 0.2, reps: int = 3, seed: int = 0,
+) -> np.ndarray:
+    """The simulated counterpart of :func:`subject_reliability_sample`.
+
+    Only repeated trials carry information about test-retest, so each simulated subject runs
+    ``n_repeats`` distinct trials plus ``n_repeats`` repeats rather than a full session - the
+    reliability distribution is identical and it is an order of magnitude cheaper, which is what
+    makes a 2-D grid search affordable.
+    """
+    from SpAM_Simulations.task_v4_experiment import simulate_task_v4_single_subject
+    from SpAM_Simulations.noise_population import draw_subject_noises
+    out = []
+    for r in range(reps):
+        rng = np.random.default_rng(seed + r)
+        noises = draw_subject_noises(n_subjects, noise_scale, rng=rng, family=family, shape=shape)
+        for s in range(n_subjects):
+            run = simulate_task_v4_single_subject(
+                subject_noise=noises[s], perspective_dispersion=perspective_dispersion,
+                t_distinct=n_repeats, k=images_per_trial, n_unique=n_repeats * images_per_trial,
+                n_repeats=n_repeats, gt_embeddings=gt_embeddings, rng=rng)
+            good = [c for c in run.repeat_correlations if not np.isnan(c)]
+            if good:
+                out.append(float(np.mean(good)))
+    return np.asarray(out)
+
+
+def fit_noise_population(
+        gt_embeddings: np.ndarray, empirical: np.ndarray, *,
+        families: Sequence[str] = ("t", "lognormal"),
+        t_shapes: Sequence[float] = (2, 3, 5, 8, 15, 30),
+        lognormal_shapes: Sequence[float] = (0.15, 0.25, 0.35, 0.45, 0.6, 0.8, 1.0),
+        noise_grid: Sequence[float] = tuple(np.round(np.arange(0.4, 2.61, 0.2), 2)),
+        n_subjects: int = 60, n_repeats: int = 4, images_per_trial: int = 20,
+        perspective_dispersion: float = 0.2, reps: int = 3, seed: int = 0, verbose: bool = True,
+) -> dict:
+    """Jointly fit the noise population's **scale and shape** to an empirical reliability sample.
+
+    ``fit_noise_for_test_retest`` matches only the median reliability, leaving the shape assumed;
+    that assumption proved wrong at both tails, and since screening can only truncate a
+    distribution its entire yield is set by the shape. This fits both by minimising the
+    1-Wasserstein (earth-mover) distance between the simulated and empirical *distributions* of
+    per-subject mean reliability.
+
+    Wasserstein rather than a few matched quantiles because the empirical sample is small (tens of
+    subjects): it uses every observation, needs no quantile choices, and is in the units of R, so
+    the returned ``distance`` is directly interpretable as "the average R-shift between the two
+    distributions". Both families are scanned unless ``families`` restricts it - ``"t"`` cannot
+    express a cohort more concentrated than a half-normal (CV floor ~0.756), so a fit that lands on
+    the largest ``t_shapes`` value is a signal the family is the binding constraint, not the data.
+
+    Returns the best ``{family, shape, noise_scale, distance, cv, simulated_median, ...}`` plus the
+    full scanned ``grid`` as a DataFrame, so the fit's sharpness can be inspected rather than
+    trusted.
+    """
+    from scipy.stats import wasserstein_distance
+    empirical = np.asarray(empirical, dtype=np.float64)
+    empirical = empirical[~np.isnan(empirical)]
+    if empirical.size < 5:
+        raise ValueError(f"need at least 5 empirical reliabilities to fit a distribution, got {empirical.size}")
+    rows = []
+    for family in families:
+        shapes = t_shapes if family == "t" else lognormal_shapes
+        for shape in shapes:
+            for scale in noise_grid:
+                sim = simulate_reliability_sample(
+                    gt_embeddings, float(scale), family=family, shape=float(shape),
+                    n_subjects=n_subjects, n_repeats=n_repeats, images_per_trial=images_per_trial,
+                    perspective_dispersion=perspective_dispersion, reps=reps, seed=seed)
+                rows.append(dict(family=family, shape=float(shape), noise_scale=float(scale),
+                                 distance=float(wasserstein_distance(sim, empirical)),
+                                 sim_median=float(np.median(sim)), sim_mean=float(np.mean(sim)),
+                                 sim_q10=float(np.quantile(sim, 0.10)),
+                                 sim_q90=float(np.quantile(sim, 0.90))))
+            if verbose:
+                best = min((r for r in rows if r["family"] == family and r["shape"] == shape),
+                           key=lambda r: r["distance"])
+                print(f"[fit] {family:<9} shape={shape:<5} -> best scale={best['noise_scale']:.2f} "
+                      f"W1={best['distance']:.4f} (median {best['sim_median']:.3f})", flush=True)
+    grid = pd.DataFrame(rows)
+    best = grid.loc[grid["distance"].idxmin()].to_dict()
+    from SpAM_Simulations.noise_population import population_cv
+    best["cv"] = population_cv(best["family"], best["shape"])
+    best["empirical_median"] = float(np.median(empirical))
+    best["empirical_n"] = int(empirical.size)
+    best["at_shape_boundary"] = bool(
+        best["shape"] == max(t_shapes if best["family"] == "t" else lognormal_shapes)
+        or best["shape"] == min(t_shapes if best["family"] == "t" else lognormal_shapes))
+    return {"best": best, "grid": grid}
