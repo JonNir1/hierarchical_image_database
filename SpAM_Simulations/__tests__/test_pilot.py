@@ -294,3 +294,21 @@ class TestDispersionRefit:
             num_subjects=20, trials_per_subject=8, images_per_trial=8,
             frac_trials_repeated=0.25, reps=1, min_overlap=3)
         assert disp in grid and np.isfinite(ach)
+
+
+def test_noise_inversion_respects_the_noise_family():
+    """Regression: inverting under one noise family and sweeping under another mislabels the R axis.
+
+    The first task-v4-fitted run inverted the scale under |t(5)| while the sweep ran the fitted
+    lognormal, so cells labelled R=0.24/0.35/0.50 actually realised 0.09/0.16/0.29. The mean scale
+    is preserved across families, but the realised reliability is not, so the two fits must agree.
+    """
+    from SpAM_Simulations.pilot import fit_noise_for_test_retest
+    from SpAM_Simulations.simulation import build_ground_truth_embeddings
+    gt = build_ground_truth_embeddings(90, 4, seed=3)
+    kw = dict(noise_df=5, images_per_trial=8, trials_per_subject=8,
+              frac_trials_repeated=0.25, num_subjects=15, reps=1,
+              noise_grid=(0.5, 1.0, 1.5))
+    _, ach_t = fit_noise_for_test_retest(gt, 0.4, lognormal_sigma=0.0, **kw)
+    _, ach_ln = fit_noise_for_test_retest(gt, 0.4, lognormal_sigma=0.35, **kw)
+    assert ach_t != ach_ln, "the inversion ignored lognormal_sigma - the R axis would be mislabelled"

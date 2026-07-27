@@ -257,7 +257,11 @@ with open("calibration/dispersion_fit.json", "w") as fh:
 # the retained cohort's R, and that realised value is reported per cell in coverage.csv.
 rows = []
 for R in TR_LIST:
+    # lognormal_sigma MUST be threaded here: the inversion has to use the SAME noise population
+    # the sweep will run, or the achieved R it reports describes a different distribution and the
+    # whole target-R axis is mislabelled (this bit the first task-v4-fitted run).
     noise, ach = fit_noise_for_test_retest(coords, R, noise_df=SHAPE_DF,
+                                           lognormal_sigma=LOGN_SIGMA,
                                            images_per_trial=IMAGES_PER_TRIAL, reps=REPS)
     rows.append(dict(subjects_noise_df=SHAPE_DF, noise_family=FB["family"],
                      lognormal_sigma=LOGN_SIGMA, target_test_retest=R,

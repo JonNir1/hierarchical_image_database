@@ -366,6 +366,7 @@ def fit_noise_for_test_retest(
         target_test_retest: float,
         *,
         noise_df: int,
+        lognormal_sigma: float = 0.0,
         images_per_trial: int = 20,
         trials_per_subject: int = 20,
         frac_trials_repeated: float = 0.15,
@@ -379,7 +380,11 @@ def fit_noise_for_test_retest(
 
     Test-retest is perspective-invariant (a whole-trial repeat re-projects to the same arrangement and
     differs only by fresh placement noise), so the inversion is done at ``dispersion=0`` and is
-    independent of ``perspective_dispersion``. It depends on ``noise_df`` (heavy tails shift the
+    independent of ``perspective_dispersion``. It depends on the noise population's SHAPE, so
+    ``lognormal_sigma`` must be passed whenever the sweep will use a fitted lognormal population -
+    inverting under one family and sweeping under another silently mislabels the whole R axis
+    (the mean scale is preserved across families, but the realised reliability is not). It also
+    depends on ``noise_df`` (heavy tails shift the
     median) and weakly on ``images_per_trial``; ``num_subjects``/``trials_per_subject`` only affect the
     estimator's variance. If ``target_test_retest`` is outside the grid's achievable range, the closest
     achievable value is returned - inspect ``achieved_tr`` to see how far off it landed.
@@ -388,6 +393,7 @@ def fit_noise_for_test_retest(
         return _simulated_targets(
             gt_embeddings, noise, 0.0, num_subjects, trials_per_subject, images_per_trial,
             frac_trials_repeated, reps, seed, min_overlap=25, noise_df=noise_df,
+            lognormal_sigma=lognormal_sigma,
         )[0]
     noise = _fit_1d(target_test_retest, tr, np.asarray(noise_grid))
     return float(noise), float(tr(noise))
