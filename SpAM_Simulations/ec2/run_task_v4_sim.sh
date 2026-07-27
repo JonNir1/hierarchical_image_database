@@ -176,7 +176,10 @@ GT_METHOD = os.environ.get("GT_METHOD", "smacof")
 N_JOBS = int(os.environ["N_JOBS"])
 TR_LIST = [float(x) for x in os.environ["TR_LIST"].split(",")]
 MINREL_LIST = [float(x) for x in os.environ["MINREL_LIST"].split(",")]
-DISP = float(os.environ["DISP"])                 # perspective dispersion, FIXED (empirical 0.2)
+DISP = float(os.environ["DISP"])   # the value earlier runs ASSUMED; kept only as the
+                                   # comparison point in the [disp] line and as the
+                                   # (perspective-invariant) dispersion used while
+                                   # fitting the noise shape. The swept value is DISP_LIST.
 REPS = int(os.environ.get("REPS", "6"))
 
 # The DEPLOYED design (SpAM_Task/task_config.json v4.0), fixed rather than swept.
@@ -272,7 +275,10 @@ plateaus = []
 for _, r in noise_map.iterrows():
     df = int(r.subjects_noise_df); R = float(r.target_test_retest); noise = float(r.subjects_noise_scale)
     tag = f"tr{int(round(R * 100)):02d}"
-    print(f"\n===== {tag}: noise={noise:.2f}, disp={DISP}, N={FULL_N}, min_rel={MINREL_LIST} =====")
+    # NB: report DISP_LIST (what is actually swept), not the DISP env default -- printing
+    # the latter made the log claim dispersion=0.2 while the sweep ran the fitted 0.3.
+    print(f"\n===== {tag}: noise={noise:.2f}, disp={DISP_LIST}, sigma={LOGN_SIGMA}, "
+          f"N={FULL_N}, min_rel={MINREL_LIST} =====")
     cfg = TaskV4SimulationConfig(
         gt_embeddings=coords, num_subjects=FULL_N,
         trials_per_subject=[TRIALS_PER_SUBJECT], images_per_trial=[IMAGES_PER_TRIAL],
