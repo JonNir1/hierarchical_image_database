@@ -48,6 +48,31 @@ describe('seededShuffle', () => {
     });
 });
 
+// ── roundTo ───────────────────────────────────────────────────────────────────
+describe('roundTo', () => {
+    it('rounds to 10 decimal places by default', () => {
+        assert.equal(roundTo(1 / 3), 0.3333333333);
+    });
+    it('never leaves more than 10 significant decimal digits', () => {
+        const raw = Math.sqrt(2) / 3; // long irrational tail
+        const rounded = roundTo(raw);
+        const decimals = (String(rounded).split('.')[1] || '').length;
+        assert.ok(decimals <= 10, `expected <=10 decimals, got ${decimals} (${rounded})`);
+    });
+    it('supports a custom decimals argument', () => {
+        assert.equal(roundTo(1 / 3, 2), 0.33);
+    });
+    it('passes NaN through unchanged', () => {
+        assert.ok(Number.isNaN(roundTo(NaN)));
+    });
+    it('passes Infinity through unchanged', () => {
+        assert.equal(roundTo(Infinity), Infinity);
+    });
+    it('leaves already-short values unchanged', () => {
+        assert.equal(roundTo(0.5), 0.5);
+    });
+});
+
 // ── computePairwiseDistances ──────────────────────────────────────────────────
 describe('computePairwiseDistances', () => {
     it('returns n*(n-1)/2 pairs', () => {
@@ -58,6 +83,13 @@ describe('computePairwiseDistances', () => {
         const locs = [{src:'a',x:0,y:0},{src:'b',x:300,y:400}];
         const [{distance}] = computePairwiseDistances(locs, 900, 700);
         assert.ok(Math.abs(distance - 500 / Math.sqrt(900**2 + 700**2)) < 1e-10);
+    });
+    it('rounds each distance to at most 10 decimal places', () => {
+        // Coordinates chosen so the raw division has a long, non-terminating tail.
+        const locs = [{src:'a',x:0,y:0},{src:'b',x:1,y:1}];
+        const [{distance}] = computePairwiseDistances(locs, 900, 700);
+        const decimals = (String(distance).split('.')[1] || '').length;
+        assert.ok(decimals <= 10, `expected <=10 decimals, got ${decimals} (${distance})`);
     });
 });
 
@@ -488,6 +520,17 @@ describe('computeSpearmanCorrelation', () => {
         assert.ok(Math.abs(rho - 0.9285714285714287) < 1e-10, `expected ~0.9285714285714287, got ${rho}`);
     });
 
+    it('rounds the result to at most 10 decimal places', () => {
+        const keys = [['a','b'], ['a','c'], ['a','d'], ['a','e'], ['a','f'], ['a','g'], ['a','h'], ['b','c']];
+        const distA = [0.12, 0.45, 0.33, 0.78, 0.21, 0.60, 0.05, 0.90];
+        const distB = [0.20, 0.30, 0.50, 0.65, 0.40, 0.55, 0.10, 0.80];
+        const a = keys.map(([s1, s2], i) => ({ src1: s1, src2: s2, distance: distA[i] }));
+        const b = keys.map(([s1, s2], i) => ({ src1: s1, src2: s2, distance: distB[i] }));
+        const rho = computeSpearmanCorrelation(a, b);
+        const decimals = (String(rho).split('.')[1] || '').length;
+        assert.ok(decimals <= 10, `expected <=10 decimals, got ${decimals} (${rho})`);
+    });
+
     it('throws when the two pair sets cover different image sets', () => {
         const a = pairs([['a', 'b', 1], ['a', 'c', 2]]);
         const b = pairs([['a', 'b', 1], ['a', 'd', 2]]);
@@ -595,5 +638,19 @@ describe('evaluateScreening', () => {
         assert.equal(result.stats.moveRatioFailRate, 0);
         assert.equal(result.stats.distanceSdFailRate, 0);
         assert.equal(result.pass, true);
+    });
+
+    it('rounds fail-rate and reliability stats to at most 10 decimal places', () => {
+        // 1/3 and 2/3 both have long repeating decimal expansions.
+        const mainTrials = [
+            { numMoves: 1, numItems: 20, sd: 0.01 },  // fails both
+            { numMoves: 20, numItems: 20, sd: 0.01 }, // fails SD only
+            { numMoves: 20, numItems: 20, sd: 0.5 },  // passes both
+        ];
+        const result = evaluateScreening({ mainTrials, reliabilities: [0.111111111111, 0.222222222222] }, cfg);
+        for (const v of [result.stats.moveRatioFailRate, result.stats.distanceSdFailRate, result.stats.minReliability, result.stats.medianReliability]) {
+            const decimals = (String(v).split('.')[1] || '').length;
+            assert.ok(decimals <= 10, `expected <=10 decimals, got ${decimals} (${v})`);
+        }
     });
 });
