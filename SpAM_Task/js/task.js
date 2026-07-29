@@ -658,9 +658,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           const centroid   = computeCentroid(data.final_locations);
           const clusterMean = distances.reduce((a, b) => a + b, 0) / (distances.length || 1);
           data.catch_trial_target_location = trial.target_location;
-          data.centroid_x             = centroid.x / sortW;
-          data.centroid_y             = centroid.y / sortH;
-          data.cluster_mean_distance  = clusterMean;
+          data.centroid_x             = roundTo(centroid.x / sortW);
+          data.centroid_y             = roundTo(centroid.y / sortH);
+          data.cluster_mean_distance  = roundTo(clusterMean);
           data.qc_flag = false;
         } else {
           data.qc_flag = computeMainQcFlag(sd, numMoves, trial.images.length, config);

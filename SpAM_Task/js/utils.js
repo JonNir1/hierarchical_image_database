@@ -1,6 +1,23 @@
 'use strict';
 
 /**
+ * Round a float to at most `decimals` decimal places, avoiding the
+ * spurious 16-18 digit tails that raw IEEE-754 arithmetic (pixel divisions,
+ * correlation coefficients, aggregated rates) otherwise leaves in output
+ * data. Non-finite values (NaN, ±Infinity) pass through unchanged, since
+ * `reliability` is legitimately NaN when a repeat has no comparable original.
+ *
+ * @param {number} value
+ * @param {number} [decimals=10]
+ * @returns {number}
+ */
+function roundTo(value, decimals = 10) {
+    if (!Number.isFinite(value)) return value;
+    const factor = 10 ** decimals;
+    return Math.round(value * factor) / factor;
+}
+
+/**
  * Compute the structural positions insertTrialRepeats (trial_generator.js)
  * will use for a sequence of `t` main-trial slots with `numRepeats` of them
  * being verbatim repeats — derived from `t` and `numRepeats` alone, with no
@@ -411,7 +428,7 @@ function computePairwiseDistances(locations, sortAreaWidth, sortAreaHeight) {
         for (let j = i + 1; j < locations.length; j++) {
             const dx = locations[i].x - locations[j].x;
             const dy = locations[i].y - locations[j].y;
-            const distance = Math.sqrt(dx * dx + dy * dy) / diagonal;
+            const distance = roundTo(Math.sqrt(dx * dx + dy * dy) / diagonal);
             pairs.push({ src1: locations[i].src, src2: locations[j].src, distance });
         }
     }
@@ -546,7 +563,7 @@ function computeSpearmanCorrelation(pairsA, pairsB) {
         valuesA.push(distA);
         valuesB.push(mapB.get(key));
     }
-    return _pearsonCorrelation(_averageRanks(valuesA), _averageRanks(valuesB));
+    return roundTo(_pearsonCorrelation(_averageRanks(valuesA), _averageRanks(valuesB)));
 }
 
 /** Rank values 1..n, tied values get the AVERAGE of their tied-block ranks. */
@@ -615,10 +632,10 @@ function evaluateScreening(dataSoFar, config) {
     const n = mainTrials.length;
     const moveFails = mainTrials.filter(t => t.numMoves < et.min_move_item_ratio * t.numItems).length;
     const sdFails    = mainTrials.filter(t => t.sd < et.min_pairwise_distance_sd).length;
-    const moveRatioFailRate  = n === 0 ? 0 : moveFails / n;
-    const distanceSdFailRate = n === 0 ? 0 : sdFails   / n;
-    const minReliability    = reliabilities.length === 0 ? null : Math.min(...reliabilities);
-    const medianReliability = reliabilities.length === 0 ? null : _median(reliabilities);
+    const moveRatioFailRate  = roundTo(n === 0 ? 0 : moveFails / n);
+    const distanceSdFailRate = roundTo(n === 0 ? 0 : sdFails   / n);
+    const minReliability    = reliabilities.length === 0 ? null : roundTo(Math.min(...reliabilities));
+    const medianReliability = reliabilities.length === 0 ? null : roundTo(_median(reliabilities));
 
     const reasons = [];
     if (thr.move_ratio_max_fail_rate !== null && moveRatioFailRate > thr.move_ratio_max_fail_rate)
