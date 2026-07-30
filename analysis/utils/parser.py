@@ -3,16 +3,15 @@ Loader for SpAM session data -- flat data/ directory, cohort determined from
 each file's own content (deployment_mode), not from which directory it lives in.
 
 Usage (from repo root):
-    from analysis.utils.parser_v2 import load_data
+    from analysis.utils.parser import load_data
     data = load_data("data/")
     df_participants = data["participants"]  # one row per participant_id
     df_trials       = data["trials"]         # one row per real SpAM/catch trial;
                                               # join to df_participants on participant_id
 
-This module is self-contained: the shared trial/demographics helpers that used to live in
-analysis.utils.parser now live here, so parser.py has no remaining dependents and can be
-retired. The v1 loader and its pilot/prod directory layout are preserved at tag spam-sim-v4.0,
-which is also the revision the task-v4.0 simulations were run from.
+This is the second-generation loader (formerly parser_v2.py). The original v1 loader --
+which read a separate data/pilot and data/prod directory pair -- is preserved at tag
+spam-sim-v4.0, which is also the revision the task-v4.0 simulations were run from.
 """
 from __future__ import annotations
 
@@ -26,12 +25,8 @@ import pandas as pd
 from scipy.stats import spearmanr
 
 # ---------------------------------------------------------------------------
-# Shared session/demographics helpers
-#
-# Moved here from analysis.utils.parser: these are schema-independent (they parse a
-# single trial's JSON columns and normalise Prolific demographics), so they outlived the
-# v1 loader they used to live in. Keeping them here lets parser_v2 stand alone, which is
-# what allows parser.py to be retired. The v1 loader is preserved at tag spam-sim-v4.0.
+# Shared session/demographics helpers -- schema-independent (they parse a single
+# trial's JSON columns and normalise Prolific demographics).
 # ---------------------------------------------------------------------------
 
 _PROLIFIC_SENTINEL = "CONSENT_REVOKED"

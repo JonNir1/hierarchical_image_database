@@ -128,7 +128,7 @@ coords, fit, info = calibrate_params_from_pilot(
 The read-only building blocks it composes (`load_pilot_subjects`, `within_subject_test_retest`,
 `between_subject_agreement`, `build_gt_from_pilot`) also live in `pilot.py`.
 
-> **Cohort policy.** Simulations calibrate on the **pilot cohort only**. `parser_v2` reads a flat
+> **Cohort policy.** Simulations calibrate on the **pilot cohort only**. `analysis.utils.parser` reads a flat
 > `data/` directory and derives each session's cohort from its own `deployment_mode`, so
 > `load_pilot_subjects` defaults to `cohorts=("pilot",)`; calibrating on production data would shape
 > the sample-size and screening conclusions using the very cohort they are meant to plan. Note every

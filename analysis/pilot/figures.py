@@ -1,11 +1,11 @@
 """
 Pilot analysis figures for the SpAM task.
 
-All functions accept DataFrames returned by analysis.utils.parser_v2.load_data
+All functions accept DataFrames returned by analysis.utils.parser.load_data
 ("participants" and/or "trials") and return plotly Figure objects.
 
 Usage (from repo root):
-    from analysis.utils.parser_v2 import load_data
+    from analysis.utils.parser import load_data
     from analysis.pilot.figures import (
         fig_completion_status, fig_demographics,
         fig_trial_duration, fig_moves, fig_reliability,
@@ -26,7 +26,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.stats import gaussian_kde, ks_2samp, spearmanr
 
-from analysis.utils.parser_v2 import parse_pairwise_distances
+from analysis.utils.parser import parse_pairwise_distances
 
 # ---------------------------------------------------------------------------
 # Version colour palette
@@ -460,7 +460,7 @@ def _repeat_reliability_by_index(df_trials: pd.DataFrame) -> pd.DataFrame:
     ascending trial_id within each subject's session -- repeat #1 is the earliest
     repeat trial encountered, etc. v3.x sessions have 3 repeats; v4.x sessions have
     4 (2 in the screening stage, 2 in the experimental stage). Reliability values
-    are read directly from the trials' precomputed `reliability` column (parser_v2
+    are read directly from the trials' precomputed `reliability` column (the parser
     already computes Spearman r per repeat row) rather than recomputed here.
 
     Returns one row per (participant_id, repeat_index): participant_id,

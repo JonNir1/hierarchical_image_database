@@ -4,7 +4,7 @@ import math
 import pandas as pd
 import pytest
 
-from analysis.utils.parser_v2 import (
+from analysis.utils.parser import (
     _count_moves,
     _trial_image_set,
     _normalise_locations,
@@ -98,7 +98,7 @@ class TestLoadData:
         assert repeat["reliability"] == pytest.approx(1.0)  # same rank order -> r=1
 
     def test_repeat_image_set_mismatch_detected(self, tmp_path):
-        from analysis.utils.parser_v2 import _validate_trial_repeat_image_sets_v2
+        from analysis.utils.parser import _validate_trial_repeat_image_sets_v2
 
         write_demographics_csv(tmp_path, [_demo_row()])
         write_session_csv(tmp_path, [

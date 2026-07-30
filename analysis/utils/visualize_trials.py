@@ -103,14 +103,14 @@ def _pair_and_remaining_rows(df_subject: pd.DataFrame) -> tuple[list[pd.Series],
       - remaining_rows: every other trial, in presentation order, excluding
         anything already included in pair_rows.
 
-    Requires the parser_v2 "repeat_of_trial" column (present
+    Requires the "repeat_of_trial" column (present
     on every trials DataFrame produced by analysis.utils.parser, defaulting
     to False/NaN on task versions without the repeat mechanism).
     """
     df_subject = df_subject.sort_values("trial_id")
     trials_by_number = {int(row["trial_id"]): row for _, row in df_subject.iterrows()}
 
-    # parser_v2 folded is_trial_repeat + repeat_of_trial_number into one nullable column:
+    # The parser folds is_trial_repeat + repeat_of_trial_number into one nullable column:
     # a non-null repeat_of_trial IS the "this is a repeat" flag.
     repeat_mask = df_subject["repeat_of_trial"].notna()
     repeat_rows = df_subject[repeat_mask]
