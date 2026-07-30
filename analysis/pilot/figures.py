@@ -514,7 +514,7 @@ def fig_reliability(df_trials: pd.DataFrame) -> go.Figure:
     groups = sorted(r_df["version_group"].unique())
     fig = make_subplots(
         rows=2, cols=1,
-        row_heights=[0.45, 0.55],
+        row_heights=[0.6, 0.4],
         subplot_titles=["Test-retest reliability by version", "Reliability over repeat trials"],
         vertical_spacing=0.2,
     )
@@ -1245,7 +1245,6 @@ def fig_pairwise_distance_distribution(
 
     fig.update_layout(
         height=680,
-        width=1150,
         margin={"l": 80, "r": 40, "t": 60, "b": 60},
         showlegend=True,
         legend={"groupclick": "togglegroup"},
