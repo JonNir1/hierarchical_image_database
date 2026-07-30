@@ -90,13 +90,13 @@ jobs:
 
       - name: Install dependencies
         # Only the subset needed by common.py, semantic_km.py, sensory.py,
-        # analysis.utils.parser/visualize_trials/spearman_r (parser.py loads
-        # both data/pilot and data/prod), and their tests (tqdm is a
-        # lightweight, dependency-free progress bar used by both builders;
-        # plotly is needed by visualize_trials's tests); heavy deps (torch,
-        # open_clip, nltk) are not required here -- tests that need them
-        # (e.g. test_assign_wn_synsets.py) skip gracefully via
-        # pytest.importorskip when nltk is absent.
+        # analysis.utils.parser/visualize_trials/spearman_r (parser.py reads
+        # a single flat data/ dir, cohort per-file via deployment_mode), and
+        # their tests (tqdm is a lightweight, dependency-free progress bar
+        # used by both builders; plotly is needed by visualize_trials's
+        # tests); heavy deps (torch, open_clip, nltk) are not required here --
+        # tests that need them (e.g. test_assign_wn_synsets.py) skip
+        # gracefully via pytest.importorskip when nltk is absent.
         run: pip install pytest numpy scipy pandas Pillow plotly tqdm
 
       - name: Run pytest
