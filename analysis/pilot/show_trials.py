@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import plotly.io as pio
 
-from analysis.utils.parser_v2 import load_data
+from analysis.utils.parser import load_data
 from analysis.utils.visualize_trials import visualize_trials
 
 pio.renderers.default = "browser"
@@ -44,7 +44,7 @@ with warnings.catch_warnings(record=True) as _w:
     warnings.simplefilter("always")
     data = load_data("data")
 
-# parser_v2 splits the old single frame in two: per-trial rows, and per-participant
+# The parser splits the old single frame in two: per-trial rows, and per-participant
 # session metadata. Re-join the two session-level fields this script filters on, keeping
 # the old `session_file` name so the rest of the script is unchanged.
 df = data["trials"].merge(

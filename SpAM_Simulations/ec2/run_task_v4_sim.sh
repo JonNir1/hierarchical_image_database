@@ -171,7 +171,7 @@ from SpAM_Simulations.pilot import (
     between_subject_agreement,
 )
 
-# parser_v2 reads a FLAT data/ dir and derives cohort from each file's deployment_mode;
+# The parser reads a FLAT data/ dir and derives cohort from each file's deployment_mode;
 # load_pilot_subjects defaults to cohorts=("pilot",) so production data never calibrates a sweep.
 PILOT, MANIFEST = "data", "data/stimuli_manifest.json"
 GT_METHOD = os.environ.get("GT_METHOD", "smacof")

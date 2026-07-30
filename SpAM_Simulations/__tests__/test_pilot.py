@@ -1,7 +1,7 @@
 """Tests for pilot ingestion + calibration.
 
-Session/CSV loading is delegated to ``analysis.utils.parser_v2`` (tested there); these tests exercise
-this module's own logic - reducing a parser_v2 tidy ``trials`` frame to a ``PilotSubject``, the
+Session/CSV loading is delegated to ``analysis.utils.parser`` (tested there); these tests exercise
+this module's own logic - reducing a tidy ``trials`` frame to a ``PilotSubject``, the
 observables, and the calibration fit - on hand-built DataFrames, with no real data dependency.
 """
 import json
@@ -35,10 +35,10 @@ def _pw_json(images, dists):
 
 
 def _trials_df(trials, participant="P", version=3.0):
-    """Build a parser_v2-style `trials` frame for one participant.
+    """Build a parser-style `trials` frame for one participant.
 
     `trials`: list of {images, dists, repeat_of?, catch?}. `repeat_of` is the 1-based `trial_id` of
-    the original; parser_v2 replaced the old `is_trial_repeat` + `repeat_of_trial_number` pair with
+    the original; the parser replaced the old `is_trial_repeat` + `repeat_of_trial_number` pair with
     a single nullable `repeat_of_trial`, and added `is_catch`.
     """
     recs = []
@@ -54,7 +54,7 @@ def _trials_df(trials, participant="P", version=3.0):
 
 
 def _loaded(trials_df, participants_df=None):
-    """Mimic parser_v2.load_data's two-table return for monkeypatching."""
+    """Mimic load_data's two-table return for monkeypatching."""
     if participants_df is None:
         participants_df = pd.DataFrame([
             {"participant_id": pid, "cohort": "pilot",
@@ -328,7 +328,7 @@ def test_noise_inversion_respects_the_noise_family():
 class TestCohortIsolation:
     """Simulations must not be calibrated on the live study's data.
 
-    parser_v2 derives `cohort` from each session's own `deployment_mode`, so pilot and production
+    the parser derives `cohort` from each session's own `deployment_mode`, so pilot and production
     now sit in one flat directory and only this filter separates them. Calibrating on production
     would let the sample-size and screening conclusions be shaped by the cohort they are meant to
     plan - circular, and equivalent to peeking at the running experiment.
@@ -360,7 +360,7 @@ class TestCohortIsolation:
         assert sorted(s.participant_id for s in subs) == ["PILOT_1", "PROD_1"]
 
     def test_catch_trials_are_dropped(self, tmp_path):
-        """parser_v2 exposes is_catch; previously catch trials were only incidentally harmless."""
+        """The parser exposes is_catch; previously catch trials were only incidentally harmless."""
         both = _subject(tmp_path, [
             {"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .2, (0, 2): .4, (1, 2): .6}},
             {"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .9, (0, 2): .9, (1, 2): .9}, "catch": True},

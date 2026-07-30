@@ -1,40 +1,52 @@
 """
-Loader for SpAM session data -- works for both data/pilot and data/prod.
-
-The two differ only in demographics filename (participant_demographics*.csv
-vs demographic*.csv, both tried automatically) and in that prod participants
-can have more than one session file (a reconnect after an abandoned
-attempt); when that happens, the session with the most trial/catch rows is
-used, so callers never have to know which directory they're pointed at.
+Loader for SpAM session data -- flat data/ directory, cohort determined from
+each file's own content (deployment_mode), not from which directory it lives in.
 
 Usage (from repo root):
-    from analysis.utils.parser import load_pilot_data
-    data = load_pilot_data("data/pilot")   # or "data/prod"
-    df_trials    = data["trials"]        # one row per experimental trial, completed subjects only
-    df_status    = data["status"]        # one row per participant with completion_status
-    df_catch     = data["catch_trials"]  # one row per catch trial, completed subjects only
-    df_screening = data["screening"]     # one row per completed participant with a
-                                          # screening_eval row (v4.0+ only; empty otherwise)
+    from analysis.utils.parser import load_data
+    data = load_data("data/")
+    df_participants = data["participants"]  # one row per participant_id
+    df_trials       = data["trials"]         # one row per real SpAM/catch trial;
+                                              # join to df_participants on participant_id
+
+This is the second-generation loader (formerly parser_v2.py). The original v1 loader --
+which read a separate data/pilot and data/prod directory pair -- is preserved at tag
+spam-sim-v4.0, which is also the revision the task-v4.0 simulations were run from.
 """
 from __future__ import annotations
 
 import json
+import re
 import warnings
+from datetime import datetime
 from pathlib import Path
 
-# analysis/utils/parser.py → analysis/utils/ → analysis/ → repo root
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
 import pandas as pd
+from scipy.stats import spearmanr
 
 # ---------------------------------------------------------------------------
-# Constants
+# Shared session/demographics helpers -- schema-independent (they parse a single
+# trial's JSON columns and normalise Prolific demographics).
 # ---------------------------------------------------------------------------
 
-# pilot demographics files are "participant_demographics*.csv"; prod's is "demographic*.csv"
-_DEMOGRAPHICS_GLOBS = ["participant_demographics*.csv", "demographic*.csv"]
-_EXPERIMENTAL_TRIAL_TYPE_RE = r"^trial_\d+$"
-_CATCH_TRIAL_TYPE_RE = r"^catch_\d+$"
+_PROLIFIC_SENTINEL = "CONSENT_REVOKED"
+
+_EXPIRED_SENTINEL = "DATA_EXPIRED"
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+_DEMOGRAPHICS_DROP = {
+    "Custom study tncs accepted at",
+    "Started at",
+    "Completed at",
+    "Reviewed at",
+    "Archived at",
+    "Completion code",
+    "Total approvals",
+}
 
 _DEMOGRAPHICS_RENAME = {
     "Submission id": "submission_id",
@@ -53,358 +65,6 @@ _DEMOGRAPHICS_RENAME = {
 }
 
 # Prolific-internal columns with no analysis value
-_DEMOGRAPHICS_DROP = {
-    "Custom study tncs accepted at",
-    "Started at",
-    "Completed at",
-    "Reviewed at",
-    "Archived at",
-    "Completion code",
-    "Total approvals",
-}
-
-_SESSION_KEEP = [
-    "trial_type",
-    "rt",
-    "qc_flag",
-    "shine_variant",
-    "task_version",
-    "deployment_mode",
-    "moves",
-    "pairwise_distances",
-    "final_locations",
-    "init_locations",
-    "is_trial_repeat",
-    "repeat_of_trial_number",
-    "block",
-    "reliability",
-]
-
-_CATCH_SESSION_KEEP = [
-    "trial_type",
-    "rt",
-    "qc_flag",
-    "shine_variant",
-    "task_version",
-    "deployment_mode",
-    "moves",
-    "pairwise_distances",
-    "final_locations",
-    "catch_trial_target_location",
-    "centroid_x",
-    "centroid_y",
-    "cluster_mean_distance",
-    "block",
-]
-
-# v4.0+: synthetic screening_eval row, one per session with screening_block.enabled
-_SCREENING_EVAL_TRIAL_TYPE = "screening_eval"
-_SCREENING_EVAL_KEEP = [
-    "task_version",
-    "deployment_mode",
-    "pass",
-    "reasons",
-    "move_ratio_fail_rate",
-    "distance_sd_fail_rate",
-    "min_reliability",
-    "median_reliability",
-]
-
-_PROLIFIC_SENTINEL = "CONSENT_REVOKED"
-_EXPIRED_SENTINEL = "DATA_EXPIRED"
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def load_pilot_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
-    """
-    Load SpAM pilot data from *data_dir*.
-
-    Returns a dict with four keys:
-      "trials"       -- one row per experimental trial per completed participant
-      "status"       -- one row per participant with a completion_status column
-      "catch_trials" -- one row per catch trial per completed participant (QC validation)
-      "screening"    -- one row per completed participant with a screening_eval row
-                        (v4.0+, only present for sessions with screening_block.enabled);
-                        empty DataFrame for data with no screening stage
-
-    Raises
-    ------
-    FileNotFoundError
-        If *data_dir* does not exist.
-    NotADirectoryError
-        If *data_dir* exists but is not a directory.
-    """
-    data_dir = Path(data_dir)
-    if not data_dir.is_absolute():
-        data_dir = _REPO_ROOT / data_dir
-    if not data_dir.exists():
-        raise FileNotFoundError(f"Data directory not found: {data_dir}")
-    if not data_dir.is_dir():
-        raise NotADirectoryError(f"Path is not a directory: {data_dir}")
-
-    demo_paths = sorted({p for pattern in _DEMOGRAPHICS_GLOBS for p in data_dir.glob(pattern)})
-    if not demo_paths:
-        raise FileNotFoundError(
-            f"No demographics file found in: {data_dir} (expected one of {_DEMOGRAPHICS_GLOBS})"
-        )
-
-    df_demo = pd.concat([_load_demographics(p) for p in demo_paths], ignore_index=True)
-    dup_pids = df_demo["participant_id"][df_demo["participant_id"].duplicated()]
-    if not dup_pids.empty:
-        warnings.warn(
-            f"Duplicate participant_id(s) across demographics files: {sorted(set(dup_pids))}",
-            UserWarning,
-            stacklevel=2,
-        )
-
-    session_files = _index_session_files(data_dir)
-
-    status_rows: list[dict] = []
-    trial_rows: list[pd.DataFrame] = []
-    catch_rows: list[pd.DataFrame] = []
-    screening_rows: list[dict] = []
-
-    for _, participant in df_demo.iterrows():
-        pid = participant["participant_id"]
-        prolific_status = participant["prolific_status"]
-
-        if prolific_status in {"RETURNED", "REJECTED"}:
-            warnings.warn(
-                f"Participant {pid}: revoked consent (status={prolific_status}), excluded from trials.",
-                UserWarning,
-                stacklevel=2,
-            )
-            status_rows.append({**participant.to_dict(), "completion_status": "revoked_consent"})
-            continue
-
-        session_paths = session_files.get(pid, [])
-        if not session_paths:
-            warnings.warn(
-                f"Participant {pid}: APPROVED but no session file found (erroneous completion), excluded from trials.",
-                UserWarning,
-                stacklevel=2,
-            )
-            status_rows.append({**participant.to_dict(), "completion_status": "erroneous_completion"})
-            continue
-
-        # A participant can have more than one session file (e.g. a reconnect after
-        # an abandoned attempt, seen in prod); use whichever has the most trial/catch
-        # rows. A no-op when there's only one, which is the common pilot case.
-        session_path = max(session_paths, key=_session_row_count) if len(session_paths) > 1 else session_paths[0]
-
-        df_trials = _load_session_trials(session_path, participant)
-        trial_rows.append(df_trials)
-        catch_rows.append(_load_session_catch_trials(session_path, participant))
-        screening_row = _load_session_screening_eval(session_path, participant)
-        if screening_row is not None:
-            screening_rows.append(screening_row)
-        status_rows.append({**participant.to_dict(), "completion_status": "completed"})
-
-    df_status = pd.DataFrame(status_rows).reset_index(drop=True)
-
-    if trial_rows:
-        df_trials_all = pd.concat(trial_rows, ignore_index=True)
-        # bool columns can upcast to object after concat; re-cast explicitly
-        if "qc_flag" in df_trials_all.columns:
-            df_trials_all["qc_flag"] = df_trials_all["qc_flag"].astype(bool)
-        if "is_trial_repeat" in df_trials_all.columns:
-            # absent entirely for v1/v2 sessions (no trial-repeat mechanism) -> False
-            df_trials_all["is_trial_repeat"] = df_trials_all["is_trial_repeat"].fillna(False).astype(bool)
-        if "repeat_of_trial_number" in df_trials_all.columns:
-            df_trials_all["repeat_of_trial_number"] = pd.to_numeric(
-                df_trials_all["repeat_of_trial_number"], errors="coerce"
-            )
-    else:
-        df_trials_all = pd.DataFrame()
-
-    if catch_rows:
-        df_catch_all = pd.concat(catch_rows, ignore_index=True)
-        if "qc_flag" in df_catch_all.columns:
-            df_catch_all["qc_flag"] = df_catch_all["qc_flag"].astype(bool)
-    else:
-        df_catch_all = pd.DataFrame()
-
-    df_screening = pd.DataFrame(screening_rows) if screening_rows else pd.DataFrame()
-    if "pass" in df_screening.columns:
-        df_screening["pass"] = df_screening["pass"].isin([True, "true", "True", 1])
-
-    return {
-        "trials": df_trials_all,
-        "status": df_status,
-        "catch_trials": df_catch_all,
-        "screening": df_screening,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
-def _load_demographics(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(path)
-    df = df.drop(columns=[c for c in _DEMOGRAPHICS_DROP if c in df.columns])
-    df = df.rename(columns={k: v for k, v in _DEMOGRAPHICS_RENAME.items() if k in df.columns})
-    # Mask Prolific sentinel strings as NA
-    df = df.replace({_PROLIFIC_SENTINEL: pd.NA, _EXPIRED_SENTINEL: pd.NA})
-    # Cast numeric where possible
-    for col in ("age", "prolific_duration_s"):
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    return df
-
-
-def _index_session_files(data_dir: Path) -> dict[str, list[Path]]:
-    """Return {participant_id: [session paths]} for all session CSVs in data_dir.
-
-    Participant IDs are read from the participant_id column inside each CSV
-    because the filenames use literal placeholder tokens rather than actual IDs.
-    A participant can have more than one session file (e.g. a reconnect after
-    an abandoned attempt), so every match is kept, not just the last one seen.
-    """
-    index: dict[str, list[Path]] = {}
-    demo_paths = {p for pattern in _DEMOGRAPHICS_GLOBS for p in data_dir.glob(pattern)}
-    for csv_path in sorted(data_dir.glob("*.csv")):
-        if csv_path in demo_paths:
-            continue
-        try:
-            # Read only the first data row to extract participant_id cheaply
-            df_head = pd.read_csv(csv_path, usecols=["participant_id"], nrows=1)
-            pid = str(df_head["participant_id"].iloc[0])
-            index.setdefault(pid, []).append(csv_path)
-        except (KeyError, IndexError, pd.errors.ParserError, ValueError):
-            continue
-    return index
-
-
-def _session_row_count(session_path: Path) -> int:
-    """Number of main-trial + catch-trial rows in a session CSV, used to pick the most
-    complete session file when a participant has more than one."""
-    trial_types = pd.read_csv(session_path, usecols=["trial_type"])["trial_type"].astype(str)
-    return int(
-        trial_types.str.match(_EXPERIMENTAL_TRIAL_TYPE_RE).sum()
-        + trial_types.str.match(_CATCH_TRIAL_TYPE_RE).sum()
-    )
-
-
-def _load_session_trials(session_path: Path, participant: pd.Series) -> pd.DataFrame:
-    df = pd.read_csv(session_path)
-
-    # Read canvas dimensions before filtering (present on every row)
-    canvas_w = int(df["sort_area_width"].iloc[0])
-    canvas_h = int(df["sort_area_height"].iloc[0])
-
-    main_mask = df["trial_type"].astype(str).str.match(_EXPERIMENTAL_TRIAL_TYPE_RE)
-    df = df[main_mask].copy()
-
-    # Derived columns
-    df["trial_number"] = df["trial_type"].str.extract(r"trial_(\d+)").astype(int)
-    df["n_moves"] = df["moves"].apply(_count_moves).astype(int)
-    df["rt"] = pd.to_numeric(df["rt"], errors="coerce")
-    # qc_flag / is_trial_repeat are written by JS as lowercase "true"/"false" strings
-    for bool_col in ("qc_flag", "is_trial_repeat"):
-        if bool_col in df.columns:
-            df[bool_col] = df[bool_col].isin([True, "true", "True", 1])
-    # repeat_of_trial_number (v3.03+) is written directly in trial_number space
-    # (1-based, main trials only) -- no re-indexing needed on read.
-    if "repeat_of_trial_number" in df.columns:
-        df["repeat_of_trial_number"] = pd.to_numeric(
-            df["repeat_of_trial_number"], errors="coerce"
-        )
-
-    # Normalise all pixel x/y coordinates to [0, 1] using this session's canvas
-    # size, so coordinates are screen-independent. sort_area is not kept.
-    for col in ("final_locations", "init_locations", "moves"):
-        if col in df.columns:
-            df[col] = df[col].apply(
-                lambda s: _normalise_locations(s, canvas_w, canvas_h)
-            )
-
-    # Keep only planned session columns
-    keep = [c for c in _SESSION_KEEP + ["trial_number", "n_moves"] if c in df.columns]
-    df = df[keep].copy()
-
-    # Broadcast participant demographics + session filename onto every trial row
-    df["session_file"] = session_path.stem
-    demo_cols = {k: participant[k] for k in participant.index if k not in ("prolific_status",)}
-    for col, val in demo_cols.items():
-        df[col] = val
-
-    return df.reset_index(drop=True)
-
-
-def _load_session_catch_trials(session_path: Path, participant: pd.Series) -> pd.DataFrame:
-    """Catch trials, kept separate from main trials (different schema: target
-    location, centroid, cluster_mean_distance instead of trial_number/n_moves
-    progression fields). Used for validating catch_trials.* QC thresholds.
-    """
-    df = pd.read_csv(session_path)
-
-    canvas_w = int(df["sort_area_width"].iloc[0])
-    canvas_h = int(df["sort_area_height"].iloc[0])
-
-    df = df[df["trial_type"].astype(str).str.match(_CATCH_TRIAL_TYPE_RE)].copy()
-
-    df["catch_number"] = df["trial_type"].str.extract(r"catch_(\d+)").astype(int)
-    df["n_moves"] = df["moves"].apply(_count_moves).astype(int)
-    df["rt"] = pd.to_numeric(df["rt"], errors="coerce")
-    if "qc_flag" in df.columns:
-        df["qc_flag"] = df["qc_flag"].isin([True, "true", "True", 1])
-
-    for col in ("final_locations", "moves"):
-        if col in df.columns:
-            df[col] = df[col].apply(lambda s: _normalise_locations(s, canvas_w, canvas_h))
-
-    keep = [c for c in _CATCH_SESSION_KEEP + ["catch_number", "n_moves"] if c in df.columns]
-    df = df[keep].copy()
-
-    # Canvas size kept (unlike main trials) -- needed to recompute the
-    # location_tolerance check, which is not a stored field.
-    df["sort_area_width"] = canvas_w
-    df["sort_area_height"] = canvas_h
-    df["session_file"] = session_path.stem
-    demo_cols = {k: participant[k] for k in participant.index if k not in ("prolific_status",)}
-    for col, val in demo_cols.items():
-        df[col] = val
-
-    return df.reset_index(drop=True)
-
-
-def _load_session_screening_eval(session_path: Path, participant: pd.Series) -> dict | None:
-    """v4.0+: the synthetic screening_eval row logged once per session with
-    screening_block.enabled (jsPsych.data.get().push(...), not a real trial).
-    Returns None if the session has no such row (screening disabled, or a
-    pre-v4.0 session).
-    """
-    df = pd.read_csv(session_path)
-    rows = df[df["trial_type"] == _SCREENING_EVAL_TRIAL_TYPE]
-    if rows.empty:
-        return None
-    row = rows.iloc[0]
-
-    out = {k: row[k] for k in _SCREENING_EVAL_KEEP if k in row.index}
-    out["participant_id"] = participant["participant_id"]
-    out["session_file"] = session_path.stem
-    return out
-
-
-def _normalise_locations(locs_json: str, canvas_w: int, canvas_h: int) -> str:
-    """Normalise pixel x/y to [0, 1] in a final_locations, init_locations, or moves JSON string."""
-    if pd.isna(locs_json) or locs_json == "":
-        return locs_json
-    try:
-        items = json.loads(locs_json)
-        for item in items:
-            item["x"] = item["x"] / canvas_w
-            item["y"] = item["y"] / canvas_h
-        return json.dumps(items)
-    except (json.JSONDecodeError, TypeError, KeyError):
-        return locs_json
-
 
 def _count_moves(moves_json: str) -> int:
     if pd.isna(moves_json) or moves_json == "":
@@ -419,6 +79,18 @@ def _count_moves(moves_json: str) -> int:
 # Public parsing helpers (shared across figures.py and analysis notebooks)
 # ---------------------------------------------------------------------------
 
+def _normalise_locations(locs_json: str, canvas_w: int, canvas_h: int) -> str:
+    """Normalise pixel x/y to [0, 1] in a final_locations, init_locations, or moves JSON string."""
+    if pd.isna(locs_json) or locs_json == "":
+        return locs_json
+    try:
+        items = json.loads(locs_json)
+        for item in items:
+            item["x"] = item["x"] / canvas_w
+            item["y"] = item["y"] / canvas_h
+        return json.dumps(items)
+    except (json.JSONDecodeError, TypeError, KeyError):
+        return locs_json
 
 def parse_pairwise_distances(pw_json: str) -> dict[tuple[str, str], float]:
     """Parse one trial's pairwise_distances JSON into {sorted_image_pair: distance}."""
@@ -434,8 +106,357 @@ def parse_pairwise_distances(pw_json: str) -> dict[tuple[str, str], float]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+_MAIN_TRIAL_TYPE_RE = re.compile(r"^trial_(\d+)$")
+_CATCH_TRIAL_TYPE_RE = re.compile(r"^catch_(\d+)$")
+_SCREENING_EVAL_TRIAL_TYPE = "screening_eval"
+
+# Session-level fields expected constant across every row of one session file.
+_CONSTANT_FIELDS = ["deployment_mode", "shine_variant", "sort_area_width", "sort_area_height", "task_version"]
+
+# Matches the timestamp embedded in a session filename, e.g.
+# "..._2026-07-24_20h55.35.371.csv" -> ("2026-07-24", "20", "55", "35", "371")
+_FILENAME_TIMESTAMP_RE = re.compile(r"(\d{4}-\d{2}-\d{2})_(\d{2})h(\d{2})\.(\d{2})\.(\d+)")
+
+_TRIALS_COLUMNS = [
+    "participant_id", "trial_id", "is_catch", "block_type",
+    "rt", "num_moves", "init_locations", "moves", "final_locations",
+    "pairwise_distances", "qc_flag", "repeat_of_trial", "reliability",
+    "catch_trial_target_location", "centroid_x", "centroid_y", "cluster_mean_distance",
+]
+
+_PARTICIPANTS_COLUMNS = [
+    "participant_id", "file_name", "num_associated_files", "cohort", "status",
+    "shine_variant", "sort_area_width", "sort_area_height", "task_version",
+    "submission_id", "prolific_status", "prolific_duration_s",
+    "age", "sex", "ethnicity", "country_of_birth", "country_of_residence",
+    "nationality", "language", "student_status", "employment_status",
+    "reasons", "move_ratio_fail_rate", "distance_sd_fail_rate",
+    "min_reliability", "median_reliability",
+]
+
+# screening_eval diagnostic fields, restored onto df_participants (v4.0+ only;
+# NaN/None for pre-v4 sessions or v4 sessions that never reached the screening
+# evaluation) -- needed to keep screening-threshold analyses possible directly
+# from load_data() output, without a separate table.
+_SCREENING_EVAL_DIAGNOSTIC_FIELDS = [
+    "reasons", "move_ratio_fail_rate", "distance_sd_fail_rate",
+    "min_reliability", "median_reliability",
+]
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def load_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
+    """
+    Load SpAM data from a flat *data_dir* (no pilot/prod split).
+
+    Returns a dict with two keys:
+      "participants" -- one row per participant_id
+      "trials"       -- one row per real SpAM/catch trial (practice excluded);
+                        join to "participants" on participant_id
+
+    Raises
+    ------
+    FileNotFoundError
+        If *data_dir* does not exist, or no demographics file is found.
+    NotADirectoryError
+        If *data_dir* exists but is not a directory.
+    """
+    data_dir = Path(data_dir)
+    if not data_dir.is_absolute():
+        data_dir = _REPO_ROOT / data_dir
+    if not data_dir.exists():
+        raise FileNotFoundError(f"Data directory not found: {data_dir}")
+    if not data_dir.is_dir():
+        raise NotADirectoryError(f"Path is not a directory: {data_dir}")
+
+    demo_paths = sorted(p for p in data_dir.glob("*.csv") if "demographics" in p.name.lower())
+    if not demo_paths:
+        raise FileNotFoundError(f"No demographics file (matching *demographics*.csv) found in: {data_dir}")
+
+    df_demo = pd.concat([_load_demographics(p) for p in demo_paths], ignore_index=True)
+    dup_pids = df_demo["participant_id"][df_demo["participant_id"].duplicated()]
+    if not dup_pids.empty:
+        warnings.warn(
+            f"Duplicate participant_id(s) across demographics files: {sorted(set(dup_pids))}",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    demo_path_set = set(demo_paths)
+    session_files = _index_session_files(data_dir, demo_path_set)
+
+    participant_rows: list[dict] = []
+    trial_rows: list[pd.DataFrame] = []
+
+    for _, participant in df_demo.iterrows():
+        pid = participant["participant_id"]
+        candidates = session_files.get(pid, [])
+        resolved = _resolve_session_file(pid, candidates)
+
+        base = _participant_metadata(pid, resolved)
+        status = _determine_status(participant["prolific_status"], resolved, base)
+        row = {**participant.to_dict(), **base, "status": status}
+        participant_rows.append(row)
+
+        if status in {"full data", "screened out"}:
+            trial_rows.append(_load_trials_for_participant(pid, resolved["path"]))
+
+    df_participants = pd.DataFrame(participant_rows)
+    df_participants = df_participants[[c for c in _PARTICIPANTS_COLUMNS if c in df_participants.columns]]
+
+    if trial_rows:
+        df_trials = pd.concat(trial_rows, ignore_index=True)
+    else:
+        df_trials = pd.DataFrame(columns=_TRIALS_COLUMNS)
+
+    _validate_trial_repeat_image_sets_v2(df_trials, warn_on_mismatch=True)
+
+    return {"participants": df_participants, "trials": df_trials}
+
+
+def _validate_trial_repeat_image_sets_v2(df_trials: pd.DataFrame, warn_on_mismatch: bool = False) -> pd.DataFrame:
+    """
+    Sanity-check the repeat_of_trial mechanism: for every trial flagged as a repeat,
+    verify it shares the same image set as its original (grouped by participant_id
+    only -- each participant contributes exactly one resolved session file).
+
+    Returns one row per repeat trial: participant_id, trial_id, repeat_of_trial,
+    images_match, n_images_original, n_images_repeat. Never raises on a mismatch --
+    inspect images_match, or pass warn_on_mismatch=True to also emit a UserWarning.
+    """
+    required = {"participant_id", "trial_id", "repeat_of_trial", "pairwise_distances"}
+    missing = required - set(df_trials.columns)
+    if missing:
+        raise KeyError(f"_validate_trial_repeat_image_sets_v2: df_trials missing column(s): {sorted(missing)}")
+
+    rows = []
+    for pid, group in df_trials.groupby("participant_id"):
+        images_by_id = {
+            int(row["trial_id"]): _trial_image_set(row["pairwise_distances"])
+            for _, row in group.iterrows()
+        }
+        repeats = group[group["repeat_of_trial"].notna()]
+        for _, row in repeats.iterrows():
+            trial_id = int(row["trial_id"])
+            orig_id = int(row["repeat_of_trial"])
+            orig_images = images_by_id.get(orig_id)
+            rep_images = images_by_id.get(trial_id)
+            rows.append({
+                "participant_id": pid,
+                "trial_id": trial_id,
+                "repeat_of_trial": orig_id,
+                "images_match": orig_images is not None and orig_images == rep_images,
+                "n_images_original": len(orig_images) if orig_images is not None else 0,
+                "n_images_repeat": len(rep_images) if rep_images is not None else 0,
+            })
+
+    report = pd.DataFrame(rows, columns=[
+        "participant_id", "trial_id", "repeat_of_trial",
+        "images_match", "n_images_original", "n_images_repeat",
+    ])
+    if warn_on_mismatch and not report.empty:
+        bad = report[~report["images_match"]]
+        if not bad.empty:
+            warnings.warn(
+                f"{len(bad)} repeat trial(s) do not share the same image set as their "
+                f"original: {bad[['participant_id', 'trial_id']].to_dict('records')}",
+                UserWarning,
+                stacklevel=2,
+            )
+    return report
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _load_demographics(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    df = df.drop(columns=[c for c in _DEMOGRAPHICS_DROP if c in df.columns])
+    df = df.rename(columns={k: v for k, v in _DEMOGRAPHICS_RENAME.items() if k in df.columns})
+    df = df.replace({_PROLIFIC_SENTINEL: pd.NA, _EXPIRED_SENTINEL: pd.NA})
+    for col in ("age", "prolific_duration_s"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
+def _index_session_files(data_dir: Path, demo_paths: set[Path]) -> dict[str, list[Path]]:
+    """Return {participant_id: [session paths]}, excluding demographics files."""
+    index: dict[str, list[Path]] = {}
+    for csv_path in sorted(data_dir.glob("*.csv")):
+        if csv_path in demo_paths:
+            continue
+        try:
+            df_head = pd.read_csv(csv_path, usecols=["participant_id"], nrows=1)
+            pid = str(df_head["participant_id"].iloc[0])
+            index.setdefault(pid, []).append(csv_path)
+        except (KeyError, IndexError, pd.errors.ParserError, ValueError):
+            warnings.warn(f"Could not read participant_id from {csv_path.name}; skipping.", UserWarning, stacklevel=2)
+            continue
+    return index
+
+
+def _real_trial_row_count(session_path: Path) -> int:
+    """Number of trial_N/catch_N rows in a session CSV (practice/consent/etc excluded)."""
+    trial_types = pd.read_csv(session_path, usecols=["trial_type"])["trial_type"].astype(str)
+    return int(
+        trial_types.str.match(_MAIN_TRIAL_TYPE_RE).sum()
+        + trial_types.str.match(_CATCH_TRIAL_TYPE_RE).sum()
+    )
+
+
+def _parse_filename_timestamp(path: Path) -> datetime:
+    m = _FILENAME_TIMESTAMP_RE.search(path.name)
+    if not m:
+        raise ValueError(f"Cannot parse a timestamp from filename for recency tie-break: {path.name}")
+    date_str, hh, mm, ss, frac = m.groups()
+    return datetime.strptime(f"{date_str}_{hh}h{mm}.{ss}.{frac}", "%Y-%m-%d_%Hh%M.%S.%f")
+
+
+def _resolve_session_file(pid: str, candidates: list[Path]) -> dict:
+    """
+    Pick one session file for *pid* out of *candidates* (possibly empty).
+
+    Returns {"path": Path | None, "num_associated_files": int}. Ties in real-trial-row
+    count are broken by most-recent filename timestamp; raises ValueError if recency
+    can't be determined (unparseable timestamp, or two candidates parse identically).
+    """
+    if not candidates:
+        return {"path": None, "num_associated_files": 0}
+    if len(candidates) == 1:
+        return {"path": candidates[0], "num_associated_files": 1}
+
+    counts = {p: _real_trial_row_count(p) for p in candidates}
+    max_count = max(counts.values())
+    tied = [p for p, c in counts.items() if c == max_count]
+
+    if len(tied) == 1:
+        chosen = tied[0]
+    else:
+        timestamps = {p: _parse_filename_timestamp(p) for p in tied}
+        max_ts = max(timestamps.values())
+        most_recent = [p for p, ts in timestamps.items() if ts == max_ts]
+        if len(most_recent) > 1:
+            raise ValueError(
+                f"Participant {pid}: cannot resolve which session file is authoritative -- "
+                f"{len(tied)} files tie on real-trial-row count ({max_count}) and "
+                f"{len(most_recent)} of those also tie on parsed timestamp: "
+                f"{[p.name for p in most_recent]}"
+            )
+        chosen = most_recent[0]
+
+    return {"path": chosen, "num_associated_files": len(candidates)}
+
+
+def _cohort_from_prefix(path: Path) -> str | None:
+    name = path.name
+    if name.startswith("pilot_"):
+        return "pilot"
+    if name.startswith("prod_"):
+        return "production"
+    return None
+
+
+def _assert_constant(df: pd.DataFrame, col: str, path: Path) -> object:
+    """Return the single distinct non-null value of *col* in *df*, raising if
+    there's more than one (session-level fields are expected constant per file)."""
+    if col not in df.columns:
+        return None
+    values = df[col].dropna().unique()
+    if len(values) > 1:
+        raise ValueError(f"{path.name}: expected a single constant value for '{col}', found {list(values)}")
+    return values[0] if len(values) == 1 else None
+
+
+def _participant_metadata(pid: str, resolved: dict) -> dict:
+    path = resolved["path"]
+    out = {
+        "file_name": path.name if path is not None else None,
+        "num_associated_files": resolved["num_associated_files"],
+        "cohort": None,
+        "shine_variant": None,
+        "sort_area_width": None,
+        "sort_area_height": None,
+        "task_version": None,
+        **{k: None for k in _SCREENING_EVAL_DIAGNOSTIC_FIELDS},
+    }
+    if path is None:
+        return out
+
+    df = pd.read_csv(path)
+    if "task_version" in df.columns:
+        df["task_version"] = pd.to_numeric(df["task_version"], errors="coerce")
+
+    deployment_mode = _assert_constant(df, "deployment_mode", path)
+    if deployment_mode is None:
+        deployment_mode = _cohort_from_prefix(path)
+        if deployment_mode is None:
+            raise ValueError(
+                f"{path.name}: no deployment_mode value in the file and filename has no "
+                f"recognizable pilot_/prod_ prefix -- cannot determine cohort for {pid}."
+            )
+
+    out["cohort"] = deployment_mode
+    out["shine_variant"] = _assert_constant(df, "shine_variant", path)
+    out["sort_area_width"] = _assert_constant(df, "sort_area_width", path)
+    out["sort_area_height"] = _assert_constant(df, "sort_area_height", path)
+    out["task_version"] = _assert_constant(df, "task_version", path)
+    out.update(_screening_eval_diagnostics(path))
+    return out
+
+
+def _has_screening_fail(path: Path) -> bool:
+    df = pd.read_csv(path)
+    rows = df[df["trial_type"] == _SCREENING_EVAL_TRIAL_TYPE]
+    if rows.empty:
+        return False
+    passed = rows.iloc[0]["pass"]
+    return not bool(passed) if not pd.isna(passed) else False
+
+
+def _screening_eval_diagnostics(path: Path) -> dict:
+    """Read the screening_eval row's diagnostic fields, if present. Returns an
+    all-None dict if there's no screening_eval row (pre-v4 session, or a v4
+    session that never reached the screening evaluation)."""
+    df = pd.read_csv(path)
+    rows = df[df["trial_type"] == _SCREENING_EVAL_TRIAL_TYPE]
+    if rows.empty:
+        return {k: None for k in _SCREENING_EVAL_DIAGNOSTIC_FIELDS}
+    row = rows.iloc[0]
+    return {k: (row[k] if k in row.index and not pd.isna(row[k]) else None)
+            for k in _SCREENING_EVAL_DIAGNOSTIC_FIELDS}
+
+
+def _determine_status(prolific_status: str, resolved: dict, base: dict) -> str:
+    if prolific_status in {"RETURNED", "REJECTED"}:
+        return "revoked consent"
+
+    path = resolved["path"]
+    if path is None:
+        return "missing data"
+
+    if _real_trial_row_count(path) == 0:
+        return "missing data"
+
+    if _has_screening_fail(path):
+        return "screened out"
+
+    return "full data"
+
+
 def _trial_image_set(pw_json: str) -> frozenset[str]:
-    """Union of images referenced in a trial's pairwise_distances JSON."""
     images: set[str] = set()
     for a, b in parse_pairwise_distances(pw_json):
         images.add(a)
@@ -443,150 +464,110 @@ def _trial_image_set(pw_json: str) -> frozenset[str]:
     return frozenset(images)
 
 
-def validate_trial_repeat_image_sets(df_trials: pd.DataFrame) -> pd.DataFrame:
-    """
-    Sanity-check the ``is_trial_repeat`` / ``repeat_of_trial_number`` mechanism: for every
-    trial flagged as a verbatim repeat, match it (within the same session) to the trial
-    numbered ``repeat_of_trial_number`` and verify both show the same set of images -- the
-    invariant ``insertTrialRepeats`` (SpAM_Task/js/trial_generator.js) is meant to guarantee.
-
-    Image sets are derived from each trial's ``pairwise_distances`` column (the union of
-    ``src1``/``src2`` across all pairs), not stored directly as a column.
-
-    Returns one row per repeat trial found, with columns: participant_id, session_file,
-    trial_number, repeat_of_trial_number, images_match, n_images_original, n_images_repeat.
-    Never raises on a mismatch -- inspect the `images_match` column, or use
-    `report["images_match"].all()` for a single pass/fail check.
-    """
-    required = {"participant_id", "session_file", "trial_number", "is_trial_repeat",
-                "repeat_of_trial_number", "pairwise_distances"}
-    missing = required - set(df_trials.columns)
-    if missing:
-        raise KeyError(f"validate_trial_repeat_image_sets: df_trials missing column(s): {sorted(missing)}")
-
-    rows = []
-    for (pid, session), group in df_trials.groupby(["participant_id", "session_file"]):
-        images_by_number = {
-            int(row["trial_number"]): _trial_image_set(row["pairwise_distances"])
-            for _, row in group.iterrows()
-        }
-        repeats = group[group["is_trial_repeat"] & group["repeat_of_trial_number"].notna()]
-        for _, row in repeats.iterrows():
-            trial_num = int(row["trial_number"])
-            orig_num  = int(row["repeat_of_trial_number"])
-            orig_images = images_by_number.get(orig_num)
-            rep_images  = images_by_number.get(trial_num)
-            rows.append({
-                "participant_id":          pid,
-                "session_file":            session,
-                "trial_number":            trial_num,
-                "repeat_of_trial_number":  orig_num,
-                "images_match":            orig_images is not None and orig_images == rep_images,
-                "n_images_original":       len(orig_images) if orig_images is not None else 0,
-                "n_images_repeat":         len(rep_images)  if rep_images  is not None else 0,
-            })
-
-    return pd.DataFrame(rows, columns=[
-        "participant_id", "session_file", "trial_number", "repeat_of_trial_number",
-        "images_match", "n_images_original", "n_images_repeat",
-    ])
+def _safe_pair_spearman_r(orig_row: pd.Series, repeat_row: pd.Series, pid: str, trial_id: int) -> float | None:
+    """Like spearman_r.pair_spearman_r, but degrades to None + a UserWarning on
+    malformed pairwise_distances JSON instead of raising (real corrupted-file case
+    observed in prod data)."""
+    try:
+        d_orig = _distance_dict(orig_row["pairwise_distances"])
+        d_repeat = _distance_dict(repeat_row["pairwise_distances"])
+    except json.JSONDecodeError:
+        warnings.warn(
+            f"Participant {pid}, trial_id {trial_id}: malformed pairwise_distances JSON, "
+            f"reliability set to NaN.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return None
+    keys = d_orig.keys() & d_repeat.keys()
+    if len(keys) < 2:
+        return None
+    keys = sorted(keys, key=lambda k: sorted(k))
+    r, _p = spearmanr([d_orig[k] for k in keys], [d_repeat[k] for k in keys])
+    return r
 
 
-# {task_version: (expected main trials per subject, expected repeated trials per subject)}
-# v1.0/v2.0 predate the whole-trial-repeat mechanism (frac_trials_repeated); v3.x always
-# repeats exactly 3 of its 20 trials (see SpAM_Task/js/trial_generator.js).
-# v4.0 introduces a screening_block + experimental_block split (see task_config.json):
-# screening (6 distinct + 2 repeats) + experimental (12 distinct + 2 repeats) = 22 main
-# trials / 4 repeats for a subject who completes the full session. A subject screened out
-# at the end of the screening stage will have fewer trials than this (experimental-block
-# trials are skipped) -- validate_trial_counts will correctly flag them as a mismatch;
-# cross-check against df_screening["pass"] before treating that as a data-quality issue.
-_EXPECTED_TRIAL_COUNTS: dict[float, tuple[int, int]] = {
-    1.0:  (10, 0),
-    2.0:  (10, 0),
-    3.0:  (20, 3),
-    3.06: (20, 3),
-    4.0:  (22, 4),
-}
+def _distance_dict(pw_json: str) -> dict[frozenset, float]:
+    if pd.isna(pw_json) or pw_json == "":
+        return {}
+    items = json.loads(pw_json)
+    return {frozenset((d["src1"], d["src2"])): d["distance"] for d in items}
 
 
-def validate_trial_counts(df_trials: pd.DataFrame) -> pd.DataFrame:
-    """
-    Check that every session has the expected number of main trials and repeated
-    trials for its task_version (see ``_EXPECTED_TRIAL_COUNTS``).
+def _load_trials_for_participant(pid: str, session_path: Path) -> pd.DataFrame:
+    df = pd.read_csv(session_path)
+    df["task_version"] = pd.to_numeric(df["task_version"], errors="coerce")
 
-    Returns one row per (participant_id, session_file), with columns:
-    participant_id, session_file, task_version, n_trials, n_repeats,
-    expected_n_trials, expected_n_repeats, trials_match, repeats_match. A
-    task_version absent from ``_EXPECTED_TRIAL_COUNTS`` gets NaN expected
-    values and both ``*_match`` columns False. Never raises on a mismatch --
-    inspect the ``trials_match``/``repeats_match`` columns, or use
-    ``report[["trials_match", "repeats_match"]].all(axis=None)`` for a single
-    pass/fail check.
-    """
-    required = {"participant_id", "session_file", "task_version", "trial_number", "is_trial_repeat"}
-    missing = required - set(df_trials.columns)
-    if missing:
-        raise KeyError(f"validate_trial_counts: df_trials missing column(s): {sorted(missing)}")
+    canvas_w = int(_assert_constant(df, "sort_area_width", session_path))
+    canvas_h = int(_assert_constant(df, "sort_area_height", session_path))
 
-    rows = []
-    for (pid, session, task_version), group in df_trials.groupby(
-        ["participant_id", "session_file", "task_version"]
-    ):
-        n_trials = int(group["trial_number"].nunique())
-        n_repeats = int(group["is_trial_repeat"].astype(bool).sum())
-        expected = _EXPECTED_TRIAL_COUNTS.get(task_version)
-        expected_n_trials, expected_n_repeats = expected if expected is not None else (None, None)
-        rows.append({
-            "participant_id":      pid,
-            "session_file":        session,
-            "task_version":        task_version,
-            "n_trials":            n_trials,
-            "n_repeats":           n_repeats,
-            "expected_n_trials":   expected_n_trials,
-            "expected_n_repeats":  expected_n_repeats,
-            "trials_match":        expected_n_trials is not None and n_trials == expected_n_trials,
-            "repeats_match":       expected_n_repeats is not None and n_repeats == expected_n_repeats,
-        })
+    trial_type_all = df["trial_type"].astype(str)
+    main_mask = trial_type_all.str.match(_MAIN_TRIAL_TYPE_RE)
+    catch_mask = trial_type_all.str.match(_CATCH_TRIAL_TYPE_RE)
+    df = df[main_mask | catch_mask].copy()
+    df = df.reset_index(drop=True)
 
-    return pd.DataFrame(rows, columns=[
-        "participant_id", "session_file", "task_version", "n_trials", "n_repeats",
-        "expected_n_trials", "expected_n_repeats", "trials_match", "repeats_match",
-    ])
+    df["trial_id"] = range(1, len(df) + 1)
+    df["is_catch"] = df["trial_type"].astype(str).str.match(_CATCH_TRIAL_TYPE_RE)
 
-
-if __name__ == "__main__":
-    import argparse
-
-    ap = argparse.ArgumentParser(
-        description="Validate trial-repeat image sets (is_trial_repeat / "
-                    "repeat_of_trial_number) and per-version trial/repeat counts.",
-    )
-    ap.add_argument("data_dir", nargs="?", default="data/pilot",
-                     help="Pilot data directory (default: data/pilot)")
-    args = ap.parse_args()
-
-    df_trials = load_pilot_data(args.data_dir)["trials"]
-    failed = False
-
-    image_report = validate_trial_repeat_image_sets(df_trials)
-    if image_report.empty:
-        print("No trial repeats found.")
+    if "block" in df.columns:
+        df["block_type"] = df["block"].where(df["block"].notna(), "experimental")
     else:
-        print(image_report.to_string(index=False))
-        n_bad = int((~image_report["images_match"]).sum())
-        print(f"\n{len(image_report)} repeat trial(s) checked, {n_bad} mismatch(es).")
-        failed = failed or bool(n_bad)
+        df["block_type"] = "experimental"
 
-    print()
-    count_report = validate_trial_counts(df_trials)
-    bad_counts = count_report[~(count_report["trials_match"] & count_report["repeats_match"])]
-    if bad_counts.empty:
-        print(f"All {len(count_report)} session(s) have the expected trial/repeat counts for their task_version.")
-    else:
-        print(bad_counts.to_string(index=False))
-        print(f"\n{len(bad_counts)} of {len(count_report)} session(s) have unexpected trial/repeat counts.")
-        failed = True
+    df["qc_flag"] = df["qc_flag"].isin([True, "true", "True", 1])
+    df["num_moves"] = df["moves"].apply(_count_moves).astype(int)
+    df["rt"] = pd.to_numeric(df["rt"], errors="coerce")
 
-    if failed:
-        raise SystemExit(1)
+    for col in ("final_locations", "init_locations", "moves"):
+        if col in df.columns:
+            df[col] = df[col].apply(lambda s: _normalise_locations(s, canvas_w, canvas_h))
+
+    for row_idx, row in df.iterrows():
+        pw = row.get("pairwise_distances")
+        if pd.isna(pw) or pw == "":
+            continue
+        try:
+            json.loads(pw)
+        except json.JSONDecodeError:
+            warnings.warn(
+                f"Participant {pid}, trial_id {row['trial_id']}: pairwise_distances failed to parse.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    # old trial-number (trial_N) -> new trial_id map, main trials only -- the space
+    # repeat_of_trial_number references.
+    trial_number_to_id: dict[int, int] = {}
+    for _, row in df[~df["is_catch"]].iterrows():
+        m = _MAIN_TRIAL_TYPE_RE.match(str(row["trial_type"]))
+        if m:
+            trial_number_to_id[int(m.group(1))] = int(row["trial_id"])
+
+    repeat_of_trial = pd.Series([None] * len(df), index=df.index, dtype="object")
+    reliability = pd.Series([None] * len(df), index=df.index, dtype="object")
+
+    if "is_trial_repeat" in df.columns and "repeat_of_trial_number" in df.columns:
+        is_repeat = df["is_trial_repeat"].isin([True, "true", "True", 1])
+        repeat_number = pd.to_numeric(df["repeat_of_trial_number"], errors="coerce")
+        for idx in df.index[is_repeat & repeat_number.notna()]:
+            old_number = int(repeat_number.loc[idx])
+            orig_trial_id = trial_number_to_id.get(old_number)
+            if orig_trial_id is None:
+                warnings.warn(
+                    f"Participant {pid}, trial_id {df.loc[idx, 'trial_id']}: repeat_of_trial_number "
+                    f"{old_number} does not resolve to a known trial in this session.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                continue
+            repeat_of_trial.loc[idx] = orig_trial_id
+            orig_row = df.loc[df["trial_id"] == orig_trial_id].iloc[0]
+            reliability.loc[idx] = _safe_pair_spearman_r(orig_row, df.loc[idx], pid, int(df.loc[idx, "trial_id"]))
+
+    df["repeat_of_trial"] = pd.to_numeric(repeat_of_trial, errors="coerce")
+    df["reliability"] = pd.to_numeric(reliability, errors="coerce")
+    df["participant_id"] = pid
+
+    keep = [c for c in _TRIALS_COLUMNS if c in df.columns]
+    return df[keep].copy()

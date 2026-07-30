@@ -17,9 +17,9 @@ truth geometry. This module anchors all three to the real pilot:
 Identifiability is therefore sequential and exact (a triangular system): test-retest -> noise, then
 agreement -> dispersion.
 
-Session loading and completion filtering are delegated to ``analysis.utils.parser_v2.load_data``,
+Session loading and completion filtering are delegated to ``analysis.utils.parser.load_data``,
 which reads a **flat** ``data/`` directory and derives each session's ``cohort`` from its own
-``deployment_mode`` rather than from which folder it sits in; ``parse_pairwise_distances`` (still from
+``deployment_mode`` rather than from which folder it sits in; ``parse_pairwise_distances`` (also from
 ``analysis.utils.parser``) parses the per-trial JSON. This module only reduces those trials to the
 condensed per-pair distances the calibration needs.
 
@@ -47,8 +47,8 @@ from scipy.sparse.csgraph import connected_components
 from scipy.spatial.distance import squareform
 from scipy.stats import spearmanr
 
-from analysis.utils.parser_v2 import parse_pairwise_distances
-from analysis.utils.parser_v2 import load_data
+from analysis.utils.parser import parse_pairwise_distances
+from analysis.utils.parser import load_data
 from SpAM_Simulations.experiment import _condensed_pair_indices
 
 # A pilot stimulus path is ``./images/<variant>_shine/<relpath>``; the manifest lists ``<relpath>``.
@@ -104,9 +104,9 @@ def _pair_condensed_indices(pairwise_json: str, rel2idx: Dict[str, int]) -> Dict
 
 
 def subject_from_trials(trials: pd.DataFrame, rel2idx: Dict[str, int]) -> PilotSubject:
-    """Build one :class:`PilotSubject` from a single participant's rows of the ``parser_v2`` trials frame.
+    """Build one :class:`PilotSubject` from a single participant's rows of the parser's trials frame.
 
-    ``trials`` is one participant's slice of ``analysis.utils.parser_v2.load_data(...)["trials"]``,
+    ``trials`` is one participant's slice of ``analysis.utils.parser.load_data(...)["trials"]``,
     joined to ``["participants"]`` for ``task_version`` (columns ``pairwise_distances``, ``trial_id``,
     ``repeat_of_trial``, ``is_catch``, ``qc_flag``, ``task_version``, ``participant_id``). Each trial's
     normalised pairwise distances are accumulated into a per-subject condensed sum/count (a verbatim
@@ -167,10 +167,10 @@ def load_pilot_subjects(
     """Load completed **pilot** subjects from the flat ``data_dir`` (optionally filtered by version).
 
     Delegates session/CSV handling and completion filtering to
-    ``analysis.utils.parser_v2.load_data``, then reduces each participant's trials to a
+    ``analysis.utils.parser.load_data``, then reduces each participant's trials to a
     :class:`PilotSubject` on the manifest index space.
 
-    **Production data is excluded by default.** ``parser_v2`` derives ``cohort`` from each file's own
+    **Production data is excluded by default.** The parser derives ``cohort`` from each file's own
     ``deployment_mode``, and the simulations must not be calibrated on the live study's data: doing so
     would let the sample-size and screening conclusions be shaped by the very cohort they are meant to
     plan, which is circular and amounts to peeking at the running experiment. Pass ``cohorts`` to
