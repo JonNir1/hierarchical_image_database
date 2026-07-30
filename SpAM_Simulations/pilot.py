@@ -17,13 +17,21 @@ truth geometry. This module anchors all three to the real pilot:
 Identifiability is therefore sequential and exact (a triangular system): test-retest -> noise, then
 agreement -> dispersion.
 
-Session loading and completion filtering are delegated to ``analysis.utils.parser`` (the canonical
-pilot loader: ``load_pilot_data`` returns a demographics-filtered tidy trials frame, and
-``parse_pairwise_distances`` parses the per-trial JSON); this module only reduces those trials to the
+Session loading and completion filtering are delegated to ``analysis.utils.parser_v2.load_data``,
+which reads a **flat** ``data/`` directory and derives each session's ``cohort`` from its own
+``deployment_mode`` rather than from which folder it sits in; ``parse_pairwise_distances`` (still from
+``analysis.utils.parser``) parses the per-trial JSON. This module only reduces those trials to the
 condensed per-pair distances the calibration needs.
 
-Nothing here writes pilot data or pilot-derived artifacts; ``data/pilot/`` is human-subjects data and
-must stay local (never committed). Distances come straight from each trial's ``pairwise_distances``
+**Simulations use the pilot cohort only.** Calibrating on the live study's data would let the
+sample-size and screening conclusions be shaped by the very cohort they are meant to plan - circular,
+and equivalent to peeking at the running experiment. :func:`load_pilot_subjects` therefore defaults to
+``cohorts=("pilot",)``. Because every v4.0 session is ``production``, that view contains no
+screening-block data: reliability comes from v3.\* whole-trial repeats, which sit anywhere in the
+session rather than in a dedicated screening stage.
+
+Nothing here writes participant data or participant-derived artifacts; ``data/`` is human-subjects
+data and must stay local (never committed). Distances come straight from each trial's ``pairwise_distances``
 (already canvas-diagonal-normalised in [0, 1], so comparable across subjects' screen sizes).
 """
 from __future__ import annotations
@@ -39,7 +47,8 @@ from scipy.sparse.csgraph import connected_components
 from scipy.spatial.distance import squareform
 from scipy.stats import spearmanr
 
-from analysis.utils.parser import load_pilot_data, parse_pairwise_distances
+from analysis.utils.parser import parse_pairwise_distances
+from analysis.utils.parser_v2 import load_data
 from SpAM_Simulations.experiment import _condensed_pair_indices
 
 # A pilot stimulus path is ``./images/<variant>_shine/<relpath>``; the manifest lists ``<relpath>``.
@@ -95,36 +104,42 @@ def _pair_condensed_indices(pairwise_json: str, rel2idx: Dict[str, int]) -> Dict
 
 
 def subject_from_trials(trials: pd.DataFrame, rel2idx: Dict[str, int]) -> PilotSubject:
-    """Build one :class:`PilotSubject` from a single participant's rows of the parser ``trials`` frame.
+    """Build one :class:`PilotSubject` from a single participant's rows of the ``parser_v2`` trials frame.
 
-    ``trials`` is one participant's slice of ``analysis.utils.parser.load_pilot_data(...)["trials"]``
-    (columns ``pairwise_distances``, ``trial_number``, ``is_trial_repeat``, ``repeat_of_trial_number``,
-    ``qc_flag``, ``task_version``, ``participant_id``). Each trial's normalised pairwise distances are
-    accumulated into a per-subject condensed sum/count (a verbatim repeat adds a second observation of
-    the same pairs, so the stored value is their mean); repeat trials are aligned to their originals
-    (via ``repeat_of_trial_number`` in ``trial_number`` space) to give the test-retest pairs.
+    ``trials`` is one participant's slice of ``analysis.utils.parser_v2.load_data(...)["trials"]``,
+    joined to ``["participants"]`` for ``task_version`` (columns ``pairwise_distances``, ``trial_id``,
+    ``repeat_of_trial``, ``is_catch``, ``qc_flag``, ``task_version``, ``participant_id``). Each trial's
+    normalised pairwise distances are accumulated into a per-subject condensed sum/count (a verbatim
+    repeat adds a second observation of the same pairs, so the stored value is their mean); repeat
+    trials are aligned to their originals via ``repeat_of_trial``, which already holds the original's
+    ``trial_id`` - replacing the old two-column ``is_trial_repeat`` / ``repeat_of_trial_number`` scheme.
+
+    Catch trials are dropped explicitly. Under the old parser they were harmlessly self-cancelling
+    (their openmoji stimuli are absent from the manifest, so every pair resolved to nothing), but that
+    was incidental rather than intended, and ``is_catch`` now makes it explicit.
     """
     N = len(rel2idx)
     n_pairs = N * (N - 1) // 2
     total = np.zeros(n_pairs, dtype=np.float64)
     count = np.zeros(n_pairs, dtype=np.int32)
 
-    by_trial_number: Dict[int, Dict[int, float]] = {}
-    for _, row in trials.iterrows():
+    main = trials[~trials["is_catch"].astype(bool)]
+    by_trial_id: Dict[int, Dict[int, float]] = {}
+    for _, row in main.iterrows():
         pairs = _pair_condensed_indices(row["pairwise_distances"], rel2idx)
-        by_trial_number[int(row["trial_number"])] = pairs
+        by_trial_id[int(row["trial_id"])] = pairs
         if pairs:
             idx = np.fromiter(pairs.keys(), dtype=np.int64, count=len(pairs))
             total[idx] += np.fromiter(pairs.values(), dtype=np.float64, count=len(pairs))
             count[idx] += 1
 
     retest: List[Tuple[np.ndarray, np.ndarray]] = []
-    for _, row in trials[trials["is_trial_repeat"].astype(bool)].iterrows():
-        orig_num = row["repeat_of_trial_number"]
-        if pd.isna(orig_num) or int(orig_num) not in by_trial_number:
+    for _, row in main[main["repeat_of_trial"].notna()].iterrows():
+        orig_id = int(row["repeat_of_trial"])
+        if orig_id not in by_trial_id:
             continue
-        rep = by_trial_number[int(row["trial_number"])]
-        orig = by_trial_number[int(orig_num)]
+        rep = by_trial_id[int(row["trial_id"])]
+        orig = by_trial_id[orig_id]
         shared = sorted(set(rep) & set(orig))  # same image set -> same pair keys
         if len(shared) >= 2:
             retest.append((np.array([orig[c] for c in shared]), np.array([rep[c] for c in shared])))
@@ -137,30 +152,47 @@ def subject_from_trials(trials: pd.DataFrame, rel2idx: Dict[str, int]) -> PilotS
         distances=distances,
         n_obs=count,
         retest_pairs=retest,
-        qc_flag_rate=float(trials["qc_flag"].astype(bool).mean()),
+        qc_flag_rate=float(main["qc_flag"].astype(bool).mean()) if len(main) else np.nan,
     )
 
 
 def load_pilot_subjects(
-        pilot_dir: str,
+        data_dir: str,
         manifest_path: str,
         versions: Optional[Sequence[float]] = None,
         apply_qc: bool = False,
         qc_max_flag_rate: float = 0.30,
+        cohorts: Sequence[str] = ("pilot",),
 ) -> List[PilotSubject]:
-    """Load the completed pilot subjects under ``pilot_dir`` (optionally filtered by ``task_version``).
+    """Load completed **pilot** subjects from the flat ``data_dir`` (optionally filtered by version).
 
-    Delegates all session/CSV handling and completion filtering to
-    ``analysis.utils.parser.load_pilot_data`` (demographics-aware: consent-revoked and
-    erroneous-completion participants are already excluded), then reduces each participant's trials to
-    a :class:`PilotSubject` on the manifest index space. ``versions`` compares against the float
-    ``task_version`` (e.g. ``[3.0]``). ``apply_qc=False`` by default; set ``True`` to additionally drop
-    subjects whose ``qc_flag`` rate exceeds ``qc_max_flag_rate`` (a robustness check).
+    Delegates session/CSV handling and completion filtering to
+    ``analysis.utils.parser_v2.load_data``, then reduces each participant's trials to a
+    :class:`PilotSubject` on the manifest index space.
+
+    **Production data is excluded by default.** ``parser_v2`` derives ``cohort`` from each file's own
+    ``deployment_mode``, and the simulations must not be calibrated on the live study's data: doing so
+    would let the sample-size and screening conclusions be shaped by the very cohort they are meant to
+    plan, which is circular and amounts to peeking at the running experiment. Pass ``cohorts`` to
+    override deliberately (e.g. for a post-hoc check, never for a design decision).
+
+    Note the practical consequence: every v4.0 session is ``production``, so the default pilot-only
+    view contains **no screening-block data at all** - reliability is measured from v3.\\* whole-trial
+    repeats, which are spread through the session rather than concentrated in a screening block.
+
+    ``versions`` compares against the float ``task_version`` (e.g. ``[3.0]``). ``apply_qc=False`` by
+    default; set ``True`` to additionally drop subjects whose ``qc_flag`` rate exceeds
+    ``qc_max_flag_rate`` (a robustness check).
     """
     _, rel2idx = load_manifest(manifest_path)
-    trials = load_pilot_data(pilot_dir)["trials"]
+    data = load_data(data_dir)
+    participants, trials = data["participants"], data["trials"]
     if trials.empty:
         return []
+    keep = participants[participants["cohort"].isin(list(cohorts))]
+    if keep.empty:
+        return []
+    trials = trials.merge(keep[["participant_id", "task_version"]], on="participant_id", how="inner")
     subjects: List[PilotSubject] = []
     for _, group in trials.groupby("participant_id", sort=False):
         subj = subject_from_trials(group, rel2idx)
@@ -454,7 +486,7 @@ def _calibrate(
 
 
 def calibrate_params_from_pilot(
-        pilot_dir: str,
+        data_dir: str,
         manifest: str,
         *,
         gt_method: str = "smacof",
@@ -488,7 +520,7 @@ def calibrate_params_from_pilot(
     consumes. Raises ``SystemExit`` if no v3.0 (matched-design) subjects are present. Building the GT
     (``gt_method="smacof"``, ``gt_coords`` not given) requires rpy2.
     """
-    allsub = load_pilot_subjects(pilot_dir, manifest)
+    allsub = load_pilot_subjects(data_dir, manifest)
     v3 = [s for s in allsub if s.task_version == 3.0]
     if verbose:
         print(f"[load] {len(allsub)} completed sessions; {len(v3)} are v3.0 (matched design)")

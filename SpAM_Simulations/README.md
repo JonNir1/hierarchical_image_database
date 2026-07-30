@@ -120,7 +120,7 @@ convergence sweep in one go. Programmatically it is a single call:
 ```python
 from SpAM_Simulations.pilot import calibrate_params_from_pilot
 coords, fit, info = calibrate_params_from_pilot(
-    "data/pilot", "SpAM_Task/stimuli_manifest.json",
+    "data", "SpAM_Task/stimuli_manifest.json",   # flat dir; pilot cohort only, by default
     gt_method="smacof",           # or "classical" for a no-R provisional GT (unreliable; smoke-test only)
     save_gt="gt.npy", save_params="params.json",   # optional: persist the artifacts the sweep consumes
 )   # -> fitted {subjects_noise_scale, perspective_dispersion, n_dims, ...}
@@ -128,7 +128,14 @@ coords, fit, info = calibrate_params_from_pilot(
 The read-only building blocks it composes (`load_pilot_subjects`, `within_subject_test_retest`,
 `between_subject_agreement`, `build_gt_from_pilot`) also live in `pilot.py`.
 
-> **Data policy.** `data/pilot/` is human-subjects data: gitignored, **never committed or pushed**.
+> **Cohort policy.** Simulations calibrate on the **pilot cohort only**. `parser_v2` reads a flat
+> `data/` directory and derives each session's cohort from its own `deployment_mode`, so
+> `load_pilot_subjects` defaults to `cohorts=("pilot",)`; calibrating on production data would shape
+> the sample-size and screening conclusions using the very cohort they are meant to plan. Note every
+> v4.0 session is `production`, so the pilot view carries **no screening-block data** - reliability
+> comes from v3.\* whole-trial repeats.
+
+> **Data policy.** `data/` is human-subjects data: gitignored, **never committed or pushed**.
 > Pilot-derived artifacts (the aggregate RDM, the GT `coords`, fitted params) are equally local - keep
 > them under the private `$S3_URI` prefix, never in the repo.
 
@@ -342,7 +349,8 @@ the real pilot, then runs the **same** convergence sweep with the pilot GT + fit
 Everything for the study lives under one **private** `S3_URI` prefix, the pilot path mirroring the local
 `data/pilot/`:
 ```
-$S3_URI/data/pilot/   <- INPUT  you stage once: session + demographics CSVs + stimuli_manifest.json
+$S3_URI/data/         <- INPUT  you stage once: session + demographics CSVs + stimuli_manifest.json
+                         (flat, both cohorts; the calibration itself uses only the pilot ones)
 $S3_URI/calibration/  <- OUTPUT calibrate.log, calibrated_params.json, gt_pilot_coords.npy
 $S3_URI/out/  $S3_URI/mds_store/   <- OUTPUT of the convergence sweep
 ```
@@ -351,8 +359,8 @@ $S3_URI/out/  $S3_URI/mds_store/   <- OUTPUT of the convergence sweep
 entrypoint pulls them from S3 and deletes them from the box at exit):
 ```powershell
 $S3_URI = "s3://jon-nir/spam-simulations/task-v3"
-aws s3 cp data/pilot/                     "$S3_URI/data/pilot/" --recursive   # session + demographics CSVs
-aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/pilot/"               # the 725-image manifest
+aws s3 cp data/                          "$S3_URI/data/" --recursive --exclude "*.pdf"   # session + demographics CSVs
+aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/"                                # the 725-image manifest
 ```
 
 **Run** (after steps (0)-(4) of the Cookbook get you an SSH prompt on a fresh, many-core instance):
