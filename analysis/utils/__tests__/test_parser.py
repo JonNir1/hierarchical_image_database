@@ -4,17 +4,14 @@ import math
 import pandas as pd
 import pytest
 
-from analysis.utils.parser import (
+from analysis.utils.parser_v2 import (
     _count_moves,
-    _load_demographics,
-    _normalise_locations,
     _trial_image_set,
-    load_pilot_data,
+    _normalise_locations,
+    load_data,
     parse_pairwise_distances,
-    validate_trial_counts,
-    validate_trial_repeat_image_sets,
 )
-from pilot_csv_helpers import write_demographics_csv, write_session_csv
+from pilot_csv_helpers import _SESSION_COLUMNS, write_demographics_csv, write_session_csv
 
 
 def _demo_row(**overrides) -> dict:
@@ -29,216 +26,266 @@ def _demo_row(**overrides) -> dict:
     return row
 
 
-def _main_trial_row(**overrides) -> dict:
+def _pw(pairs: list[tuple[str, str, float]]) -> str:
+    return json.dumps([{"src1": a, "src2": b, "distance": d} for a, b, d in pairs])
+
+
+_IMAGES_A = [("a.png", "b.png", 0.1), ("a.png", "c.png", 0.5), ("b.png", "c.png", 0.9)]
+_IMAGES_A_REPEAT = [("a.png", "b.png", 0.15), ("a.png", "c.png", 0.45), ("b.png", "c.png", 0.95)]
+_IMAGES_B = [("d.png", "e.png", 0.2), ("d.png", "f.png", 0.6), ("e.png", "f.png", 0.8)]
+
+
+def _trial_row(trial_type, pairs=_IMAGES_A, **overrides) -> dict:
     row = {
-        "participant_id": "p1", "trial_type": "trial_1",
+        "participant_id": "p1", "trial_type": trial_type,
         "sort_area_width": "1000", "sort_area_height": "800",
         "moves": '[{"x":1,"y":1}]', "rt": "5000", "qc_flag": "false",
-        "shine_variant": "pre", "task_version": "1.0", "deployment_mode": "pilot",
-        "pairwise_distances": '[{"src1":"a.png","src2":"b.png","distance":10}]',
+        "shine_variant": "pre", "task_version": "4.0", "deployment_mode": "pilot",
+        "pairwise_distances": _pw(pairs),
         "final_locations": '[{"src":"a.png","x":500,"y":400}]',
         "init_locations": "", "is_trial_repeat": "false", "repeat_of_trial_number": "",
+        "block": "experimental",
     }
     row.update(overrides)
     return row
 
 
-def _screening_eval_row(**overrides) -> dict:
-    row = {
-        "participant_id": "p1", "trial_type": "screening_eval",
-        "task_version": "4.0", "deployment_mode": "pilot",
-        "pass": "true", "reasons": "[]",
-        "move_ratio_fail_rate": "0.0", "distance_sd_fail_rate": "0.0",
-        "min_reliability": "0.37", "median_reliability": "0.4",
-    }
-    row.update(overrides)
-    return row
-
-
-def _catch_trial_row(**overrides) -> dict:
-    row = {
-        "participant_id": "p1", "trial_type": "catch_1",
-        "sort_area_width": "1000", "sort_area_height": "800",
-        "moves": "[]", "rt": "3000", "qc_flag": "true",
-        "shine_variant": "pre", "task_version": "1.0", "deployment_mode": "pilot",
-        "pairwise_distances": '[{"src1":"c.png","src2":"d.png","distance":5}]',
-        "final_locations": '[{"src":"c.png","x":100,"y":100}]',
-        "catch_trial_target_location": "center",
-        "centroid_x": "0.1", "centroid_y": "0.125", "cluster_mean_distance": "0.05",
-    }
-    row.update(overrides)
-    return row
-
-
-# ---------------------------------------------------------------------------
-# load_pilot_data
-# ---------------------------------------------------------------------------
-
-class TestLoadPilotData:
-    def test_happy_path(self, tmp_path):
+class TestLoadData:
+    def test_practice_trials_excluded_and_trial_id_continuous(self, tmp_path):
         write_demographics_csv(tmp_path, [_demo_row()])
-        write_session_csv(tmp_path, [_main_trial_row(), _catch_trial_row()], "session1.csv")
-
-        data = load_pilot_data(tmp_path)
-
-        assert list(data.keys()) == ["trials", "status", "catch_trials", "screening"]
-
-        df_trials = data["trials"]
-        assert len(df_trials) == 1
-        row = df_trials.iloc[0]
-        assert row["trial_number"] == 1
-        assert row["n_moves"] == 1
-        assert bool(row["qc_flag"]) is False
-        assert row["participant_id"] == "p1"
-        assert row["age"] == 25
-        final_locations = json.loads(row["final_locations"])
-        assert final_locations == [{"src": "a.png", "x": 0.5, "y": 0.5}]
-
-        df_catch = data["catch_trials"]
-        assert len(df_catch) == 1
-        crow = df_catch.iloc[0]
-        assert crow["catch_number"] == 1
-        assert crow["n_moves"] == 0
-        assert bool(crow["qc_flag"]) is True
-        assert crow["catch_trial_target_location"] == "center"
-        assert crow["sort_area_width"] == 1000
-        assert crow["sort_area_height"] == 800
-
-        df_status = data["status"]
-        assert len(df_status) == 1
-        assert df_status.iloc[0]["completion_status"] == "completed"
-
-        assert data["screening"].empty
-
-    def test_missing_dir_raises_file_not_found(self, tmp_path):
-        with pytest.raises(FileNotFoundError):
-            load_pilot_data(tmp_path / "does_not_exist")
-
-    def test_v4_screening_eval_row(self, tmp_path):
-        """v4.0+ sessions log a synthetic screening_eval row plus block/reliability
-        columns on main trials; neither should leak into df_trials as a fake trial."""
-        write_demographics_csv(tmp_path, [_demo_row()])
-        write_session_csv(
-            tmp_path,
-            [
-                _main_trial_row(task_version="4.0", block="screening"),
-                _main_trial_row(
-                    trial_type="trial_2", task_version="4.0", block="screening",
-                    is_trial_repeat="true", repeat_of_trial_number="1", reliability="0.37",
-                ),
-                _screening_eval_row(),
-            ],
-            "session1.csv",
-        )
-
-        data = load_pilot_data(tmp_path)
-
-        df_trials = data["trials"]
-        assert set(df_trials["trial_type"]) == {"trial_1", "trial_2"}
-        assert list(df_trials["block"]) == ["screening", "screening"]
-        repeat_row = df_trials[df_trials["trial_type"] == "trial_2"].iloc[0]
-        assert repeat_row["reliability"] == pytest.approx(0.37)
-
-        df_screening = data["screening"]
-        assert len(df_screening) == 1
-        srow = df_screening.iloc[0]
-        assert srow["participant_id"] == "p1"
-        assert bool(srow["pass"]) is True
-        assert srow["min_reliability"] == "0.37" or float(srow["min_reliability"]) == pytest.approx(0.37)
-
-    def test_path_is_file_raises_not_a_directory(self, tmp_path):
-        file_path = tmp_path / "not_a_dir.txt"
-        file_path.write_text("hello")
-        with pytest.raises(NotADirectoryError):
-            load_pilot_data(file_path)
-
-    def test_no_demographics_file_raises_file_not_found(self, tmp_path):
-        with pytest.raises(FileNotFoundError, match="demographics"):
-            load_pilot_data(tmp_path)
-
-    def test_duplicate_participant_id_warns(self, tmp_path):
-        write_demographics_csv(tmp_path, [
-            _demo_row(**{"Submission id": "s1"}),
-            _demo_row(**{"Submission id": "s2"}),
-        ])
-        write_session_csv(tmp_path, [_main_trial_row()], "session1.csv")
-
-        with pytest.warns(UserWarning, match="Duplicate participant_id"):
-            load_pilot_data(tmp_path)
-
-    def test_revoked_consent_excluded_from_trials(self, tmp_path):
-        write_demographics_csv(tmp_path, [_demo_row(**{"Status": "RETURNED"})])
-
-        with pytest.warns(UserWarning, match="revoked consent"):
-            data = load_pilot_data(tmp_path)
-
-        assert data["trials"].empty
-        assert data["status"].iloc[0]["completion_status"] == "revoked_consent"
-
-    def test_approved_with_no_session_file_excluded_from_trials(self, tmp_path):
-        write_demographics_csv(tmp_path, [_demo_row()])
-
-        with pytest.warns(UserWarning, match="no session file found"):
-            data = load_pilot_data(tmp_path)
-
-        assert data["trials"].empty
-        assert data["status"].iloc[0]["completion_status"] == "erroneous_completion"
-
-    def test_prod_style_demographics_filename_supported(self, tmp_path):
-        # prod's demographics file is "demographic.csv" (singular, no
-        # "participant_" prefix), unlike pilot's "participant_demographics*.csv".
-        write_demographics_csv(tmp_path, [_demo_row()], filename="demographic.csv")
-        write_session_csv(tmp_path, [_main_trial_row()], "session1.csv")
-
-        data = load_pilot_data(tmp_path)
-
-        assert len(data["trials"]) == 1
-        assert data["status"].iloc[0]["completion_status"] == "completed"
-
-    def test_picks_most_complete_session_among_multiple_files(self, tmp_path):
-        """A participant can have more than one session file (e.g. a reconnect after
-        an abandoned attempt, seen in prod) -- the one with the most trial/catch rows
-        must be used, regardless of which file is discovered first."""
-        write_demographics_csv(tmp_path, [_demo_row()])
-        write_session_csv(tmp_path, [_main_trial_row(trial_type="trial_1")], "session_a_abandoned.csv")
         write_session_csv(tmp_path, [
-            _main_trial_row(trial_type="trial_1"),
-            _main_trial_row(trial_type="trial_2"),
-            _catch_trial_row(),
-        ], "session_b_complete.csv")
+            _trial_row("practice", block=""),
+            _trial_row("practice_catch", block=""),
+            _trial_row("trial_1", block="screening"),
+            _trial_row("catch_1", pairs=_IMAGES_B, block="screening"),
+            _trial_row("trial_2", block="experimental"),
+        ], "session1.csv")
 
-        data = load_pilot_data(tmp_path)
+        data = load_data(tmp_path)
+        df_t = data["trials"]
 
-        assert len(data["trials"]) == 2
-        assert len(data["catch_trials"]) == 1
-        assert data["trials"]["session_file"].iloc[0] == "session_b_complete"
+        assert len(df_t) == 3
+        assert df_t["trial_id"].tolist() == [1, 2, 3]
+        assert df_t["is_catch"].tolist() == [False, True, False]
+        assert df_t["block_type"].tolist() == ["screening", "screening", "experimental"]
+
+    def test_block_type_absent_column_defaults_experimental(self, tmp_path):
+        """Pre-v4 files have no `block` column in the header at all (not just NaN)."""
+        write_demographics_csv(tmp_path, [_demo_row()])
+        cols = [c for c in _SESSION_COLUMNS if c != "block"]
+        rows = [_trial_row("trial_1"), _trial_row("catch_1", pairs=_IMAGES_B)]
+        df = pd.DataFrame([{c: row.get(c, "") for c in cols} for row in rows])
+        df.to_csv(tmp_path / "session1.csv", index=False)
+
+        data = load_data(tmp_path)
+        df_t = data["trials"]
+        assert (df_t["block_type"] == "experimental").all()
+
+    def test_repeat_of_trial_resolves_and_reliability_computed(self, tmp_path):
+        write_demographics_csv(tmp_path, [_demo_row()])
+        write_session_csv(tmp_path, [
+            _trial_row("trial_1"),
+            _trial_row("trial_2", pairs=_IMAGES_A_REPEAT, is_trial_repeat="true", repeat_of_trial_number="1"),
+        ], "session1.csv")
+
+        data = load_data(tmp_path)
+        df_t = data["trials"]
+
+        orig = df_t[df_t["trial_id"] == 1].iloc[0]
+        repeat = df_t[df_t["trial_id"] == 2].iloc[0]
+        assert pd.isna(orig["repeat_of_trial"])
+        assert repeat["repeat_of_trial"] == 1
+        assert repeat["reliability"] == pytest.approx(1.0)  # same rank order -> r=1
+
+    def test_repeat_image_set_mismatch_detected(self, tmp_path):
+        from analysis.utils.parser_v2 import _validate_trial_repeat_image_sets_v2
+
+        write_demographics_csv(tmp_path, [_demo_row()])
+        write_session_csv(tmp_path, [
+            _trial_row("trial_1", pairs=_IMAGES_A),
+            _trial_row("trial_2", pairs=_IMAGES_B, is_trial_repeat="true", repeat_of_trial_number="1"),
+        ], "session1.csv")
+
+        with pytest.warns(UserWarning, match="do not share the same image set"):
+            data = load_data(tmp_path)
+
+        report = _validate_trial_repeat_image_sets_v2(data["trials"])
+        assert not report.iloc[0]["images_match"]
+
+    def test_reliability_none_when_too_few_shared_pairs(self, tmp_path):
+        write_demographics_csv(tmp_path, [_demo_row()])
+        write_session_csv(tmp_path, [
+            _trial_row("trial_1", pairs=[("a.png", "b.png", 0.1)]),
+            _trial_row("trial_2", pairs=[("a.png", "b.png", 0.2)],
+                       is_trial_repeat="true", repeat_of_trial_number="1"),
+        ], "session1.csv")
+
+        data = load_data(tmp_path)
+        repeat = data["trials"][data["trials"]["trial_id"] == 2].iloc[0]
+        assert pd.isna(repeat["reliability"])
+
+    def test_malformed_pairwise_distances_warns_and_nulls_reliability(self, tmp_path):
+        write_demographics_csv(tmp_path, [_demo_row()])
+        write_session_csv(tmp_path, [
+            _trial_row("trial_1", pairwise_distances='[{"src1":"a.png","src2":"b.png","distance":0.1}'),  # truncated
+            _trial_row("trial_2", is_trial_repeat="true", repeat_of_trial_number="1"),
+        ], "session1.csv")
+
+        with pytest.warns(UserWarning, match="failed to parse|malformed"):
+            data = load_data(tmp_path)
+
+        repeat = data["trials"][data["trials"]["trial_id"] == 2].iloc[0]
+        assert pd.isna(repeat["reliability"])
+
+    def test_zero_real_trial_rows_is_missing_data(self, tmp_path):
+        write_demographics_csv(tmp_path, [_demo_row()])
+        write_session_csv(tmp_path, [
+            {**_trial_row("pavlovia"), "trial_type": "pavlovia"},
+        ], "session1.csv")
+
+        data = load_data(tmp_path)
+        assert data["participants"].iloc[0]["status"] == "missing data"
+        assert data["trials"].empty
+
+    def test_all_four_status_values(self, tmp_path):
+        write_demographics_csv(tmp_path, [
+            _demo_row(**{"Submission id": "s1", "Participant id": "p1"}),  # full data
+            _demo_row(**{"Submission id": "s2", "Participant id": "p2", "Status": "RETURNED"}),  # revoked
+            _demo_row(**{"Submission id": "s3", "Participant id": "p3"}),  # missing data (no file)
+            _demo_row(**{"Submission id": "s4", "Participant id": "p4"}),  # screened out
+        ])
+        write_session_csv(tmp_path, [_trial_row("trial_1", **{"participant_id": "p1"})], "session_p1.csv")
+        write_session_csv(tmp_path, [
+            {**_trial_row("trial_1", **{"participant_id": "p4"}), "trial_type": "trial_1"},
+            {
+                "participant_id": "p4", "trial_type": "screening_eval", "task_version": "4.0",
+                "deployment_mode": "pilot", "pass": "false", "reasons": "[]",
+                "move_ratio_fail_rate": "0.5", "distance_sd_fail_rate": "0.0",
+                "min_reliability": "-0.1", "median_reliability": "0.1",
+                "sort_area_width": "1000", "sort_area_height": "800", "shine_variant": "pre",
+            },
+        ], "session_p4.csv")
+
+        data = load_data(tmp_path)
+        status_by_pid = data["participants"].set_index("participant_id")["status"]
+        assert status_by_pid["p1"] == "full data"
+        assert status_by_pid["p2"] == "revoked consent"
+        assert status_by_pid["p3"] == "missing data"
+        assert status_by_pid["p4"] == "screened out"
+
+    def test_screening_eval_diagnostics_preserved_and_absent_when_no_row(self, tmp_path):
+        write_demographics_csv(tmp_path, [
+            _demo_row(**{"Submission id": "s1", "Participant id": "p1"}),  # screened out, has diagnostics
+            _demo_row(**{"Submission id": "s2", "Participant id": "p2"}),  # full data, pre-v4, no screening_eval row
+        ])
+        write_session_csv(tmp_path, [
+            {**_trial_row("trial_1", **{"participant_id": "p1"}), "trial_type": "trial_1"},
+            {
+                "participant_id": "p1", "trial_type": "screening_eval", "task_version": "4.0",
+                "deployment_mode": "pilot", "pass": "false", "reasons": '["move-ratio fail rate 0.5"]',
+                "move_ratio_fail_rate": "0.5", "distance_sd_fail_rate": "0.0",
+                "min_reliability": "-0.1", "median_reliability": "0.1",
+                "sort_area_width": "1000", "sort_area_height": "800", "shine_variant": "pre",
+            },
+        ], "session_p1.csv")
+        write_session_csv(tmp_path, [_trial_row("trial_1", **{"participant_id": "p2"}, task_version="1.0")],
+                           "session_p2.csv")
+
+        data = load_data(tmp_path)
+        by_pid = data["participants"].set_index("participant_id")
+
+        assert by_pid.loc["p1", "reasons"] == '["move-ratio fail rate 0.5"]'
+        assert by_pid.loc["p1", "move_ratio_fail_rate"] == pytest.approx(0.5)
+        assert by_pid.loc["p1", "distance_sd_fail_rate"] == pytest.approx(0.0)
+        assert by_pid.loc["p1", "min_reliability"] == pytest.approx(-0.1)
+        assert by_pid.loc["p1", "median_reliability"] == pytest.approx(0.1)
+
+        assert pd.isna(by_pid.loc["p2", "min_reliability"])
+        assert pd.isna(by_pid.loc["p2", "median_reliability"])
+        assert pd.isna(by_pid.loc["p2", "reasons"])
+
+    def test_cohort_raw_passthrough_and_prefix_fallback(self, tmp_path):
+        write_demographics_csv(tmp_path, [
+            _demo_row(**{"Submission id": "s1", "Participant id": "p1"}),
+            _demo_row(**{"Submission id": "s2", "Participant id": "p2"}),
+        ])
+        write_session_csv(tmp_path, [_trial_row("trial_1", **{"participant_id": "p1"},
+                                                 deployment_mode="production")], "session_p1.csv")
+        write_session_csv(tmp_path, [_trial_row("trial_1", **{"participant_id": "p2"},
+                                                 deployment_mode="")], "prod_session_p2.csv")
+
+        data = load_data(tmp_path)
+        cohort_by_pid = data["participants"].set_index("participant_id")["cohort"]
+        assert cohort_by_pid["p1"] == "production"
+        assert cohort_by_pid["p2"] == "production"  # from prod_ filename prefix fallback
+
+    def test_num_associated_files(self, tmp_path):
+        write_demographics_csv(tmp_path, [_demo_row()])
+        write_session_csv(tmp_path, [_trial_row("trial_1")], "session_a.csv")
+        write_session_csv(tmp_path, [_trial_row("trial_1"), _trial_row("trial_2")], "session_b.csv")
+
+        data = load_data(tmp_path)
+        row = data["participants"].iloc[0]
+        assert row["num_associated_files"] == 2
+        assert row["file_name"] == "session_b.csv"  # more real trial rows wins
+
+    def test_multi_file_recency_tiebreak(self, tmp_path):
+        write_demographics_csv(tmp_path, [_demo_row()])
+        write_session_csv(tmp_path, [_trial_row("trial_1")],
+                           "hierarchical-image-database_PARTICIPANT_SESSION_2026-07-24_20h11.13.978.csv")
+        write_session_csv(tmp_path, [_trial_row("trial_1", pairs=_IMAGES_B)],
+                           "hierarchical-image-database_PARTICIPANT_SESSION_2026-07-24_20h55.35.371.csv")
+
+        data = load_data(tmp_path)
+        row = data["participants"].iloc[0]
+        assert "20h55.35.371" in row["file_name"]  # most recent wins the tie
+
+    def test_multi_file_tied_timestamp_raises(self, tmp_path):
+        write_demographics_csv(tmp_path, [_demo_row()])
+        write_session_csv(tmp_path, [_trial_row("trial_1")],
+                           "hierarchical-image-database_PARTICIPANT_SESSION_2026-07-24_20h11.13.978.csv")
+        write_session_csv(tmp_path, [_trial_row("trial_1", pairs=_IMAGES_B)],
+                           "hierarchical-image-database_PARTICIPANT_SESSION2_2026-07-24_20h11.13.978.csv")
+
+        with pytest.raises(ValueError, match="cannot resolve"):
+            load_data(tmp_path)
+
+    def test_multi_file_unparseable_timestamp_raises(self, tmp_path):
+        write_demographics_csv(tmp_path, [_demo_row()])
+        write_session_csv(tmp_path, [_trial_row("trial_1")], "session_no_timestamp_a.csv")
+        write_session_csv(tmp_path, [_trial_row("trial_1", pairs=_IMAGES_B)], "session_no_timestamp_b.csv")
+
+        with pytest.raises(ValueError, match="Cannot parse a timestamp"):
+            load_data(tmp_path)
+
+    @pytest.mark.parametrize("field,bad_value", [
+        ("deployment_mode", "production"),
+        ("shine_variant", "post"),
+        ("sort_area_width", "500"),
+        ("sort_area_height", "400"),
+        ("task_version", "3.0"),
+    ])
+    def test_constancy_check_raises_on_inconsistent_field(self, tmp_path, field, bad_value):
+        write_demographics_csv(tmp_path, [_demo_row()])
+        write_session_csv(tmp_path, [
+            _trial_row("trial_1"),
+            _trial_row("trial_2", **{field: bad_value}),
+        ], "session1.csv")
+
+        with pytest.raises(ValueError, match=field):
+            load_data(tmp_path)
+
+    def test_missing_dir_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            load_data(tmp_path / "does_not_exist")
 
 
 # ---------------------------------------------------------------------------
-# _load_demographics
-# ---------------------------------------------------------------------------
-
-class TestLoadDemographics:
-    def test_renames_columns(self, tmp_path):
-        path = write_demographics_csv(tmp_path, [_demo_row()])
-        df = _load_demographics(path)
-        assert "participant_id" in df.columns
-        assert "prolific_status" in df.columns
-        assert "Participant id" not in df.columns
-
-    def test_masks_prolific_sentinels(self, tmp_path):
-        path = write_demographics_csv(tmp_path, [_demo_row(**{"Ethnicity simplified": "DATA_EXPIRED"})])
-        df = _load_demographics(path)
-        assert pd.isna(df.iloc[0]["ethnicity"])
-
-    def test_coerces_age_to_numeric(self, tmp_path):
-        path = write_demographics_csv(tmp_path, [_demo_row(**{"Age": "not-a-number"})])
-        df = _load_demographics(path)
-        assert pd.isna(df.iloc[0]["age"])
-
-
-# ---------------------------------------------------------------------------
-# _normalise_locations
+# Shared trial/demographics helpers
+#
+# Moved here with the helpers themselves when they migrated out of analysis.utils.parser,
+# so their coverage survives that module's retirement. Behaviour is unchanged; only the
+# import location moved.
 # ---------------------------------------------------------------------------
 
 class TestNormaliseLocations:
@@ -258,10 +305,6 @@ class TestNormaliseLocations:
         assert _normalise_locations(malformed, canvas_w=1000, canvas_h=800) == malformed
 
 
-# ---------------------------------------------------------------------------
-# _count_moves
-# ---------------------------------------------------------------------------
-
 class TestCountMoves:
     def test_counts_entries(self):
         assert _count_moves('[{"x":1,"y":1},{"x":2,"y":2}]') == 2
@@ -275,10 +318,6 @@ class TestCountMoves:
     def test_malformed_json_is_zero(self):
         assert _count_moves("not json") == 0
 
-
-# ---------------------------------------------------------------------------
-# parse_pairwise_distances / _trial_image_set
-# ---------------------------------------------------------------------------
 
 class TestParsePairwiseDistances:
     def test_parses_and_sorts_pair_keys(self):
@@ -297,109 +336,3 @@ class TestParsePairwiseDistances:
     def test_trial_image_set_is_union_of_all_pairs(self):
         pw_json = '[{"src1":"a.png","src2":"b.png","distance":1},{"src1":"b.png","src2":"c.png","distance":2}]'
         assert _trial_image_set(pw_json) == frozenset({"a.png", "b.png", "c.png"})
-
-
-# ---------------------------------------------------------------------------
-# validate_trial_repeat_image_sets
-# ---------------------------------------------------------------------------
-
-class TestValidateTrialRepeatImageSets:
-    def _base_df(self) -> pd.DataFrame:
-        return pd.DataFrame([
-            {
-                "participant_id": "p1", "session_file": "session1", "trial_number": 1,
-                "is_trial_repeat": False, "repeat_of_trial_number": pd.NA,
-                "pairwise_distances": '[{"src1":"a.png","src2":"b.png","distance":1}]',
-            },
-            {
-                "participant_id": "p1", "session_file": "session1", "trial_number": 2,
-                "is_trial_repeat": True, "repeat_of_trial_number": 1,
-                "pairwise_distances": '[{"src1":"a.png","src2":"b.png","distance":1}]',
-            },
-            {
-                "participant_id": "p1", "session_file": "session1", "trial_number": 3,
-                "is_trial_repeat": False, "repeat_of_trial_number": pd.NA,
-                "pairwise_distances": '[{"src1":"c.png","src2":"d.png","distance":1}]',
-            },
-            {
-                "participant_id": "p1", "session_file": "session1", "trial_number": 4,
-                "is_trial_repeat": True, "repeat_of_trial_number": 3,
-                # deliberately different images than trial 3
-                "pairwise_distances": '[{"src1":"e.png","src2":"f.png","distance":1}]',
-            },
-        ])
-
-    def test_matching_image_sets_pass(self):
-        report = validate_trial_repeat_image_sets(self._base_df())
-        row = report[report["trial_number"] == 2].iloc[0]
-        assert bool(row["images_match"]) is True
-
-    def test_mismatched_image_sets_fail(self):
-        report = validate_trial_repeat_image_sets(self._base_df())
-        row = report[report["trial_number"] == 4].iloc[0]
-        assert bool(row["images_match"]) is False
-
-    def test_missing_required_column_raises_key_error(self):
-        df = self._base_df().drop(columns=["pairwise_distances"])
-        with pytest.raises(KeyError):
-            validate_trial_repeat_image_sets(df)
-
-
-# ---------------------------------------------------------------------------
-# validate_trial_counts
-# ---------------------------------------------------------------------------
-
-class TestValidateTrialCounts:
-    def _session_df(self, participant_id, session_file, task_version, n_trials, n_repeats) -> pd.DataFrame:
-        return pd.DataFrame([
-            {
-                "participant_id": participant_id, "session_file": session_file,
-                "task_version": task_version, "trial_number": n,
-                "is_trial_repeat": n <= n_repeats,
-            }
-            for n in range(1, n_trials + 1)
-        ])
-
-    def test_v1_expects_10_trials_0_repeats(self):
-        df = self._session_df("p1", "s1", 1.0, n_trials=10, n_repeats=0)
-        report = validate_trial_counts(df)
-        row = report.iloc[0]
-        assert (row["expected_n_trials"], row["expected_n_repeats"]) == (10, 0)
-        assert bool(row["trials_match"]) is True
-        assert bool(row["repeats_match"]) is True
-
-    def test_v3_06_expects_20_trials_3_repeats(self):
-        df = self._session_df("p1", "s1", 3.06, n_trials=20, n_repeats=3)
-        report = validate_trial_counts(df)
-        row = report.iloc[0]
-        assert (row["expected_n_trials"], row["expected_n_repeats"]) == (20, 3)
-        assert bool(row["trials_match"]) is True
-        assert bool(row["repeats_match"]) is True
-
-    def test_wrong_trial_count_fails(self):
-        df = self._session_df("p1", "s1", 1.0, n_trials=8, n_repeats=0)
-        report = validate_trial_counts(df)
-        row = report.iloc[0]
-        assert bool(row["trials_match"]) is False
-        assert bool(row["repeats_match"]) is True
-
-    def test_wrong_repeat_count_fails(self):
-        df = self._session_df("p1", "s1", 3.06, n_trials=20, n_repeats=2)
-        report = validate_trial_counts(df)
-        row = report.iloc[0]
-        assert bool(row["trials_match"]) is True
-        assert bool(row["repeats_match"]) is False
-
-    def test_unknown_task_version_is_unmatched(self):
-        df = self._session_df("p1", "s1", 9.9, n_trials=10, n_repeats=0)
-        report = validate_trial_counts(df)
-        row = report.iloc[0]
-        assert pd.isna(row["expected_n_trials"])
-        assert pd.isna(row["expected_n_repeats"])
-        assert bool(row["trials_match"]) is False
-        assert bool(row["repeats_match"]) is False
-
-    def test_missing_required_column_raises_key_error(self):
-        df = self._session_df("p1", "s1", 1.0, n_trials=10, n_repeats=0).drop(columns=["task_version"])
-        with pytest.raises(KeyError):
-            validate_trial_counts(df)
