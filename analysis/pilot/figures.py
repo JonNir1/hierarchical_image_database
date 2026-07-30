@@ -26,7 +26,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.stats import gaussian_kde, ks_2samp, spearmanr
 
-from analysis.utils.parser import parse_pairwise_distances
+from analysis.utils.parser_v2 import parse_pairwise_distances
 
 # ---------------------------------------------------------------------------
 # Version colour palette

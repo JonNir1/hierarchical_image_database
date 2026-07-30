@@ -58,10 +58,10 @@
 #   * The instance can reach the repo (public repo, or a PAT/deploy key in REPO_URL/ssh).
 #   * S3 access: attach an IAM role with s3:PutObject on the bucket (preferred), or run
 #     `aws configure` with the project IAM user's credentials before this script.
-#   * Stage the pilot under $S3_URI/data/pilot (PRIVATE - human-subjects data), containing the
+#   * Stage the FLAT data dir under $S3_URI/data (PRIVATE - human-subjects data), containing the
 #     per-session + demographics CSVs and stimuli_manifest.json, e.g.:
-#       aws s3 cp data/pilot/                     "$S3_URI/data/pilot/" --recursive
-#       aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/pilot/"
+#       aws s3 cp data/                          "$S3_URI/data/" --recursive --exclude "*.pdf"
+#       aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/"
 #
 # Usage:
 #   export REPO_URL=https://github.com/<you>/hierarchical_image_database.git
@@ -140,18 +140,18 @@ fi
 echo ">> [calibrate] pilot parser present: analysis/utils/parser.py"
 
 # Fetch the (gitignored, human-subjects) pilot data; the EXIT trap (_on_exit) deletes it on any exit.
-PILOT_DIR="data/pilot"
-echo ">> [calibrate] fetching pilot data from $S3_URI/data/pilot ..."
+PILOT_DIR="data"
+echo ">> [calibrate] fetching participant data from $S3_URI/data (pilot cohort is used) ..."
 mkdir -p "$PILOT_DIR"
-aws s3 sync "$S3_URI/data/pilot" "$PILOT_DIR/" --only-show-errors
+aws s3 sync "$S3_URI/data" "$PILOT_DIR/" --only-show-errors
 
 # Fail fast if the pilot prefix was empty/misconfigured (before spending on the sweep).
 shopt -s nullglob; _csvs=("$PILOT_DIR"/*.csv); shopt -u nullglob
 if [ ${#_csvs[@]} -eq 0 ] || [ ! -f "$PILOT_DIR/stimuli_manifest.json" ]; then
-  echo "!! [calibrate] no *.csv and/or stimuli_manifest.json under $S3_URI/data/pilot"
+  echo "!! [calibrate] no *.csv and/or stimuli_manifest.json under $S3_URI/data"
   echo "!! Stage the pilot first, e.g.:"
-  echo "!!   aws s3 cp data/pilot/                     \"$S3_URI/data/pilot/\" --recursive"
-  echo "!!   aws s3 cp SpAM_Task/stimuli_manifest.json \"$S3_URI/data/pilot/\""
+  echo "!!   aws s3 cp data/                          \"$S3_URI/data/\" --recursive --exclude \"*.pdf\""
+  echo "!!   aws s3 cp SpAM_Task/stimuli_manifest.json \"$S3_URI/data/\""
   exit 1
 fi
 mkdir -p calibration
@@ -171,12 +171,17 @@ from SpAM_Simulations.pilot import (
     between_subject_agreement,
 )
 
-PILOT, MANIFEST = "data/pilot", "data/pilot/stimuli_manifest.json"
+# parser_v2 reads a FLAT data/ dir and derives cohort from each file's deployment_mode;
+# load_pilot_subjects defaults to cohorts=("pilot",) so production data never calibrates a sweep.
+PILOT, MANIFEST = "data", "data/stimuli_manifest.json"
 GT_METHOD = os.environ.get("GT_METHOD", "smacof")
 N_JOBS = int(os.environ["N_JOBS"])
 TR_LIST = [float(x) for x in os.environ["TR_LIST"].split(",")]
 MINREL_LIST = [float(x) for x in os.environ["MINREL_LIST"].split(",")]
-DISP = float(os.environ["DISP"])                 # perspective dispersion, FIXED (empirical 0.2)
+DISP = float(os.environ["DISP"])   # the value earlier runs ASSUMED; kept only as the
+                                   # comparison point in the [disp] line and as the
+                                   # (perspective-invariant) dispersion used while
+                                   # fitting the noise shape. The swept value is DISP_LIST.
 REPS = int(os.environ.get("REPS", "6"))
 
 # The DEPLOYED design (SpAM_Task/task_config.json v4.0), fixed rather than swept.
@@ -254,7 +259,11 @@ with open("calibration/dispersion_fit.json", "w") as fh:
 # the retained cohort's R, and that realised value is reported per cell in coverage.csv.
 rows = []
 for R in TR_LIST:
+    # lognormal_sigma MUST be threaded here: the inversion has to use the SAME noise population
+    # the sweep will run, or the achieved R it reports describes a different distribution and the
+    # whole target-R axis is mislabelled (this bit the first task-v4-fitted run).
     noise, ach = fit_noise_for_test_retest(coords, R, noise_df=SHAPE_DF,
+                                           lognormal_sigma=LOGN_SIGMA,
                                            images_per_trial=IMAGES_PER_TRIAL, reps=REPS)
     rows.append(dict(subjects_noise_df=SHAPE_DF, noise_family=FB["family"],
                      lognormal_sigma=LOGN_SIGMA, target_test_retest=R,
@@ -272,7 +281,10 @@ plateaus = []
 for _, r in noise_map.iterrows():
     df = int(r.subjects_noise_df); R = float(r.target_test_retest); noise = float(r.subjects_noise_scale)
     tag = f"tr{int(round(R * 100)):02d}"
-    print(f"\n===== {tag}: noise={noise:.2f}, disp={DISP}, N={FULL_N}, min_rel={MINREL_LIST} =====")
+    # NB: report DISP_LIST (what is actually swept), not the DISP env default -- printing
+    # the latter made the log claim dispersion=0.2 while the sweep ran the fitted 0.3.
+    print(f"\n===== {tag}: noise={noise:.2f}, disp={DISP_LIST}, sigma={LOGN_SIGMA}, "
+          f"N={FULL_N}, min_rel={MINREL_LIST} =====")
     cfg = TaskV4SimulationConfig(
         gt_embeddings=coords, num_subjects=FULL_N,
         trials_per_subject=[TRIALS_PER_SUBJECT], images_per_trial=[IMAGES_PER_TRIAL],

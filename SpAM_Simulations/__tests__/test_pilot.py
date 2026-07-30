@@ -1,8 +1,8 @@
 """Tests for pilot ingestion + calibration.
 
-Session/CSV loading is delegated to ``analysis.utils.parser`` (tested there); these tests exercise
-this module's own logic - reducing a parser-style tidy ``trials`` frame to a ``PilotSubject``, the
-observables, and the calibration fit - on hand-built DataFrames, with no real pilot-data dependency.
+Session/CSV loading is delegated to ``analysis.utils.parser_v2`` (tested there); these tests exercise
+this module's own logic - reducing a parser_v2 tidy ``trials`` frame to a ``PilotSubject``, the
+observables, and the calibration fit - on hand-built DataFrames, with no real data dependency.
 """
 import json
 
@@ -35,21 +35,32 @@ def _pw_json(images, dists):
 
 
 def _trials_df(trials, participant="P", version=3.0):
-    """Build a parser-style `trials` frame for one participant.
+    """Build a parser_v2-style `trials` frame for one participant.
 
-    `trials`: list of {images, dists, is_repeat?, repeat_of?}; `repeat_of` is the 1-based trial number
-    of the original (matching `repeat_of_trial_number`).
+    `trials`: list of {images, dists, repeat_of?, catch?}. `repeat_of` is the 1-based `trial_id` of
+    the original; parser_v2 replaced the old `is_trial_repeat` + `repeat_of_trial_number` pair with
+    a single nullable `repeat_of_trial`, and added `is_catch`.
     """
     recs = []
     for ti, t in enumerate(trials, start=1):
         recs.append({
-            "participant_id": participant, "task_version": version, "trial_number": ti,
-            "is_trial_repeat": bool(t.get("is_repeat", False)),
-            "repeat_of_trial_number": float(t["repeat_of"]) if t.get("repeat_of") is not None else np.nan,
+            "participant_id": participant, "task_version": version, "trial_id": ti,
+            "is_catch": bool(t.get("catch", False)),
+            "repeat_of_trial": float(t["repeat_of"]) if t.get("repeat_of") is not None else np.nan,
             "qc_flag": bool(t.get("qc", False)),
             "pairwise_distances": _pw_json(t["images"], t["dists"]),
         })
     return pd.DataFrame(recs)
+
+
+def _loaded(trials_df, participants_df=None):
+    """Mimic parser_v2.load_data's two-table return for monkeypatching."""
+    if participants_df is None:
+        participants_df = pd.DataFrame([
+            {"participant_id": pid, "cohort": "pilot",
+             "task_version": float(g["task_version"].iloc[0])}
+            for pid, g in trials_df.groupby("participant_id", sort=False)])
+    return {"participants": participants_df, "trials": trials_df.drop(columns=["task_version"])}
 
 
 def _subject(tmp_path, trials, **kw):
@@ -83,7 +94,7 @@ def test_repeat_trial_averaged_and_aligned(tmp_path):
     rep = {(0, 1): 0.4, (0, 2): 0.5, (1, 2): 0.7}
     subj = _subject(tmp_path, [
         {"images": ["a.png", "b.png", "c.png"], "dists": base},
-        {"images": ["a.png", "b.png", "c.png"], "dists": rep, "is_repeat": True, "repeat_of": 1},
+        {"images": ["a.png", "b.png", "c.png"], "dists": rep, "repeat_of": 1},
     ])
     assert subj.distances[_cond(0, 1)] == pytest.approx(0.3)  # (a,b) seen twice -> mean(0.2, 0.4)
     assert len(subj.retest_pairs) == 1
@@ -96,7 +107,7 @@ def test_within_subject_test_retest_value(tmp_path):
     same = {(0, 1): 0.2, (0, 2): 0.5, (1, 2): 0.9}
     subj = _subject(tmp_path, [
         {"images": ["a.png", "b.png", "c.png"], "dists": same},
-        {"images": ["a.png", "b.png", "c.png"], "dists": same, "is_repeat": True, "repeat_of": 1},
+        {"images": ["a.png", "b.png", "c.png"], "dists": same, "repeat_of": 1},
     ])
     assert pilot.within_subject_test_retest(subj) == pytest.approx(1.0)  # identical -> Spearman 1
 
@@ -122,14 +133,14 @@ def test_load_subjects_filters_version_and_qc(tmp_path, monkeypatch):
         _trials_df([flagged], participant="C", version=3.0),  # 100% flagged
     ], ignore_index=True)
     # stub the parser loader: this module must NOT re-read CSVs, only reduce the tidy trials frame
-    monkeypatch.setattr(pilot, "load_pilot_data", lambda d: {"trials": trials})
+    monkeypatch.setattr(pilot, "load_data", lambda d: _loaded(trials))
     assert len(pilot.load_pilot_subjects("ignored", man)) == 3
     assert len(pilot.load_pilot_subjects("ignored", man, versions=[3.0])) == 2
     assert len(pilot.load_pilot_subjects("ignored", man, apply_qc=True)) == 2  # drops the flagged one
 
 
 def test_load_subjects_empty(tmp_path, monkeypatch):
-    monkeypatch.setattr(pilot, "load_pilot_data", lambda d: {"trials": pd.DataFrame()})
+    monkeypatch.setattr(pilot, "load_data", lambda d: {"participants": pd.DataFrame(), "trials": pd.DataFrame()})
     assert pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path)) == []
 
 
@@ -170,7 +181,7 @@ def _fake_subjects(tmp_path):
     same = {(0, 1): 0.2, (0, 2): 0.5, (1, 2): 0.9}
     v3 = [_subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"], "dists": same},
                               {"images": ["a.png", "b.png", "c.png"], "dists": same,
-                               "is_repeat": True, "repeat_of": 1}], participant=p, version=3.0)
+                               "repeat_of": 1}], participant=p, version=3.0)
           for p in ("A", "B")]
     other = [_subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"], "dists": same}],
                       participant="C", version=2.0)]
@@ -294,3 +305,69 @@ class TestDispersionRefit:
             num_subjects=20, trials_per_subject=8, images_per_trial=8,
             frac_trials_repeated=0.25, reps=1, min_overlap=3)
         assert disp in grid and np.isfinite(ach)
+
+
+def test_noise_inversion_respects_the_noise_family():
+    """Regression: inverting under one noise family and sweeping under another mislabels the R axis.
+
+    The first task-v4-fitted run inverted the scale under |t(5)| while the sweep ran the fitted
+    lognormal, so cells labelled R=0.24/0.35/0.50 actually realised 0.09/0.16/0.29. The mean scale
+    is preserved across families, but the realised reliability is not, so the two fits must agree.
+    """
+    from SpAM_Simulations.pilot import fit_noise_for_test_retest
+    from SpAM_Simulations.simulation import build_ground_truth_embeddings
+    gt = build_ground_truth_embeddings(90, 4, seed=3)
+    kw = dict(noise_df=5, images_per_trial=8, trials_per_subject=8,
+              frac_trials_repeated=0.25, num_subjects=15, reps=1,
+              noise_grid=(0.5, 1.0, 1.5))
+    _, ach_t = fit_noise_for_test_retest(gt, 0.4, lognormal_sigma=0.0, **kw)
+    _, ach_ln = fit_noise_for_test_retest(gt, 0.4, lognormal_sigma=0.35, **kw)
+    assert ach_t != ach_ln, "the inversion ignored lognormal_sigma - the R axis would be mislabelled"
+
+
+class TestCohortIsolation:
+    """Simulations must not be calibrated on the live study's data.
+
+    parser_v2 derives `cohort` from each session's own `deployment_mode`, so pilot and production
+    now sit in one flat directory and only this filter separates them. Calibrating on production
+    would let the sample-size and screening conclusions be shaped by the cohort they are meant to
+    plan - circular, and equivalent to peeking at the running experiment.
+    """
+
+    def _mixed(self, tmp_path):
+        pilot_t = _trials_df([{"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .2, (0, 2): .4, (1, 2): .6}}],
+                             participant="PILOT_1", version=3.0)
+        prod_t = _trials_df([{"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .9, (0, 2): .9, (1, 2): .9}}],
+                            participant="PROD_1", version=4.0)
+        trials = pd.concat([pilot_t, prod_t], ignore_index=True)
+        participants = pd.DataFrame([
+            {"participant_id": "PILOT_1", "cohort": "pilot", "task_version": 3.0},
+            {"participant_id": "PROD_1", "cohort": "production", "task_version": 4.0},
+        ])
+        return trials, participants
+
+    def test_production_excluded_by_default(self, tmp_path, monkeypatch):
+        trials, participants = self._mixed(tmp_path)
+        monkeypatch.setattr(pilot, "load_data", lambda d: _loaded(trials, participants))
+        subs = pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path))
+        assert [s.participant_id for s in subs] == ["PILOT_1"]
+
+    def test_production_included_only_on_explicit_override(self, tmp_path, monkeypatch):
+        trials, participants = self._mixed(tmp_path)
+        monkeypatch.setattr(pilot, "load_data", lambda d: _loaded(trials, participants))
+        subs = pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path),
+                                         cohorts=("pilot", "production"))
+        assert sorted(s.participant_id for s in subs) == ["PILOT_1", "PROD_1"]
+
+    def test_catch_trials_are_dropped(self, tmp_path):
+        """parser_v2 exposes is_catch; previously catch trials were only incidentally harmless."""
+        both = _subject(tmp_path, [
+            {"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .2, (0, 2): .4, (1, 2): .6}},
+            {"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .9, (0, 2): .9, (1, 2): .9}, "catch": True},
+        ])
+        main_only = _subject(tmp_path, [
+            {"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .2, (0, 2): .4, (1, 2): .6}},
+        ])
+        np.testing.assert_array_equal(np.nan_to_num(both.distances, nan=-1),
+                                      np.nan_to_num(main_only.distances, nan=-1))
+        np.testing.assert_array_equal(both.n_obs, main_only.n_obs)

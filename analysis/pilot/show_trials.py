@@ -35,16 +35,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import plotly.io as pio
 
-from analysis.utils.parser import load_pilot_data
+from analysis.utils.parser_v2 import load_data
 from analysis.utils.visualize_trials import visualize_trials
 
 pio.renderers.default = "browser"
 
 with warnings.catch_warnings(record=True) as _w:
     warnings.simplefilter("always")
-    data = load_pilot_data("data/pilot")
+    data = load_data("data")
 
-df = data["trials"]
+# parser_v2 splits the old single frame in two: per-trial rows, and per-participant
+# session metadata. Re-join the two session-level fields this script filters on, keeping
+# the old `session_file` name so the rest of the script is unchanged.
+df = data["trials"].merge(
+    data["participants"][["participant_id", "file_name", "task_version", "cohort"]],
+    on="participant_id", how="left",
+).rename(columns={"file_name": "session_file"})
 
 # ---------------------------------------------------------------------------
 # Parse arguments (no argparse to keep the script dependency-free)

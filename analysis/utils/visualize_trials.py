@@ -96,37 +96,39 @@ def render_trial(
 
 def _pair_and_remaining_rows(df_subject: pd.DataFrame) -> tuple[list[pd.Series], list[pd.Series]]:
     """
-    Split *df_subject* (sorted by trial_number) into:
+    Split *df_subject* (sorted by trial_id) into:
       - pair_rows: [original, repeat, original, repeat, ...] for every
         test-retest repeat trial, ordered by the repeat's presentation order
-        (ascending trial_number of the repeat).
+        (ascending trial_id of the repeat).
       - remaining_rows: every other trial, in presentation order, excluding
         anything already included in pair_rows.
 
-    Requires "is_trial_repeat" and "repeat_of_trial_number" columns (present
+    Requires the parser_v2 "repeat_of_trial" column (present
     on every trials DataFrame produced by analysis.utils.parser, defaulting
     to False/NaN on task versions without the repeat mechanism).
     """
-    df_subject = df_subject.sort_values("trial_number")
-    trials_by_number = {int(row["trial_number"]): row for _, row in df_subject.iterrows()}
+    df_subject = df_subject.sort_values("trial_id")
+    trials_by_number = {int(row["trial_id"]): row for _, row in df_subject.iterrows()}
 
-    repeat_mask = df_subject["is_trial_repeat"].astype(bool) & df_subject["repeat_of_trial_number"].notna()
+    # parser_v2 folded is_trial_repeat + repeat_of_trial_number into one nullable column:
+    # a non-null repeat_of_trial IS the "this is a repeat" flag.
+    repeat_mask = df_subject["repeat_of_trial"].notna()
     repeat_rows = df_subject[repeat_mask]
 
     pair_rows: list[pd.Series] = []
     used_numbers: set[int] = set()
     for _, rep_row in repeat_rows.iterrows():
-        orig_num = int(rep_row["repeat_of_trial_number"])
+        orig_num = int(rep_row["repeat_of_trial"])
         orig_row = trials_by_number.get(orig_num)
         if orig_row is None:
             continue
         pair_rows.append(orig_row)
         pair_rows.append(rep_row)
         used_numbers.add(orig_num)
-        used_numbers.add(int(rep_row["trial_number"]))
+        used_numbers.add(int(rep_row["trial_id"]))
 
     remaining_rows = [
-        row for _, row in df_subject.iterrows() if int(row["trial_number"]) not in used_numbers
+        row for _, row in df_subject.iterrows() if int(row["trial_id"]) not in used_numbers
     ]
 
     return pair_rows, remaining_rows
@@ -239,7 +241,7 @@ def visualize_trials(
 
     subplot_titles = []
     for i, row in enumerate(trials):
-        title = f"Trial {row['trial_number']}"
+        title = f"Trial {row['trial_id']}"
         if i in fallback_title_r:
             title += f"  (R={fallback_title_r[i]:.3f})"
         subplot_titles.append(title)

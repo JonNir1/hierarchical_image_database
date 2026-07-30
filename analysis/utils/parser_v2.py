@@ -9,9 +9,10 @@ Usage (from repo root):
     df_trials       = data["trials"]         # one row per real SpAM/catch trial;
                                               # join to df_participants on participant_id
 
-This is a parser-only refactor; analysis/pilot/figures.py and analysis.ipynb keep
-using analysis.utils.parser.load_pilot_data. See the plan this was built from for
-the full rationale and verification strategy.
+This module is self-contained: the shared trial/demographics helpers that used to live in
+analysis.utils.parser now live here, so parser.py has no remaining dependents and can be
+retired. The v1 loader and its pilot/prod directory layout are preserved at tag spam-sim-v4.0,
+which is also the revision the task-v4.0 simulations were run from.
 """
 from __future__ import annotations
 
@@ -24,15 +25,91 @@ from pathlib import Path
 import pandas as pd
 from scipy.stats import spearmanr
 
-from analysis.utils.parser import (
-    _DEMOGRAPHICS_DROP,
-    _DEMOGRAPHICS_RENAME,
-    _EXPIRED_SENTINEL,
-    _PROLIFIC_SENTINEL,
-    _count_moves,
-    _normalise_locations,
-    parse_pairwise_distances,
-)
+# ---------------------------------------------------------------------------
+# Shared session/demographics helpers
+#
+# Moved here from analysis.utils.parser: these are schema-independent (they parse a
+# single trial's JSON columns and normalise Prolific demographics), so they outlived the
+# v1 loader they used to live in. Keeping them here lets parser_v2 stand alone, which is
+# what allows parser.py to be retired. The v1 loader is preserved at tag spam-sim-v4.0.
+# ---------------------------------------------------------------------------
+
+_PROLIFIC_SENTINEL = "CONSENT_REVOKED"
+
+_EXPIRED_SENTINEL = "DATA_EXPIRED"
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+_DEMOGRAPHICS_DROP = {
+    "Custom study tncs accepted at",
+    "Started at",
+    "Completed at",
+    "Reviewed at",
+    "Archived at",
+    "Completion code",
+    "Total approvals",
+}
+
+_DEMOGRAPHICS_RENAME = {
+    "Submission id": "submission_id",
+    "Participant id": "participant_id",
+    "Status": "prolific_status",
+    "Time taken": "prolific_duration_s",
+    "Age": "age",
+    "Sex": "sex",
+    "Ethnicity simplified": "ethnicity",
+    "Country of birth": "country_of_birth",
+    "Country of residence": "country_of_residence",
+    "Nationality": "nationality",
+    "Language": "language",
+    "Student status": "student_status",
+    "Employment status": "employment_status",
+}
+
+# Prolific-internal columns with no analysis value
+
+def _count_moves(moves_json: str) -> int:
+    if pd.isna(moves_json) or moves_json == "":
+        return 0
+    try:
+        return len(json.loads(moves_json))
+    except (json.JSONDecodeError, TypeError):
+        return 0
+
+
+# ---------------------------------------------------------------------------
+# Public parsing helpers (shared across figures.py and analysis notebooks)
+# ---------------------------------------------------------------------------
+
+def _normalise_locations(locs_json: str, canvas_w: int, canvas_h: int) -> str:
+    """Normalise pixel x/y to [0, 1] in a final_locations, init_locations, or moves JSON string."""
+    if pd.isna(locs_json) or locs_json == "":
+        return locs_json
+    try:
+        items = json.loads(locs_json)
+        for item in items:
+            item["x"] = item["x"] / canvas_w
+            item["y"] = item["y"] / canvas_h
+        return json.dumps(items)
+    except (json.JSONDecodeError, TypeError, KeyError):
+        return locs_json
+
+def parse_pairwise_distances(pw_json: str) -> dict[tuple[str, str], float]:
+    """Parse one trial's pairwise_distances JSON into {sorted_image_pair: distance}."""
+    if pd.isna(pw_json) or pw_json == "":
+        return {}
+    try:
+        items = json.loads(pw_json)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return {
+        tuple(sorted([item["src1"], item["src2"]])): item["distance"]
+        for item in items
+    }
+
 
 # ---------------------------------------------------------------------------
 # Constants
