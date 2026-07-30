@@ -47,7 +47,7 @@ from scipy.sparse.csgraph import connected_components
 from scipy.spatial.distance import squareform
 from scipy.stats import spearmanr
 
-from analysis.utils.parser import parse_pairwise_distances
+from analysis.utils.parser_v2 import parse_pairwise_distances
 from analysis.utils.parser_v2 import load_data
 from SpAM_Simulations.experiment import _condensed_pair_indices
 

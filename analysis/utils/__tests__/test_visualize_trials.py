@@ -27,9 +27,8 @@ def _make_trials_df(
     for trial_number in range(1, n_trials + 1):
         orig_num = repeats.get(trial_number)
         rows.append({
-            "trial_number": trial_number,
-            "is_trial_repeat": orig_num is not None,
-            "repeat_of_trial_number": float(orig_num) if orig_num is not None else float("nan"),
+            "trial_id": trial_number,
+            "repeat_of_trial": float(orig_num) if orig_num is not None else float("nan"),
             "final_locations": "",
             "pairwise_distances": json.dumps(pairwise[trial_number]) if trial_number in pairwise else "",
             "participant_id": "test_subject",

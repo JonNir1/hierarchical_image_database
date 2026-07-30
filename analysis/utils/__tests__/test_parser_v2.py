@@ -1,9 +1,16 @@
 import json
+import math
 
 import pandas as pd
 import pytest
 
-from analysis.utils.parser_v2 import load_data
+from analysis.utils.parser_v2 import (
+    _count_moves,
+    _trial_image_set,
+    _normalise_locations,
+    load_data,
+    parse_pairwise_distances,
+)
 from pilot_csv_helpers import _SESSION_COLUMNS, write_demographics_csv, write_session_csv
 
 
@@ -271,3 +278,61 @@ class TestLoadData:
     def test_missing_dir_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             load_data(tmp_path / "does_not_exist")
+
+
+# ---------------------------------------------------------------------------
+# Shared trial/demographics helpers
+#
+# Moved here with the helpers themselves when they migrated out of analysis.utils.parser,
+# so their coverage survives that module's retirement. Behaviour is unchanged; only the
+# import location moved.
+# ---------------------------------------------------------------------------
+
+class TestNormaliseLocations:
+    def test_normalises_pixel_coordinates(self):
+        result = _normalise_locations('[{"x":100,"y":200}]', canvas_w=1000, canvas_h=800)
+        assert json.loads(result) == [{"x": 0.1, "y": 0.25}]
+
+    def test_empty_string_passthrough(self):
+        assert _normalise_locations("", canvas_w=1000, canvas_h=800) == ""
+
+    def test_nan_passthrough(self):
+        result = _normalise_locations(float("nan"), canvas_w=1000, canvas_h=800)
+        assert math.isnan(result)
+
+    def test_malformed_json_passthrough(self):
+        malformed = '{"not": "a list"'
+        assert _normalise_locations(malformed, canvas_w=1000, canvas_h=800) == malformed
+
+
+class TestCountMoves:
+    def test_counts_entries(self):
+        assert _count_moves('[{"x":1,"y":1},{"x":2,"y":2}]') == 2
+
+    def test_empty_string_is_zero(self):
+        assert _count_moves("") == 0
+
+    def test_nan_is_zero(self):
+        assert _count_moves(float("nan")) == 0
+
+    def test_malformed_json_is_zero(self):
+        assert _count_moves("not json") == 0
+
+
+class TestParsePairwiseDistances:
+    def test_parses_and_sorts_pair_keys(self):
+        result = parse_pairwise_distances('[{"src1":"b.png","src2":"a.png","distance":3.5}]')
+        assert result == {("a.png", "b.png"): 3.5}
+
+    def test_empty_string_is_empty_dict(self):
+        assert parse_pairwise_distances("") == {}
+
+    def test_nan_is_empty_dict(self):
+        assert parse_pairwise_distances(float("nan")) == {}
+
+    def test_malformed_json_is_empty_dict(self):
+        assert parse_pairwise_distances("not json") == {}
+
+    def test_trial_image_set_is_union_of_all_pairs(self):
+        pw_json = '[{"src1":"a.png","src2":"b.png","distance":1},{"src1":"b.png","src2":"c.png","distance":2}]'
+        assert _trial_image_set(pw_json) == frozenset({"a.png", "b.png", "c.png"})
