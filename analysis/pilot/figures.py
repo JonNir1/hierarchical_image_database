@@ -219,24 +219,30 @@ def fig_completion_status(df_participants: pd.DataFrame) -> go.Figure:
     """
     Participant status distribution, one horizontal-bar subplot per major version
     (v3.0/v3.06 merge into a single "v3" subplot), each subplot title annotated
-    with that version's total N. Participants with no resolvable session file
-    (so no derivable task_version -- e.g. revoked consent before ever starting,
-    or a totally missing/empty file) can't be attributed to a version and are
-    excluded from this view.
+    with that version's total N. Participants with no resolvable session file (so
+    no derivable task_version -- revoked consent before ever starting, or a
+    totally missing file, e.g. a Prolific/Pavlovia handoff that never reached us)
+    can't be attributed to a version; rather than silently dropping them, they get
+    one extra "Unknown version" subplot so they stay visible in this figure.
     """
     df = _with_major_version(df_participants)
     versions = _sorted_versions(df)
-    n_versions = len(versions)
+    unknown_df = df_participants[df_participants["task_version"].isna()]
+    has_unknown = not unknown_df.empty
+    n_panels = len(versions) + (1 if has_unknown else 0)
     categories = list(_STATUS_LABEL_MAP)
 
+    subplot_titles = [f"{_vlabel(v)} (N={int((df['task_version'] == v).sum())})" for v in versions]
+    if has_unknown:
+        subplot_titles.append(f"Unknown version (N={len(unknown_df)})")
+
     fig = make_subplots(
-        rows=1, cols=n_versions,
-        subplot_titles=[f"{_vlabel(v)} (N={int((df['task_version'] == v).sum())})" for v in versions],
+        rows=1, cols=n_panels,
+        subplot_titles=subplot_titles,
         horizontal_spacing=0.12,
     )
 
-    for col_idx, v in enumerate(versions, start=1):
-        vdf = df[df["task_version"] == v]
+    def _add_status_bar(vdf: pd.DataFrame, col_idx: int) -> None:
         counts = vdf["status"].value_counts()
         total = counts.sum()
         pcts = (counts / total * 100).round(1)
@@ -260,10 +266,15 @@ def fig_completion_status(df_participants: pd.DataFrame) -> go.Figure:
         )
         fig.update_yaxes(autorange="reversed", row=1, col=col_idx)
 
+    for col_idx, v in enumerate(versions, start=1):
+        _add_status_bar(df[df["task_version"] == v], col_idx)
+    if has_unknown:
+        _add_status_bar(unknown_df, n_panels)
+
     fig.update_layout(
         title="Participant status by version",
         height=280,
-        width=max(700, 260 * n_versions),
+        width=max(700, 260 * n_panels),
         margin={"l": 140, "r": 60, "t": 70, "b": 50},
     )
     return fig
@@ -386,7 +397,7 @@ def fig_trial_duration(df_trials: pd.DataFrame) -> go.Figure:
         rows=2, cols=1,
         row_heights=[0.35 + 0.1 * len(versions), 0.65 - 0.1 * len(versions)],
         subplot_titles=["Trial duration per subject", "Trial duration over task progression"],
-        vertical_spacing=0.12,
+        vertical_spacing=0.2,
     )
     _add_violin_dots_panel(fig, df, "rt_s", versions, row=1, xaxis_title="Trial duration (s)")
     _add_progression_panel(fig, df, "rt_s", versions, row=2, yaxis_title="Trial duration (s)")
@@ -395,7 +406,7 @@ def fig_trial_duration(df_trials: pd.DataFrame) -> go.Figure:
 
     fig.update_layout(
         title="Trial duration",
-        height=750,
+        height=620,
         margin={"l": 60, "r": 40, "t": 70, "b": 60},
         showlegend=True,
         legend={"groupclick": "togglegroup"},
@@ -422,14 +433,14 @@ def fig_moves(df_trials: pd.DataFrame) -> go.Figure:
         rows=2, cols=1,
         row_heights=[0.35 + 0.1 * len(versions), 0.65 - 0.1 * len(versions)],
         subplot_titles=["Number of moves per subject", "Number of moves over task progression"],
-        vertical_spacing=0.12,
+        vertical_spacing=0.2,
     )
     _add_violin_dots_panel(fig, df, "num_moves", versions, row=1, xaxis_title="Moves per trial")
     _add_progression_panel(fig, df, "num_moves", versions, row=2, yaxis_title="Moves per trial")
 
     fig.update_layout(
         title="Number of moves",
-        height=750,
+        height=620,
         margin={"l": 60, "r": 40, "t": 70, "b": 60},
         showlegend=True,
         legend={"groupclick": "togglegroup"},
@@ -503,9 +514,9 @@ def fig_reliability(df_trials: pd.DataFrame) -> go.Figure:
     groups = sorted(r_df["version_group"].unique())
     fig = make_subplots(
         rows=2, cols=1,
-        row_heights=[0.35, 0.65],
+        row_heights=[0.45, 0.55],
         subplot_titles=["Test-retest reliability by version", "Reliability over repeat trials"],
-        vertical_spacing=0.12,
+        vertical_spacing=0.2,
     )
 
     # --- Top row: violin + per-subject mean±SE dots ---
@@ -602,7 +613,7 @@ def fig_reliability(df_trials: pd.DataFrame) -> go.Figure:
 
     fig.update_layout(
         title="Test-retest reliability (Spearman r)",
-        height=750,
+        height=620,
         margin={"l": 60, "r": 40, "t": 70, "b": 60},
         showlegend=True,
         legend={"groupclick": "togglegroup"},
@@ -679,7 +690,8 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
     two measures are not strictly comparable in absolute magnitude (see subtitle).
     """
     df_trials = _with_major_version(df_trials)
-    subjects = sorted(df_trials["participant_id"].unique())
+    version_by_subject = df_trials.groupby("participant_id")["task_version"].first()
+    subjects = sorted(df_trials["participant_id"].unique(), key=lambda pid: (version_by_subject[pid], pid))
     subj_short = {pid: f"S{i+1:02d}" for i, pid in enumerate(subjects)}
 
     records: list[dict] = []
@@ -1232,8 +1244,8 @@ def fig_pairwise_distance_distribution(
         fig.update_yaxes(range=y_range, visible=False, row=2, col=2)
 
     fig.update_layout(
-        height=820,
-        width=950,
+        height=680,
+        width=1150,
         margin={"l": 80, "r": 40, "t": 60, "b": 60},
         showlegend=True,
         legend={"groupclick": "togglegroup"},
@@ -1435,7 +1447,7 @@ def fig_reliability_vs_distance(df_trials: pd.DataFrame) -> go.Figure:
 
     fig.update_layout(
         title="Reliability vs. distance (v3+)",
-        height=820,
+        height=680,
         margin={"l": 70, "r": 40, "t": 80, "b": 60},
         showlegend=True,
         legend={"groupclick": "togglegroup"},
