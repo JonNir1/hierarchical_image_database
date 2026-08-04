@@ -80,6 +80,14 @@ TaskV4ExperimentParameters = NamedTuple("TaskV4ExperimentParameters", [
 # explicitly, so the default never masks a sweep configuration error.
 TaskV4ExperimentParameters.__new__.__defaults__ = (RANDOM,)
 
+# Recruitment cap, PER RETAINED SUBJECT rather than absolute. The screening loop retries until
+# `num_subjects` candidates pass, so a threshold nothing can reach spins forever with no output -
+# which on an unattended multi-hour EC2 sweep burns the whole run and shows up only as a stalled
+# log. An absolute cap would be wrong: the existing 0.4-threshold cell has a 1.9% pass rate and
+# legitimately screened 6283 candidates to retain 121 subjects, i.e. ~52 per subject. 500 leaves
+# roughly 10x headroom over that while still failing fast on a genuinely unreachable threshold.
+MAX_RECRUIT_PER_SUBJECT = 500
+
 SubjectRun = NamedTuple("SubjectRun", [
     ("observations", np.ndarray),          # condensed sum of this stage's observed distances
     ("n_obs", np.ndarray),                 # condensed observation counts
@@ -106,6 +114,7 @@ def simulate_task_v4_experiment(
         verbose: bool = True,
         return_per_subject: bool = False,
         allocator=None,
+        max_recruit_per_subject: int = MAX_RECRUIT_PER_SUBJECT,
 ) -> Tuple[TaskV4ExperimentParameters, TaskV4ExperimentResults]:
     """Simulate a screened cohort under the task-v4 model.
 
@@ -121,6 +130,10 @@ def simulate_task_v4_experiment(
     With ``return_per_subject=True`` the return value gains a third element: a ``(num_subjects,
     n_pairs)`` float32 array of each retained subject's own mean observed distances (NaN where
     unobserved), matching ``simulate_task_v3_experiment``'s contract.
+
+    Raises ``RuntimeError`` if recruitment exceeds ``max_recruit_per_subject * num_subjects``
+    candidates, which is what an unreachable ``screening_min_reliability`` looks like from inside
+    the loop. See :data:`MAX_RECRUIT_PER_SUBJECT` for why the cap is per-subject and not absolute.
     """
     _validate(params)
     gt_embeddings = np.asarray(gt_embeddings, dtype=np.float32)
@@ -157,8 +170,19 @@ def simulate_task_v4_experiment(
     )
     retained = 0
     n_candidates = 0
+    max_candidates = params.num_subjects * max_recruit_per_subject
     with trange(params.num_subjects, desc="Simulating subjects", disable=not verbose) as bar:
         while retained < params.num_subjects:
+            if n_candidates >= max_candidates:
+                raise RuntimeError(
+                    f"screening recruited {n_candidates} candidates and retained only {retained} of "
+                    f"{params.num_subjects} (pass rate {retained / n_candidates:.4%}); giving up at "
+                    f"the cap of {max_recruit_per_subject} candidates per subject. "
+                    f"screening_min_reliability={params.screening_min_reliability} is likely "
+                    f"unreachable at subjects_noise_scale={params.subjects_noise_scale} with "
+                    f"{params.screening_trials} screening trials. Lower the threshold, or raise "
+                    f"`max_recruit_per_subject` if this pass rate is genuinely expected."
+                )
             n_candidates += 1
             noise = noise_pool.next()
 

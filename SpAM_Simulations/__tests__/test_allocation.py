@@ -134,8 +134,9 @@ def test_screened_out_candidates_do_not_burn_design_slots():
     Otherwise the designed arm's coverage would silently degrade in proportion to the rejection
     rate, confounding the arm comparison with the screening threshold.
 
-    Note the threshold is chosen to reject some candidates but not all: the candidate loop has no
-    cap, so a threshold nothing can satisfy hangs rather than raising (true of the random arm too).
+    The threshold rejects some candidates but not all, which is the case that actually exercises
+    rollback. A threshold nothing can satisfy now raises instead (see
+    test_task_v4_experiment.TestRecruitmentCap), so it would not reach the assertion below.
     """
     sessions = _sessions(n_sessions=30, trials=4)
     alloc = DesignedAllocator(sessions, screen_distinct=1)
