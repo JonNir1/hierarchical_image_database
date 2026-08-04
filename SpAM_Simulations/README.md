@@ -73,10 +73,16 @@ large-scale sweeps, see *Running on EC2* below.
 | `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`, `test_retest_summary`, `screening_summary` (task-v4 recruitment cost + retained-cohort precision), `effective_rank` (classical-MDS rank of an aggregate - checks the task-v3 2-D slices span >2 dims). |
 | `helpers.py` | Distance-matrix format conversion (`convert_to_condensed`). |
 | `multi_dimensional_scaling.py` | `run_mds` - weighted SMACOF via R's `smacof` (needs R + rpy2). |
-| `config.py` | `SimulationConfig`, `TaskV2_3SimulationConfig`, `TaskV2_4SimulationConfig`, `TaskV3SimulationConfig`, `MDSSweepConfig` - declarative study configuration. |
-| `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability) for all simulation types. |
+| `config.py` | `SimulationConfig`, `TaskV2_3SimulationConfig`, `TaskV2_4SimulationConfig`, `TaskV3SimulationConfig`, `TaskV4SimulationConfig` (incl. the `allocation_mode` arm), `MDSSweepConfig` - declarative study configuration. |
+| `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability / `compute_recovery_vs_gt`) for all simulation types. |
 | `storage.py` | `ResultStore` - compact, streamable, resumable on-disk store for sweep results. Holds each fit's `confdist` and, optionally, its MDS **configuration** (`confs.f32`, zero-padded to `max_ndim`; ~2% extra size) which the configuration-space metrics need. Format v2; v1 stores (confdist only) still open unchanged. |
-| `pilot.py` | **Read-only** pilot ingestion + calibration: load `data/pilot/` (via `analysis/utils/parser.py`), the test-retest / between-subject-agreement observables, the pooled-pilot GT embedding, and `calibrate_params_from_pilot` (the end-to-end fit of `subjects_noise_scale` + `perspective_dispersion`). See "Calibrating to pilot data" below. |
+| `pilot.py` | **Read-only** pilot ingestion + calibration: load the flat `data/` dir (via `analysis/utils/parser.py`), filter by cohort/version/**SHINE variant**, the test-retest / between-subject-agreement observables, and `calibrate_params_from_pilot` (the end-to-end fit of `subjects_noise_scale` + `perspective_dispersion`). See "Calibrating to pilot data" below. |
+| `gt_construction.py` | **Task-agnostic** ground-truth construction: `dimensionality_scan` (split-half agreement per candidate ndim), `select_ndim` (one-SE rule), `cross_validate_ndim` (leave-k-out over subjects), `build_gt`. Replaces the retired imputed-eigenspectrum rule - see "Choosing the GT dimensionality" below. |
+| `block_design.py` | Balanced incomplete block designs (MacDonald's "best of greedy", vectorised): `greedy_design`, `best_of_greedy`, `schonheim`, and `greedy_session_design` for per-subject image-disjoint sessions. |
+| `allocation.py` | Image-to-trial allocation strategies behind the `allocation_mode` lever: `RandomAllocator` (the deployed scheme) and `DesignedAllocator` (balanced sessions, with rollback so screened-out candidates don't consume design slots). |
+| `design_comparison.py` | Stage 2a: compares allocation arms as **sampling plans** (coverage, per-image balance, waste), with no subjects, no MDS and no R. |
+| `recovery.py` | Recovery of the GT's closest pairs (simulation-only): `recall_at_frac`, `dprime_at_frac`, plus threshold-free `separation_dprime` / `auc_near_pairs`. |
+| `validity.py` | Is a simulated cohort realistic: distance-distribution comparison (median-rescaled) plus the semantic-hierarchy gradient from the manifest relpaths. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
 | `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb` - no simulation, no MDS, no R. |
 | `evaluation.ipynb` | Plotting / analysis notebook for the task-v0.1 simulation. |
@@ -96,10 +102,11 @@ meaningful as those guesses. `pilot.py` anchors
 all of them to real pilot data, turning the estimate from "as a function of guessed internals" into a
 calibrated number.
 
-**The idea (three anchors).** The pilot CSVs (`data/pilot/`, one per session) give three observables:
-1. **Ground-truth geometry** - pool *all* completed pilot subjects into one aggregate RDM and run
-   weighted SMACOF -> the recovered embedding *is* the GT (it inherits the real eigenvalue spectrum
-   and cluster structure, so `decay`/`n_clusters` become moot; `n_dims` is read from the spectrum).
+**The idea (three anchors).** The pilot CSVs (flat `data/`, one per session) give three observables:
+1. **Ground-truth geometry** - pool the **pre-SHINE** pilot subjects into one aggregate RDM and run
+   weighted SMACOF -> the recovered embedding *is* the GT (it inherits the real cluster structure, so
+   `decay`/`n_clusters` become moot). `n_dims` is **not** read from the spectrum; see
+   *Choosing the GT dimensionality* below.
 2. **`subjects_noise_scale`** (canvas placement noise) is pinned by within-subject **test-retest** (the
    v3.0 whole-trial repeats). Test-retest is *perspective-invariant* - a whole-trial repeat re-projects
    to the same 2-D arrangement and differs only by fresh placement noise - so it isolates placement
@@ -133,7 +140,61 @@ The read-only building blocks it composes (`load_pilot_subjects`, `within_subjec
 > `load_pilot_subjects` defaults to `cohorts=("pilot",)`; calibrating on production data would shape
 > the sample-size and screening conclusions using the very cohort they are meant to plan. Note every
 > v4.0 session is `production`, so the pilot view carries **no screening-block data** - reliability
-> comes from v3.\* whole-trial repeats.
+> comes from v3.x whole-trial repeats.
+
+> **SHINE-variant policy.** **Cohort is not a proxy for variant.** `task.js` documents pilot sessions
+> as always pre-SHINE and `docs/WORKFLOW.md` repeats it, but the data disagrees: of the 47 loadable
+> pilot subjects, **41 are `pre` and 6 are `post`** (all v3.06). Because `pilot._src_to_relpath`
+> strips the `<variant>_shine` path segment, both variants map onto the same manifest index and
+> pooling them is silent.
+>
+> **Ground-truth construction must pass `variants=("pre",)`** - two variants are two stimulus sets,
+> and one geometry cannot describe both. **Noise-model fitting is exempt** and may use all 47: it
+> estimates a property of subjects (placement precision, perspective spread), not of the images.
+
+## Choosing the GT dimensionality
+
+`n_dims` used to default to a rule that read a classical-MDS eigenspectrum off the **mean-imputed**
+aggregate RDM and took the smallest dimensionality explaining 90% of variance, capped at 15. That
+rule is invalid on this data and has been **removed**; `build_gt_from_pilot` now requires `n_dims`.
+
+**Why it was wrong.** 63.6% of pairs are unobserved and were filled with a single constant. That
+asserts every one of those pairs is equidistant, and *k* mutually equidistant points form a regular
+simplex requiring *k*-1 dimensions - so the fill manufactures rank rather than merely adding noise.
+Measured: a synthetic **rank-8** space put through the identical mask and fill reports an effective
+rank of **193** and needs **239** dimensions for 90% variance, statistically indistinguishable from
+the real data's 213 and 216. The rule therefore returned its cap, 15, carrying essentially no
+information, and the resulting GT was near-isotropic (4.9%-9.5% variance per dimension across 15).
+
+**What replaces it.** Dimensionality is a generalisation question, so it is answered by out-of-sample
+prediction, with no imputation anywhere (weighted SMACOF treats weight 0 as missing):
+
+```python
+from SpAM_Simulations import gt_construction as gtc
+from SpAM_Simulations.pilot import load_pilot_subjects
+
+subs = load_pilot_subjects("data", "SpAM_Task/stimuli_manifest.json", variants=("pre",))  # n=41
+scan, diag = gtc.dimensionality_scan(subs, ndims=(2,3,4,5,6,7,8,10,12,15,20), n_draws=50)
+ndim = gtc.select_ndim(scan, criterion="spearman", rule="one_se")
+cv = gtc.cross_validate_ndim(subs, ndims=[ndim], k=5)      # verification, leave-5-out over subjects
+coords, info = gtc.build_gt(subs, ndim)
+```
+
+Three points that matter:
+
+- **The same splits are reused across every `ndim`**, making the comparison paired. The curve is
+  expected to be nearly flat, so unpaired draw noise would swamp the differences being measured.
+- **Discarding disconnected halves is a biased filter.** At ~20 subjects a half is connected only
+  ~90% of the time, and it fails precisely when it holds poorly-covered subjects, so kept draws
+  over-represent well-covered ones. `draw_valid_splits` returns `discard_rate` plus the mean coverage
+  of kept vs discarded draws; a large gap or a rate above ~30% means the design is not viable.
+- **`select_ndim` defaults to the one-SE rule** - the smallest `ndim` within one standard error of
+  the best. On a flat curve a plain argmax is noise-driven and drifts high, which is the observed
+  failure mode: in the existing sweep, Procrustes M² degraded from 0.428 at ndim 5 to 0.532 at
+  ndim 10 while Spearman stayed flat at 0.78.
+
+`method="classical"` exists for running this without R. It mean-imputes, i.e. does the very thing
+described above, so it is a **plumbing smoke test only** and must never select a dimensionality.
 
 > **Data policy.** `data/` is human-subjects data: gitignored, **never committed or pushed**.
 > Pilot-derived artifacts (the aggregate RDM, the GT `coords`, fitted params) are equally local - keep
@@ -346,8 +407,8 @@ Get-ChildItem -Recurse $DEST | Select-Object FullName    # expect out/{coverage,
 `run_task_v3_sim.sh` with `CALIBRATE=true` runs a short (~1-5 min) prelude that fits the simulation to
 the real pilot, then runs the **same** convergence sweep with the pilot GT + fitted
 `subjects_noise_scale`/`perspective_dispersion` (see *Calibrating to pilot data* above for the method).
-Everything for the study lives under one **private** `S3_URI` prefix, the pilot path mirroring the local
-`data/pilot/`:
+Everything for the study lives under one **private** `S3_URI` prefix, the data path mirroring the
+local flat `data/`:
 ```
 $S3_URI/data/         <- INPUT  you stage once: session + demographics CSVs + stimuli_manifest.json
                          (flat, both cohorts; the calibration itself uses only the pilot ones)
@@ -367,14 +428,14 @@ aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/"                       
 ```bash
 export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
 export GIT_REF=main
-export S3_URI=s3://jon-nir/spam-simulations/task-v3    # PRIVATE: pilot read from $S3_URI/data/pilot/
+export S3_URI=s3://jon-nir/spam-simulations/task-v3    # PRIVATE: pilot read from $S3_URI/data/
 export CALIBRATE=true                                  # fit to pilot instead of the synthetic swept grids
 bash run_task_v3_sim.sh 2>&1 | tee run.log
 # GT_METHOD=classical for a no-R provisional fit; REPS=N to average more cohorts. USE_ISOTROPIC/decay
 # are ignored under CALIBRATE=true (GT comes from the pilot). Edit the num_subjects / design grids in
 # run_task_v3_sim.sh's CALIBRATE block to change the swept design. TERMINATE when done.
 ```
-It fails fast if `$S3_URI/data/pilot/` is empty, and uploads
+It fails fast if `$S3_URI/data/` is empty, and uploads
 `calibration/{calibrate.log, calibrated_params.json, gt_pilot_coords.npy}` + `out/*.csv` + `mds_store/`
 to S3. Pull results and view them exactly as above (the calibrated `out/` feeds
 `evaluate_simulation.ipynb` unchanged). Keep the whole `$S3_URI` prefix **private** (pilot-derived).
@@ -388,7 +449,7 @@ calibrated. Point it at a fresh prefix:
 ```bash
 export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
 export GIT_REF=main
-export S3_URI=s3://jon-nir/spam-simulations/task-v4     # PRIVATE; pilot read from $S3_URI/data/pilot/
+export S3_URI=s3://jon-nir/spam-simulations/task-v4     # PRIVATE; pilot read from $S3_URI/data/
 bash run_task_v4_sim.sh 2>&1 | tee run.log
 # optional: TR_LIST=0.24,0.35,0.5  MINREL_LIST=-1,0,0.2,0.4  DF_LIST=5  DISP=0.2  REPS=6
 # TERMINATE the instance when done.

@@ -496,7 +496,13 @@ Geometry keys feed `computeLayout`; the style keys are applied once to `<body>` 
 | Key | Value | Description |
 |---|---|---|
 | `version` | `"4.0"` | Task version string — bump on participant-facing changes; written to every output row as `task_version`. Not validated by `verifyConfig`; must be bumped together with the `?v=` query on the `js/*.js` script tags in the root `index.html`. |
-| `mode` | `"production"` | `"debug"`: fixed PID + console logging + missing-PID guard bypassed; `"pilot"`: real users, always pre-SHINE; `"production"`: PID-hash cohort assignment |
+| `mode` | `"production"` | `"debug"`: fixed PID + console logging + missing-PID guard bypassed; `"pilot"`: real users, pre-SHINE (but see note); `"production"`: PID-hash cohort assignment |
+
+> **`"pilot"` does not guarantee pre-SHINE in the collected data.** `task.js:101` assigns pilot
+> sessions the pre-SHINE images, but 6 of the 47 loadable pilot subjects recorded
+> `shine_variant = "post"` (all v3.06), from a build that did not pin it. Treat `shine_variant` on the
+> session row as authoritative and filter on it explicitly; do not infer the variant from `mode` or
+> from `cohort`.
 | `debug_shine_variant` | `"pre"` | SHINE variant used in `"debug"` mode only (validated only in that mode) |
 
 ### `consent`
