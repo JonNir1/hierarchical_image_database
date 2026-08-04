@@ -22,6 +22,7 @@ The grid deliberately spans the branch points that matter:
 """
 from itertools import product
 
+from SpAM_Simulations.allocation import RANDOM
 from SpAM_Simulations.task_v4_experiment import TaskV4ExperimentParameters
 
 # Kept tiny so the fixture stays small and the suite stays fast.
@@ -56,8 +57,11 @@ def param_combos():
         SUBJECTS_NOISE_DF, FRAC_TRIALS_REPEATED, PERSPECTIVE_DISPERSION, SCREENING,
         SCREENING_MIN_RELIABILITY, SUBJECTS_NOISE_LOGNORMAL_SIGMA,
     ):
+        # allocation_mode is pinned to RANDOM: the fixture was recorded before that field existed,
+        # so it is only meaningful as a guard on the default arm. The whole point is that adding
+        # the field must NOT change these arrays - the fixture is never regenerated for it.
         combos.append(TaskV4ExperimentParameters(
-            ns, tps, ipt, noise, df, ftr, disp, st, sr, minrel, sigma))
+            ns, tps, ipt, noise, df, ftr, disp, st, sr, minrel, sigma, RANDOM))
     return combos
 
 

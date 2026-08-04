@@ -117,7 +117,8 @@ def generate_task_v3_simulation(config: TaskV3SimulationConfig, verbose: bool = 
     return sim
 
 
-def generate_task_v4_simulation(config: TaskV4SimulationConfig, verbose: bool = True) -> Simulation:
+def generate_task_v4_simulation(config: TaskV4SimulationConfig, verbose: bool = True,
+                                allocator_factory=None) -> Simulation:
     """Same as `generate_task_v3_simulation`, but for task-v4 (v3 model + the screening block).
 
     Ground truth is built identically (explicit eigenvalue spectrum, or a supplied
@@ -125,6 +126,14 @@ def generate_task_v4_simulation(config: TaskV4SimulationConfig, verbose: bool = 
     differs. Note that a screened configuration simulates *more* subjects than ``num_subjects`` -
     rejected candidates are generated and discarded - so generation is slower than v3 at the same
     grid size, by roughly the reciprocal of the pass rate.
+
+    ``allocator_factory(params, rep) -> allocator | None`` supplies the image-to-trial allocation
+    for each scheduled cell, which is how the ``allocation_mode`` lever is realised: the mode is a
+    number inside ``params`` (so it survives the ``ResultStore`` round-trip and shows up as a
+    grouping column), while the allocator object it selects is built here. ``rep`` is passed so a
+    caller can hand each repetition its own design; sharing one design across reps would leave the
+    designed arm with zero allocation variance while the random arm carries it, making the two
+    arms' spreads incomparable.
     """
     if config.uses_random_ground_truth:
         embeddings = build_ground_truth_embeddings(
@@ -134,9 +143,11 @@ def generate_task_v4_simulation(config: TaskV4SimulationConfig, verbose: bool = 
     else:
         embeddings = config.gt_embeddings
     sim = Simulation.from_embeddings(embeddings, config.seed)
-    schedule = config.param_grid() * config.reps
-    for params in tqdm(schedule, desc="Running experiments", disable=not verbose):
-        sim.run_task_v4_experiment(params, verbose=False)
+    grid = config.param_grid()
+    schedule = [(params, rep) for rep in range(config.reps) for params in grid]
+    for params, rep in tqdm(schedule, desc="Running experiments", disable=not verbose):
+        allocator = allocator_factory(params, rep) if allocator_factory is not None else None
+        sim.run_task_v4_experiment(params, verbose=False, allocator=allocator)
     return sim
 
 
