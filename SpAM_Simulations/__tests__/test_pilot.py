@@ -229,11 +229,21 @@ def test_calibrate_params_from_pilot_uses_v3_for_retest_and_all_for_agreement(tm
         return {"mean_agreement": 0.2, "sem_agreement": 0.0, "n_dyads": 3, "median_overlap": 3}
     monkeypatch.setattr(pilot, "between_subject_agreement", _spy_agr)
 
-    coords, fit, info = pilot.calibrate_params_from_pilot("d", "m", gt_method="classical", reps=3, verbose=False)
+    coords, fit, info = pilot.calibrate_params_from_pilot("d", "m", gt_method="classical", reps=3,
+                                                          n_dims=3, verbose=False)
     assert coords.shape == (5, 3) and info["n_dims"] == 3
     assert seen["n_rows"] == 3            # agreement over all subjects (2 v3 + 1 v2)
     assert captured["num_subjects"] == 2  # the fit's matched sim uses the 2 v3 subjects
     assert captured["reps"] == 3 and fit["perspective_dispersion"] == 0.2
+
+
+def test_calibrate_params_from_pilot_requires_n_dims(tmp_path, monkeypatch):
+    """The old default read an imputed eigenspectrum and returned its cap; silence is not an option."""
+    v3, other = _fake_subjects(tmp_path)
+    monkeypatch.setattr(pilot, "load_pilot_subjects", lambda d, m: v3 + other)
+    _stub_gt_and_fit(monkeypatch, {})
+    with pytest.raises(ValueError, match="`n_dims` is required"):
+        pilot.calibrate_params_from_pilot("d", "m", gt_method="classical", verbose=False)
 
 
 def test_calibrate_params_from_pilot_saves_artifacts(tmp_path, monkeypatch):
@@ -242,7 +252,7 @@ def test_calibrate_params_from_pilot_saves_artifacts(tmp_path, monkeypatch):
     monkeypatch.setattr(pilot, "load_pilot_subjects", lambda d, m: v3 + other)
     _stub_gt_and_fit(monkeypatch, {})
     gt_path = tmp_path / "gt.npy"; params_path = tmp_path / "params.json"
-    pilot.calibrate_params_from_pilot("d", "m", gt_method="classical",
+    pilot.calibrate_params_from_pilot("d", "m", gt_method="classical", n_dims=3,
                                       save_gt=str(gt_path), save_params=str(params_path), verbose=False)
     assert np.load(gt_path).shape == (5, 3)
     saved = json.loads(params_path.read_text())

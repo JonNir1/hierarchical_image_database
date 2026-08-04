@@ -48,13 +48,14 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
-from scipy.sparse.csgraph import connected_components
-from scipy.spatial.distance import squareform
 from scipy.stats import spearmanr
 
 from analysis.utils.parser import parse_pairwise_distances
 from analysis.utils.parser import load_data
 from SpAM_Simulations.experiment import _condensed_pair_indices
+from SpAM_Simulations.gt_construction import (
+    aggregate_subjects, build_gt, n_components as gt_n_components,
+)
 
 # A pilot stimulus path is ``./images/<variant>_shine/<relpath>``; the manifest lists ``<relpath>``.
 _IMG_PREFIX = re.compile(r"^\./images/[^/]+/")
@@ -300,80 +301,36 @@ def pilot_aggregate(subjects: Sequence[PilotSubject]) -> Tuple[np.ndarray, np.nd
     (mirrors ``multi_dimensional_scaling.run_mds``'s own guard). A disconnected graph means the pilot
     coverage is insufficient; collect more sessions.
     """
-    if not subjects:
-        raise ValueError("no subjects to aggregate")
-    n_pairs = subjects[0].distances.shape[0]
-    total = np.zeros(n_pairs, dtype=np.float64)
-    count = np.zeros(n_pairs, dtype=np.int64)
-    for s in subjects:
-        obs = s.n_obs > 0
-        total[obs] += np.nan_to_num(s.distances[obs]) * s.n_obs[obs]
-        count += s.n_obs
-    weights = (count > 0).astype(np.float32)
-    n_components = connected_components(squareform(weights), directed=False, return_labels=False)
-    if n_components > 1:
+    mean_distances, weights = aggregate_subjects(subjects)
+    comps = gt_n_components(weights)
+    if comps > 1:
         observed_frac = float(weights.mean())
         raise RuntimeError(
-            f"pilot observed-pair graph has {n_components} connected components "
+            f"pilot observed-pair graph has {comps} connected components "
             f"(only {observed_frac:.1%} of pairs observed). Refusing to run MDS on a partial graph - "
             "collect more pilot sessions for full connectivity."
         )
-    mean_distances = np.where(count > 0, total / np.maximum(count, 1), 0.0).astype(np.float32)
     return mean_distances, weights
 
 
 # --------------------------------------------------------------------------- GT embedding
-def _classical_embed(condensed: np.ndarray, ndim: int) -> np.ndarray:
-    """Classical-MDS (PCoA) coordinates: double-centre the squared distances, keep top-`ndim`."""
-    sq = squareform(condensed).astype(np.float64) ** 2
-    n = sq.shape[0]
-    centring = np.eye(n) - np.ones((n, n)) / n
-    gram = -0.5 * centring @ sq @ centring
-    vals, vecs = np.linalg.eigh(gram)
-    idx = np.argsort(vals)[::-1][:ndim]
-    return (vecs[:, idx] * np.sqrt(np.clip(vals[idx], 0, None))).astype(np.float32)
-
-
-def _choose_n_dims(eigenvalues: np.ndarray, var_threshold: float = 0.9, cap: int = 15) -> int:
-    """Smallest dimensionality whose positive eigenvalues explain >= `var_threshold` (capped)."""
-    pos = eigenvalues[eigenvalues > 0]
-    cum = np.cumsum(pos) / pos.sum()
-    return int(min(cap, np.searchsorted(cum, var_threshold) + 1))
-
-
 def build_gt_from_pilot(
-        subjects: Sequence[PilotSubject], n_dims: Optional[int] = None, method: str = "smacof",
+        subjects: Sequence[PilotSubject], n_dims: int, method: str = "smacof",
 ) -> Tuple[np.ndarray, dict]:
-    """Pooled-pilot ground-truth coordinates for the calibration simulation.
+    """Pooled-pilot ground-truth coordinates. Thin delegate to :func:`gt_construction.build_gt`.
 
-    Aggregates all subjects (raises on a disconnected graph), reads the eigenspectrum to pick
-    ``n_dims`` (if not given), and embeds:
+    ``n_dims`` is now **required**. It used to default to a rule that read a classical-MDS
+    eigenspectrum off the *mean-imputed* aggregate and took the smallest dimensionality explaining
+    90% of variance, capped at 15. That rule was invalid here: 63.6% of pairs are unobserved and
+    were filled with one constant, asserting that all those pairs are equidistant, and k mutually
+    equidistant points need k-1 dimensions - so the fill manufactured rank. A synthetic rank-8 space
+    put through the same mask and fill reports an effective rank of 193, indistinguishable from the
+    real data's 213, and the rule simply returned its cap while carrying no information.
 
-    * ``method="smacof"`` - weighted SMACOF via ``multi_dimensional_scaling.run_mds`` (needs R/rpy2;
-      uses the 0/1 weights so unobserved pairs don't bias the fit). The canonical path.
-    * ``method="classical"`` - numpy classical MDS on the mean-imputed aggregate (no R). A
-      **provisional** path for environments without R; the spectrum head matches, the tail is rougher.
-
-    Returns ``(coords[N, n_dims] float32, info)``.
+    Choose ``n_dims`` with ``gt_construction.dimensionality_scan`` + ``select_ndim`` instead, which
+    measure split-half generalisation and never impute.
     """
-    from SpAM_Simulations.metrics import classical_mds_eigenvalues
-    dists, weights = pilot_aggregate(subjects)  # raises if disconnected
-    imputed = dists.copy()
-    imputed[weights == 0] = dists[weights > 0].mean()
-    eig = classical_mds_eigenvalues(imputed)
-    if n_dims is None:
-        n_dims = _choose_n_dims(eig)
-    if method == "smacof":
-        from SpAM_Simulations.multi_dimensional_scaling import run_mds  # lazy: imports R
-        out = run_mds(dists=dists, weights=weights, ndim=n_dims)
-        coords = np.asarray(out["conf"], dtype=np.float32)
-    elif method == "classical":
-        coords = _classical_embed(imputed, n_dims)
-    else:
-        raise ValueError(f"method must be 'smacof' or 'classical', got {method!r}")
-    info = {"n_dims": n_dims, "method": method, "n_subjects": len(subjects),
-            "observed_frac": float(weights.mean()), "eigenvalues": eig[:n_dims + 5]}
-    return coords, info
+    return build_gt(subjects, n_dims, method=method)
 
 
 # --------------------------------------------------------------------------- calibration
@@ -572,6 +529,14 @@ def calibrate_params_from_pilot(
         if verbose:
             print(f"[gt] reusing supplied GT: N={coords.shape[0]}, n_dims={coords.shape[1]}")
     else:
+        if n_dims is None:
+            raise ValueError(
+                "`n_dims` is required when building a GT. The old default inferred it from the "
+                "eigenspectrum of a mean-imputed aggregate, which manufactures dimensionality on "
+                "sparse data and simply returned its cap. Choose it with "
+                "gt_construction.dimensionality_scan + select_ndim, or pass `gt_coords` to reuse a "
+                "GT built that way."
+            )
         coords, info = build_gt_from_pilot(allsub, n_dims=n_dims, method=gt_method)
         if verbose:
             print(f"[gt] {info['method']} embedding: N={coords.shape[0]}, n_dims={info['n_dims']}, "
