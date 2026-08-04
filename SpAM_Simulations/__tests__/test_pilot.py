@@ -63,6 +63,19 @@ def _loaded(trials_df, participants_df=None):
     return {"participants": participants_df, "trials": trials_df.drop(columns=["task_version"])}
 
 
+def test_shine_variant_is_carried_through_when_present(tmp_path):
+    df = _trials_df([{"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .2, (0, 2): .4, (1, 2): .6}}])
+    _, rel2idx = pilot.load_manifest(_write_manifest(tmp_path))
+    assert pilot.subject_from_trials(df.assign(shine_variant="post"), rel2idx).shine_variant == "post"
+
+
+def test_shine_variant_defaults_to_empty_without_the_column(tmp_path):
+    """Hand-built frames (and any pre-variant caller) must keep working."""
+    subj = _subject(tmp_path, [{"images": MANIFEST_IMAGES[:3],
+                                "dists": {(0, 1): .2, (0, 2): .4, (1, 2): .6}}])
+    assert subj.shine_variant == ""
+
+
 def _subject(tmp_path, trials, **kw):
     _, rel2idx = pilot.load_manifest(_write_manifest(tmp_path))
     return pilot.subject_from_trials(_trials_df(trials, **kw), rel2idx)
@@ -358,6 +371,18 @@ class TestCohortIsolation:
         subs = pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path),
                                          cohorts=("pilot", "production"))
         assert sorted(s.participant_id for s in subs) == ["PILOT_1", "PROD_1"]
+
+    def test_variant_filter_is_independent_of_cohort(self, tmp_path, monkeypatch):
+        """`cohorts` does not imply a SHINE variant, so both filters must apply independently."""
+        trials, participants = self._mixed(tmp_path)
+        participants = participants.assign(shine_variant=["post", "pre"])  # PILOT_1 post, PROD_1 pre
+        monkeypatch.setattr(pilot, "load_data", lambda d: _loaded(trials, participants))
+        # pilot cohort alone keeps the post-SHINE pilot subject...
+        assert [s.participant_id for s in
+                pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path))] == ["PILOT_1"]
+        # ...and adding the variant filter drops it, without pulling in the pre-SHINE production one.
+        assert pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path),
+                                         variants=("pre",)) == []
 
     def test_catch_trials_are_dropped(self, tmp_path):
         """The parser exposes is_catch; previously catch trials were only incidentally harmless."""

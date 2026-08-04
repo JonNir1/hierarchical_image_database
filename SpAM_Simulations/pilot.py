@@ -27,8 +27,13 @@ condensed per-pair distances the calibration needs.
 sample-size and screening conclusions be shaped by the very cohort they are meant to plan - circular,
 and equivalent to peeking at the running experiment. :func:`load_pilot_subjects` therefore defaults to
 ``cohorts=("pilot",)``. Because every v4.0 session is ``production``, that view contains no
-screening-block data: reliability comes from v3.\* whole-trial repeats, which sit anywhere in the
+screening-block data: reliability comes from v3.x whole-trial repeats, which sit anywhere in the
 session rather than in a dedicated screening stage.
+
+**Cohort is not a proxy for SHINE variant.** The pilot cohort is *not* pre-SHINE only: of the 47
+loadable pilot subjects, 41 are ``pre`` and 6 are ``post`` (all v3.06), contradicting the task's
+own documentation. Ground-truth construction must pass ``variants=("pre",)`` explicitly; noise-model
+fitting may use both, since it estimates a property of subjects rather than of the stimulus set.
 
 Nothing here writes participant data or participant-derived artifacts; ``data/`` is human-subjects
 data and must stay local (never committed). Distances come straight from each trial's ``pairwise_distances``
@@ -81,6 +86,7 @@ class PilotSubject:
     n_obs: np.ndarray              # condensed, integer observation count per pair
     retest_pairs: List[Tuple[np.ndarray, np.ndarray]] = field(default_factory=list)
     qc_flag_rate: float = 0.0      # fraction of this subject's main trials flagged by the task QC
+    shine_variant: str = ""        # 'pre' | 'post' | '' when the session didn't record one
 
     def num_observed_pairs(self) -> int:
         return int(np.count_nonzero(self.n_obs))
@@ -117,6 +123,11 @@ def subject_from_trials(trials: pd.DataFrame, rel2idx: Dict[str, int]) -> PilotS
     Catch trials are dropped explicitly. Under the old parser they were harmlessly self-cancelling
     (their openmoji stimuli are absent from the manifest, so every pair resolved to nothing), but that
     was incidental rather than intended, and ``is_catch`` now makes it explicit.
+
+    ``shine_variant`` is carried through when present so callers can separate the two image variants.
+    It has to be recorded on the subject because :func:`_src_to_relpath` strips the ``<variant>_shine``
+    path segment, mapping both variants onto the same manifest index - which is what makes silently
+    pooling them possible. Absent column -> ``""`` (hand-built frames in tests).
     """
     N = len(rel2idx)
     n_pairs = N * (N - 1) // 2
@@ -153,6 +164,10 @@ def subject_from_trials(trials: pd.DataFrame, rel2idx: Dict[str, int]) -> PilotS
         n_obs=count,
         retest_pairs=retest,
         qc_flag_rate=float(main["qc_flag"].astype(bool).mean()) if len(main) else np.nan,
+        shine_variant=(
+            str(trials["shine_variant"].iloc[0]) if "shine_variant" in trials.columns
+            and pd.notna(trials["shine_variant"].iloc[0]) else ""
+        ),
     )
 
 
@@ -163,6 +178,7 @@ def load_pilot_subjects(
         apply_qc: bool = False,
         qc_max_flag_rate: float = 0.30,
         cohorts: Sequence[str] = ("pilot",),
+        variants: Optional[Sequence[str]] = None,
 ) -> List[PilotSubject]:
     """Load completed **pilot** subjects from the flat ``data_dir`` (optionally filtered by version).
 
@@ -183,6 +199,14 @@ def load_pilot_subjects(
     ``versions`` compares against the float ``task_version`` (e.g. ``[3.0]``). ``apply_qc=False`` by
     default; set ``True`` to additionally drop subjects whose ``qc_flag`` rate exceeds
     ``qc_max_flag_rate`` (a robustness check).
+
+    ``variants`` filters on ``shine_variant`` (e.g. ``("pre",)``); ``None`` keeps every variant.
+    **Cohort is not a proxy for variant.** The task is documented as serving pilot sessions the
+    pre-SHINE images unconditionally, but the data disagrees: of the 47 loadable pilot subjects,
+    41 are ``pre`` and 6 are ``post`` (all v3.06). Ground-truth construction must therefore pass
+    ``variants=("pre",)`` explicitly - pooling the two variants into one geometry is only masked by
+    :func:`_src_to_relpath` collapsing them onto the same manifest index. Noise-model fitting is
+    exempt: it estimates a property of subjects rather than of the stimulus set, so it may use both.
     """
     _, rel2idx = load_manifest(manifest_path)
     data = load_data(data_dir)
@@ -192,11 +216,16 @@ def load_pilot_subjects(
     keep = participants[participants["cohort"].isin(list(cohorts))]
     if keep.empty:
         return []
-    trials = trials.merge(keep[["participant_id", "task_version"]], on="participant_id", how="inner")
+    merge_cols = ["participant_id", "task_version"]
+    if "shine_variant" in keep.columns:
+        merge_cols.append("shine_variant")
+    trials = trials.merge(keep[merge_cols], on="participant_id", how="inner")
     subjects: List[PilotSubject] = []
     for _, group in trials.groupby("participant_id", sort=False):
         subj = subject_from_trials(group, rel2idx)
         if versions is not None and subj.task_version not in versions:
+            continue
+        if variants is not None and subj.shine_variant not in variants:
             continue
         if apply_qc and subj.qc_flag_rate > qc_max_flag_rate:
             continue
