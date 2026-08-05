@@ -80,12 +80,19 @@ def run(store_path: Path, out_dir: Path, ks: Sequence[int] = DEFAULT_KS,
     # number of clusters. VI measures *reproducibility*, and a coarse cut of a well-separated
     # structure is perfectly reproducible too: on three planted blobs VI is exactly 0 at k=2 and at
     # k=3 alike, so the parsimony tiebreak returns 2. Silhouette is what distinguishes them - it
-    # peaks at the true 3 (0.93 against 0.76). So `k_star` is the conservative granularity that
+    # peaks at the true 3 (0.93 against 0.76). So `k_star_vi` is the conservative granularity that
     # reproduces, and `k_star_sil` is where the structure actually is. They should be reported
-    # together: `k_star` is the safe deduplication rule, `k_star_sil` is the scientific claim.
+    # together: `k_star_vi` is the safe deduplication rule, `k_star_sil` is the scientific claim.
     by_sil = select_k(agreement, criterion="sil_cross", by=by).rename(
         columns={"k_star": "k_star_sil", "criterion": "criterion_sil"}).drop(columns=["rule"])
     k_selection = k_selection.merge(by_sil, on=by, how="outer")
+    # `select_k` and `continuum_diagnostics` are criterion-agnostic and emit a generic `k_star`, so
+    # the criterion is named here, where two of them coexist and the bare name would be ambiguous.
+    # The `*_at_k_star` columns are all evaluated at the VI-selected k, so they are renamed with it.
+    k_selection = k_selection.rename(columns={
+        c: c.replace("k_star", "k_star_vi") for c in k_selection.columns
+        if c == "k_star" or c.endswith("_at_k_star")
+    })
     k_selection.to_csv(out_dir / "k_selection.csv", index=False)
 
     _report(k_selection, dendro)
@@ -112,12 +119,12 @@ def _report(k_selection: pd.DataFrame, dendro: pd.DataFrame) -> None:
     clean = k_selection[~k_selection["is_flat"] & ~k_selection["is_arbitrary_slicing"]]
     if len(clean):
         print(f"\n  {len(clean)} group(s) with a meaningful k*:")
-        cols = [c for c in ("num_subjects", "allocation_mode", "ndim", "linkage", "k_star",
-                            "k_star_sil", "vi_norm_at_k_star", "sil_cross_at_k_star",
-                            "sil_ratio_at_k_star")
+        cols = [c for c in ("num_subjects", "allocation_mode", "ndim", "linkage", "k_star_vi",
+                            "k_star_sil", "vi_norm_at_k_star_vi", "sil_cross_at_k_star_vi",
+                            "sil_ratio_at_k_star_vi")
                 if c in clean.columns]
         print(clean[cols].to_string(index=False))
-        print("  k_star     = coarsest granularity that REPRODUCES (VI, one-SE) - the safe "
+        print("  k_star_vi  = coarsest granularity that REPRODUCES (VI, one-SE) - the safe "
               "deduplication rule")
         print("  k_star_sil = granularity with the most cross-cohort SEPARATION - where the "
               "structure is")

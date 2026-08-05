@@ -118,7 +118,7 @@ resolution the data supports, which is the level at which to deduplicate.
 scores *reproducibility*, and a coarse cut of a well-separated structure reproduces just as
 perfectly as the right one: on three planted blobs VI is exactly 0 at both k=2 and k=3, because
 every cohort merges the same two blobs. Cross-cohort silhouette is what distinguishes them, which is
-why both `k_star` (VI) and `k_star_sil` (silhouette) are reported. VI and ARI measure agreement on a partition,
+why both `k_star_vi` and `k_star_sil` are reported. VI and ARI measure agreement on a partition,
 not whether that partition is meaningful. Two cohorts can reproducibly agree on an arbitrary slicing
 of a continuum, which is exactly why the silhouette ratio is carried alongside: high agreement with
 near-zero cross-cohort silhouette is the signature of that failure, and it would mean "one image per
@@ -304,7 +304,7 @@ excludes more candidate pairs, which is the conservative error.
 *reproducibility*, and a coarse cut of a well-separated structure reproduces perfectly too. On three
 planted blobs, VI is exactly 0 at k=2 and at k=3 alike (every cohort merges the same two blobs), so
 the parsimony tiebreak returns 2; cross-cohort silhouette is what tells them apart, peaking at the
-true 3 (0.93 against 0.76). So `k_selection.csv` carries both: `k_star`, selected on VI, is the
+true 3 (0.93 against 0.76). So `k_selection.csv` carries both: `k_star_vi`, selected on VI, is the
 coarsest granularity that reproduces and is the safe deduplication rule; `k_star_sil`, selected on
 cross-cohort silhouette, is where the structure actually is. Reading k\* off VI alone would
 systematically under-report the granularity the data supports.
