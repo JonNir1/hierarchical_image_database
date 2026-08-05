@@ -97,6 +97,55 @@ def test_vi_does_not_identify_the_number_of_clusters_but_silhouette_does(tmp_pat
     assert (sel["k_star_sil"] == 3).all()      # the true planted structure
 
 
+def test_both_granularities_are_scored_at_both_k(tmp_path):
+    """Each k* carries all three metrics, so the trade is readable in either direction.
+
+    On planted blobs the finer `k_star_sil` costs *nothing* in reproducibility (VI is 0 at both)
+    while nearly doubling the separation. With only the VI-side columns you could see that the two
+    k* differ but not whether taking the finer one was free or expensive.
+    """
+    frames = rca.run(_store(tmp_path, sd=0.2), tmp_path / "out", ks=(2, 3, 5, 8),
+                     linkages=("average",), verbose=False)
+    sel = frames["k_selection"]
+    for metric in rca.AT_K_METRICS:
+        for suffix in ("vi", "sil"):
+            col = f"{metric}_at_k_star_{suffix}"
+            assert col in sel.columns, col
+            assert sel[col].notna().all(), col
+
+    np.testing.assert_allclose(sel["vi_norm_at_k_star_sil"].to_numpy(),
+                               sel["vi_norm_at_k_star_vi"].to_numpy(), atol=1e-12)
+    assert (sel["sil_cross_at_k_star_sil"] > sel["sil_cross_at_k_star_vi"]).all()
+
+
+def test_metrics_at_k_reads_the_agreement_curve_at_the_chosen_k(tmp_path):
+    """The attached values must be the curve's own, not a re-derivation that could drift."""
+    import pandas as pd
+    agreement = pd.DataFrame({
+        "num_subjects": [50] * 3, "linkage": ["average"] * 3, "k": [2, 3, 5],
+        "mean_vi_norm": [0.1, 0.2, 0.3], "mean_sil_cross": [0.9, 0.5, 0.4],
+        "mean_sil_ratio": [1.0, 0.8, 0.6],
+    })
+    by = ["num_subjects", "linkage"]
+    frame = pd.DataFrame([{"num_subjects": 50, "linkage": "average", "k_star_sil": 5}])
+    out = rca._metrics_at_k(frame, agreement, by, "sil")
+    assert out.loc[0, "vi_norm_at_k_star_sil"] == 0.3
+    assert out.loc[0, "sil_cross_at_k_star_sil"] == 0.4
+    assert out.loc[0, "sil_ratio_at_k_star_sil"] == 0.6
+
+
+def test_metrics_at_k_keeps_a_group_whose_k_has_no_agreement_row(tmp_path):
+    """A left merge, so an unmatched group gets NaN rather than vanishing from the table."""
+    import pandas as pd
+    agreement = pd.DataFrame({"num_subjects": [50], "linkage": ["average"], "k": [2],
+                              "mean_vi_norm": [0.1], "mean_sil_cross": [0.9],
+                              "mean_sil_ratio": [1.0]})
+    frame = pd.DataFrame([{"num_subjects": 50, "linkage": "average", "k_star_vi": 99}])
+    out = rca._metrics_at_k(frame, agreement, ["num_subjects", "linkage"], "vi")
+    assert len(out) == 1
+    assert np.isnan(out.loc[0, "vi_norm_at_k_star_vi"])
+
+
 def test_runs_on_a_conf_only_store(tmp_path):
     """The download command excludes confdists.f32 on purpose; the driver must not need it.
 
