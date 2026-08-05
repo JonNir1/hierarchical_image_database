@@ -5,7 +5,8 @@ reconstruct them with weighted MDS, and measure how well two independent cohorts
 
 This file explains **what** the simulations answer, **which metrics** we use, and **how** the
 pipeline is put together. For how to actually run things (quick start, R setup, EC2), see
-[Cookbook.md](Cookbook.md).
+[Cookbook.md](Cookbook.md). For what the runs have actually shown, including two results that were
+later withdrawn, see [FINDINGS.md](FINDINGS.md).
 
 ## Research questions
 
