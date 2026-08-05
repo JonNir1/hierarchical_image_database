@@ -467,7 +467,7 @@ It writes `cluster_agreement.csv`, `dendrogram_agreement.csv`, `cluster_sizes.cs
 `k_selection.csv` into `out/`, where `eval_helpers.load_run` picks them up as optional frames, and
 prints the continuum verdicts.
 
-**`k_selection.csv` reports two granularities, and they answer different questions.** `k_star` is
+**`k_selection.csv` reports two granularities, and they answer different questions.** `k_star_vi` is
 selected on VI (one-SE rule) and is the *coarsest granularity that reproduces*: the conservative
 deduplication rule, since a coarser cut merges more images and excludes more candidate pairs.
 `k_star_sil` is selected on cross-cohort silhouette and is *where the structure actually is*. They

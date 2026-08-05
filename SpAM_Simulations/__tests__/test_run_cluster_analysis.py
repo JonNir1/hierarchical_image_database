@@ -60,7 +60,8 @@ def test_k_selection_keeps_the_arms_apart(tmp_path):
     sel = frames["k_selection"]
     assert set(sel["allocation_mode"]) == {0.0, 1.0}
     assert len(sel) == 2
-    for col in ("k_star", "is_flat", "is_arbitrary_slicing", "sil_cross_at_k_star"):
+    for col in ("k_star_vi", "k_star_sil", "is_flat", "is_arbitrary_slicing",
+                "sil_cross_at_k_star_vi"):
         assert col in sel.columns
 
 
@@ -71,11 +72,11 @@ def test_planted_blobs_are_not_flagged_as_a_continuum(tmp_path):
     sel = frames["k_selection"]
     assert not sel["is_flat"].any()
     assert not sel["is_arbitrary_slicing"].any()
-    assert (sel["sil_cross_at_k_star"] > 0.5).all()
+    assert (sel["sil_cross_at_k_star_vi"] > 0.5).all()
 
 
 def test_vi_does_not_identify_the_number_of_clusters_but_silhouette_does(tmp_path):
-    """The reason `k_star` and `k_star_sil` are both reported.
+    """The reason `k_star_vi` and `k_star_sil` are both reported.
 
     VI measures *reproducibility*, not correctness of granularity. On three well-separated planted
     blobs, cutting at k=2 merges the same two blobs in every cohort, so VI is exactly 0 there just
@@ -92,7 +93,7 @@ def test_vi_does_not_identify_the_number_of_clusters_but_silhouette_does(tmp_pat
     assert one_arm.loc[3, "mean_sil_cross"] > one_arm.loc[2, "mean_sil_cross"]
 
     sel = frames["k_selection"]
-    assert (sel["k_star"] == 2).all()          # conservative: the coarsest cut that reproduces
+    assert (sel["k_star_vi"] == 2).all()       # conservative: the coarsest cut that reproduces
     assert (sel["k_star_sil"] == 3).all()      # the true planted structure
 
 
@@ -135,9 +136,9 @@ def test_select_by_drops_columns_the_frame_does_not_have(tmp_path):
 def test_report_names_the_continuum_case(tmp_path, capsys):
     """A flat/arbitrary group must be announced, not quietly reported as a k*."""
     import pandas as pd
-    k_selection = pd.DataFrame([{"num_subjects": 50, "ndim": 4, "linkage": "average", "k_star": 3,
-                                 "vi_norm_at_k_star": 0.4, "sil_cross_at_k_star": 0.01,
-                                 "sil_ratio_at_k_star": 0.1, "is_flat": True,
+    k_selection = pd.DataFrame([{"num_subjects": 50, "ndim": 4, "linkage": "average", "k_star_vi": 3,
+                                 "vi_norm_at_k_star_vi": 0.4, "sil_cross_at_k_star_vi": 0.01,
+                                 "sil_ratio_at_k_star_vi": 0.1, "is_flat": True,
                                  "is_arbitrary_slicing": True}])
     rca._report(k_selection, pd.DataFrame())
     out = capsys.readouterr().out
