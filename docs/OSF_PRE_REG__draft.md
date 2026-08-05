@@ -265,6 +265,18 @@ intervals of 5 subjects after reaching N=75).
   Shoham et al. (2024, *Nature Human Behaviour*), who showed that CLIP-derived
   RDMs capture variance in human similarity beyond what pure-visual or pure-semantic
   predictors explain.
+  *Implementation note on the CLIP variant*: OpenAI trained CLIP with QuickGELU
+  activations. `open_clip` (the library used here) subsequently split this into two
+  model configs, with plain `ViT-B-32` defaulting to standard GELU and
+  `ViT-B-32-quickgelu` retaining the original. We load `ViT-B-32-quickgelu` with
+  `pretrained="openai"`, so that the activation function matches the one the released
+  weights were trained under. Pairing plain `ViT-B-32` with the OpenAI weights instead
+  is a silent config mismatch (`open_clip` emits a load-time warning): on an 80-image
+  check it displaced each embedding by a mean cosine distance of 0.0245 and yielded a
+  CLIP RDM correlated at Spearman ρ = 0.963 with the correctly-configured one — a
+  small but systematic distortion. We record this because "CLIP ViT-B/32" alone does
+  not uniquely identify a network under current `open_clip` versions, and the choice
+  is consequential for β in the H3 decomposition.
 - (Exploratory) High-level-visual distance matrix: $D_{VGG}^{pre}$ and $D_{VGG}^{post}$
   — pairwise cosine distance between VGG-16 penultimate-layer (FC7) activations on
   pre- and post-SHINE images. Uses ImageNet-pretrained VGG-16 from `torchvision`.

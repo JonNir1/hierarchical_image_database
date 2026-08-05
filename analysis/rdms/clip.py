@@ -4,6 +4,17 @@ CLIP visual-semantic RDMs: pairwise cosine distance between ViT-B/32 output embe
 Uses OpenAI pretrained CLIP ViT-B/32 via open_clip.
 Embeddings are taken from the image encoder output layer (following Shoham et al. 2024).
 
+Model config: 'ViT-B-32-quickgelu', not 'ViT-B-32'. OpenAI trained CLIP with
+QuickGELU activations; open_clip later split the two into separate configs,
+leaving plain 'ViT-B-32' on standard GELU. Pairing 'ViT-B-32' with
+pretrained='openai' therefore loads OpenAI's weights into a network whose
+activation function differs from the one they were trained under, which
+open_clip flags at load time as a QuickGELU mismatch. Measured over 80 images,
+that mismatch moved each embedding by a mean cosine distance of 0.0245 and the
+resulting RDM by Spearman rho = 0.963 -- a small but systematic distortion, not
+noise. '-quickgelu' is the config faithful to the pre-registered
+"OpenAI pretrained CLIP ViT-B/32".
+
 Outputs (to analysis/results/rdms/):
     E_clip_pre.npy   -- pre-SHINE image embeddings  (725, embedding_dim)
     E_clip_post.npy  -- post-SHINE image embeddings (725, embedding_dim)
@@ -25,6 +36,11 @@ from tqdm import tqdm
 
 from analysis.rdms.common import cosine_distances, image_paths, open_as_rgb_pil, save_embeddings
 
+# See the module docstring: '-quickgelu' matches the activation OpenAI's
+# weights were trained with. Do not drop the suffix.
+_MODEL_NAME = "ViT-B-32-quickgelu"
+_PRETRAINED = "openai"
+
 
 def build_clip_rdm(variant: str) -> np.ndarray:
     """
@@ -42,9 +58,9 @@ def build_clip_rdm(variant: str) -> np.ndarray:
     Condensed cosine-distance vector (float64, length 262_450)
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[clip] Loading CLIP ViT-B/32 (openai) on {device} ...")
+    print(f"[clip] Loading CLIP {_MODEL_NAME} ({_PRETRAINED}) on {device} ...")
     model, _, preprocess = open_clip.create_model_and_transforms(
-        "ViT-B-32", pretrained="openai", device=device
+        _MODEL_NAME, pretrained=_PRETRAINED, device=device
     )
     model.eval()
 
@@ -59,7 +75,7 @@ def build_clip_rdm(variant: str) -> np.ndarray:
 
     E = np.stack(embeddings)   # (725, embedding_dim)
     short = "clip_pre" if variant == "pre_shine" else "clip_post"
-    meta = {"variant": variant, "model": "ViT-B-32", "pretrained": "openai"}
+    meta = {"variant": variant, "model": _MODEL_NAME, "pretrained": _PRETRAINED}
 
     print(f"[clip] Embedding matrix {E.shape}. Saving embeddings ...")
     save_embeddings(short, E, source="analysis.rdms.clip", extra=meta)
