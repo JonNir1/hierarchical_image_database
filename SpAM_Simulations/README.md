@@ -84,9 +84,6 @@ structure whenever the real question is about groups.
 
 ### Cluster structure
 
-> **Not yet implemented.** This section documents the intended design; the module lands in a later
-> checkpoint. Everything above it is live.
-
 Discovered **bottom-up** from each cohort's embedding by agglomerative clustering, swept over
 granularity `k` and over linkage (`average`, `ward`, `complete`). Linkage is the rule for the
 distance between two *clusters*: average is the mean cross-cluster pair distance and assumes least;
@@ -121,6 +118,19 @@ not whether that partition is meaningful. Two cohorts can reproducibly agree on 
 of a continuum, which is exactly why the silhouette ratio is carried alongside: high agreement with
 near-zero cross-cohort silhouette is the signature of that failure, and it would mean "one image per
 cluster" is the wrong rule and a distance threshold should be used instead.
+
+`cluster_stability.continuum_diagnostics` reports that verdict explicitly per group, as `is_flat`
+(the criterion varies by less than 0.02 across the whole k grid, so no granularity is
+distinguishably better) and `is_arbitrary_slicing` (cross-cohort silhouette at k\* is below 0.05).
+Both are **findings, not errors**.
+
+Two implementation notes that affect how the numbers read. `fcluster(criterion="maxclust")` can
+return **fewer** than k clusters when merge heights tie, so `n_clusters_realised` is recorded and no
+consumer may assume it equals k. And `sil_ratio` is NaN wherever the within-cohort silhouette is not
+meaningfully positive: a negative denominator makes the quotient flip sign, which on isotropic data
+produced a ratio of +1.84 from a cross of -0.043, i.e. the metric appearing to claim that separation
+*improved* out of sample. A negative ratio with a positive denominator is kept, since that
+legitimately reports separation inverting across cohorts.
 
 ### Empirical validity
 
@@ -238,10 +248,38 @@ re-running skips work already recorded, which is the only checkpointing an inter
 
 ### Steps g-i: cluster and decide
 
-Reading configurations back out of the store, each cohort is clustered at every (k, linkage), and the
-between-cohort metrics are computed over all C(r,2) rep pairs within each (config, D) group. Then
-`select_k` applies the same one-SE rule used for dimensionality, and `continuum_diagnostics` reports
-whether a stable granularity exists at all.
+These run **locally**, on a downloaded store, and need no R:
+
+```python
+from SpAM_Simulations import cluster_stability as cs
+from SpAM_Simulations.storage import ResultStore
+
+store = ResultStore.open("sim_results/<run>/mds_store/<cell>")
+agreement = cs.compute_cluster_agreement(store)      # per (config, ndim, linkage, k)
+sizes     = cs.compute_cluster_sizes(store)
+trees     = cs.compute_dendrogram_agreement(store)   # k-free
+verdicts  = cs.continuum_diagnostics(agreement)      # k*, is_flat, is_arbitrary_slicing
+```
+
+Each cohort is clustered at every (k, linkage) and compared against every other rep in its group, so
+the C(r,2) comparisons answer "would a second run recover the same clusters?". Distances are
+recomputed from the stored **coordinates** rather than read from `confdists.f32`: the two are equal,
+but coordinates are ~20x smaller (28 KB against 1.05 MB per fit, measured), so only `confs.f32` need
+be downloaded. Recomputing also guarantees the vector is Euclidean in `ndim` dimensions, which is
+what makes Ward linkage well-defined.
+
+Each fit is prepared once per group (`pdist`, `squareform`, three linkages, all cuts, cophenetic
+ranks). Linkage and cutting are O(reps) while the comparisons are O(reps²), so doing them inside the
+pair loop would rebuild every tree r-1 times. Measured at 725 images: **1.1 s per rep pair** across
+the full 12-k × 3-linkage grid, so a 2,160-pair sweep is ~40 min single-core.
+
+`select_k` then applies the same **one-SE rule** used for dimensionality, via the shared
+`gt_construction.apply_selection_rule`, taking the smallest k within one standard error of the best.
+For a deduplication rule the parsimonious end is the safe one: a coarser k merges more images and
+excludes more candidate pairs, which is the conservative error.
+
+> One caveat inherited from every rep-pair metric here: the C(r,2) pairs are **not independent**,
+> since each cohort appears in r-1 of them, so the reported SEM understates the true uncertainty.
 
 ## Modules
 
@@ -267,6 +305,7 @@ whether a stable granularity exists at all.
 | `design_comparison.py` | Compares allocation arms as **sampling plans** (coverage, per-image balance, waste). No subjects, no MDS, no R. |
 | `recovery.py` | Recovery of the GT's closest pairs: `recall_at_frac`, `dprime_at_frac`, `separation_dprime`, `auc_near_pairs`. |
 | `validity.py` | Is a simulated cohort realistic: distance-distribution comparison plus the semantic-hierarchy gradient. |
+| `cluster_stability.py` | Between-cohort cluster agreement: VI/ARI/AMI, cross-cohort silhouette, cluster-wise Jaccard, Baker's gamma; the `compute_cluster_*` store drivers; and `select_k` / `continuum_diagnostics`. Runs **locally** on a downloaded store. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
 | `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb`. No simulation, no MDS, no R. |
 | `evaluate_simulation.ipynb` | Overview/drill-down figures for a completed run, via `eval_helpers.py`. |
