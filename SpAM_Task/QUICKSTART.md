@@ -66,25 +66,32 @@ change are:
 
 ```json
 {
-  "design": {
-    "stimuli_path": "../images/"
+  "deployment": {
+    "debug_shine_variant": "pre"
+  },
+  "experimental_trials": {
+    "stimuli_path": "./images/"
   },
   "catch_trials": {
-    "stimuli_path": "./assets/openmoji/"
+    "stimuli_path": "SpAM_Task/assets/openmoji/"
   },
-  "shine": {
-    "shine_variant": "pre"
+  "screening_block": {
+    "prolific_code": ""
   },
-  "prolific": {
-    "completion_url": ""
+  "experimental_block": {
+    "prolific_code": ""
+  },
+  "consent": {
+    "no_consent_code": ""
   }
 }
 ```
 
 **Dataset layout.** Main stimuli live at `<repo>/images/{pre_shine,post_shine}/` (one
 directory per SHINE-preprocessing variant). The main directory is resolved as
-`<stimuli_path>/<shine_variant>_shine/`. `design.stimuli_path` is relative to `SpAM_Task/`, so
-the default `"../images/"` reaches `<repo>/images/`.
+`<stimuli_path>/<shine_variant>_shine/`. `experimental_trials.stimuli_path` is relative to the
+**project root** (matching the browser's resolution against `<repo>/index.html`), so the default
+`"./images/"` reaches `<repo>/images/`.
 
 The dataset (725 images per variant) is tracked on both `main` (GitHub) and
 `pavlovia_deploy` (Pavlovia gitlab) — no force-add required. Source datasets used
@@ -95,48 +102,58 @@ To populate the dataset, copy or move your images into `<repo>/images/pre_shine/
 (and later `<repo>/images/post_shine/`), preserving any category subdirectories. No
 junctions or symlinks are required.
 
-**SHINE variant.** Set `shine.shine_variant` to `"pre"` to load original images or
-`"post"` to load SHINE-preprocessed images. The selected variant is recorded in the
-manifest and in every saved trial row.
+**SHINE variant.** In `"debug"` mode, set `deployment.debug_shine_variant` to `"pre"` to load
+original images or `"post"` to load SHINE-preprocessed images. In `"pilot"` mode the variant is
+always `"pre"`; in `"production"` mode it's assigned per-participant from a hash of their
+Prolific PID. The selected variant is recorded in the manifest and in every saved trial row.
 
-**Leave `prolific.completion_url` empty for now** — you will fill it in after creating your
-Prolific study (Step 6).
+**Leave `screening_block.prolific_code`, `experimental_block.prolific_code`, and
+`consent.no_consent_code` empty for now** — you will fill them in after creating your Prolific
+study (Step 6). These are the three Prolific completion codes for the task's exit paths: screened
+out, completed, and declined consent respectively — see "Two-stage session structure" in
+`CLAUDE.md`.
 
 ### Tuning the trial design
 
 The defaults below work for a dataset of ~750 images with 50–75 participants. If your dataset
-is substantially smaller or larger, adjust accordingly.
+is substantially smaller or larger, adjust accordingly. `screening_block` and `experimental_block`
+share the same shape (`screening_block` additionally has `enabled`/`thresholds`); a stage's total
+main trials = `num_experimental_trials + num_repeat_trials`, plus `num_catch_trials` catch trials.
 
 | Parameter | Default | What it controls |
 |---|---|---|
-| `design.trials_per_subject` | 10 | How many sorting trials each participant completes |
-| `design.images_per_trial` | 20 | How many images appear on screen per trial |
-| `design.frac_trials_repeated` | 0 | Fraction of `trials_per_subject` slots that are exact verbatim repeats of an earlier trial (same k images, reshuffled order), for test-retest reliability of the arrangement itself — the only way an image can appear more than once per subject. `t_distinct = t − round(frac_trials_repeated × t)` is the number of genuinely distinct combinations generated; the remaining slots replay earlier ones. Keep below 0.4 — see `min_trial_repeat_separation` below. |
-| `design.min_trial_repeat_separation` | 3 | Minimum number of other main-trial slots between an original trial and its verbatim repeat (prevents back-to-back identical trials). |
-| `design.min_trial_duration_ms` | 60000 | UI-enforced minimum: "Done" button is disabled for this many ms on main trials (live countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. |
-| `display.min_header_height_px` | 60 | Minimum viewport height (px) reserved above the sort area for the prompt text. Increase if your prompt text wraps to more lines than the default budget expects. |
+| `screening_block.enabled` | `true` | Whether the optional screening stage runs at all before the experimental stage. If `false`, every participant goes straight to `experimental_block`. |
+| `screening_block` / `experimental_block` . `num_experimental_trials` | 6 / 12 | How many *distinct* sorting trials that stage presents |
+| `experimental_trials.images_per_trial` | 20 | How many images appear on screen per trial (shared by both stages) |
+| `screening_block` / `experimental_block` . `num_repeat_trials` | 2 / 2 | Additional (additive) verbatim repeats of that stage's own distinct trials — same k images, reshuffled order — for test-retest reliability of the arrangement itself. The only way an image can appear more than once per subject, and always scoped to its own stage. Must be in `[0, num_experimental_trials]`. |
+| `screening_block` / `experimental_block` . `min_repeat_separation` | 2 / 3 | Minimum number of other stage-local main-trial slots between an original trial and its verbatim repeat (prevents back-to-back identical trials). May be 0 (no constraint). |
+| `experimental_trials.min_trial_duration_ms` | 60000 | UI-enforced minimum: "Done" button is disabled for this many ms on main trials (live countdown shown). No post-hoc RT flag — UI enforcement makes it unnecessary. |
+| `display.min_header_height_px` | 80 | Minimum viewport height (px) reserved above the sort area for the prompt text. Increase if your prompt text wraps to more lines than the default budget expects. |
 | `display.min_footer_height_px` | 80 | Minimum viewport height (px) reserved below the sort area for the counter + Done button (and the catch-trial compliance warning line). Increase if this content is clipped or forces a scrollbar. |
-| `catch_trials.num_trials` | 2 | How many attention-check trials are interleaved |
-| `catch_trials.images_per_trial` | 10 | Images per catch trial |
+| `screening_block` / `experimental_block` . `num_catch_trials` | 1 / 2 | How many attention-check trials are interleaved in that stage |
+| `catch_trials.images_per_trial` | 10 | Images per catch trial (shared by both stages) |
 
 > **Coverage check**: with your chosen parameters, verify that each image will be seen by
 > enough participants for reliable averaging.
-> Expected views per image ≈ `N_subjects × (t_distinct × k) / total_images`, where
-> `t_distinct = trials_per_subject − round(frac_trials_repeated × trials_per_subject)`.
+> Expected views per image ≈ `N_subjects × ((screening.num_experimental_trials +
+> experimental.num_experimental_trials) × images_per_trial) / total_images` — only *distinct*
+> trials draw new images, so repeats don't add coverage.
 > Aim for at least 10–15 views per image.
 
 ### Quality control thresholds
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `design.min_pairwise_distance_sd` | 0.1 | Main trials where all images are piled in one spot are flagged |
-| `design.min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a main trial to pass; flags main trials where the participant barely engaged |
+| `experimental_trials.min_pairwise_distance_sd` | 0.1 | Main trials where all images are piled in one spot are flagged |
+| `experimental_trials.min_move_item_ratio` | 0.65 | Minimum ratio of drag-end events to images shown (`num_moves / numItems`) for a main trial to pass; flags main trials where the participant barely engaged |
 | `catch_trials.location_tolerance` | 0.15 | Catch trial: every individual image must be within this normalised distance of the target region. Live-enforced (Done button stays disabled until satisfied), not a post-hoc QC flag. |
 
 Catch trials have no post-hoc `qc_flag` — see "Quality control — catch trials" in `CLAUDE.md`.
 
-A participant is excluded in post-processing if more than 30% of their main trials are flagged.
-You can leave these at their defaults for a pilot run and revisit after inspecting the data.
+These two per-trial flags are diagnostic only. Actual exclusion happens once, at the end of the
+screening stage, via `screening_block.thresholds` (fail-rate and test-retest-reliability
+thresholds evaluated across that stage's own trials — see "Live screening" in `CLAUDE.md`). You
+can leave everything at its defaults for a pilot run and revisit after inspecting the data.
 
 ---
 
@@ -245,13 +262,23 @@ following files and place them in `SpAM_Task/jspsych/`:
 
 ## Step 7 — Set up Prolific recruitment
 
+The task has three distinct exit paths, each with its own Prolific completion code: participants
+who complete the full task, participants screened out at the end of the screening stage (only
+possible if `screening_block.enabled` is `true`), and participants who decline consent. You need
+a separate Prolific study *completion code* for each — see "Live screening" in `CLAUDE.md` for how
+the screen-out path is triggered.
+
 1. Log in to [prolific.com](https://www.prolific.com) and create a new study.
 2. Paste the Pavlovia URL (from Step 6) into the *Study URL* field.
-3. Under *Completion*, select *I'll redirect them using a URL* and copy the Prolific
-   completion URL (it looks like `https://app.prolific.com/submissions/complete?cc=XXXXXXXX`).
-4. Paste that completion URL into `task_config.json`:
+3. Under *Completion*, select *I'll redirect them using a URL* and set up your codes/redirects for
+   the three outcomes above. Each yields a completion URL of the form
+   `https://app.prolific.com/submissions/complete?cc=XXXXXXXX` — you only need the trailing
+   `cc=` code, not the full URL.
+4. Paste the three codes into `task_config.json`:
    ```json
-   "prolific": { "completion_url": "https://app.prolific.com/submissions/complete?cc=XXXXXXXX" }
+   "screening_block":   { "prolific_code": "XXXXXXXX" },
+   "experimental_block": { "prolific_code": "XXXXXXXX" },
+   "consent":           { "no_consent_code": "XXXXXXXX" }
    ```
 5. Commit the updated `task_config.json` to `main`, push to GitHub, then run
    `bash SpAM_Task/scripts/deploy_pavlovia.sh` (or `.\SpAM_Task\scripts\deploy_pavlovia.ps1` on
@@ -273,14 +300,15 @@ ID. Pass the folder of CSVs to the post-processing pipeline for aggregation and 
 ## Troubleshooting
 
 **Images don't appear / sort area is empty**
-: Check that `design.stimuli_path` and `shine.shine_variant` in `task_config.json`
-are correct and that `generate_manifest.py` found your images. Confirm the web server
+: Check that `experimental_trials.stimuli_path` and `deployment.debug_shine_variant` (in
+`"debug"` mode) in `task_config.json` are correct and that `generate_manifest.py` found your
+images. Confirm the web server
 is running from the **repo root**, not from `SpAM_Task/` — `index.html` lives at the
 root and references task code via `SpAM_Task/...` paths.
 
 **"No participant ID detected" message**
 : You accessed the URL without a `PROLIFIC_PID` parameter. Either add `?PROLIFIC_PID=test` to
-the URL manually, or set `"debug": true` in `task_config.json`.
+the URL manually, or set `deployment.mode` to `"debug"` in `task_config.json`.
 
 **Pavlovia shows a blank page or 404**
 : Make sure `SpAM_Task/stimuli_manifest.json` is committed to the GitLab repository
