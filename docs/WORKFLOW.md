@@ -47,6 +47,11 @@ has been done and what is pending.
       Synsets assigned directly from image category labels (filename stem + directory,
       with manual overrides for polysemous cases; see `images/manifest.csv` column
       `wn_synset_name`). Pairwise WordNet shortest-path distance. Out: `D_sem_wn.npy`.
+      **`wn_synset_name` is the reference concept assignment for the dataset.** Any
+      later analysis needing a per-image concept reads that column; do not re-derive
+      concepts from the path or from a classifier. Automatic derivation disagrees with
+      it for 376 of 717 resolvable images (median 9 WordNet edges) and drops to 3.7%
+      agreement on the human branch. Evidence: `analysis/rdms/imagenet_vs_path.py`.
 - [ ] Visual-semantic RDM (CLIP). `code: analysis/rdms/clip.py`.
       Load OpenAI pretrained CLIP **ViT-B/32** (via `open_clip`), using the
       `ViT-B-32-quickgelu` config — **not** plain `ViT-B-32`, which pairs OpenAI's

@@ -36,6 +36,12 @@ data/
 *.json
 !SpAM_Task/task_config.json
 !SpAM_Task/stimuli_manifest.json
+# Required input, not an output: maps ImageNet class index -> WordNet wnid.
+# torchvision ships class names but not wnids, so without this the ResNet
+# predictions in analysis/rdms/imagenet_vs_path.py cannot be resolved to
+# synsets at all. Tracked so the mapping is pinned to the ordering the
+# predictions were made under, and so no network fetch is needed to reproduce.
+!analysis/rdms/imagenet_class_index.json
 
 # SpAM_Simulations MDS-sweep output store (ResultStore: meta.csv + confdists.f32)
 mds_store/
