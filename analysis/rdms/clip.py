@@ -9,9 +9,10 @@ QuickGELU activations; open_clip later split the two into separate configs,
 leaving plain 'ViT-B-32' on standard GELU. Pairing 'ViT-B-32' with
 pretrained='openai' therefore loads OpenAI's weights into a network whose
 activation function differs from the one they were trained under, which
-open_clip flags at load time as a QuickGELU mismatch. Measured over 80 images,
-that mismatch moved each embedding by a mean cosine distance of 0.0245 and the
-resulting RDM by Spearman rho = 0.963 -- a small but systematic distortion, not
+open_clip flags at load time as a QuickGELU mismatch. Measured across the full
+725-image set, that mismatch shifted the RDM by mean |delta d| = 0.023 against a
+mean distance of 0.36, giving Spearman rho = 0.943 (pre) and 0.938 (post)
+against the correctly-configured RDM: a small but systematic distortion, not
 noise. '-quickgelu' is the config faithful to the pre-registered
 "OpenAI pretrained CLIP ViT-B/32".
 
