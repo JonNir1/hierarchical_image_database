@@ -8,6 +8,7 @@ silently returning one.
 No R needed anywhere.
 """
 import numpy as np
+import pandas as pd
 import pytest
 from scipy.spatial.distance import pdist, squareform
 
@@ -322,3 +323,187 @@ def test_baker_gamma_is_constant_across_k_within_a_linkage():
     a, b = pdist(_blobs(seed=0)), pdist(_blobs(seed=1))
     df = cs.compare_partitions(a, b, ks=(2, 3, 5), linkages=("average",))
     assert df["baker_gamma"].nunique() == 1
+
+
+# --------------------------------------------------------------------- store-level drivers
+
+N_IMAGES, MAX_NDIM = 30, 4
+META = ["num_subjects", "rep", "ndim", "niter", "stress", "status"]
+
+
+def _conf_store(tmp_path, n_reps=4, num_subjects=(20, 50), ndim=3, statuses=None, seed=0):
+    """A store whose cohorts are noisy views of one planted 3-blob structure."""
+    from SpAM_Simulations.storage import ResultStore
+    rng = np.random.default_rng(seed)
+    truth = _blobs(n_per=N_IMAGES // 3, k=3, sd=0.25, seed=seed, ndim=MAX_NDIM)
+    store = ResultStore.create(tmp_path / "s", confdist_len=N_IMAGES * (N_IMAGES - 1) // 2,
+                               meta_columns=META, n_images=N_IMAGES, max_ndim=MAX_NDIM)
+    for ns in num_subjects:
+        for rep in range(n_reps):
+            status = (statuses or {}).get((ns, rep), "success")
+            meta = {"num_subjects": ns, "rep": rep, "ndim": ndim, "niter": 10,
+                    "stress": 0.1, "status": status}
+            if status not in ("success", "max_iters"):
+                store.append(meta)
+                continue
+            coords = (truth + rng.normal(0, 0.1, truth.shape)).astype(np.float32)
+            store.append(meta, confdist=pdist(coords).astype(np.float32), conf=coords)
+    store.close()
+    return ResultStore.open(tmp_path / "s")
+
+
+def test_cluster_agreement_emits_one_row_per_group_linkage_k(tmp_path):
+    store = _conf_store(tmp_path)
+    df = cs.compute_cluster_agreement(store, ks=(2, 3, 5), linkages=("average", "ward"),
+                                      verbose=False)
+    assert len(df) == 2 * 2 * 3            # 2 num_subjects x 2 linkages x 3 k
+    assert set(df["num_subjects"]) == {20, 50}
+    assert (df["n_pairs"] == 6).all()       # C(4, 2)
+    for col in ("mean_vi_norm", "sem_vi_norm", "mean_ari", "mean_sil_cross", "mean_jaccard_mean"):
+        assert col in df.columns, col
+
+
+def test_cluster_agreement_recovers_the_planted_structure(tmp_path):
+    store = _conf_store(tmp_path)
+    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False)
+    assert (df["mean_ari"] > 0.9).all()
+    assert (df["mean_vi_norm"] < 0.1).all()
+
+
+def test_drivers_exclude_failed_fits(tmp_path):
+    """Only successful, confdist-bearing rows may be compared."""
+    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,),
+                        statuses={(20, 0): "error", (20, 1): "disconnected"})
+    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False)
+    assert df["n_reps"].iloc[0] == 2 and df["n_pairs"].iloc[0] == 1
+
+
+def test_a_group_with_one_usable_rep_is_skipped_not_crashed(tmp_path):
+    store = _conf_store(tmp_path, n_reps=2, num_subjects=(20,), statuses={(20, 0): "error"})
+    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False)
+    assert df.empty
+
+
+def test_drivers_reject_a_store_without_configurations(tmp_path):
+    from SpAM_Simulations.storage import ResultStore
+    store = ResultStore.create(tmp_path / "nc", confdist_len=10, meta_columns=META)
+    store.append({"num_subjects": 1, "rep": 0, "ndim": 2, "niter": 1, "stress": 0.1,
+                  "status": "success"}, confdist=np.zeros(10, dtype=np.float32))
+    store.close()
+    with pytest.raises(ValueError, match="cannot be clustered"):
+        cs.compute_cluster_agreement(ResultStore.open(tmp_path / "nc"), verbose=False)
+
+
+def test_dendrogram_agreement_is_k_free(tmp_path):
+    store = _conf_store(tmp_path)
+    df = cs.compute_dendrogram_agreement(store, linkages=("average", "complete"), verbose=False)
+    assert "k" not in df.columns
+    assert len(df) == 2 * 2                 # 2 num_subjects x 2 linkages
+    assert (df["mean_baker_gamma"] > 0.5).all()
+    assert "mean_cophenetic_fidelity" in df.columns
+
+
+def test_cluster_sizes_describe_the_discovered_partition(tmp_path):
+    store = _conf_store(tmp_path)
+    df = cs.compute_cluster_sizes(store, ks=(3,), linkages=("average",), verbose=False)
+    assert (df["mean_n_clusters_realised"] == 3).all()
+    assert (df["mean_size_max"] <= N_IMAGES).all()
+    assert "mean_size_entropy_norm" in df.columns
+
+
+def test_drivers_read_conf_not_confdist(tmp_path):
+    """The whole point of the conf-only download: clustering must not touch confdists.f32."""
+    store = _conf_store(tmp_path)
+    (store.path / "confdists.f32").unlink()
+    from SpAM_Simulations.storage import ResultStore
+    reopened = ResultStore.open(store.path)
+    assert not reopened.has_confdists
+    df = cs.compute_cluster_agreement(reopened, ks=(3,), linkages=("average",), verbose=False)
+    assert len(df) == 2 and df["mean_ari"].notna().all()
+
+
+def test_padded_conf_rows_are_trimmed_to_ndim(tmp_path):
+    """Rows are stored zero-padded to max_ndim; clustering must use only the fit's own ndim."""
+    store = _conf_store(tmp_path, ndim=2)
+    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False)
+    assert df["mean_ari"].notna().all(), "padding columns would make every point coincide"
+
+
+# --------------------------------------------------------------------- k selection / diagnostics
+
+def _agreement_frame(vi_by_k, sil=0.6, group="a"):
+    """A minimal agreement frame with per-k means, for exercising the selection logic."""
+    return pd.DataFrame([
+        {"num_subjects": 50, "ndim": 5, "linkage": group, "k": k,
+         "mean_vi_norm": vi, "sem_vi_norm": 0.001,
+         "mean_sil_cross": sil, "mean_sil_ratio": 0.9}
+        for k, vi in vi_by_k.items()
+    ])
+
+
+def test_select_k_prefers_the_smaller_of_two_indistinguishable_granularities():
+    """The one-SE rule again: a flat curve must not drift to fine k on noise."""
+    df = _agreement_frame({3: 0.20, 10: 0.199, 50: 0.198})
+    df["sem_vi_norm"] = 0.05
+    assert cs.select_k(df)["k_star"].iloc[0] == 3
+
+
+def test_select_k_follows_a_real_optimum():
+    df = _agreement_frame({3: 0.60, 10: 0.10, 50: 0.62})
+    assert cs.select_k(df)["k_star"].iloc[0] == 10
+
+
+def test_select_k_respects_vi_being_lower_is_better():
+    """Selecting on VI must not invert: the argmax rule should land on the MINIMUM."""
+    df = _agreement_frame({3: 0.60, 10: 0.10, 50: 0.62})
+    assert cs.select_k(df, rule="argmax")["k_star"].iloc[0] == 10
+
+
+def test_select_k_emits_one_row_per_group():
+    df = pd.concat([_agreement_frame({3: 0.5, 10: 0.2}, group="average"),
+                    _agreement_frame({3: 0.2, 10: 0.5}, group="ward")])
+    out = cs.select_k(df)
+    assert len(out) == 2
+    assert set(out["linkage"]) == {"average", "ward"}
+
+
+def test_select_k_rejects_a_missing_criterion():
+    with pytest.raises(ValueError, match="mean_nonsense"):
+        cs.select_k(_agreement_frame({3: 0.5}), criterion="nonsense")
+
+
+def test_diagnostics_flag_a_flat_curve():
+    """No granularity distinguishably better than any other means there is no k* to find."""
+    out = cs.continuum_diagnostics(_agreement_frame({3: 0.400, 10: 0.401, 50: 0.402}))
+    assert out["is_flat"].iloc[0]
+
+
+def test_diagnostics_flag_agreement_without_separation():
+    """The continuum signature: cohorts agree on a cut of a space that has no clusters in it."""
+    out = cs.continuum_diagnostics(_agreement_frame({3: 0.05, 10: 0.40, 50: 0.60}, sil=0.01))
+    assert out["is_arbitrary_slicing"].iloc[0]
+    assert not out["is_flat"].iloc[0], "a real gradient must not be called flat"
+
+
+def test_diagnostics_pass_a_genuinely_clustered_case():
+    out = cs.continuum_diagnostics(_agreement_frame({3: 0.02, 10: 0.40, 50: 0.70}, sil=0.65))
+    assert not out["is_flat"].iloc[0]
+    assert not out["is_arbitrary_slicing"].iloc[0]
+    assert out["k_star"].iloc[0] == 3
+    assert out["vi_norm_at_k_star"].iloc[0] == pytest.approx(0.02)
+
+
+def test_diagnostics_report_the_range_used_for_the_flat_verdict():
+    out = cs.continuum_diagnostics(_agreement_frame({3: 0.10, 10: 0.50}))
+    assert out["vi_norm_range"].iloc[0] == pytest.approx(0.40)
+
+
+def test_diagnostics_end_to_end_on_a_store(tmp_path):
+    store = _conf_store(tmp_path)
+    agreement = cs.compute_cluster_agreement(store, ks=(2, 3, 5), linkages=("average",),
+                                             verbose=False)
+    out = cs.continuum_diagnostics(agreement)
+    assert len(out) == 2                      # one row per num_subjects
+    for col in ("k_star", "vi_norm_range", "sil_cross_at_k_star", "is_flat",
+                "is_arbitrary_slicing"):
+        assert col in out.columns, col

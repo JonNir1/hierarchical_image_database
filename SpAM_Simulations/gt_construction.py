@@ -247,20 +247,39 @@ def dimensionality_scan(subjects: Sequence, ndims: Sequence[int] = DEFAULT_NDIMS
     return pd.DataFrame(rows), diagnostics
 
 
-def summarise_scan(scan: pd.DataFrame) -> pd.DataFrame:
-    """Mean and standard error of each score per ndim."""
-    metrics = ["spearman", "procrustes_m2", "topk_jaccard"]
-    g = scan.groupby("ndim")[metrics]
+DEFAULT_SCAN_METRICS = ("spearman", "procrustes_m2", "topk_jaccard")
+
+
+def summarise_scan(scan: pd.DataFrame, by: str = "ndim",
+                   metrics: Optional[Sequence[str]] = None) -> pd.DataFrame:
+    """Mean and standard error of each score per level of ``by``.
+
+    ``by``/``metrics`` are parameters rather than constants so the same summary serves the
+    dimensionality scan and the cluster-agreement sweep, whose long frame is keyed on ``k`` and
+    carries different columns.
+    """
+    cols = list(metrics) if metrics is not None else [m for m in DEFAULT_SCAN_METRICS
+                                                      if m in scan.columns]
+    g = scan.groupby(by)[cols]
     out = g.mean().add_suffix("_mean").join(g.sem().add_suffix("_sem"))
-    return out.reset_index().sort_values("ndim").reset_index(drop=True)
+    return out.reset_index().sort_values(by).reset_index(drop=True)
 
 
-# Higher is better for all but Procrustes M^2, which measures residual disagreement.
-_HIGHER_IS_BETTER = {"spearman": True, "procrustes_m2": False, "topk_jaccard": True}
+# Direction of each metric. Everything here is higher-is-better except the two that measure residual
+# disagreement: Procrustes M^2 and Variation of Information.
+_HIGHER_IS_BETTER = {
+    "spearman": True, "procrustes_m2": False, "topk_jaccard": True,
+    "vi": False, "vi_norm": False, "ari": True, "ami": True,
+    "sil_cross": True, "sil_ratio": True, "jaccard_mean": True, "baker_gamma": True,
+}
 
 
-def select_ndim(scan: pd.DataFrame, criterion: str = "spearman", rule: str = "one_se") -> int:
+def select_ndim(scan: pd.DataFrame, criterion: str = "spearman", rule: str = "one_se",
+                axis: str = "ndim") -> int:
     """Choose a dimensionality from a scan.
+
+    ``axis`` names the swept column, so the same rule selects a cluster granularity from a
+    ``(k, metric...)`` frame; ``cluster_stability.select_k`` is a thin wrapper that does exactly that.
 
     ``rule="one_se"`` takes the **smallest ndim whose mean is within one standard error of the best
     mean**, the standard cross-validation heuristic (Breiman; ``glmnet``'s ``lambda.1se``). Two
@@ -274,23 +293,39 @@ def select_ndim(scan: pd.DataFrame, criterion: str = "spearman", rule: str = "on
     """
     if criterion not in _HIGHER_IS_BETTER:
         raise ValueError(f"criterion must be one of {sorted(_HIGHER_IS_BETTER)}, got {criterion!r}")
-    summary = summarise_scan(scan)
-    means = summary[f"{criterion}_mean"].to_numpy()
-    sems = summary[f"{criterion}_sem"].to_numpy()
-    ndims = summary["ndim"].to_numpy()
-    higher = _HIGHER_IS_BETTER[criterion]
+    summary = summarise_scan(scan, by=axis, metrics=[criterion])
+    return apply_selection_rule(
+        summary[axis].to_numpy(), summary[f"{criterion}_mean"].to_numpy(),
+        summary[f"{criterion}_sem"].to_numpy(), higher_is_better=_HIGHER_IS_BETTER[criterion],
+        rule=rule,
+    )
 
-    best_i = int(np.argmax(means) if higher else np.argmin(means))
+
+def apply_selection_rule(levels: np.ndarray, means: np.ndarray, sems: np.ndarray,
+                         higher_is_better: bool, rule: str = "one_se") -> int:
+    """The selection rule itself, over already-summarised ``(level, mean, sem)`` triples.
+
+    Factored out so :func:`select_ndim` and ``cluster_stability.select_k`` share one implementation
+    despite starting from differently-shaped frames: the dimensionality scan holds one row per draw
+    and must be summarised first, whereas the cluster sweep already stores ``mean_``/``sem_``
+    columns. Passing the latter through a re-summarising path would compute a SEM over a single
+    value, yield NaN, and silently degrade the one-SE rule to a plain argmax.
+
+    ``levels`` must be sorted ascending, so "first qualifying" is "smallest qualifying".
+    """
+    means = np.asarray(means, dtype=float)
+    sems = np.asarray(sems, dtype=float)
+    best_i = int(np.argmax(means) if higher_is_better else np.argmin(means))
     if rule == "argmax":
-        return int(ndims[best_i])
+        return int(levels[best_i])
     if rule != "one_se":
         raise ValueError(f"rule must be 'one_se' or 'argmax', got {rule!r}")
     se = sems[best_i]
     if not np.isfinite(se):
-        return int(ndims[best_i])
-    threshold = means[best_i] - se if higher else means[best_i] + se
-    ok = means >= threshold if higher else means <= threshold
-    return int(ndims[np.flatnonzero(ok)[0]])   # summary is sorted by ndim, so this is the smallest
+        return int(levels[best_i])
+    threshold = means[best_i] - se if higher_is_better else means[best_i] + se
+    ok = means >= threshold if higher_is_better else means <= threshold
+    return int(levels[np.flatnonzero(ok)[0]])
 
 
 # --------------------------------------------------------------------------- cross-validation

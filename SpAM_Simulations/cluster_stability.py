@@ -39,16 +39,18 @@ reproducibly agreeing on an arbitrary slicing of a continuum.
 from __future__ import annotations
 
 import warnings
-from typing import Dict, List, Sequence, Tuple
+from itertools import combinations
+from typing import Dict, List, Sequence
 
 import numpy as np
 import pandas as pd
 from scipy.cluster.hierarchy import cophenet, fcluster, linkage
-from scipy.spatial.distance import squareform
+from scipy.spatial.distance import pdist, squareform
 from scipy.stats import pearsonr, rankdata
 from sklearn.metrics import (
     adjusted_mutual_info_score, adjusted_rand_score, silhouette_score,
 )
+from tqdm.auto import tqdm
 
 DEFAULT_LINKAGES = ("average", "ward", "complete")
 DEFAULT_KS = (2, 3, 5, 8, 12, 20, 30, 50, 75, 100, 150, 200)
@@ -316,4 +318,279 @@ def compare_partitions(condensed_a: np.ndarray, condensed_b: np.ndarray,
                 "n_clusters_realised": 0.5 * (cluster_size_summary(la)["n_clusters_realised"]
                                               + cluster_size_summary(lb)["n_clusters_realised"]),
             })
+    return pd.DataFrame(rows)
+
+
+# --------------------------------------------------------------------------- store-level drivers
+def _require_conf(store) -> None:
+    """Clustering needs coordinates, so a confdist-only store cannot serve it."""
+    if not store.stores_conf:
+        raise ValueError(
+            "this store has no MDS configurations, so cohorts cannot be clustered. Re-run the sweep "
+            "with `run_mds_sweep(..., store_conf=True)` (the default); stores written before "
+            "configurations were recorded support only the distance-vector metrics."
+        )
+
+
+class _PreparedFit:
+    """One cohort's clustering, computed once so the O(reps^2) pair loop stays cheap.
+
+    Linkage, cutting and cophenetic ranking are O(reps); only the comparisons are O(reps^2). Doing
+    them inside the pair loop instead would rebuild each fit's tree ``n_reps - 1`` times.
+    """
+
+    __slots__ = ("condensed", "square", "trees", "labels", "coph_ranks")
+
+    def __init__(self, condensed: np.ndarray, ks: Sequence[int], linkages: Sequence[str]):
+        self.condensed = condensed
+        self.square = squareform(condensed)
+        n = self.square.shape[0]
+        self.trees = {m: build_linkage(condensed, m) for m in linkages}
+        self.labels = {m: cut_tree(z, ks, n) for m, z in self.trees.items()}
+        self.coph_ranks = {m: cophenetic_ranks(z) for m, z in self.trees.items()}
+
+
+def _fit_distances(store, row: int, ndim: int) -> np.ndarray:
+    """Condensed distances of one stored configuration.
+
+    Recomputed from ``conf`` rather than read from ``confdist``: the two are equal, but coordinates
+    are ~20x smaller on disk, so a conf-only download is the normal input here. It also guarantees
+    the vector is Euclidean in ``ndim`` dimensions, which is what makes Ward linkage well-defined.
+    """
+    return pdist(np.asarray(store.conf(int(row), int(ndim)), dtype=np.float64))
+
+
+def _prepare_group(store, rows: Sequence[int], ndim: int, ks: Sequence[int],
+                   linkages: Sequence[str]) -> List["_PreparedFit"]:
+    return [_PreparedFit(_fit_distances(store, r, ndim), ks, linkages) for r in rows]
+
+
+_PAIR_METRICS = ("vi", "vi_norm", "ari", "ami", "sil_within", "sil_cross", "sil_ratio",
+                 "jaccard_mean", "jaccard_median", "frac_clusters_above_50",
+                 "frac_clusters_above_75", "n_clusters_realised")
+
+
+def _mean_sem(values: Sequence[float], name: str) -> Dict[str, float]:
+    vals = np.asarray(values, dtype=float)
+    vals = vals[np.isfinite(vals)]
+    return {
+        f"mean_{name}": float(vals.mean()) if vals.size else np.nan,
+        f"sem_{name}": float(vals.std(ddof=1) / np.sqrt(vals.size)) if vals.size > 1 else np.nan,
+    }
+
+
+def _agreement_rows(fits: Sequence["_PreparedFit"], ks: Sequence[int],
+                    linkages: Sequence[str]) -> List[Dict[str, float]]:
+    """Mean and SEM of every metric over all C(n_fits, 2) pairs, per (linkage, k)."""
+    rows: List[Dict[str, float]] = []
+    pairs = list(combinations(range(len(fits)), 2))
+    for method in linkages:
+        for k in sorted(set(ks) & set(fits[0].labels[method])):
+            acc: Dict[str, List[float]] = {m: [] for m in _PAIR_METRICS}
+            for i, j in pairs:
+                fa, fb = fits[i], fits[j]
+                la, lb = fa.labels[method][k], fb.labels[method][k]
+                scores = {
+                    **partition_agreement(la, lb),
+                    **silhouette_pair(fa.square, fb.square, la, lb),
+                    **jaccard_summary(cluster_wise_jaccard(la, lb)),
+                    "n_clusters_realised": 0.5 * (np.unique(la).size + np.unique(lb).size),
+                }
+                for m in _PAIR_METRICS:
+                    acc[m].append(scores[m])
+            row: Dict[str, float] = {"linkage": method, "k": int(k),
+                                     "n_reps": len(fits), "n_pairs": len(pairs)}
+            for m in _PAIR_METRICS:
+                row.update(_mean_sem(acc[m], m))
+            rows.append(row)
+    return rows
+
+
+def compute_cluster_agreement(store, ks: Sequence[int] = DEFAULT_KS,
+                              linkages: Sequence[str] = DEFAULT_LINKAGES,
+                              group_fields=None, verbose: bool = True) -> pd.DataFrame:
+    """Between-cohort cluster agreement per (configuration, ndim, linkage, k).
+
+    Mirrors ``pipeline.compute_embedding_generalizability``: reps within a group are independently
+    simulated cohorts, so the C(n_reps, 2) comparisons answer "would a second run of this study
+    recover the same clusters?".
+
+    Note the pairs are **not independent** - each cohort appears in ``n_reps - 1`` of them - so the
+    reported SEM understates the true uncertainty. Every rep-pair metric in the pipeline shares that
+    limitation; it is stated here rather than inherited quietly.
+    """
+    from SpAM_Simulations.pipeline import _grouped_successful
+
+    _require_conf(store)
+    grouped, group_fields = _grouped_successful(store, group_fields)
+    rows = []
+    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Cluster agreement",
+                         disable=not verbose):
+        if len(grp) < 2:
+            continue          # a lone successful rep has nothing to be compared against
+        ndim = int(grp["ndim"].iloc[0])
+        fits = _prepare_group(store, list(grp["confdist_row"]), ndim, ks, linkages)
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        base = dict(zip(group_fields, key_tuple))
+        rows.extend({**base, **row} for row in _agreement_rows(fits, ks, linkages))
+    return pd.DataFrame(rows)
+
+
+def compute_dendrogram_agreement(store, linkages: Sequence[str] = DEFAULT_LINKAGES,
+                                 group_fields=None, verbose: bool = True) -> pd.DataFrame:
+    """k-free agreement between cohorts' whole dendrograms, per (configuration, ndim, linkage).
+
+    Baker's gamma summarises the entire merge structure rather than one cut. ``cophenetic_fidelity``
+    reports how much of each cohort's own geometry its tree retains, which qualifies the first: if
+    the trees are poor summaries of their own distances, their agreeing says little about the space.
+    """
+    from SpAM_Simulations.pipeline import _grouped_successful
+
+    _require_conf(store)
+    grouped, group_fields = _grouped_successful(store, group_fields)
+    rows = []
+    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Dendrogram agreement",
+                         disable=not verbose):
+        if len(grp) < 2:
+            continue
+        ndim = int(grp["ndim"].iloc[0])
+        fits = _prepare_group(store, list(grp["confdist_row"]), ndim, (), linkages)
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        base = dict(zip(group_fields, key_tuple))
+        for method in linkages:
+            gammas = [baker_gamma(fits[i].coph_ranks[method], fits[j].coph_ranks[method])
+                      for i, j in combinations(range(len(fits)), 2)]
+            fidelity = [cophenetic_fidelity(f.trees[method], f.condensed) for f in fits]
+            rows.append({**base, "linkage": method, "n_reps": len(fits), "n_pairs": len(gammas),
+                         **_mean_sem(gammas, "baker_gamma"),
+                         **_mean_sem(fidelity, "cophenetic_fidelity")})
+    return pd.DataFrame(rows)
+
+
+_SIZE_FIELDS = ("n_clusters_realised", "size_min", "size_median", "size_max", "largest_frac",
+                "frac_singletons", "size_entropy_norm")
+
+
+# --------------------------------------------------------------------------- choosing a granularity
+DEFAULT_GROUP_BY = ("num_subjects", "ndim", "linkage")
+
+# A VI range narrower than this across the whole k grid means no granularity is distinguishably
+# better than any other, i.e. there is no k* to find.
+FLAT_VI_TOLERANCE = 0.02
+# Below this, cross-cohort silhouette says the "clusters" are not separated in the other cohort's
+# geometry, however well the two agree on where to cut.
+ARBITRARY_SLICING_SILHOUETTE = 0.05
+
+
+def select_k(agreement: pd.DataFrame, criterion: str = "vi_norm", rule: str = "one_se",
+             by: Sequence[str] = DEFAULT_GROUP_BY) -> pd.DataFrame:
+    """Choose a granularity per group. One row per group with ``k_star``.
+
+    Reuses ``gt_construction.select_ndim``'s one-SE rule on the ``k`` axis rather than
+    reimplementing it, so dimensionality and granularity are chosen by the same logic: take the
+    **smallest** k whose mean is within one standard error of the best. On a flat curve a plain
+    argmax is noise-driven and drifts to fine granularities, and for a deduplication rule the
+    parsimonious end is the safe one - a coarser k merges more images and excludes more candidate
+    pairs, which is the conservative error.
+    """
+    from SpAM_Simulations.gt_construction import _HIGHER_IS_BETTER, apply_selection_rule
+
+    by = [c for c in by if c in agreement.columns]
+    mean_col, sem_col = f"mean_{criterion}", f"sem_{criterion}"
+    if mean_col not in agreement.columns:
+        raise ValueError(f"agreement frame has no {mean_col!r}; got {sorted(agreement.columns)}")
+    if criterion not in _HIGHER_IS_BETTER:
+        raise ValueError(f"unknown criterion {criterion!r}; add it to gt_construction._HIGHER_IS_BETTER")
+
+    rows = []
+    for key, grp in agreement.groupby(by, dropna=False):
+        # This frame already carries mean_/sem_ columns, so the rule is applied to them directly.
+        # Re-summarising would take a SEM over one value per k, giving NaN and quietly turning the
+        # one-SE rule into a plain argmax.
+        grp = grp.sort_values("k")
+        k_star = apply_selection_rule(
+            grp["k"].to_numpy(), grp[mean_col].to_numpy(),
+            grp[sem_col].to_numpy() if sem_col in grp.columns else np.full(len(grp), np.nan),
+            higher_is_better=_HIGHER_IS_BETTER[criterion], rule=rule,
+        )
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        rows.append({**dict(zip(by, key_tuple)), "k_star": int(k_star),
+                     "criterion": criterion, "rule": rule})
+    return pd.DataFrame(rows)
+
+
+def continuum_diagnostics(agreement: pd.DataFrame, criterion: str = "vi_norm",
+                          by: Sequence[str] = DEFAULT_GROUP_BY,
+                          flat_tol: float = FLAT_VI_TOLERANCE,
+                          sil_tol: float = ARBITRARY_SLICING_SILHOUETTE) -> pd.DataFrame:
+    """Does a stable, *meaningful* granularity exist? One row per group, with two verdicts.
+
+    Both verdicts are **findings, not errors**, and the analysis must be able to report them rather
+    than silently returning a k\\*:
+
+    * ``is_flat`` - the criterion varies by less than ``flat_tol`` across the entire k grid, so no
+      granularity is distinguishably better and k\\* is arbitrary.
+    * ``is_arbitrary_slicing`` - cross-cohort silhouette at k\\* is below ``sil_tol``, so the cohorts
+      reproducibly agree on a cut of a space that has no separation in it. Agreement without
+      separation is the signature of a continuum.
+
+    Either verdict means "one image per cluster" is the wrong rule for this data, and a distance
+    threshold should be used instead.
+    """
+    by = [c for c in by if c in agreement.columns]
+    mean_col = f"mean_{criterion}"
+    chosen = select_k(agreement, criterion=criterion, by=by).set_index(by)["k_star"]
+
+    rows = []
+    for key, grp in agreement.groupby(by, dropna=False):
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        k_star = int(chosen.loc[key])
+        at_star = grp[grp["k"] == k_star]
+        vals = grp[mean_col].to_numpy(dtype=float)
+        vals = vals[np.isfinite(vals)]
+        vi_range = float(vals.max() - vals.min()) if vals.size else np.nan
+        sil_cross = float(at_star["mean_sil_cross"].iloc[0]) if len(at_star) else np.nan
+        sil_ratio = float(at_star["mean_sil_ratio"].iloc[0]) if len(at_star) else np.nan
+        rows.append({
+            **dict(zip(by, key_tuple)),
+            "k_star": k_star,
+            f"{criterion}_at_k_star": float(at_star[mean_col].iloc[0]) if len(at_star) else np.nan,
+            f"{criterion}_range": vi_range,
+            "sil_cross_at_k_star": sil_cross,
+            "sil_ratio_at_k_star": sil_ratio,
+            "is_flat": bool(np.isfinite(vi_range) and vi_range < flat_tol),
+            "is_arbitrary_slicing": bool(np.isfinite(sil_cross) and sil_cross < sil_tol),
+        })
+    return pd.DataFrame(rows)
+
+
+def compute_cluster_sizes(store, ks: Sequence[int] = DEFAULT_KS,
+                          linkages: Sequence[str] = DEFAULT_LINKAGES,
+                          group_fields=None, verbose: bool = True) -> pd.DataFrame:
+    """Shape of the discovered partitions, averaged over reps, per (configuration, ndim, linkage, k).
+
+    Descriptive rather than evaluative, and necessary precisely because the clusters are found
+    bottom-up: their number and size distribution cannot be assumed in advance, and an agreement
+    score is hard to read without knowing whether the partition is balanced or one giant cluster
+    plus dust.
+    """
+    from SpAM_Simulations.pipeline import _grouped_successful
+
+    _require_conf(store)
+    grouped, group_fields = _grouped_successful(store, group_fields)
+    rows = []
+    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Cluster sizes", disable=not verbose):
+        ndim = int(grp["ndim"].iloc[0])
+        fits = _prepare_group(store, list(grp["confdist_row"]), ndim, ks, linkages)
+        if not fits:
+            continue
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        base = dict(zip(group_fields, key_tuple))
+        for method in linkages:
+            for k in sorted(set(ks) & set(fits[0].labels[method])):
+                summaries = [cluster_size_summary(f.labels[method][k]) for f in fits]
+                row = {**base, "linkage": method, "k": int(k), "n_reps": len(fits)}
+                for f in _SIZE_FIELDS:
+                    row.update(_mean_sem([s[f] for s in summaries], f))
+                rows.append(row)
     return pd.DataFrame(rows)
