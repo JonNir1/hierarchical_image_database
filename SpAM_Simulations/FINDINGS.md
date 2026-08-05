@@ -7,9 +7,10 @@ source is named so each can be re-derived.
 For *how* the pipeline works see [README.md](README.md), and for how to run it
 [Cookbook.md](Cookbook.md).
 
-> **Read the caveats before quoting anything.** Two results in this document were revised after the
-> fact, and the headline required-N figure is a **non-result**: the sweep never converged. Those are
-> flagged inline rather than left for a reader to notice.
+> **Read the caveats before quoting anything.** Two results here were revised after the fact, the
+> headline required-N figure is a **non-result** (the sweep never converged), and the latest run's
+> calibration set included 14 production subjects alongside the pilot. All three are flagged inline
+> rather than left for a reader to notice. None of them overturns the comparative findings.
 
 ---
 
@@ -137,9 +138,36 @@ noise_map:  target TR 0.24 -> noise_scale 1.5 -> achieved unscreened 0.244
             target TR 0.50 -> 0.9 -> 0.487
 ```
 
-The fit's empirical test-retest median is **0.271 over n=36**, while the median over all 47 pilot
-subjects is **0.243**. Different subsets, so quote whichever matches the claim being made rather
-than treating them as one number.
+#### The calibration set included 14 production subjects
+
+The run's `calibrate.log` reports `loaded 61 completed sessions` at 46.5% pair coverage, with a
+reliability sample of n=36. The pilot cohort is 47 subjects at 36.4% coverage, 22 of them with
+retest data. Adding 14 v4.\* production subjects reproduces all three numbers at once (61 sessions,
+46.6% coverage, 36 with retest), and no other count fits.
+
+The cause is that the loader at tag `spam-sim-v4.0` defined "pilot" by **folder membership**
+(`PILOT_DIR="data/pilot"`, no cohort or version filter), so whatever was staged into that S3 prefix
+became the calibration set.
+
+What this shifts, in rough order of concern:
+
+- The **noise-shape fit** leans on those 14 more than their share of sessions suggests, since every
+  v4 subject has screening repeats and therefore contributes retest data, making them 39% of the
+  reliability sample. They had also already passed v4.0's deployed screening, so the distribution is
+  post-screening while the simulation applies it to unscreened candidates. That biases the noise
+  model slightly optimistic.
+- The **GT geometry** was built on all 61, mixing both cohorts and both SHINE variants.
+- It explains the **two test-retest medians**: 0.271 (n=36, this run) against 0.243 (47 pilot
+  subjects, recomputed cleanly). The higher value is the screened v4 subjects pulling it up.
+
+**This does not invalidate the run.** The contamination shifts the operating point rather than the
+ordering, so the comparative results below hold: screening at 0.2 versus 0.4, N=50 versus N=300, the
+global-versus-local divergence, and the reliability-beats-N conclusion are all relative contrasts
+measured within the same calibration. Treat the **absolute** numbers (the fitted σ=0.35, dispersion
+0.30, the noise map, and the specific asymptote values) as provisional pending a clean recalibration.
+
+`load_pilot_subjects` now filters on `cohort` and `shine_variant` explicitly, and the stage-1 GT
+script asserts it resolves exactly 41 pre-SHINE subjects, so this cannot recur silently.
 
 ### ⚠️ Required N was NOT determined
 
@@ -248,6 +276,9 @@ harmless flips) measures the actual decision. That is why the cluster-agreement 
    this are implemented but unrun.
 5. **Statistical power of the existing cells.** 6 reps gives 15 cohort pairs, and those pairs are not
    independent (each cohort appears in 5), so every reported SEM understates the true uncertainty.
+6. **A clean recalibration.** The current fitted constants come from a set that included 14
+   production subjects (section 4). Re-running stage 1 on the 41 pre-SHINE pilot subjects would put
+   the absolute numbers on the footing the comparative ones already have.
 
 ## 7. Practical implications
 
