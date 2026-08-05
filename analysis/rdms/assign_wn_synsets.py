@@ -5,6 +5,41 @@ Reads images/manifest.csv, derives a WordNet noun synset for each image, and
 writes the result back as the wn_synset_name column (creating it if absent or
 overwriting if present).
 
+THIS IS THE REFERENCE CONCEPT ASSIGNMENT FOR THE DATASET.
+`images/manifest.csv:wn_synset_name` is the single source of truth for "what
+concept is this image", and D_sem_wn is built from it (semantic_wn_dir.py).
+Future analyses needing a per-image concept should read that column rather than
+re-deriving one from the path or from a classifier. Reasons, measured in
+analysis/rdms/imagenet_vs_path.py over all 725 images:
+
+  - Automatic path parsing reaches a different synset than this module's
+    assignment for 376 of 717 resolvable images, and none of those differences
+    are ties: the median gap is 9 WordNet edges.
+  - It fails hardest exactly where the dataset is most distinctive. Agreement is
+    84% within animate/animal but 3.7% within animate/human, because a bare
+    lemma cannot get there: WordNet offers no `woman` sense for the word
+    "female", so `female1.png` resolves to female.n.01 (any female organism)
+    where the curated concept is woman.n.01.
+  - Polysemy silently picks the wrong sense elsewhere too, sometimes very far
+    off: basketball.n.02 (the game) against basketball.n.01 (the ball) are 18
+    edges apart; likewise hand.n.08 (a hired worker) against hand.n.01 (the body
+    part) at 14, and banana.n.02 (the plant) against banana.n.01 (the fruit).
+  - Eight images have multi-word filenames that are not WordNet lemmas at all
+    (skunk_pig, fishing_float, red_leaf, ...) and are unresolvable by any
+    automatic rule, yet each has an obvious curated concept.
+  - The ResNet-50/ImageNet route was tried first and abandoned: ImageNet-1K has
+    no person, face, or human-body classes, so all 164 human images are
+    unclassifiable in principle, and top-1 was the best of the top-3 for only
+    58% of images even where it did apply.
+
+Two limits worth stating alongside that. First, this assignment fixes the
+*concepts*, not the metric: WordNet shortest-path still measures taxonomic
+bookkeeping, which is why baboon-capuchin scores 18 edges while baboon-macaque
+scores 2. Second, because these labels come from the same curation that built
+the directory tree, D_sem_wn and D_sem_km are not independent measurements of
+semantics; they share a source, and their observed rho = 0.29 should be read
+with that in mind.
+
 Assignment rules (evaluated in order):
 
 1. Human-face images (path contains both 'human' and 'face'):

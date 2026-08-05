@@ -299,6 +299,26 @@ intervals of 5 subjects after reaching N=75).
   that do not reflect semantic content. White/transparent backgrounds also remove contextual
   cues that ResNet relies on. Since all images were manually curated with known category
   labels, direct label-to-synset mapping is both more accurate and fully deterministic.
+  The curated `wn_synset_name` column is the reference concept assignment for the dataset;
+  all analyses that need a per-image concept read it rather than re-deriving one.
+
+  We since quantified that decision (`analysis/rdms/imagenet_vs_path.py`), scoring every
+  image on a 3×3 grid of WordNet distances between the top-3 ResNet-50 predictions and
+  three concepts read off the curated path (filename stem, parent directory, and their
+  compound). Of 717 resolvable images, automatic derivation reaches a different synset
+  than the curated assignment for 376, with a median gap of 9 WordNet edges and no ties.
+  Agreement is 84% within `animate/animal` but 3.7% within `animate/human`, since no
+  bare lemma reaches the curated concept there (WordNet has no `woman` sense for the word
+  "female"). Polysemy misfires elsewhere as well: basketball.n.02 (the game) sits 18 edges
+  from basketball.n.01 (the ball). ResNet's top-1 was the best of its top-3 for only 58%
+  of images. A further 8 images have multi-word filenames that are not WordNet lemmas at
+  all and are unresolvable by any automatic rule.
+
+  Two limitations are recorded alongside this. The curated assignment fixes the concepts
+  but not the metric, so the WordNet path-length caveat noted above still applies. And
+  because these labels come from the same curation that produced the directory tree,
+  $D_{sem}^{WN}$ and $D_{sem}^{KM}$ are not independent measurements of semantics: they
+  share a source, which is relevant when interpreting their ρ = 0.29 agreement.
 - Sensory distance matrices: $D_{sens}^{pre}$ and $D_{sens}^{post}$ — pairwise Euclidean
   distance between flattened image vectors, before and after SHINE preprocessing,
   respectively. Captures low-level pixel info that SHINE directly manipulates.

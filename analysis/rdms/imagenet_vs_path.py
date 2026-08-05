@@ -298,6 +298,74 @@ def slot_rank_counts(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def _branch(curated_path: str, levels: int = 2) -> str:
+    return "/".join(curated_path.replace("\\", "/").split("/")[:levels])
+
+
+def _is_human(curated_path: str) -> bool:
+    return curated_path.replace("\\", "/").startswith("animate/human")
+
+
+def _share_a_lemma(a: str, b: str) -> bool:
+    """True if two synsets share a lemma, i.e. they differ only in word sense."""
+    try:
+        la = {l.name().lower() for l in wn.synset(a).lemmas()}
+        lb = {l.name().lower() for l in wn.synset(b).lemmas()}
+    except (WordNetError, ValueError):
+        return False
+    return bool(la & lb)
+
+
+def disagreement_detail(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    One row per image where the grid's path synset differs from the manifest's
+    curated synset, with how far apart they are and whether the difference is
+    pure polysemy.
+
+    Reading `best_path_synset`: it is not "what the path says", it is the path
+    sense that minimises distance to ResNet. The grid actively selects whichever
+    sense flatters the model, so agreement here is an upper bound on how often
+    automatic parsing would land on the curated concept if asked to pick the
+    *correct* sense rather than the most convenient one.
+    """
+    scorable = df["best_path_synset"].notna() & df["manifest_synset"].notna()
+    sub = df.loc[scorable & (df["best_path_synset"] != df["manifest_synset"]),
+                 ["curated_path", "best_path_synset", "manifest_synset"]].copy()
+    sub["same_lemma"] = [_share_a_lemma(a, b) for a, b in
+                         zip(sub["best_path_synset"], sub["manifest_synset"])]
+    sub["wn_distance"] = [_wn_distance(wn.synset(a), wn.synset(b)) for a, b in
+                          zip(sub["best_path_synset"], sub["manifest_synset"])]
+    sub["is_human"] = sub["curated_path"].map(_is_human)
+    sub["branch"] = sub["curated_path"].map(_branch)
+    return sub
+
+
+def disagreement_summary(df: pd.DataFrame, *, by: str = "branch") -> pd.DataFrame:
+    """
+    Agreement between the grid's path synset and the manifest's curated synset,
+    grouped by 'branch' (top two path levels) or 'human'.
+
+    A low agreement rate means automatic path parsing would have produced a
+    different concept than the curated assignment for most images in that group.
+    """
+    if by not in ("branch", "human"):
+        raise ValueError(f"by must be 'branch' or 'human', got {by!r}")
+    work = df.copy()
+    work["group"] = (work["curated_path"].map(_is_human).map({True: "human", False: "non-human"})
+                     if by == "human" else work["curated_path"].map(_branch))
+    scorable = work["best_path_synset"].notna() & work["manifest_synset"].notna()
+    agree = scorable & (work["best_path_synset"] == work["manifest_synset"])
+
+    out = pd.DataFrame({
+        "n": work.groupby("group").size(),
+        "n_scorable": scorable.groupby(work["group"]).sum(),
+        "n_agree": agree.groupby(work["group"]).sum(),
+    })
+    out["n_disagree"] = out["n_scorable"] - out["n_agree"]
+    out["agree_pct"] = (out["n_agree"] / out["n_scorable"].replace(0, np.nan) * 100).round(1)
+    return out.sort_values("n", ascending=False)
+
+
 def slot_marginal_distance(df: pd.DataFrame) -> pd.DataFrame:
     """
     Per-slot best distance ignoring the other slots, so the slots can be
@@ -377,6 +445,30 @@ def plot_slot_rank_heatmap(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def plot_agreement_by_branch(df: pd.DataFrame) -> go.Figure:
+    """
+    Agreement with the curated synset per branch, as stacked counts.
+
+    The branch that collapses is the argument for manual assignment.
+    """
+    s = disagreement_summary(df, by="branch")
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=s.index, y=s["n_agree"], name="matches curated synset",
+                         marker_color="#2ca02c",
+                         text=[f"{p:.0f}%" for p in s["agree_pct"]], textposition="inside"))
+    fig.add_trace(go.Bar(x=s.index, y=s["n_disagree"], name="differs from curated synset",
+                         marker_color="#d62728"))
+    fig.update_layout(
+        title=("Would automatic path parsing have reproduced the curated synset?"
+               "<br><sub>per branch; the human branch is why the manual assignment "
+               "in assign_wn_synsets.py is the reference</sub>"),
+        xaxis_title="branch", yaxis_title="images", barmode="stack",
+        template=_TEMPLATE, height=480, width=880,
+        legend=dict(orientation="h", y=-0.2, x=0.5, xanchor="center"),
+    )
+    return fig
+
+
 if __name__ == "__main__":
     table = build_comparison_table()
     print("\n=== winning cell counts (path slot x ResNet rank) ===")
@@ -385,3 +477,19 @@ if __name__ == "__main__":
     print(slot_marginal_distance(table).round(2).to_string())
     print(f"\nmedian minimum distance: {table['min_distance'].median():.1f}")
     print(f"exact matches (distance 0): {int((table['min_distance'] == 0).sum())}")
+
+    print("\n=== agreement with the curated synset, by branch ===")
+    print(disagreement_summary(table, by="branch").to_string())
+    print("\n=== agreement with the curated synset, human vs not ===")
+    print(disagreement_summary(table, by="human").to_string())
+
+    detail = disagreement_detail(table)
+    print(f"\n=== {len(detail)} disagreements ===")
+    print(f"  pure polysemy (same lemma, different sense): "
+          f"{detail['same_lemma'].mean():.1%}")
+    print(f"  median WordNet distance between the two:     "
+          f"{detail['wn_distance'].median():.1f}")
+    print("\n  most common disagreeing pairs:")
+    print(detail.groupby(["best_path_synset", "manifest_synset"])
+          .agg(n=("curated_path", "size"), wn_distance=("wn_distance", "first"))
+          .sort_values("n", ascending=False).head(10).to_string())

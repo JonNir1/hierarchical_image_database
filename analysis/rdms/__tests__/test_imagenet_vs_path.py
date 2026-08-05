@@ -113,3 +113,61 @@ class TestSummaries:
 
     def test_fully_unscorable_slot_reports_zero_scorable(self, toy):
         assert ivp.slot_marginal_distance(toy).loc["combined", "n_scorable"] == 0
+
+
+class TestDisagreement:
+    @pytest.fixture()
+    def toy(self):
+        return pd.DataFrame({
+            "curated_path": [
+                r"animate\human\face\caucasian\female1.png",   # differs, human
+                r"animate\animal\body\bird\duck1.png",         # agrees
+                r"inanimate\handmade\ball\basketball1.png",    # differs, polysemy
+                r"inanimate\natural\other\red_leaf1.png",      # unscorable
+            ],
+            "best_path_synset": ["female.n.01", "duck.n.01", "basketball.n.02", None],
+            "manifest_synset": ["woman.n.01", "duck.n.01", "basketball.n.01", "leaf.n.01"],
+        })
+
+    def test_detail_lists_only_scorable_disagreements(self, toy):
+        d = ivp.disagreement_detail(toy)
+        assert len(d) == 2
+        assert "duck1.png" not in " ".join(d["curated_path"])       # agreed
+        assert "red_leaf1.png" not in " ".join(d["curated_path"])   # unscorable
+
+    def test_detail_flags_polysemy_vs_different_word(self, toy):
+        d = ivp.disagreement_detail(toy).set_index("best_path_synset")
+        # basketball.n.01/n.02 share the lemma "basketball"; female/woman do not.
+        assert bool(d.loc["basketball.n.02", "same_lemma"]) is True
+        assert bool(d.loc["female.n.01", "same_lemma"]) is False
+
+    def test_detail_measures_the_gap(self, toy):
+        d = ivp.disagreement_detail(toy).set_index("best_path_synset")
+        assert d.loc["basketball.n.02", "wn_distance"] > 0
+        assert d.loc["female.n.01", "wn_distance"] > 0
+
+    def test_detail_marks_human_images(self, toy):
+        d = ivp.disagreement_detail(toy).set_index("best_path_synset")
+        assert bool(d.loc["female.n.01", "is_human"]) is True
+        assert bool(d.loc["basketball.n.02", "is_human"]) is False
+
+    def test_summary_by_human_separates_the_groups(self, toy):
+        s = ivp.disagreement_summary(toy, by="human")
+        assert s.loc["human", "n_agree"] == 0
+        assert s.loc["non-human", "n_agree"] == 1
+
+    def test_summary_excludes_unscorable_from_the_rate(self, toy):
+        s = ivp.disagreement_summary(toy, by="human")
+        # red_leaf counts toward n but not n_scorable, so it cannot depress the rate
+        assert s.loc["non-human", "n"] == 3
+        assert s.loc["non-human", "n_scorable"] == 2
+        assert s.loc["non-human", "agree_pct"] == pytest.approx(50.0)
+
+    def test_summary_by_branch_groups_on_two_levels(self, toy):
+        s = ivp.disagreement_summary(toy, by="branch")
+        assert set(s.index) == {"animate/human", "animate/animal",
+                                "inanimate/handmade", "inanimate/natural"}
+
+    def test_summary_rejects_unknown_grouping(self, toy):
+        with pytest.raises(ValueError, match="must be"):
+            ivp.disagreement_summary(toy, by="nonsense")
