@@ -29,16 +29,27 @@ that a distance vector cannot support.
 **Format versions.** Version 1 stores have no ``confs.f32`` and no conf keys in
 ``store_info.json``; :meth:`ResultStore.open` reads them unchanged, and :meth:`conf` raises a
 clear error rather than returning nonsense.
+
+**Conf-only stores.** ``confdists.f32`` may be absent entirely, and such a store opens and serves
+:meth:`conf` normally. This is a supported read mode, not a corrupt store: ``confdist`` is exactly
+``pdist(conf)``, so for any analysis that starts from coordinates the large file is redundant. At
+725 images and ``max_ndim=20`` a conf row is 58 KB against 1.05 MB for a confdist row, so a 480-fit
+sweep is ~28 MB rather than ~500 MB - which is what makes the cluster analysis practical to run
+locally on a downloaded store. The record count therefore comes from ``meta.csv`` rather than from
+the binary's size, and :meth:`confdist` raises a directed error when the file is missing.
 """
 from __future__ import annotations
 
 import csv
 import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 _INFO_FILE = "store_info.json"
 _META_FILE = "meta.csv"
@@ -77,6 +88,17 @@ class ResultStore:
     def conf_len(self) -> int:
         """Padded row length of one configuration, or 0 if configurations aren't stored."""
         return self.n_images * self.max_ndim if self.stores_conf else 0
+
+    @property
+    def has_confdists(self) -> bool:
+        """True if ``confdists.f32`` is present and non-empty.
+
+        False for a **conf-only download**: since ``confdist == pdist(conf)`` the large file is
+        redundant for any analysis that starts from coordinates, so it is routinely left behind.
+        `conf()` works regardless; `confdist()` does not.
+        """
+        f = self.path / _CONFDIST_FILE
+        return f.exists() and f.stat().st_size > 0
 
     # ------------------------------------------------------------------ construction
     @classmethod
@@ -130,9 +152,26 @@ class ResultStore:
         info = json.loads((path / _INFO_FILE).read_text())
         store = cls(path, info["confdist_len"], info["meta_columns"],
                     info.get("n_images"), info.get("max_ndim"))
-        confdist_bytes = (path / _CONFDIST_FILE).stat().st_size
-        itemsize = np.dtype(_CONFDIST_DTYPE).itemsize
-        store._n_confdists = confdist_bytes // (store.confdist_len * itemsize)
+
+        # Record count comes from meta.csv, not from the confdists file size, so that a store
+        # downloaded WITHOUT `confdists.f32` still opens. That download is the normal case for the
+        # cluster analysis: `confdist == pdist(conf)`, and a conf row is ~20x smaller (n_images *
+        # max_ndim vs n_images^2/2 floats), so pulling confs alone is ~28 MB against ~500 MB for a
+        # 480-fit sweep. meta.csv is authoritative for row indices in any case.
+        meta = pd.read_csv(path / _META_FILE)
+        rows = meta[_ROW_COLUMN] if _ROW_COLUMN in meta.columns else pd.Series(dtype="int64")
+        rows = rows[rows >= 0]
+        store._n_confdists = int(rows.max()) + 1 if len(rows) else 0
+
+        if store.has_confdists:
+            itemsize = np.dtype(_CONFDIST_DTYPE).itemsize
+            on_disk = (path / _CONFDIST_FILE).stat().st_size // (store.confdist_len * itemsize)
+            if on_disk != store._n_confdists:
+                logger.warning(
+                    "%s holds %d records but meta.csv indexes %d; using meta.csv. A truncated or "
+                    "partially-synced confdists.f32 will raise on read.",
+                    _CONFDIST_FILE, on_disk, store._n_confdists,
+                )
         return store
 
     # ------------------------------------------------------------------ writing
@@ -209,7 +248,7 @@ class ResultStore:
         return pd.read_csv(self.path / _META_FILE)
 
     def _confdist_memmap(self) -> Optional[np.memmap]:
-        if self._n_confdists == 0:
+        if self._n_confdists == 0 or not self.has_confdists:
             return None
         return np.memmap(
             self.path / _CONFDIST_FILE, dtype=_CONFDIST_DTYPE, mode="r",
@@ -218,6 +257,12 @@ class ResultStore:
 
     def confdist(self, row: int) -> np.ndarray:
         """Load a single confdist vector by its row index (a copy, not the memmap view)."""
+        if not self.has_confdists:
+            raise ValueError(
+                f"{_CONFDIST_FILE} is missing from {self.path}, so reconstructed distances cannot "
+                f"be read. This is expected for a conf-only download; use `conf(row, ndim)` and "
+                f"`scipy.spatial.distance.pdist` instead, which is equivalent."
+            )
         if row < 0 or row >= self._n_confdists:
             raise IndexError(f"confdist row {row} out of range [0, {self._n_confdists})")
         return np.array(self._confdist_memmap()[row])
@@ -252,13 +297,17 @@ class ResultStore:
         return flat[:, :ndim]
 
     def iter_results(self) -> Iterator[Tuple[Dict[str, Any], Optional[np.ndarray]]]:
-        """Lazily yield ``(meta_dict, confdist_or_None)`` for every stored record."""
+        """Lazily yield ``(meta_dict, confdist_or_None)`` for every stored record.
+
+        The confdist is ``None`` both for metadata-only records (a failed fit) and for every record
+        of a conf-only store, since there is no file to read it from.
+        """
         mm = self._confdist_memmap()
         meta = self.metadata()
         records = meta.to_dict("records")
         for rec in records:
             row = int(rec.pop(_ROW_COLUMN))
-            yield rec, (np.array(mm[row]) if row >= 0 else None)
+            yield rec, (np.array(mm[row]) if row >= 0 and mm is not None else None)
 
     def __len__(self) -> int:
         # number of metadata rows (not only the confdist-bearing ones)
