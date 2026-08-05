@@ -1,38 +1,49 @@
 # SpAM_Simulations
 
-Simulate SpAM experiments (noisy subject distance judgements over a ground-truth embedding)
-and reconstruct them with weighted MDS, to evaluate how well MDS recovers the latent space
-under different sampling/noise regimes.
+Simulate SpAM experiments (noisy subject distance judgements over a ground-truth embedding),
+reconstruct them with weighted MDS, and measure how well two independent cohorts agree.
 
-## Quick start
+This file explains **what** the simulations answer, **which metrics** we use, and **how** the
+pipeline is put together. For how to actually run things (quick start, R setup, EC2), see
+[Cookbook.md](Cookbook.md).
 
-`pipeline.generate_simulation` and the coverage/stability tables need no R; only
-`run_mds_sweep` (the weighted-SMACOF reconstruction step) requires R + `smacof`.
+## Research questions
 
-```python
-from SpAM_Simulations.config import SimulationConfig, MDSSweepConfig
-from SpAM_Simulations import pipeline
+1. **Required N.** How many subjects does the study need, given a target metric to optimise? The
+   answer depends on which metric you pick, which is why the metrics section below is long: a
+   design that looks adequate under global rank agreement can be badly inadequate for recovering
+   the closest pairs.
+2. **Image-to-trial allocation: random vs engineered.** The deployed task shuffles images per
+   participant and slices the result into trials, independently per subject and with no cohort-level
+   coordination. A balanced incomplete block design instead chooses trials so every image *pair*
+   co-occurs about equally often (MacDonald 2020, [10.3758/s13428-019-01326-x](https://doi.org/10.3758/s13428-019-01326-x)).
+   Every result produced before this comparison came from the random arm, so it was untested rather
+   than settled.
+3. **Generalizability of the empirical data.** Given a real cohort, how far can its recovered
+   structure be trusted: the geometry, the closest pairs, the cluster structure?
 
-cfg = SimulationConfig(
-    n_images=60, n_dims=8,                       # or: gt_embeddings=<N x D array> for real data
-    num_subjects=[20, 40], trials_per_subject=[10], images_per_trial=[16],
-    subjects_noise_scale=[0.0, 0.5], subjects_noise_df=[1], reps=3, seed=42,
-)
-sim = pipeline.generate_simulation(cfg)                      # bit-exact, reproducible from seed
-coverage  = pipeline.compute_coverage_table(sim)            # no R needed
-stability = pipeline.compute_stability_table(sim)           # no R needed
+## Metrics
 
-sweep = MDSSweepConfig(ndims=[6, 8], max_iters=300, precalc_init=False)
-store = pipeline.run_mds_sweep(sim, sweep, "mds_store", parallel=False)   # needs R; resumable
-emb   = pipeline.compute_embedding_stability(store)         # Spearman of distance vectors (higher=better)
-gen   = pipeline.compute_embedding_generalizability(store)  # Procrustes M^2 of the spaces (LOWER=better)
-```
+No single metric answers all three questions, and several of them disagree in informative ways.
+Each entry says what it measures, and what it is good and bad at.
 
-### Two cohorts of N: agreement vs generalizability
+### Coverage and connectivity
 
-Every `rep` in a sweep is an **independently simulated cohort**, so the rep-vs-rep comparison
-within a configuration answers the study-planning question directly: *if I ran this study twice,
-would I get the same answer?* Two metrics answer it at different strengths, and both are reported:
+| Metric | What it measures |
+|---|---|
+| `metrics.coverage` | % of images and of pairs observed at least once, mean observations per pair, number of connected components |
+
+**Good at**: catching a design that cannot be analysed at all. Weighted MDS refuses a disconnected
+pair graph, so `num_connected_components > 1` is fatal rather than merely bad.
+**Bad at**: discriminating between workable designs. At the deployed session length the pair graph
+is a single component for every arm at every N >= 30, so connectivity saturates and stops carrying
+information. Pair coverage keeps discriminating well past that point.
+
+### Cohort-to-cohort geometry
+
+Every `rep` in a sweep is an **independently simulated cohort**, so the rep-vs-rep comparison within
+a configuration answers the study-planning question directly: *if I ran this study twice, would I get
+the same answer?*
 
 | Function | Compares | Direction | Sensitive to |
 |---|---|---|---|
@@ -40,445 +51,228 @@ would I get the same answer?* Two metrics answer it at different strengths, and 
 | `compute_embedding_generalizability` | fitted **configurations**, Procrustes M² | **lower** = better | the recovered space itself, incl. metric distortion that leaves rank order intact |
 | `compute_item_generalizability` | per-image residual after that alignment | lower = better | *which* stimuli fail to generalise |
 
-Procrustes centres, unit-norm scales and optimally rotates/reflects - exactly the gauge freedom an
-MDS solution has - so what remains is genuine disagreement in relative geometry. The two can
-disagree, and that disagreement is itself informative. The configuration-space metrics need a store
-written with `run_mds_sweep(..., store_conf=True)` (the default); older stores support only
-`compute_embedding_stability`.
+Procrustes centres, unit-norm scales and optimally rotates/reflects, exactly the gauge freedom an MDS
+solution has, so what remains is genuine disagreement in relative geometry.
 
-Or run the bundled example: `python -m SpAM_Simulations.example_pipeline` (from the repo root).
+**Good at**: a single interpretable summary of whether the whole space reproduces. Procrustes catches
+metric distortion that Spearman is blind to, and the two disagreeing is itself informative.
+**Bad at**: anything local. Both are computed over all 262,450 pairs, the overwhelming majority of
+which are unrelated-vs-unrelated, so they are dominated by the easy far pairs. A configuration can
+score 0.91 on global Spearman while its closest-pair structure is barely reproducible.
 
-### Performance / storage notes
-- Generation is vectorized and runs in condensed form (~9-10x faster than the original loop,
-  ~half the memory). The serial path is bit-exact and fully reproducible from `seed`.
-- `run_mds_sweep(parallel=True, n_jobs=...)` distributes the independent MDS runs across
-  processes (joblib/loky), streaming results to disk so peak memory stays bounded.
-- `ResultStore` keeps a human-readable `meta.csv` plus a flat float32 `confdists.f32`
-  (memory-mapped on read), replacing the old multi-GB append-only pickle.
+The configuration-space metrics need a store written with `run_mds_sweep(..., store_conf=True)` (the
+default); older stores support only `compute_embedding_stability`.
 
-For real pilot data instead of synthetic, see *Calibrating to pilot data* below. For
-large-scale sweeps, see *Running on EC2* below.
+### Closest-pair recovery
+
+| Function | Compares | Direction |
+|---|---|---|
+| `compute_topk_similar_pair_stability` | the closest-`frac` **pair sets** of two cohorts, Jaccard | higher = better |
+| `compute_recovery_vs_gt` | a cohort's closest-`frac` set against the **ground truth's**: recall, d-prime, plus threshold-free `separation_dprime` and `auc_near_pairs` | higher = better |
+
+The first is reproducibility (do two cohorts agree), the second is validity (does a cohort find the
+pairs that are genuinely closest). They can diverge, because two cohorts can agree on the wrong
+answer, so both are reported. Recovery-vs-GT is simulation-only, since it needs a known truth.
+
+**Good at**: the question the downstream stimulus construction actually poses, which is about near
+neighbours and not about global geometry. At matched set sizes recall equals precision, so one
+number carries it.
+**Bad at**: anything cluster-shaped. If A, B and C are three near-identical images, which of the
+three pairs is "closest" flips with noise, and Jaccard scores every flip as an error even though all
+three flips give the same practical answer (use one of them). It therefore *understates* usable
+structure whenever the real question is about groups.
+
+### Cluster structure
+
+> **Not yet implemented.** This section documents the intended design; the module lands in a later
+> checkpoint. Everything above it is live.
+
+Discovered **bottom-up** from each cohort's embedding by agglomerative clustering, swept over
+granularity `k` and over linkage (`average`, `ward`, `complete`). Linkage is the rule for the
+distance between two *clusters*: average is the mean cross-cluster pair distance and assumes least;
+ward merges whichever pair least increases within-cluster variance, which favours compact equal-sized
+clusters; complete uses the farthest members. They can disagree on the same embedding, so all three
+are swept.
+
+| Metric | What it measures | Direction |
+|---|---|---|
+| **Variation of Information** | `H(A|B) + H(B|A)` between two cohorts' partitions | **lower** = better |
+| ARI, AMI | chance-corrected partition agreement | higher = better |
+| cross-cohort silhouette, and **cross/within ratio** | labels from cohort A scored against cohort B's distances | higher = better |
+| cluster-wise max-Jaccard **distribution** | per cluster in A, its best match in B | higher = better |
+| Baker's gamma | rank correlation of the two cohorts' cophenetic distances | higher = better |
+
+**VI is primary, and specifically not ARI.** VI is a true metric on partitions (Meila 2003:
+symmetric, non-negative, obeys the triangle inequality). That is what licenses chaining two claims,
+`VI(cohort, reference) <= VI(cohort, cohort') + VI(cohort', reference)`. ARI is not a distance and
+does **not** compose, so it must not be substituted there. Normalise VI by `log(n)` only, since a
+constant divisor preserves metricity.
+
+**Why the silhouette ratio and not raw silhouette.** Raw silhouette is a within-sample fit measure,
+so it rewards overfitting; scoring cohort A's labels against cohort B's distances fixes that. It does
+not fix the dimensionality confound, because distances concentrate at high D and depress silhouette
+regardless of cluster quality. The `cross / within` ratio at matched (D, k) cancels that and the
+small-k bias to first order, and reads as optimism: near 1 means the separation genuinely reproduces.
+
+**Good at**: the granularity question. Reproducibility as a function of k tells you the finest
+resolution the data supports, which is the level at which to deduplicate.
+**Bad at**: telling you whether clusters exist at all. VI and ARI measure agreement on a partition,
+not whether that partition is meaningful. Two cohorts can reproducibly agree on an arbitrary slicing
+of a continuum, which is exactly why the silhouette ratio is carried alongside: high agreement with
+near-zero cross-cohort silhouette is the signature of that failure, and it would mean "one image per
+cluster" is the wrong rule and a distance threshold should be used instead.
+
+### Empirical validity
+
+| Function | What it measures |
+|---|---|
+| `validity.distribution_comparison` | simulated vs pilot distance distributions, median-rescaled (percentiles, CV, Wasserstein) |
+| `validity.gradient_table` | mean distance by semantic level (same-leaf, same-subcategory, same-category, cross-category), as standardised gaps |
+
+**Good at**: catching a simulation that is not realistic. The gradient was never fitted to, so it is
+a genuine out-of-model check, and it is strong in the real pilot (same-leaf pairs 3.6x closer than
+unrelated ones, a 1.53 SD gap), which means it has demonstrated power to detect a failure.
+**Bad at**: the distance-distribution half is nearly circular, since simulated subjects are generated
+from a GT fitted to the pilot. A match there confirms little; a mismatch would still be a real alarm.
+Distances also need median-rescaling first, because simulated distances are in GT-embedding units
+while pilot distances are canvas-diagonal-normalised to [0, 1].
+
+## How the pipeline works
+
+| | Step | Where |
+|---|---|---|
+| a | Calibrate to the pilot: fit the noise population, build the GT embedding | EC2 (needs R) |
+| b | Generate noisy per-subject distances from the GT | EC2 |
+| c | Pool N subjects into one cohort RDM, per allocation arm | EC2 |
+| d | Sweep D: fit weighted MDS to each cohort | EC2 (needs R) |
+| e | Store configurations, distances and metadata | EC2 |
+| f | Repeat b-e for r reps, each N, and each arm | EC2 |
+| g | Sweep k x linkage over the stored embeddings to get partitions | local |
+| h | Compute between-cohort metrics over the C(r,2) rep pairs | local |
+| i | Select k\*, D\*, required-N; run the continuum diagnostics | local |
+
+Steps g-i are deliberately **post-processing**. Agglomerative clustering on 725 points is
+milliseconds against ~25 seconds for one SMACOF fit, so keeping it out of the expensive loop costs
+nothing and lets k, linkage and metric choices be revised without refitting any MDS.
+
+### Step a: calibrate to the pilot
+
+Without calibration the simulation's internals are guessed, so the absolute required-N is only as
+meaningful as the guesses. `pilot.py` anchors them to real data, turning the estimate from "as a
+function of guessed internals" into a calibrated number.
+
+Three observables do the work. **Ground-truth geometry** comes from pooling the pre-SHINE pilot
+subjects into one aggregate RDM and running weighted SMACOF; the recovered embedding *is* the GT, and
+it inherits the real cluster structure. **`subjects_noise_scale`** is pinned by within-subject
+test-retest from the v3.x whole-trial repeats, which is perspective-invariant: a repeat re-projects
+to the same 2-D arrangement and differs only by fresh placement noise, so it isolates placement
+precision. **`perspective_dispersion`** is then pinned by between-subject agreement with noise held
+fixed. Because the model makes the two levers triangular (test-retest = f(noise), agreement =
+g(noise, dispersion)), identifiability is sequential and exact.
+
+> **Cohort policy.** Simulations calibrate on the **pilot cohort only**. Calibrating on production
+> data would shape the sample-size and screening conclusions using the very cohort they are meant to
+> plan. Note every v4.0 session is `production`, so the pilot view carries **no screening-block
+> data**; reliability comes from v3.x whole-trial repeats.
+
+> **SHINE-variant policy. Cohort is not a proxy for variant.** `task.js` documents pilot sessions as
+> always pre-SHINE and `docs/WORKFLOW.md` repeats it, but the data disagrees: of the 47 loadable
+> pilot subjects, **41 are `pre` and 6 are `post`** (all v3.06). Because `pilot._src_to_relpath`
+> strips the `<variant>_shine` path segment, both variants map onto the same manifest index and
+> pooling them is silent. **Ground-truth construction must pass `variants=("pre",)`**, since two
+> variants are two stimulus sets and one geometry cannot describe both. **Noise-model fitting is
+> exempt** and may use all 47: it estimates a property of subjects, not of the images.
+
+> **Data policy.** `data/` is human-subjects data: gitignored, **never committed or pushed**.
+> Pilot-derived artifacts (the aggregate RDM, the GT `coords`, fitted params) are equally local: keep
+> them under the private `$S3_URI` prefix, never in the repo.
+
+#### Choosing the GT dimensionality
+
+`n_dims` used to default to a rule that read a classical-MDS eigenspectrum off the **mean-imputed**
+aggregate RDM and took the smallest dimensionality explaining 90% of variance, capped at 15. That
+rule is invalid here and has been **removed**; `build_gt_from_pilot` now requires `n_dims`.
+
+63.6% of pairs are unobserved and were filled with a single constant. That asserts every one of those
+pairs is equidistant, and *k* mutually equidistant points form a regular simplex requiring *k*-1
+dimensions, so the fill manufactures rank rather than merely adding noise. Measured: a synthetic
+**rank-8** space put through the identical mask and fill reports an effective rank of **193** and
+needs **239** dimensions for 90% variance, statistically indistinguishable from the real data's 213
+and 216. The rule therefore returned its cap, carrying essentially no information, and the resulting
+GT was near-isotropic (4.9% to 9.5% variance per dimension across 15).
+
+It is replaced by out-of-sample prediction, with no imputation anywhere (weighted SMACOF treats
+weight 0 as missing): `gt_construction.dimensionality_scan` fits each candidate dimensionality on
+disjoint halves of the subjects and scores agreement, and `cross_validate_ndim` verifies by
+leave-k-out over subjects. Three details matter. The **same splits are reused across every `ndim`**,
+making the comparison paired, which is load-bearing because the curve is expected to be nearly flat.
+**Discarding disconnected halves is a biased filter**: at ~20 subjects a half is connected only ~90%
+of the time, and it fails precisely when it holds poorly-covered subjects, so `draw_valid_splits`
+reports the discard rate and the coverage gap between kept and discarded draws. And `select_ndim`
+defaults to the **one-SE rule**, the smallest `ndim` within one standard error of the best, because
+on a flat curve a plain argmax is noise-driven and drifts high.
+
+`method="classical"` exists for running this without R. It mean-imputes, i.e. does the very thing
+described above, so it is a **plumbing smoke test only** and must never select a dimensionality.
+
+### Steps b-c: generate cohorts
+
+Each simulated subject gets a placement precision drawn from the fitted noise population, a
+perspective weighting of the GT's dimensions, and a set of trials. Per trial, the weighted GT
+coordinates are projected to a local 2-D arrangement (the SpAM canvas bottleneck) and perturbed by
+placement noise. Under task-v4 each candidate first completes a screening block and is retained only
+if their minimum per-repeat test-retest clears `screening_min_reliability`.
+
+Which images land in which trial is the **allocation arm**, swept as the numeric `allocation_mode`
+lever: `0.0` reproduces the deployed per-subject shuffle, `1.0` draws pre-generated balanced sessions
+from `block_design.greedy_session_design`. A screened-out candidate returns its session to the pool,
+so the design remains a plan over *analysed* subjects rather than degrading in proportion to the
+rejection rate.
+
+### Steps d-f: fit and store
+
+`run_mds_sweep` fits weighted SMACOF at every requested dimensionality for every (config, rep),
+streaming each result into a `ResultStore`. The store keeps a human-readable `meta.csv` plus flat
+float32 binaries for the reconstructed distances and the fitted configurations. It is resumable:
+re-running skips work already recorded, which is the only checkpointing an interrupted EC2 sweep has.
+
+### Steps g-i: cluster and decide
+
+Reading configurations back out of the store, each cohort is clustered at every (k, linkage), and the
+between-cohort metrics are computed over all C(r,2) rep pairs within each (config, D) group. Then
+`select_k` applies the same one-SE rule used for dimensionality, and `continuum_diagnostics` reports
+whether a stable granularity exists at all.
 
 ## Modules
 
 | Module | Responsibility |
 |---|---|
 | `experiment.py` | Core simulation: `simulate_experiment` / `simulate_single_subject` (vectorized, condensed form). |
-| `design.py` | Per-subject trial allocation (`compute_design_counts`, `build_trial_lists`) for the task-v2.3 simulation, plus `distinct_trial_count`/`select_repeat_trials` for task-v2.4's whole-trial repeats, ported from `SpAM_Task`'s `buildTrialLists`/`insertTrialRepeats`. |
-| `task_v2_3_experiment.py` | Task-v2.3 simulation: per-subject image subset + trial design (matches `SpAM_Task`), plus the within-subject SNR heuristic. |
-| `task_v2_4_experiment.py` | Task-v2.4 simulation: task-v2.3 design **plus** `frac_trials_repeated` whole-trial repeats (each repeat re-draws its noisy distances), yielding a per-subject test-retest reliability. Bit-exact to task-v2.3 when `frac_trials_repeated=0`. |
-| `task_v3_experiment.py` | Task-v3 simulation: a **generative coordinate-space** model replacing additive-distance-noise. Per subject: a perspective weighting of the ground-truth PCs (`perspective_dispersion`) projected onto a **local per-trial 2-D arrangement** (the SpAM canvas bottleneck), then **canvas placement noise** (`subjects_noise_scale`, post-projection) for within-subject reliability. Drops `frac_images_repeated` (task v3.0); keeps `frac_trials_repeated` test-retest. |
-| `task_v4_experiment.py` | Task-v4 simulation: the v3 model (whose `_simulate_trial` it imports rather than copies) **plus the deployed v4.0 screening block**. Each candidate does `screening_trials` trials (`screening_repeats` of them verbatim repeats) and is retained only if their *minimum* per-repeat test-retest reaches `screening_min_reliability`; candidates are drawn until `num_subjects` are retained, and a retained subject's screening trials are pooled into the aggregate as analysed data. `screening_min_reliability=-1` is the no-exclusion control; `screening_trials=0` reduces to v3 bit-for-bit. |
-| `simulation.py` | `Simulation` container + ground-truth distances; `make` (random) / `from_embeddings` (real data) / `build_ground_truth_embeddings` (synthetic with a chosen eigenvalue spectrum for task-v3). |
-| `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`, `test_retest_summary`, `screening_summary` (task-v4 recruitment cost + retained-cohort precision), `effective_rank` (classical-MDS rank of an aggregate - checks the task-v3 2-D slices span >2 dims). |
+| `design.py` | Per-subject trial allocation (`compute_design_counts`, `build_trial_lists`, `distinct_trial_count`, `select_repeat_trials`), ported from `SpAM_Task`'s `buildTrialLists`/`insertTrialRepeats`. |
+| `task_v2_3_experiment.py` | Task-v2.3: per-subject image subset + trial design, plus the within-subject SNR heuristic. |
+| `task_v2_4_experiment.py` | Task-v2.4: v2.3 design **plus** `frac_trials_repeated` whole-trial repeats, yielding per-subject test-retest. Bit-exact to v2.3 at `frac_trials_repeated=0`. |
+| `task_v3_experiment.py` | Task-v3: a **generative coordinate-space** model. Per subject, a perspective weighting of the GT dimensions projected onto a local per-trial 2-D arrangement, then canvas placement noise. |
+| `task_v4_experiment.py` | Task-v4: the v3 model **plus the deployed v4.0 screening block**, and the `allocation_mode` arm. Candidates are recruited until `num_subjects` pass, capped by `MAX_RECRUIT_PER_SUBJECT`. `screening_trials=0` reduces to v3 bit-for-bit. |
+| `simulation.py` | `Simulation` container + ground-truth distances; `make` / `from_embeddings` / `build_ground_truth_embeddings`. |
+| `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`, `test_retest_summary`, `screening_summary`, `effective_rank`, `topk_similar_jaccard`. |
 | `helpers.py` | Distance-matrix format conversion (`convert_to_condensed`). |
-| `multi_dimensional_scaling.py` | `run_mds` - weighted SMACOF via R's `smacof` (needs R + rpy2). |
-| `config.py` | `SimulationConfig`, `TaskV2_3SimulationConfig`, `TaskV2_4SimulationConfig`, `TaskV3SimulationConfig`, `TaskV4SimulationConfig` (incl. the `allocation_mode` arm), `MDSSweepConfig` - declarative study configuration. |
-| `pipeline.py` | Reusable orchestration (generate / coverage / stability / MDS sweep / embedding stability / `compute_recovery_vs_gt`) for all simulation types. |
-| `storage.py` | `ResultStore` - compact, streamable, resumable on-disk store for sweep results. Holds each fit's `confdist` and, optionally, its MDS **configuration** (`confs.f32`, zero-padded to `max_ndim`; ~2% extra size) which the configuration-space metrics need. Format v2; v1 stores (confdist only) still open unchanged. |
-| `pilot.py` | **Read-only** pilot ingestion + calibration: load the flat `data/` dir (via `analysis/utils/parser.py`), filter by cohort/version/**SHINE variant**, the test-retest / between-subject-agreement observables, and `calibrate_params_from_pilot` (the end-to-end fit of `subjects_noise_scale` + `perspective_dispersion`). See "Calibrating to pilot data" below. |
-| `gt_construction.py` | **Task-agnostic** ground-truth construction: `dimensionality_scan` (split-half agreement per candidate ndim), `select_ndim` (one-SE rule), `cross_validate_ndim` (leave-k-out over subjects), `build_gt`. Replaces the retired imputed-eigenspectrum rule - see "Choosing the GT dimensionality" below. |
-| `block_design.py` | Balanced incomplete block designs (MacDonald's "best of greedy", vectorised): `greedy_design`, `best_of_greedy`, `schonheim`, and `greedy_session_design` for per-subject image-disjoint sessions. |
-| `allocation.py` | Image-to-trial allocation strategies behind the `allocation_mode` lever: `RandomAllocator` (the deployed scheme) and `DesignedAllocator` (balanced sessions, with rollback so screened-out candidates don't consume design slots). |
-| `design_comparison.py` | Stage 2a: compares allocation arms as **sampling plans** (coverage, per-image balance, waste), with no subjects, no MDS and no R. |
-| `recovery.py` | Recovery of the GT's closest pairs (simulation-only): `recall_at_frac`, `dprime_at_frac`, plus threshold-free `separation_dprime` / `auc_near_pairs`. |
-| `validity.py` | Is a simulated cohort realistic: distance-distribution comparison (median-rescaled) plus the semantic-hierarchy gradient from the manifest relpaths. |
+| `multi_dimensional_scaling.py` | `run_mds`: weighted SMACOF via R's `smacof` (needs R + rpy2). |
+| `config.py` | `SimulationConfig` and the task-v2.3 / v2.4 / v3 / v4 variants (v4 carries the `allocation_mode` arm), plus `MDSSweepConfig`. |
+| `pipeline.py` | Orchestration: generate, coverage, stability, MDS sweep, embedding/item generalizability, top-k stability, `compute_recovery_vs_gt`. |
+| `storage.py` | `ResultStore`: compact, streamable, resumable on-disk store. Holds each fit's `confdist` and, optionally, its MDS configuration (`confs.f32`). Format v2; v1 stores still open unchanged. |
+| `pilot.py` | **Read-only** pilot ingestion + calibration: load the flat `data/` dir, filter by cohort / version / **SHINE variant**, the test-retest and between-subject-agreement observables, and `calibrate_params_from_pilot`. |
+| `gt_construction.py` | **Task-agnostic** GT construction: `dimensionality_scan`, `select_ndim` (one-SE), `cross_validate_ndim`, `build_gt`. Replaces the retired imputed-eigenspectrum rule. |
+| `block_design.py` | Balanced incomplete block designs (MacDonald's "best of greedy", vectorised): `greedy_design`, `best_of_greedy`, `schonheim`, `greedy_session_design`. |
+| `allocation.py` | The `allocation_mode` arm: `RandomAllocator` (deployed scheme) and `DesignedAllocator` (balanced sessions, with rollback). |
+| `design_comparison.py` | Compares allocation arms as **sampling plans** (coverage, per-image balance, waste). No subjects, no MDS, no R. |
+| `recovery.py` | Recovery of the GT's closest pairs: `recall_at_frac`, `dprime_at_frac`, `separation_dprime`, `auc_near_pairs`. |
+| `validity.py` | Is a simulated cohort realistic: distance-distribution comparison plus the semantic-hierarchy gradient. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
-| `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb` - no simulation, no MDS, no R. |
-| `evaluation.ipynb` | Plotting / analysis notebook for the task-v0.1 simulation. |
-| `evaluation_task_v2_3.ipynb` | Plotting / analysis notebook for the task-v2.3 simulation. |
-| `evaluation_task_v2_4.ipynb` | Plotting / analysis notebook for the task-v2.4 simulation (adds the test-retest reliability panel). |
-| `evaluate_simulation.ipynb` | Read-only overview/drill-down figures for an already-completed **task-v3** run (incl. the plateau-N required-subjects readout), via `eval_helpers.py`. v3-only; older runs use the `evaluation*.ipynb` notebooks above. |
-| `ec2/prepare_machine.sh`, `ec2/run_task_v0_1_sim.sh`, `ec2/run_task_v2_3_sim.sh`, `ec2/run_task_v2_4_sim.sh`, `ec2/run_task_v3_sim.sh` | EC2 provisioning + sweep scripts - see "Running on EC2" below. `run_task_v3_sim.sh` also has a `CALIBRATE=true` flavor that fits the simulation to the pilot before sweeping (see "Running on EC2 / Calibrated flavor"). |
-| `sim_results/<run-name>/` | Local copy of a completed run's small files (`out/*.csv`, `mds_store/meta.csv`) downloaded from S3, e.g. `sim_results/task-v2.3/` - gitignored, consumed by `eval_helpers.py`/`evaluate_simulation.ipynb`. |
-
-## Calibrating to pilot data
-
-By default the task-v3 simulation's internals are *guessed*: `subjects_noise_scale` (mean canvas
-placement jitter as a ratio of a trial's arrangement spread; with `subjects_noise_df=1` the per-subject
-spread is heavy-tailed, so the typical subject is well below this mean), `perspective_dispersion`, and
-the GT-geometry knobs (`decay`/`n_clusters`) have no anchor - so the absolute required-N is only as
-meaningful as those guesses. `pilot.py` anchors
-all of them to real pilot data, turning the estimate from "as a function of guessed internals" into a
-calibrated number.
-
-**The idea (three anchors).** The pilot CSVs (flat `data/`, one per session) give three observables:
-1. **Ground-truth geometry** - pool the **pre-SHINE** pilot subjects into one aggregate RDM and run
-   weighted SMACOF -> the recovered embedding *is* the GT (it inherits the real cluster structure, so
-   `decay`/`n_clusters` become moot). `n_dims` is **not** read from the spectrum; see
-   *Choosing the GT dimensionality* below.
-2. **`subjects_noise_scale`** (canvas placement noise) is pinned by within-subject **test-retest** (the
-   v3.0 whole-trial repeats). Test-retest is *perspective-invariant* - a whole-trial repeat re-projects
-   to the same 2-D arrangement and differs only by fresh placement noise - so it isolates placement
-   precision, independent of perspective.
-3. **`perspective_dispersion`** is then pinned by **between-subject agreement** - correlating subjects'
-   RDMs over their jointly-judged pairs - with noise held fixed. This is pooled over *all* pilot
-   subjects (not just v3): agreement is a population property, so more subjects = more dyads = a tighter
-   anchor. (Only the test-retest step is v3-specific, since it needs the whole-trial repeats.)
-
-Because the canvas-placement-noise model makes the two levers triangular (test-retest = f(noise);
-agreement = g(noise, dispersion)), identifiability is sequential and *exact*: test-retest -> noise,
-then agreement -> dispersion.
-
-**Running it.** Calibration is a short (~1-5 min) prelude to the sweep, not a separate run: use the
-calibrated flavor of the EC2 sweep - `run_task_v3_sim.sh` with `CALIBRATE=true` (see
-[*Running on EC2*](#running-on-ec2)) - which fits the parameters + pilot GT and then runs the calibrated
-convergence sweep in one go. Programmatically it is a single call:
-```python
-from SpAM_Simulations.pilot import calibrate_params_from_pilot
-coords, fit, info = calibrate_params_from_pilot(
-    "data", "SpAM_Task/stimuli_manifest.json",   # flat dir; pilot cohort only, by default
-    gt_method="smacof",           # or "classical" for a no-R provisional GT (unreliable; smoke-test only)
-    save_gt="gt.npy", save_params="params.json",   # optional: persist the artifacts the sweep consumes
-)   # -> fitted {subjects_noise_scale, perspective_dispersion, n_dims, ...}
-```
-The read-only building blocks it composes (`load_pilot_subjects`, `within_subject_test_retest`,
-`between_subject_agreement`, `build_gt_from_pilot`) also live in `pilot.py`.
-
-> **Cohort policy.** Simulations calibrate on the **pilot cohort only**. `analysis.utils.parser` reads a flat
-> `data/` directory and derives each session's cohort from its own `deployment_mode`, so
-> `load_pilot_subjects` defaults to `cohorts=("pilot",)`; calibrating on production data would shape
-> the sample-size and screening conclusions using the very cohort they are meant to plan. Note every
-> v4.0 session is `production`, so the pilot view carries **no screening-block data** - reliability
-> comes from v3.x whole-trial repeats.
-
-> **SHINE-variant policy.** **Cohort is not a proxy for variant.** `task.js` documents pilot sessions
-> as always pre-SHINE and `docs/WORKFLOW.md` repeats it, but the data disagrees: of the 47 loadable
-> pilot subjects, **41 are `pre` and 6 are `post`** (all v3.06). Because `pilot._src_to_relpath`
-> strips the `<variant>_shine` path segment, both variants map onto the same manifest index and
-> pooling them is silent.
->
-> **Ground-truth construction must pass `variants=("pre",)`** - two variants are two stimulus sets,
-> and one geometry cannot describe both. **Noise-model fitting is exempt** and may use all 47: it
-> estimates a property of subjects (placement precision, perspective spread), not of the images.
-
-## Choosing the GT dimensionality
-
-`n_dims` used to default to a rule that read a classical-MDS eigenspectrum off the **mean-imputed**
-aggregate RDM and took the smallest dimensionality explaining 90% of variance, capped at 15. That
-rule is invalid on this data and has been **removed**; `build_gt_from_pilot` now requires `n_dims`.
-
-**Why it was wrong.** 63.6% of pairs are unobserved and were filled with a single constant. That
-asserts every one of those pairs is equidistant, and *k* mutually equidistant points form a regular
-simplex requiring *k*-1 dimensions - so the fill manufactures rank rather than merely adding noise.
-Measured: a synthetic **rank-8** space put through the identical mask and fill reports an effective
-rank of **193** and needs **239** dimensions for 90% variance, statistically indistinguishable from
-the real data's 213 and 216. The rule therefore returned its cap, 15, carrying essentially no
-information, and the resulting GT was near-isotropic (4.9%-9.5% variance per dimension across 15).
-
-**What replaces it.** Dimensionality is a generalisation question, so it is answered by out-of-sample
-prediction, with no imputation anywhere (weighted SMACOF treats weight 0 as missing):
-
-```python
-from SpAM_Simulations import gt_construction as gtc
-from SpAM_Simulations.pilot import load_pilot_subjects
-
-subs = load_pilot_subjects("data", "SpAM_Task/stimuli_manifest.json", variants=("pre",))  # n=41
-scan, diag = gtc.dimensionality_scan(subs, ndims=(2,3,4,5,6,7,8,10,12,15,20), n_draws=50)
-ndim = gtc.select_ndim(scan, criterion="spearman", rule="one_se")
-cv = gtc.cross_validate_ndim(subs, ndims=[ndim], k=5)      # verification, leave-5-out over subjects
-coords, info = gtc.build_gt(subs, ndim)
-```
-
-Three points that matter:
-
-- **The same splits are reused across every `ndim`**, making the comparison paired. The curve is
-  expected to be nearly flat, so unpaired draw noise would swamp the differences being measured.
-- **Discarding disconnected halves is a biased filter.** At ~20 subjects a half is connected only
-  ~90% of the time, and it fails precisely when it holds poorly-covered subjects, so kept draws
-  over-represent well-covered ones. `draw_valid_splits` returns `discard_rate` plus the mean coverage
-  of kept vs discarded draws; a large gap or a rate above ~30% means the design is not viable.
-- **`select_ndim` defaults to the one-SE rule** - the smallest `ndim` within one standard error of
-  the best. On a flat curve a plain argmax is noise-driven and drifts high, which is the observed
-  failure mode: in the existing sweep, Procrustes M² degraded from 0.428 at ndim 5 to 0.532 at
-  ndim 10 while Spearman stayed flat at 0.78.
-
-`method="classical"` exists for running this without R. It mean-imputes, i.e. does the very thing
-described above, so it is a **plumbing smoke test only** and must never select a dimensionality.
-
-> **Data policy.** `data/` is human-subjects data: gitignored, **never committed or pushed**.
-> Pilot-derived artifacts (the aggregate RDM, the GT `coords`, fitted params) are equally local - keep
-> them under the private `$S3_URI` prefix, never in the repo.
-
-## Running with R (rpy2 + smacof)
-`multi_dimensional_scaling.py` imports R at load time. R 4.5 + the `smacof` package are
-required. On Windows without Rtools, `R CMD config` cannot run; rpy2 must fall back to the
-DLL in `R_HOME/bin/x64`. That fallback only triggers when the `config` subprocess fails
-*cleanly*, which it does from a normal Windows shell but **not** from Git Bash (where `sh`
-makes the config script exit 0 with empty output and crashes rpy2's parser).
-
-Working setup used for this project:
-
-```
-R_HOME       = C:\Program Files\R\R-4.5.2
-R_LIBS_USER  = C:\Users\nirjo\R_library\4.5      # where smacof is installed
-```
-
-From a plain PowerShell/cmd session (with the venv active) rpy2 initialises fine. If you must
-run it under Git Bash, give the Python process a Windows-only PATH (no Unix `sh`), e.g.
-`PATH="/c/Program Files/R/R-4.5.2/bin/x64:/c/Windows/System32:/c/Windows"`, so `R CMD config`
-fails fast and rpy2 falls back to `bin/x64`.
-
-`multi_dimensional_scaling.py` automatically prepends `R_HOME\bin\x64` to PATH at import time, so
-loading R packages (whose DLLs depend on `R.dll`/BLAS there) works without you editing PATH. If R
-still isn't found, set `R_HOME` explicitly.
-
-## Running on EC2
-
-Five shell scripts, under `ec2/`, handle the full-scale sweeps remotely:
-- `ec2/prepare_machine.sh` - shared provisioning (system packages, R 4.5 + `smacof`, awscli v2,
-  sparse-checkout clone of `SpAM_Simulations/`, Python venv). Sourced, not run directly.
-- `ec2/run_task_v0_1_sim.sh` - runs the task-v0.1 (original) simulation's full-study sweep.
-- `ec2/run_task_v2_3_sim.sh` - runs the task-v2.3 (per-subject trial design) simulation's
-  full-study sweep (actually fewer total MDS fits than the task-v0.1 sweep - same instance
-  type is fine for both).
-- `ec2/run_task_v2_4_sim.sh` - runs the task-v2.4 simulation's full-study sweep (task-v2.3
-  design plus the `frac_trials_repeated` whole-trial-repeat lever / test-retest reliability).
-  Its grid fixes `frac_images_repeated=0.0` and sweeps `frac_trials_repeated`, because the two
-  levers compete for the same trials: a repeat may only duplicate a singles-only trial, so at
-  `k=20` any `frac_images_repeated>0` saturates every trial with doubled images and leaves none
-  to repeat (matching the deployed `task_config.json`). The doubled-image SNR is characterised
-  by the task-v2.3 sweep instead.
-- `ec2/run_task_v3_sim.sh` - runs the task-v3 (generative coordinate-space model) sweep. Two flavors:
-  the default synthetic-GT swept run, and (with `CALIBRATE=true`) a pilot-calibrated run - see
-  *Calibrated flavor* below.
-- `ec2/run_task_v4_sim.sh` - runs the task-v4 (v3 + screening block) sweep. **Pilot-calibrated
-  only** - v4 exists to produce a calibrated number, so the synthetic flavor is not duplicated. The
-  design is fixed to the deployed `task_config.json` (20 images/trial; 8 screening + 14
-  experimental trials) and the sweep covers `num_subjects` x `screening_min_reliability` x target
-  test-retest R. One run answers four questions: embedding generalizability between two cohorts of
-  N, whether screening lowers required-N and at what recruitment cost, required-N at the deployed
-  design, and item-level recoverability. See *Task-v4 flavor* below.
-
-All entrypoints `source` `prepare_machine.sh` by relative path, so copy `prepare_machine.sh`
-together with whichever entrypoint(s) you want onto the instance (don't transfer an entrypoint
-alone).
-
-### Cookbook: allocate -> run -> verify -> terminate
-
-Steps (0)-(4) get you to an SSH prompt on a fresh instance; then tmux a sweep script (or, for the
-pilot-calibrated run, follow *Calibrated flavor* below).
-
-Known infra for this project: security group `sg-0e1f88c3d550f7154`, key pair `paf-key`
-(`.pem` kept outside the repo), IAM instance profile `spam-simulations` (has S3 access).
-
-**(0) One-time setup constants** (PowerShell):
-```powershell
-$S3_URI        = "s3://jon-nir/spam-simulations/task-v3"
-$SG_ID         = "sg-0e1f88c3d550f7154"
-$KEY_NAME      = "paf-key"
-$KEY_PATH      = "C:\Users\nirjo\Documents\projects\__secrets__\paf-key.pem"
-$IAM_PROFILE   = "spam-simulations"
-$INSTANCE_TYPE = "c7i.4xlarge"     # 16 vCPU
-```
-If your ISP-assigned IP changed since the security group rule was added:
-```powershell
-$MY_IP = (Invoke-RestMethod -Uri "https://checkip.amazonaws.com").Trim()
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 22 --cidr "$MY_IP/32"
-```
-
-**(1) Find the latest Ubuntu AMI** via Canonical's official SSM parameter (no hardcoded AMI ID,
-no need to know Canonical's account ID, and no relying on AMI *naming* conventions - just the
-documented "current AMI" pointer Canonical/AWS maintain for this purpose):
-```powershell
-$UBUNTU_VERSION = "24.04"     # or "22.04" - matches ec2/prepare_machine.sh's own codename fallback (noble)
-$AMI_ID = aws ssm get-parameters `
-  --names "/aws/service/canonical/ubuntu/server/$UBUNTU_VERSION/stable/current/amd64/hvm/ebs-gp3/ami-id" `
-  --query "Parameters[0].Value" --output text
-```
-
-**(2) Allocate the machine (Spot) and get its IP:**
-```powershell
-$INSTANCE_ID = aws ec2 run-instances `
-  --image-id $AMI_ID `
-  --instance-type $INSTANCE_TYPE `
-  --key-name $KEY_NAME `
-  --security-group-ids $SG_ID `
-  --iam-instance-profile Name=$IAM_PROFILE `
-  --instance-market-options 'MarketType=spot' `   # <- DROP this line for On-Demand
-  --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=100}' `
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=spam-ec2}]' `
-  --query "Instances[0].InstanceId" --output text
-
-aws ec2 wait instance-running --instance-ids $INSTANCE_ID
-$IP = aws ec2 describe-instances --instance-ids $INSTANCE_ID --query "Reservations[0].Instances[0].PublicIpAddress" --output text
-$IP
-```
-(100 GB root volume - the task-v2.3 sweep's `mds_store/` is larger than the task-v0.1 sweep's
-~17 GB; shrink back down for task-v0.1-only runs if you want to save a few cents.)
-
-`--instance-market-options`/`--block-device-mappings` use AWS CLI's shorthand syntax
-(`key=value`, no JSON) rather than raw `'{"...":"..."}'` - PowerShell strips embedded double
-quotes when handing an argument to a native executable like `aws.exe`, so inline JSON like
-`'[{"DeviceName":"/dev/sda1",...}]'` arrives at the CLI with every `"` silently removed and
-fails with a JSON parse error. Shorthand syntax has no `"` characters to mangle.
-
-**(3) Transfer the scripts:**
-```powershell
-cd C:\Users\nirjo\Documents\University\PhD\Projects\hierarchical_image_database
-scp -i $KEY_PATH SpAM_Simulations\ec2\*.sh ubuntu@${IP}:~   # copy all EC2 scripts to home dir
-```
-
-**(4) SSH in:**
-```powershell
-ssh -i $KEY_PATH ubuntu@$IP
-```
-
-**(5) On the instance - set the run-specific constants:**
-```bash
-export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
-export GIT_REF=main
-export S3_URI=s3://jon-nir/spam-simulations/task-v0.1   # or .../task-v2.3, .../task-v2.4, matching the script you run in step (6)
-# WORKDIR, N_JOBS, R_LIBS_USER all have sane defaults (see each script's header) - override only if needed
-```
-
-**(6) Start tmux, run the sweep, log it:**
-```bash
-tmux new -s spam
-bash run_task_v0_1_sim.sh 2>&1 | tee run.log
-# or: bash run_task_v2_3_sim.sh 2>&1 | tee run.log
-# or: bash run_task_v2_4_sim.sh 2>&1 | tee run.log
-```
-
-**(7) Detach / re-attach** (safe to close the SSH session after detaching - the script keeps
-running under tmux):
-```bash
-# detach:   Ctrl-b d
-ssh -i $KEY_PATH ubuntu@$IP    # (from a new PowerShell window, if you closed the first one)
-tmux attach -t spam
-```
-
-**(8) Monitor memory** (from a second SSH session, or split the tmux pane with `Ctrl-b %`):
-```bash
-watch -n5 free -h
-```
-For a quick peek without grabbing the tmux session, `tail -f run.log` works too.
-
-**(9) Verify the upload landed on S3** (from the instance or locally once you have `S3_URI`):
-```bash
-aws s3 ls $S3_URI/out/
-aws s3 ls $S3_URI/mds_store/
-```
-
-**(10) Manual upload to S3** (if the automatic upload in step (6) didn't run or didn't finish -
-e.g. the script crashed before reaching `upload_and_finish`):
-```bash
-cd ~/spam_run/repo   # default WORKDIR/repo - adjust if you overrode WORKDIR in step (5)
-export S3_URI=s3://jon-nir/spam-simulations/task-v0.1   # or .../task-v2.3 - re-set if this is a new session
-aws s3 sync out/       "$S3_URI/out/"       --only-show-errors
-aws s3 sync mds_store/ "$S3_URI/mds_store/" --only-show-errors
-
-ls -la out/                                                       # coverage.csv, stability.csv, embedding_stability.csv
-aws s3 ls "$S3_URI/out/"                      # confirm all 3 are in S3
-aws s3 ls "$S3_URI/mds_store/"      # confirm confdists.f32 + meta.csv are in S3
-```
-
-**(11) Terminate and confirm:**
-```powershell
-aws ec2 terminate-instances --instance-ids $INSTANCE_ID
-aws ec2 wait instance-terminated --instance-ids $INSTANCE_ID
-aws ec2 describe-instances --instance-ids $INSTANCE_ID --query "Reservations[0].Instances[0].State.Name" --output text
-# expect: terminated
-```
-
-**(12) Download the results to your local PC** for analysis with `evaluate_simulation.ipynb`.
-The notebook reads runs from `SpAM_Simulations/sim_results/<run-name>/`, where `<run-name>` is
-the `S3_URI`'s last path segment (`task-v0.1` / `task-v2.3` / `task-v2.4`). Run from the repo
-root (PowerShell):
-```powershell
-cd C:\Users\nirjo\Documents\University\PhD\Projects\hierarchical_image_database
-$RUN_NAME = "task-v2.4"                                   # match the S3_URI you uploaded to
-$S3_URI   = "s3://jon-nir/spam-simulations/$RUN_NAME"
-$DEST     = "SpAM_Simulations\sim_results\$RUN_NAME"
-
-# Pull only the small files the read-only notebook needs: out/*.csv + mds_store/meta.csv.
-aws s3 sync "$S3_URI/out/"       "$DEST\out\"       --only-show-errors
-aws s3 sync "$S3_URI/mds_store/" "$DEST\mds_store\" --exclude "confdists.f32" --only-show-errors
-# `confdists.f32` (the reconstructed embeddings) is multi-GB and is NEVER read by
-# eval_helpers.py - drop the `--exclude` only if you need it for ad-hoc analysis.
-
-Get-ChildItem -Recurse $DEST | Select-Object FullName    # expect out/{coverage,stability,embedding_stability}.csv + mds_store/meta.csv
-```
-`sim_results/` is gitignored, so these stay local. Then open
-`SpAM_Simulations/evaluate_simulation.ipynb` and set `RUN_RESULTS_DIR = "sim_results/task-v2.4"`.
-
-### Calibrated flavor (fit to pilot first)
-
-`run_task_v3_sim.sh` with `CALIBRATE=true` runs a short (~1-5 min) prelude that fits the simulation to
-the real pilot, then runs the **same** convergence sweep with the pilot GT + fitted
-`subjects_noise_scale`/`perspective_dispersion` (see *Calibrating to pilot data* above for the method).
-Everything for the study lives under one **private** `S3_URI` prefix, the data path mirroring the
-local flat `data/`:
-```
-$S3_URI/data/         <- INPUT  you stage once: session + demographics CSVs + stimuli_manifest.json
-                         (flat, both cohorts; the calibration itself uses only the pilot ones)
-$S3_URI/calibration/  <- OUTPUT calibrate.log, calibrated_params.json, gt_pilot_coords.npy
-$S3_URI/out/  $S3_URI/mds_store/   <- OUTPUT of the convergence sweep
-```
-
-**Stage the pilot once** (the CSVs + manifest are gitignored, so never in the repo clone - the
-entrypoint pulls them from S3 and deletes them from the box at exit):
-```powershell
-$S3_URI = "s3://jon-nir/spam-simulations/task-v3"
-aws s3 cp data/                          "$S3_URI/data/" --recursive --exclude "*.pdf"   # session + demographics CSVs
-aws s3 cp SpAM_Task/stimuli_manifest.json "$S3_URI/data/"                                # the 725-image manifest
-```
-
-**Run** (after steps (0)-(4) of the Cookbook get you an SSH prompt on a fresh, many-core instance):
-```bash
-export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
-export GIT_REF=main
-export S3_URI=s3://jon-nir/spam-simulations/task-v3    # PRIVATE: pilot read from $S3_URI/data/
-export CALIBRATE=true                                  # fit to pilot instead of the synthetic swept grids
-bash run_task_v3_sim.sh 2>&1 | tee run.log
-# GT_METHOD=classical for a no-R provisional fit; REPS=N to average more cohorts. USE_ISOTROPIC/decay
-# are ignored under CALIBRATE=true (GT comes from the pilot). Edit the num_subjects / design grids in
-# run_task_v3_sim.sh's CALIBRATE block to change the swept design. TERMINATE when done.
-```
-It fails fast if `$S3_URI/data/` is empty, and uploads
-`calibration/{calibrate.log, calibrated_params.json, gt_pilot_coords.npy}` + `out/*.csv` + `mds_store/`
-to S3. Pull results and view them exactly as above (the calibrated `out/` feeds
-`evaluate_simulation.ipynb` unchanged). Keep the whole `$S3_URI` prefix **private** (pilot-derived).
-
-### Task-v4 flavor (screening block, pilot-calibrated)
-
-`run_task_v4_sim.sh` follows the same staging and cookbook as the calibrated v3 flavor above (same
-`$S3_URI` layout, same pilot prerequisites) but has **no `CALIBRATE` switch** - it is always
-calibrated. Point it at a fresh prefix:
-
-```bash
-export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
-export GIT_REF=main
-export S3_URI=s3://jon-nir/spam-simulations/task-v4     # PRIVATE; pilot read from $S3_URI/data/
-bash run_task_v4_sim.sh 2>&1 | tee run.log
-# optional: TR_LIST=0.24,0.35,0.5  MINREL_LIST=-1,0,0.2,0.4  DF_LIST=5  DISP=0.2  REPS=6
-# TERMINATE the instance when done.
-```
-
-**What the design constants mean.** `trials_per_subject` is the **main stage only** (14 = 12
-distinct + 2 repeats); the screening block's 8 trials are simulated separately and pooled in for
-retained subjects, so the effective session is 22 trials / 360 distinct images - matching the
-deployed `task_config.json`. Each candidate's images are drawn as one pool and partitioned across
-the two stages, so no image appears in both (as `trial_generator.js::partitionIntoStages`
-guarantees).
-
-**Reading the output.** Per `out/df<df>_tr<RR>/`:
-
-| File | Question it answers |
-|---|---|
-| `coverage.csv` | Recruitment cost (`n_candidates_screened`, `screening_pass_rate`) and the **retained** cohort's realised `mean_test_retest` / `mean_subject_noise` - the trade screening makes |
-| `embedding_stability.csv` | Distance-vector agreement between two cohorts of N (comparable with all previous runs) |
-| `embedding_generalizability.csv` | Procrustes M² between the two cohorts' **spaces** (lower = better) |
-| `topk_jaccard.csv`, `item_generalizability.csv` | Item-level recoverability for the future "too similar" study |
-| `out/plateau_by_df_tr.csv` | Required-N per (ndim, screening threshold), read off both the Spearman and the M² curve |
-
-Group the analysis by the **achieved** reliability, not the target: `calibration/noise_map.csv`
-records the achieved *unscreened* R, while screening raises the retained cohort's R, which is
-reported per cell in `coverage.csv`.
-
-> **Scope caveat.** The generative model has no `num_moves` or arrangement-SD component, so only
-> the `min_reliability` screening criterion is simulated - not the deployed move-ratio and
-> distance-SD fail-rate criteria. These results bound what *reliability-based* screening can buy.
+| `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb`. No simulation, no MDS, no R. |
+| `evaluate_simulation.ipynb` | Overview/drill-down figures for a completed run, via `eval_helpers.py`. |
+| `evaluation_v0_1.ipynb`, `evaluation_task_v2_3.ipynb`, `evaluation_task_v2_4.ipynb` | Per-task-version plotting notebooks for the older simulations. |
+| `ec2/` | Provisioning (`prepare_machine.sh`) + per-task sweep scripts. See [Cookbook.md](Cookbook.md#running-on-ec2). |
+| `sim_results/<run-name>/` | Local copy of a completed run's small files, downloaded from S3. Gitignored. |
 
 ## Tests
 
@@ -486,14 +280,23 @@ reported per cell in `coverage.csv`.
 .venv/Scripts/python.exe -m pytest SpAM_Simulations/__tests__ -q
 ```
 
-R-dependent tests (`test_pipeline_mds.py`) auto-skip if the R bridge can't be imported; the
-rest run anywhere. With R configured the full suite is 130 tests.
+465 tests, 5 skipped without R. R-dependent tests (`test_pipeline_mds.py`, one case in
+`test_gt_construction.py`) auto-skip if the bridge can't be imported; the rest run anywhere.
+
+Two suites pin behaviour that must not drift. `test_bit_exact.py` checks `simulate_experiment`
+against a fixture recorded before the vectorization refactor, and `test_bit_exact_v4.py` does the
+same for the task-v4 model, recorded before the `allocation_mode` arm was added. A failure in either
+means the RNG stream moved and previously published runs are no longer reproducible.
 
 ## Tags
 
-Named snapshots of the repo at notable `SpAM_Simulations` milestones:
+Named snapshots at notable `SpAM_Simulations` milestones:
 
 | Tag | Commit | Date | Marks |
 |---|---|---|---|
-| `spam-sim-pre-refactor` | `73a9b14` | 2026-06-18 | Last commit before the bit-exact vectorization + reusable pipeline/storage refactor (condensed-form simulation, ~9x speed-up; `ResultStore`; parallel MDS sweep; EC2 provisioning scripts). |
-| `sim-v2.3` | `457fa5f` | 2026-06-24 | `evaluate_simulation.ipynb` display/correctness polish (rounded lever values, float-safe `filter_to_config`, tiered subplot grid via `_grid_dims`) plus the `ec2/`/`sim_results/` directory reorg. |
+| `spam-sim-pre-refactor` | `73a9b14` | 2026-06-18 | Last commit before the bit-exact vectorization + reusable pipeline/storage refactor (condensed-form simulation, ~9x speed-up; `ResultStore`; parallel MDS sweep; EC2 provisioning). |
+| `sim-v2.3` | `33d65e2` | 2026-06-24 | `evaluate_simulation.ipynb` display/correctness polish plus the `ec2/`/`sim_results/` directory reorg. |
+| `spam-task-v2.5` | `b82f454` | 2026-06-25 | SpAM task v2.5. |
+| `spam-sim-v3-calibrated` | `813896d` | 2026-07-07 | GT-build provenance and the first pilot-calibrated task-v3 sweep. |
+| `spam-task-v3.24` | `7cec31b` | 2026-07-08 | SpAM task v3.24. |
+| `spam-sim-v4.0` | `53d667c` | 2026-07-26 | Noise population fitted to data. **The revision the current `sim_results/` were produced from**, and the last one carrying the v1 parser and the pilot/prod directory layout. |
