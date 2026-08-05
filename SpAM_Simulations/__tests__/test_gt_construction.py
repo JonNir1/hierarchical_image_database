@@ -293,3 +293,130 @@ def test_smacof_embedding_matches_the_requested_shape():
     coords = gtc.embed_subset(subs, ndim=3, method="smacof", max_iters=100)
     assert coords.shape == (12, 3)
     assert np.isfinite(coords).all()
+
+
+# --------------------------------------------------------------------- parallel execution
+# `_embed_payload` is the only R-dependent piece, so it is stubbed here and the surrounding
+# payload-building / scoring / bookkeeping is what these tests actually cover.
+
+def _stub_embed(monkeypatch, ndim_coords, status="success"):
+    """Replace `_embed_payload` with a deterministic fake that echoes the payload's key."""
+    calls = []
+
+    def fake(payload):
+        key, dists, weights, ndim, *_ = payload
+        calls.append({"key": key, "ndim": ndim, "n_pairs": int(np.size(dists)),
+                      "n_observed": int(np.count_nonzero(weights))})
+        rng = np.random.default_rng(abs(hash((str(key), ndim))) % (2 ** 32))
+        coords = ndim_coords + rng.normal(0, 1e-3, ndim_coords.shape)
+        return key, coords.astype(np.float32), {"status": status, "niter": 7.0, "stress": 0.1}
+
+    monkeypatch.setattr(gtc, "_embed_payload", fake)
+    return calls
+
+
+def test_split_aggregates_pools_each_half_once():
+    subs = _cohort(n_subjects=10, n_images=10, observed_frac=0.6)
+    splits, _ = gtc.draw_valid_splits(subs, n_draws=3, rng=np.random.default_rng(0))
+    aggs = gtc.split_aggregates(subs, splits)
+    assert len(aggs) == 3
+    for (da, wa), (db, wb) in aggs:
+        assert da.shape == wa.shape == db.shape == wb.shape == (45,)
+        assert set(np.unique(wa)) <= {0.0, 1.0}
+    # The pooled halves must match a direct aggregation of the same subject indices.
+    (ia, _ib) = splits[0]
+    expect = gtc.aggregate_subjects([subs[i] for i in ia])
+    np.testing.assert_allclose(aggs[0][0][0], expect[0])
+
+
+def test_scan_ndim_parallel_returns_one_row_per_draw_with_solver_diagnostics(monkeypatch):
+    subs = _cohort(n_subjects=10, n_images=10, observed_frac=0.6)
+    splits, _ = gtc.draw_valid_splits(subs, n_draws=4, rng=np.random.default_rng(0))
+    aggs = gtc.split_aggregates(subs, splits)
+    calls = _stub_embed(monkeypatch, np.random.default_rng(1).normal(size=(10, 3)))
+
+    out = gtc.scan_ndim_parallel(aggs, ndim=3, verbose=False)
+    assert len(out) == 4
+    assert list(out["draw"]) == [0, 1, 2, 3]
+    assert (out["ndim"] == 3).all()
+    # Two fits per draw, and both halves' solver status is carried through rather than discarded:
+    # a scan where every fit hit max_iters is measuring the stopping rule, not the data.
+    assert len(calls) == 8
+    assert set(out["status_a"]) == {"success"} and set(out["status_b"]) == {"success"}
+    assert (out["niter_a"] == 7.0).all()
+    for col in ("spearman", "procrustes_m2", "topk_jaccard"):
+        assert out[col].notna().all()
+
+
+def test_scan_ndim_parallel_records_nan_scores_for_a_failed_fit(monkeypatch):
+    """One unusable draw must not abort a multi-hour scan, nor be silently scored."""
+    subs = _cohort(n_subjects=8, n_images=10, observed_frac=0.6)
+    splits, _ = gtc.draw_valid_splits(subs, n_draws=2, rng=np.random.default_rng(0))
+    aggs = gtc.split_aggregates(subs, splits)
+
+    def fake(payload):
+        key = payload[0]
+        if key == ("a", 1):
+            return key, None, {"status": "error", "niter": np.nan, "stress": np.nan}
+        return key, np.random.default_rng(0).normal(size=(10, 3)).astype(np.float32), \
+            {"status": "success", "niter": 3.0, "stress": 0.1}
+
+    monkeypatch.setattr(gtc, "_embed_payload", fake)
+    out = gtc.scan_ndim_parallel(aggs, ndim=3, verbose=False).set_index("draw")
+    assert out.loc[1, "status_a"] == "error"
+    assert np.isnan(out.loc[1, "spearman"])
+    assert np.isfinite(out.loc[0, "spearman"])
+
+
+def test_scan_ndim_parallel_agrees_with_the_serial_scan(monkeypatch):
+    """The parallel driver must be a scheduling change only, not a different computation."""
+    subs = _cohort(n_subjects=10, n_images=10, observed_frac=0.7)
+    splits, _ = gtc.draw_valid_splits(subs, n_draws=3, rng=np.random.default_rng(2))
+
+    # A stub keyed only on the subject subset, so serial and parallel see identical coordinates.
+    def coords_for(weights):
+        rng = np.random.default_rng(int(np.count_nonzero(weights)))
+        return rng.normal(size=(10, 3)).astype(np.float32)
+
+    monkeypatch.setattr(gtc, "_embed_payload", lambda p: (
+        p[0], coords_for(p[2]), {"status": "success", "niter": 1.0, "stress": 0.0}))
+    monkeypatch.setattr(gtc, "embed_subset",
+                        lambda s, ndim, method="smacof", **kw: coords_for(gtc.observed_mask(s)))
+
+    serial, _ = gtc.dimensionality_scan(subs, ndims=[3], splits=splits, verbose=False)
+    parallel = gtc.scan_ndim_parallel(gtc.split_aggregates(subs, splits), ndim=3, verbose=False)
+    for col in ("spearman", "procrustes_m2", "topk_jaccard"):
+        np.testing.assert_allclose(serial[col].to_numpy(), parallel[col].to_numpy(), rtol=1e-6)
+
+
+def test_cross_validate_ndim_parallel_holds_out_the_named_folds(monkeypatch):
+    subs = _cohort(n_subjects=12, n_images=10, observed_frac=0.8)
+    folds = gtc.leave_k_out_folds(12, k=3, n_folds=4, rng=np.random.default_rng(0))
+    calls = _stub_embed(monkeypatch, np.random.default_rng(1).normal(size=(10, 3)))
+
+    out = gtc.cross_validate_ndim_parallel(subs, ndim=3, folds=folds, verbose=False)
+    assert len(out) == 4 and (out["ndim"] == 3).all()
+    assert list(out["fold"]) == [0, 1, 2, 3]
+    assert out["spearman"].notna().all()
+    # One fit per fold, each trained on the 9 subjects not held out.
+    assert len(calls) == 4
+
+
+def test_cross_validate_ndim_parallel_matches_the_serial_version(monkeypatch):
+    subs = _cohort(n_subjects=12, n_images=10, observed_frac=0.8)
+    folds = gtc.leave_k_out_folds(12, k=3, n_folds=3, rng=np.random.default_rng(0))
+
+    def coords_for(weights):
+        rng = np.random.default_rng(int(np.count_nonzero(weights)))
+        return rng.normal(size=(10, 3)).astype(np.float32)
+
+    monkeypatch.setattr(gtc, "_embed_payload", lambda p: (
+        p[0], coords_for(p[2]), {"status": "success", "niter": 1.0, "stress": 0.0}))
+    monkeypatch.setattr(gtc, "embed_subset",
+                        lambda s, ndim, method="smacof", **kw: coords_for(gtc.observed_mask(s)))
+    monkeypatch.setattr(gtc, "leave_k_out_folds", lambda *a, **k: folds)
+
+    serial = gtc.cross_validate_ndim(subs, ndims=[3], k=3, n_folds=3, verbose=False)
+    parallel = gtc.cross_validate_ndim_parallel(subs, ndim=3, folds=folds, verbose=False)
+    np.testing.assert_allclose(serial["spearman"].to_numpy(), parallel["spearman"].to_numpy(),
+                               rtol=1e-6)

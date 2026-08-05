@@ -247,6 +247,129 @@ def dimensionality_scan(subjects: Sequence, ndims: Sequence[int] = DEFAULT_NDIMS
     return pd.DataFrame(rows), diagnostics
 
 
+# --------------------------------------------------------------------------- parallel execution
+# The serial scan above is the readable reference and is what the tests exercise. At the sizes the
+# EC2 run needs (11 ndims x 50 draws x 2 halves = 1100 fits, plus 11 x 40 CV folds) it is far too
+# slow, so the same work is also available as picklable payloads for joblib. Both paths call the
+# same `run_mds` and score with the same `split_half_scores`.
+def split_aggregates(subjects: Sequence, splits: Sequence[Tuple[np.ndarray, np.ndarray]],
+                     ) -> List[Tuple[Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray]]]:
+    """Pre-pool each half of each split into ``(distances, weights)``, once for all dimensionalities.
+
+    Aggregation does not depend on ``ndim``, and a worker payload must carry arrays rather than
+    subject objects: pooling here keeps the payload at two condensed vectors (~2 MB) instead of
+    shipping the whole subject list to every task.
+    """
+    return [(aggregate_subjects([subjects[i] for i in ia]),
+             aggregate_subjects([subjects[i] for i in ib])) for ia, ib in splits]
+
+
+def _embed_payload(payload: tuple) -> tuple:
+    """Fit one weighted-SMACOF embedding. Module-level and picklable, so joblib can ship it.
+
+    Mirrors ``pipeline._execute_mds_payload``: ``run_mds`` (and therefore R) is imported inside the
+    worker so each process initialises its own R exactly once, and a failure is *recorded* rather
+    than raised, because one disconnected draw must not abort a multi-hour scan.
+    """
+    from SpAM_Simulations.multi_dimensional_scaling import run_mds
+    key, dists, weights, ndim, max_iters, tol, precalc = payload
+    try:
+        out = run_mds(dists=dists, weights=weights, ndim=ndim, max_iters=max_iters,
+                      convergence_tol=tol, precalc_init=precalc)
+    except RuntimeError as exc:
+        status = "disconnected" if "connected components" in str(exc) else "error"
+        return key, None, {"status": status, "niter": np.nan, "stress": np.nan}
+    return (key, np.asarray(out["conf"], dtype=np.float32).reshape(-1, ndim),
+            {"status": "max_iters" if out["needs_more_iters"] else "success",
+             "niter": float(out["niter"]), "stress": float(out["stress"])})
+
+
+def _run_embeddings(payloads, total: int, n_jobs: int = 1, verbose: bool = True,
+                    desc: str = "Embedding") -> Dict:
+    """Execute embedding payloads, serially or across ``n_jobs`` processes, keyed by their ``key``.
+
+    ``payloads`` should be a generator: each one holds full-length distance and weight vectors, so
+    materialising a whole scan's worth at once costs gigabytes for no benefit.
+    """
+    if n_jobs and n_jobs > 1:
+        from joblib import Parallel, delayed
+        results = Parallel(n_jobs=n_jobs, return_as="generator_unordered")(
+            delayed(_embed_payload)(p) for p in payloads
+        )
+    else:
+        results = (_embed_payload(p) for p in payloads)
+    out: Dict = {}
+    with tqdm(total=total, desc=desc, disable=not verbose) as bar:
+        for key, coords, info in results:
+            out[key] = (coords, info)
+            bar.update(1)
+    return out
+
+
+def scan_ndim_parallel(aggregates: Sequence, ndim: int, n_jobs: int = 1,
+                       top_frac: float = DEFAULT_TOP_FRAC, max_iters: int = 1000,
+                       convergence_tol: float = 1e-6, precalc_init: bool = True,
+                       verbose: bool = True) -> pd.DataFrame:
+    """Split-half scores at **one** dimensionality, over pre-pooled ``split_aggregates``.
+
+    One ndim per call rather than the whole grid, so a long EC2 loop can checkpoint its partial
+    results to S3 after each dimensionality instead of only at the end.
+
+    Rows carry ``status_a``/``status_b`` and ``niter_a``/``niter_b`` alongside the scores. Those are
+    not decoration: a half-sized subject pool hits ``max_iters`` far more often than the dense
+    aggregate does, and a scan where most fits never converged is measuring the solver's stopping
+    rule rather than the data's dimensionality.
+    """
+    payloads = ((("a" if half == 0 else "b", draw), agg[0], agg[1], int(ndim),
+                 max_iters, convergence_tol, precalc_init)
+                for draw, pair in enumerate(aggregates)
+                for half, agg in enumerate(pair))
+    fits = _run_embeddings(payloads, total=2 * len(aggregates), n_jobs=n_jobs, verbose=verbose,
+                           desc=f"Split-half ndim={ndim}")
+    rows = []
+    for draw in range(len(aggregates)):
+        (ca, ia), (cb, ib) = fits[("a", draw)], fits[("b", draw)]
+        row = {"ndim": int(ndim), "draw": draw,
+               "status_a": ia["status"], "status_b": ib["status"],
+               "niter_a": ia["niter"], "niter_b": ib["niter"],
+               "stress_a": ia["stress"], "stress_b": ib["stress"]}
+        scores = (split_half_scores(ca, cb, top_frac) if ca is not None and cb is not None
+                  else {"spearman": np.nan, "procrustes_m2": np.nan, "topk_jaccard": np.nan})
+        rows.append({**row, **scores})
+    return pd.DataFrame(rows).sort_values("draw").reset_index(drop=True)
+
+
+def cross_validate_ndim_parallel(subjects: Sequence, ndim: int,
+                                 folds: Sequence[np.ndarray], n_jobs: int = 1,
+                                 max_iters: int = 1000, convergence_tol: float = 1e-6,
+                                 precalc_init: bool = True, verbose: bool = True) -> pd.DataFrame:
+    """Leave-k-out CV at **one** dimensionality, parallel over folds.
+
+    Same question as :func:`cross_validate_ndim` - generalisation to unseen *people* - and the folds
+    are passed in so every dimensionality is scored on identical hold-outs, keeping the comparison
+    paired.
+    """
+    n = len(subjects)
+    train_sets = []
+    for held in folds:
+        mask = np.ones(n, dtype=bool)
+        mask[np.asarray(held)] = False
+        train_sets.append(np.flatnonzero(mask))
+    payloads = ((fold, *aggregate_subjects([subjects[i] for i in train]), int(ndim),
+                 max_iters, convergence_tol, precalc_init)
+                for fold, train in enumerate(train_sets))
+    fits = _run_embeddings(payloads, total=len(folds), n_jobs=n_jobs, verbose=verbose,
+                           desc=f"Leave-k-out ndim={ndim}")
+    rows = []
+    for fold, held in enumerate(folds):
+        coords, info = fits[fold]
+        score = (_score_held_out(coords, [subjects[i] for i in held])
+                 if coords is not None else np.nan)
+        rows.append({"ndim": int(ndim), "fold": fold, "spearman": score,
+                     "status": info["status"], "niter": info["niter"]})
+    return pd.DataFrame(rows)
+
+
 DEFAULT_SCAN_METRICS = ("spearman", "procrustes_m2", "topk_jaccard")
 
 
