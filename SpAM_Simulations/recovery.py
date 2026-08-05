@@ -25,20 +25,7 @@ from typing import Dict, List, Sequence
 import numpy as np
 from scipy.stats import norm, rankdata
 
-
-def topk_mask(distances: np.ndarray, frac: float) -> np.ndarray:
-    """Boolean mask of the ``frac`` **smallest** entries, i.e. the closest pairs.
-
-    Uses the same ``argpartition`` idiom as ``pipeline._topk_similar_jaccard`` so the two agree on
-    exactly which pairs count as "closest" at a given fraction.
-    """
-    if not 0 < frac <= 1:
-        raise ValueError(f"frac must be in (0, 1], got {frac}")
-    n = distances.shape[0]
-    k = max(1, int(round(frac * n)))
-    mask = np.zeros(n, dtype=bool)
-    mask[np.argpartition(distances, k - 1)[:k]] = True
-    return mask
+from SpAM_Simulations.metrics import topk_mask
 
 
 def recall_at_frac(recovered: np.ndarray, gt: np.ndarray, frac: float) -> float:

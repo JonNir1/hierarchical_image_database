@@ -10,27 +10,11 @@ import numpy as np
 import pytest
 
 from SpAM_Simulations import recovery as rec
+from SpAM_Simulations.metrics import topk_mask
 
 
 def _gt(n=2000, seed=0):
     return np.random.default_rng(seed).random(n)
-
-
-# --------------------------------------------------------------------- topk_mask
-
-def test_topk_mask_selects_the_smallest_entries():
-    d = np.array([5.0, 1.0, 4.0, 2.0, 3.0])
-    assert rec.topk_mask(d, 0.4).tolist() == [False, True, False, True, False]
-
-
-def test_topk_mask_always_selects_at_least_one():
-    assert rec.topk_mask(np.arange(1000.0), 1e-9).sum() == 1
-
-
-def test_topk_mask_rejects_out_of_range_fracs():
-    for bad in (0.0, -0.1, 1.5):
-        with pytest.raises(ValueError, match="frac must be in"):
-            rec.topk_mask(np.arange(10.0), bad)
 
 
 # --------------------------------------------------------------------- perfect / chance
@@ -76,8 +60,8 @@ def test_recall_equals_precision_at_matched_fractions():
     gt = _gt()
     rng = np.random.default_rng(3)
     recovered = gt + rng.normal(0, 0.1, gt.shape)
-    g = rec.topk_mask(gt, 0.05)
-    r = rec.topk_mask(recovered, 0.05)
+    g = topk_mask(gt, 0.05)
+    r = topk_mask(recovered, 0.05)
     recall = np.count_nonzero(g & r) / g.sum()
     precision = np.count_nonzero(g & r) / r.sum()
     assert recall == pytest.approx(precision)

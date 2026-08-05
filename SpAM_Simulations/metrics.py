@@ -171,3 +171,40 @@ def effective_rank(condensed_distances: np.ndarray) -> float:
         return 0.0
     p = pos / pos.sum()
     return float(np.exp(-np.sum(p * np.log(p))))
+
+
+# --------------------------------------------------------------------------- closest pairs
+def topk_mask(distances: np.ndarray, frac: float) -> np.ndarray:
+    """Boolean mask of the ``frac`` **smallest** entries of a condensed distance vector.
+
+    The smallest distances are the closest pairs, i.e. the 'too similar' candidates. ``k`` is
+    floored at 1 so a tiny ``frac`` still selects something rather than returning an empty set.
+
+    This is the single definition of "the closest ``frac`` of pairs" in the codebase. It used to be
+    reimplemented in three places (rep-vs-rep Jaccard, split-half scoring, recovery-vs-GT), which
+    risked them silently disagreeing about which pairs count as closest at a given fraction.
+    """
+    if not 0 < frac <= 1:
+        raise ValueError(f"frac must be in (0, 1], got {frac}")
+    n = distances.shape[0]
+    k = max(1, int(round(frac * n)))
+    mask = np.zeros(n, dtype=bool)
+    mask[np.argpartition(distances, k - 1)[:k]] = True
+    return mask
+
+
+def topk_similar_jaccard(a: np.ndarray, b: np.ndarray, frac: float) -> float:
+    """Jaccard overlap of the closest-``frac`` pair sets of two condensed distance vectors.
+
+    Both vectors must index the same pair set, so this compares *which* pairs each side flags as
+    closest. Returns ``|A n B| / |A u B|``; the two sets are the same size, so precision, recall and
+    the overlap coefficient are all monotone transforms of it and only one number is reported.
+
+    Note what this does **not** measure: if three images form one tight cluster, which of their three
+    pairs is "closest" flips with noise, and every flip counts as disagreement here even though all
+    of them support the same practical decision. It therefore understates usable structure whenever
+    the question is about groups rather than pairs.
+    """
+    ma, mb = topk_mask(a, frac), topk_mask(b, frac)
+    union = int(np.count_nonzero(ma | mb))
+    return int(np.count_nonzero(ma & mb)) / union if union else np.nan

@@ -38,7 +38,7 @@ from SpAM_Simulations.config import (
 from SpAM_Simulations.experiment import ExperimentParameters, ExperimentResults
 from SpAM_Simulations.metrics import (
     coverage, snr_summary, test_retest_summary, screening_summary, spearman_correlation,
-    _calculate_mean_distances
+    topk_similar_jaccard, _calculate_mean_distances
 )
 from SpAM_Simulations.simulation import Simulation, build_ground_truth_embeddings
 from SpAM_Simulations.storage import ResultStore
@@ -493,21 +493,6 @@ def compute_item_generalizability(
     return pd.DataFrame(rows)
 
 
-def _topk_similar_jaccard(a: np.ndarray, b: np.ndarray, frac: float) -> float:
-    """Jaccard overlap of the *smallest* ``frac`` fraction of two distance vectors.
-
-    The smallest distances are the most-similar (closest) pairs - the 'too-similar' candidates. Both
-    vectors index the same pair set, so we compare which pairs each rep flags as closest. Returns
-    ``|A n B| / |A u B|`` (equal set sizes, so 0..1; 1 = identical closest-pair set).
-    """
-    n = a.shape[0]
-    k = max(1, int(round(frac * n)))
-    ma = np.zeros(n, dtype=bool); ma[np.argpartition(a, k - 1)[:k]] = True
-    mb = np.zeros(n, dtype=bool); mb[np.argpartition(b, k - 1)[:k]] = True
-    union = int(np.count_nonzero(ma | mb))
-    return int(np.count_nonzero(ma & mb)) / union if union else np.nan
-
-
 def compute_topk_similar_pair_stability(
     store: ResultStore, top_fracs: Sequence[float] = (0.05, 0.1, 0.25),
     group_fields: Optional[Sequence[str]] = None, verbose: bool = True,
@@ -535,7 +520,7 @@ def compute_topk_similar_pair_stability(
         confdists = [store.confdist(int(r)) for r in grp["confdist_row"]]
         key_tuple = key if isinstance(key, tuple) else (key,)
         for f in fracs:
-            js = [_topk_similar_jaccard(a, b, f) for a, b in combinations(confdists, 2)]
+            js = [topk_similar_jaccard(a, b, f) for a, b in combinations(confdists, 2)]
             js = [j for j in js if not np.isnan(j)]
             rows.append({
                 **dict(zip(group_fields, key_tuple)), "top_frac": f, "n_reps": len(confdists),

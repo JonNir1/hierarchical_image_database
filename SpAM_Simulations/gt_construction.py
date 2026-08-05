@@ -46,6 +46,8 @@ from scipy.spatial.distance import pdist, squareform
 from scipy.stats import spearmanr
 from tqdm.auto import tqdm
 
+from SpAM_Simulations.metrics import topk_similar_jaccard
+
 DEFAULT_NDIMS = (2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20)
 DEFAULT_TOP_FRAC = 0.05
 
@@ -191,16 +193,6 @@ def embed_subset(subjects: Sequence, ndim: int, method: str = "smacof",
 
 
 # --------------------------------------------------------------------------- scoring
-def _topk_jaccard(a: np.ndarray, b: np.ndarray, frac: float) -> float:
-    """Jaccard overlap of the ``frac`` smallest entries, i.e. the closest-pair sets."""
-    n = a.shape[0]
-    k = max(1, int(round(frac * n)))
-    ma = np.zeros(n, dtype=bool); ma[np.argpartition(a, k - 1)[:k]] = True
-    mb = np.zeros(n, dtype=bool); mb[np.argpartition(b, k - 1)[:k]] = True
-    union = int(np.count_nonzero(ma | mb))
-    return int(np.count_nonzero(ma & mb)) / union if union else np.nan
-
-
 def split_half_scores(coords_a: np.ndarray, coords_b: np.ndarray,
                       top_frac: float = DEFAULT_TOP_FRAC) -> Dict[str, float]:
     """Agreement between two independently-fitted configurations of the same images.
@@ -216,7 +208,7 @@ def split_half_scores(coords_a: np.ndarray, coords_b: np.ndarray,
     return {
         "spearman": float(spearmanr(da, db).statistic),
         "procrustes_m2": float(m2),
-        "topk_jaccard": float(_topk_jaccard(da, db, top_frac)),
+        "topk_jaccard": float(topk_similar_jaccard(da, db, top_frac)),
     }
 
 
