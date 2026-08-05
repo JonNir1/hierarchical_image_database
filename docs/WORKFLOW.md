@@ -48,7 +48,11 @@ has been done and what is pending.
       with manual overrides for polysemous cases; see `images/manifest.csv` column
       `wn_synset_name`). Pairwise WordNet shortest-path distance. Out: `D_sem_wn.npy`.
 - [ ] Visual-semantic RDM (CLIP). `code: analysis/rdms/clip.py`.
-      Load OpenAI pretrained CLIP **ViT-B/32** (via `open_clip`).
+      Load OpenAI pretrained CLIP **ViT-B/32** (via `open_clip`), using the
+      `ViT-B-32-quickgelu` config — **not** plain `ViT-B-32`, which pairs OpenAI's
+      QuickGELU-trained weights with standard-GELU activations and silently shifts
+      the RDM (Spearman ρ ≈ 0.96 vs the correct config). See the module docstring
+      in `clip.py` and the implementation note in the pre-reg's Indices section.
       Encode each of the 725 images via the image encoder, take the **output-layer**
       embedding (Shoham et al. 2024 spec). Embeddings are persisted first, then
       collapsed to pairwise **cosine** distance via the shared `cosine_distances()`
