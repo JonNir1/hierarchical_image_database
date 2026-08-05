@@ -310,8 +310,15 @@ Single async `DOMContentLoaded` handler. Execution order:
 4. Parse `PROLIFIC_PID` from URL; halt with error message if absent and not in debug mode
 5. Seed RNG: `new Math.seedrandom(hashString(PID))` — **no RNG calls before `buildTrialLists`**
 6. Cohort assignment: SHINE variant from `deployment.debug_shine_variant` in `"debug"` mode, always
-   `"pre"` in `"pilot"` mode, PID-hash in `"production"` mode; cross-checked against the variant
-   recorded in `stimuli_manifest.json` (abort on mismatch)
+   `"pre"` in `"pilot"` mode, PID-hash in `"production"` mode. **No validation of the resolved
+   variant exists** — `stimuli_manifest.json` is variant-neutral by design (see
+   `generate_manifest.py` below) and nothing cross-checks the assigned variant against it or
+   against what image files actually exist at `<stimuli_path>/<variant>_shine/`. The `shine_variant`
+   column written to each session's data (`task.js` step 10 below) is therefore the **only**
+   authoritative record of which image set a participant actually saw — `deployment.mode` and
+   cohort assignment logic are not reliable proxies for it. This gap is real: 6 of 47 loadable
+   pilot subjects recorded `shine_variant: "post"` despite pilot mode being hard-coded to `"pre"`
+   at the time (task_version 3.06), which went undetected until manually audited.
 7. Build image URL arrays from manifest keys (`images`, `practice_images`, `catch_images`) + config paths
 8. Compute layout via `computeLayout`
 9. Build trial sequence: `buildTrialLists` → `partitionIntoStages` → `buildStage` (screening, if
@@ -389,8 +396,11 @@ manifest generator and the browser interpret them the same way.
    (used in `"debug"` mode) or rely on the PID-hash cohort assignment in `"production"` mode.
    The `experimental_trials.stimuli_path` default `"./images/"` resolves the full main directory
    to `<repo>/images/<variant>_shine/`.
-3. Run `python generate_manifest.py` from `SpAM_Task/`. The manifest records the active
-   variant; `task.js` cross-checks it against the config and aborts on mismatch.
+3. Run `python generate_manifest.py` from `SpAM_Task/`. The manifest is variant-neutral (it scans
+   `pre_shine/` as canonical and stores paths relative to the variant root, so one manifest serves
+   both variants) and records no variant of its own; `task.js` does not validate the
+   runtime-assigned variant against it or against anything else — see step 6 of the `task.js`
+   execution order above.
 4. Serve with a local HTTP server **from the repo root**:
    ```bash
    python -m http.server 8000   # from <repo>/
