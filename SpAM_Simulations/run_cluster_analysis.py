@@ -48,9 +48,29 @@ from SpAM_Simulations.storage import ResultStore
 # that the arms might differ, and pooling them would hide exactly that.
 SELECT_BY = ("num_subjects", "allocation_mode", "ndim", "linkage")
 
+# Reported at BOTH chosen granularities. Carrying all three at each k* is what makes the trade
+# readable in either direction: how much separation the parsimonious VI choice gives up, and how
+# much reproducibility the silhouette choice costs. With only one side you can see that the two k*
+# differ but not whether the difference matters.
+AT_K_METRICS = ("vi_norm", "sil_cross", "sil_ratio")
+
 
 def _select_by(agreement: pd.DataFrame) -> list:
     return [c for c in SELECT_BY if c in agreement.columns]
+
+
+def _metrics_at_k(frame: pd.DataFrame, agreement: pd.DataFrame, by: list,
+                  suffix: str) -> pd.DataFrame:
+    """Attach each group's ``AT_K_METRICS`` read off the agreement curve at its ``k_star_<suffix>``.
+
+    A left merge on the group key plus k, so a group whose chosen k somehow has no agreement row
+    gets NaN rather than silently dropping out of the table.
+    """
+    k_col = f"k_star_{suffix}"
+    cols = [f"mean_{m}" for m in AT_K_METRICS if f"mean_{m}" in agreement.columns]
+    lookup = agreement[by + ["k"] + cols].rename(columns={"k": k_col})
+    merged = frame.merge(lookup, on=by + [k_col], how="left")
+    return merged.rename(columns={f"mean_{m}": f"{m}_at_{k_col}" for m in AT_K_METRICS})
 
 
 def run(store_path: Path, out_dir: Path, ks: Sequence[int] = DEFAULT_KS,
@@ -71,28 +91,24 @@ def run(store_path: Path, out_dir: Path, ks: Sequence[int] = DEFAULT_KS,
     sizes.to_csv(out_dir / "cluster_sizes.csv", index=False)
 
     by = _select_by(agreement)
-    selection = select_k(agreement, criterion="vi_norm", by=by)
+    # TWO granularities, because VI alone does not identify the number of clusters. VI measures
+    # *reproducibility*, and a coarse cut of a well-separated structure is perfectly reproducible
+    # too: on three planted blobs VI is exactly 0 at k=2 and at k=3 alike, so the parsimony tiebreak
+    # returns 2. Silhouette is what distinguishes them - it peaks at the true 3 (0.93 against 0.76).
+    # `k_star_vi` is the safe deduplication rule; `k_star_sil` is the scientific claim.
+    #
+    # `select_k` and `continuum_diagnostics` take a `criterion=` and emit a generic `k_star`, so the
+    # criterion is named here, where the two coexist and a bare `k_star` would be ambiguous.
     diagnostics = continuum_diagnostics(agreement, criterion="vi_norm", by=by)
     # One file, not two: k* is meaningless without the verdicts that say whether it means anything.
-    k_selection = selection.merge(diagnostics, on=by + ["k_star"], how="outer")
+    k_selection = diagnostics[by + ["k_star", "vi_norm_range", "is_flat", "is_arbitrary_slicing"]]
+    k_selection = k_selection.rename(columns={"k_star": "k_star_vi"}).assign(rule="one_se")
 
-    # A SECOND k*, selected on cross-cohort silhouette, because VI alone does not identify the
-    # number of clusters. VI measures *reproducibility*, and a coarse cut of a well-separated
-    # structure is perfectly reproducible too: on three planted blobs VI is exactly 0 at k=2 and at
-    # k=3 alike, so the parsimony tiebreak returns 2. Silhouette is what distinguishes them - it
-    # peaks at the true 3 (0.93 against 0.76). So `k_star_vi` is the conservative granularity that
-    # reproduces, and `k_star_sil` is where the structure actually is. They should be reported
-    # together: `k_star_vi` is the safe deduplication rule, `k_star_sil` is the scientific claim.
-    by_sil = select_k(agreement, criterion="sil_cross", by=by).rename(
-        columns={"k_star": "k_star_sil", "criterion": "criterion_sil"}).drop(columns=["rule"])
-    k_selection = k_selection.merge(by_sil, on=by, how="outer")
-    # `select_k` and `continuum_diagnostics` are criterion-agnostic and emit a generic `k_star`, so
-    # the criterion is named here, where two of them coexist and the bare name would be ambiguous.
-    # The `*_at_k_star` columns are all evaluated at the VI-selected k, so they are renamed with it.
-    k_selection = k_selection.rename(columns={
-        c: c.replace("k_star", "k_star_vi") for c in k_selection.columns
-        if c == "k_star" or c.endswith("_at_k_star")
-    })
+    chosen_sil = select_k(agreement, criterion="sil_cross", by=by)[by + ["k_star"]]
+    k_selection = k_selection.merge(chosen_sil.rename(columns={"k_star": "k_star_sil"}),
+                                    on=by, how="outer")
+    for suffix in ("vi", "sil"):
+        k_selection = _metrics_at_k(k_selection, agreement, by, suffix)
     k_selection.to_csv(out_dir / "k_selection.csv", index=False)
 
     _report(k_selection, dendro)
@@ -119,15 +135,19 @@ def _report(k_selection: pd.DataFrame, dendro: pd.DataFrame) -> None:
     clean = k_selection[~k_selection["is_flat"] & ~k_selection["is_arbitrary_slicing"]]
     if len(clean):
         print(f"\n  {len(clean)} group(s) with a meaningful k*:")
-        cols = [c for c in ("num_subjects", "allocation_mode", "ndim", "linkage", "k_star_vi",
-                            "k_star_sil", "vi_norm_at_k_star_vi", "sil_cross_at_k_star_vi",
-                            "sil_ratio_at_k_star_vi")
+        cols = [c for c in ("num_subjects", "allocation_mode", "ndim", "linkage",
+                            "k_star_vi", "vi_norm_at_k_star_vi", "sil_cross_at_k_star_vi",
+                            "k_star_sil", "vi_norm_at_k_star_sil", "sil_cross_at_k_star_sil")
                 if c in clean.columns]
         print(clean[cols].to_string(index=False))
         print("  k_star_vi  = coarsest granularity that REPRODUCES (VI, one-SE) - the safe "
               "deduplication rule")
         print("  k_star_sil = granularity with the most cross-cohort SEPARATION - where the "
               "structure is")
+        print("  Both are scored at BOTH k*, so the trade reads in either direction: what the "
+              "parsimonious")
+        print("  choice gives up in separation, and what the structured choice costs in "
+              "reproducibility.")
     if len(dendro):
         gcol = "mean_baker_gamma"
         if gcol in dendro.columns:

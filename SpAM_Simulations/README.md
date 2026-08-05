@@ -309,6 +309,13 @@ coarsest granularity that reproduces and is the safe deduplication rule; `k_star
 cross-cohort silhouette, is where the structure actually is. Reading k\* off VI alone would
 systematically under-report the granularity the data supports.
 
+All three headline metrics (`vi_norm`, `sil_cross`, `sil_ratio`) are recorded at **both** k\*, as
+`<metric>_at_k_star_vi` and `<metric>_at_k_star_sil`. That is what makes the trade readable in
+either direction: how much separation the parsimonious choice gives up, and how much
+reproducibility the structured one costs. On the planted blobs the finer `k_star_sil` turns out to
+be **free** - VI is 0 at both - which is a conclusion you cannot reach from the VI-side columns
+alone, since those only show that the two k\* differ.
+
 > One caveat inherited from every rep-pair metric here: the C(r,2) pairs are **not independent**,
 > since each cohort appears in r-1 of them, so the reported SEM understates the true uncertainty.
 

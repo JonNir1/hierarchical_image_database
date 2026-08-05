@@ -475,6 +475,12 @@ differ because VI measures reproducibility rather than correctness of granularit
 well-separated planted blobs VI is exactly 0 at k=2 and at k=3 alike, because both cohorts merge the
 same two blobs, and only silhouette distinguishes them (0.93 at the true 3 against 0.76 at 2).
 
+Each k\* is scored on **all three** headline metrics, as `<metric>_at_k_star_vi` and
+`<metric>_at_k_star_sil` for `vi_norm`, `sil_cross` and `sil_ratio`. Compare the two columns of a
+metric to price the choice: if `vi_norm_at_k_star_sil` is close to `vi_norm_at_k_star_vi`, the finer
+granularity costs nothing in reproducibility and should be preferred; if it is much worse, the
+parsimonious `k_star_vi` is buying something real.
+
 > **A continuum is a result.** If `is_flat` (VI varies by less than 0.02 across the whole k grid) or
 > `is_arbitrary_slicing` (cross-cohort silhouette at k\* below 0.05) comes back true, the cohorts
 > reproducibly agree on a cut of a space that has no separation in it. That means "one image per
