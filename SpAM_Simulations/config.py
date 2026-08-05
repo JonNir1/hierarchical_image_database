@@ -222,9 +222,14 @@ class TaskV4SimulationConfig(TaskV3SimulationConfig):
     # config keeps its exact meaning. See `noise_population` for why the t family is inadequate:
     # its CV cannot go below ~0.756, but the pilot's reliability distribution needs ~0.47.
     subjects_noise_lognormal_sigma: Sequence[float] = (0.0,)
+    # Image-to-trial allocation arm: 0.0 = random (what the deployed task does and what every
+    # previous run used), 1.0 = balanced block design. Defaults to (0.0,) so an existing config
+    # keeps its exact meaning. Swept as a lever rather than run as a separate sweep so both arms
+    # land in one store and every compute_* table gains an arm dimension for free.
+    allocation_mode: Sequence[float] = (0.0,)
 
     _SCREENING_GRIDS = ("screening_trials", "screening_repeats", "screening_min_reliability",
-                        "subjects_noise_lognormal_sigma")
+                        "subjects_noise_lognormal_sigma", "allocation_mode")
 
     def __post_init__(self):
         super().__post_init__()
@@ -241,6 +246,11 @@ class TaskV4SimulationConfig(TaskV3SimulationConfig):
         bad = [mr for mr in self.screening_min_reliability if not (-1 <= mr <= 1)]
         if bad:
             raise ValueError(f"`screening_min_reliability` values must be in [-1, 1], got {bad}")
+        bad_alloc = [a for a in self.allocation_mode if a not in (0.0, 1.0)]
+        if bad_alloc:
+            raise ValueError(
+                f"`allocation_mode` values must be 0.0 (random) or 1.0 (designed), got {bad_alloc}"
+            )
         # Every (trials, repeats) pair in the Cartesian product is actually simulated, so reject a
         # grid whose product contains a combination with no un-repeated original trial - it would
         # only surface as an assertion deep inside the sweep, hours in.
@@ -267,6 +277,7 @@ class TaskV4SimulationConfig(TaskV3SimulationConfig):
                 self.screening_repeats,
                 self.screening_min_reliability,
                 self.subjects_noise_lognormal_sigma,
+                self.allocation_mode,
             )
         ]
 

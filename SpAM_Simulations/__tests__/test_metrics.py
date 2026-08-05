@@ -101,3 +101,59 @@ def test_effective_rank_handles_missing_pairs():
     d = pdist(np.random.default_rng(2).normal(size=(40, 4)))
     d[::7] = np.nan  # scatter some unobserved pairs
     assert metrics.effective_rank(d) > 1.0  # mean-imputes, still returns a finite rank
+
+
+# --------------------------------------------------------------------- closest-pair selection
+#
+# These moved here when the three duplicate implementations (pipeline._topk_similar_jaccard,
+# gt_construction._topk_jaccard, recovery.topk_mask) were consolidated into metrics.
+
+class TestTopKMask:
+    def test_selects_the_smallest_entries(self):
+        d = np.array([5.0, 1.0, 4.0, 2.0, 3.0])
+        assert metrics.topk_mask(d, 0.4).tolist() == [False, True, False, True, False]
+
+    def test_always_selects_at_least_one(self):
+        assert metrics.topk_mask(np.arange(1000.0), 1e-9).sum() == 1
+
+    def test_rejects_out_of_range_fracs(self):
+        for bad in (0.0, -0.1, 1.5):
+            with pytest.raises(ValueError, match="frac must be in"):
+                metrics.topk_mask(np.arange(10.0), bad)
+
+    def test_selects_exactly_the_requested_count(self):
+        assert metrics.topk_mask(np.arange(100.0), 0.25).sum() == 25
+
+
+class TestTopKSimilarJaccard:
+    def test_identical_vectors_give_one(self):
+        v = np.random.default_rng(0).random(200)
+        assert metrics.topk_similar_jaccard(v, v.copy(), 0.1) == 1.0
+
+    def test_reversed_ranking_gives_zero(self):
+        # smallest of v are the largest of -v -> the top-k closest sets are disjoint
+        v = np.arange(200, dtype=float)
+        assert metrics.topk_similar_jaccard(v, -v, 0.25) == 0.0
+
+    def test_known_overlap(self):
+        # a's 2 smallest = idx {0,1}; b's 2 smallest = idx {1,2}; Jaccard = 1/3
+        a = np.array([0.0, 1.0, 2.0, 3.0])
+        b = np.array([3.0, 0.0, 1.0, 2.0])
+        assert metrics.topk_similar_jaccard(a, b, 0.5) == pytest.approx(1 / 3)
+
+    def test_frac_rounds_to_at_least_one(self):
+        v = np.arange(10, dtype=float)
+        assert metrics.topk_similar_jaccard(v, v.copy(), 0.001) == 1.0   # k floored to 1
+
+    def test_is_symmetric(self):
+        rng = np.random.default_rng(1)
+        a, b = rng.random(300), rng.random(300)
+        assert metrics.topk_similar_jaccard(a, b, 0.1) == metrics.topk_similar_jaccard(b, a, 0.1)
+
+
+def test_the_three_former_call_sites_agree():
+    """The consolidation's whole point: one definition of 'the closest frac of pairs'."""
+    from SpAM_Simulations import gt_construction, pipeline, recovery
+    assert gt_construction.topk_similar_jaccard is metrics.topk_similar_jaccard
+    assert pipeline.topk_similar_jaccard is metrics.topk_similar_jaccard
+    assert recovery.topk_mask is metrics.topk_mask

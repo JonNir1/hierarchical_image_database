@@ -79,6 +79,13 @@ WORKDIR="${WORKDIR:-$HOME/spam_run}"
 USE_ISOTROPIC="${USE_ISOTROPIC:-false}"   # ground-truth spectrum: true=isotropic bound, false=realistic
 CALIBRATE="${CALIBRATE:-false}"           # true = fit to pilot data (see TWO FLAVORS above); ignores USE_ISOTROPIC
 GT_METHOD="${GT_METHOD:-smacof}"          # (CALIBRATE only) 'smacof' (needs R, canonical) or 'classical' (no-R)
+# (CALIBRATE only) GT dimensionality. REQUIRED under CALIBRATE, no default: it used to be inferred
+# from a mean-imputed eigenspectrum, which manufactures rank on this coverage and always returned
+# its cap. Take it from gt/selection.json, produced by run_gt_construction.sh.
+if [ "${CALIBRATE,,}" = "true" ] || [ "$CALIBRATE" = "1" ]; then
+  N_DIMS="${N_DIMS:?set N_DIMS, e.g. from gt/selection.json produced by run_gt_construction.sh}"
+  export N_DIMS
+fi
 REPS="${REPS:-5}"                         # (CALIBRATE only) cohorts averaged per simulated fit point
 # MDS worker processes. All vCPUs OOM'd a run (each worker holds its own R/smacof process), so
 # default to 2/3 of them.
@@ -172,7 +179,11 @@ FULL_N = [30, 50, 75, 150, 300]
 allsub = load_pilot_subjects(PILOT, MANIFEST)
 print(f"[gt] loaded {len(allsub)} completed sessions; calculating GT embeddings "
       f"({GT_METHOD}) - this may take a few minutes ...", flush=True)   # SMACOF runs silently in R
-coords, gt_info = build_gt_from_pilot(allsub, method=GT_METHOD)
+# GT dimensionality is no longer inferred here. build_gt_from_pilot used to default n_dims from the
+# eigenspectrum of a mean-imputed aggregate; on 63.6%-unobserved data that manufactures rank and
+# simply returned its cap of 15. N_DIMS is required, and comes from a run_gt_construction.sh scan.
+N_DIMS = int(os.environ["N_DIMS"])
+coords, gt_info = build_gt_from_pilot(allsub, n_dims=N_DIMS, method=GT_METHOD)
 np.save("calibration/gt_pilot_coords.npy", coords)
 print(f"[gt] {gt_info['method']}: N={coords.shape[0]}, n_dims={gt_info['n_dims']}, "
       f"observed {gt_info['observed_frac']:.1%} of pairs")

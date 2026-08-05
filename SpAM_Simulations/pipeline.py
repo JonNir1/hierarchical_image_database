@@ -38,7 +38,7 @@ from SpAM_Simulations.config import (
 from SpAM_Simulations.experiment import ExperimentParameters, ExperimentResults
 from SpAM_Simulations.metrics import (
     coverage, snr_summary, test_retest_summary, screening_summary, spearman_correlation,
-    _calculate_mean_distances
+    topk_similar_jaccard, _calculate_mean_distances
 )
 from SpAM_Simulations.simulation import Simulation, build_ground_truth_embeddings
 from SpAM_Simulations.storage import ResultStore
@@ -117,7 +117,8 @@ def generate_task_v3_simulation(config: TaskV3SimulationConfig, verbose: bool = 
     return sim
 
 
-def generate_task_v4_simulation(config: TaskV4SimulationConfig, verbose: bool = True) -> Simulation:
+def generate_task_v4_simulation(config: TaskV4SimulationConfig, verbose: bool = True,
+                                allocator_factory=None) -> Simulation:
     """Same as `generate_task_v3_simulation`, but for task-v4 (v3 model + the screening block).
 
     Ground truth is built identically (explicit eigenvalue spectrum, or a supplied
@@ -125,6 +126,14 @@ def generate_task_v4_simulation(config: TaskV4SimulationConfig, verbose: bool = 
     differs. Note that a screened configuration simulates *more* subjects than ``num_subjects`` -
     rejected candidates are generated and discarded - so generation is slower than v3 at the same
     grid size, by roughly the reciprocal of the pass rate.
+
+    ``allocator_factory(params, rep) -> allocator | None`` supplies the image-to-trial allocation
+    for each scheduled cell, which is how the ``allocation_mode`` lever is realised: the mode is a
+    number inside ``params`` (so it survives the ``ResultStore`` round-trip and shows up as a
+    grouping column), while the allocator object it selects is built here. ``rep`` is passed so a
+    caller can hand each repetition its own design; sharing one design across reps would leave the
+    designed arm with zero allocation variance while the random arm carries it, making the two
+    arms' spreads incomparable.
     """
     if config.uses_random_ground_truth:
         embeddings = build_ground_truth_embeddings(
@@ -134,9 +143,11 @@ def generate_task_v4_simulation(config: TaskV4SimulationConfig, verbose: bool = 
     else:
         embeddings = config.gt_embeddings
     sim = Simulation.from_embeddings(embeddings, config.seed)
-    schedule = config.param_grid() * config.reps
-    for params in tqdm(schedule, desc="Running experiments", disable=not verbose):
-        sim.run_task_v4_experiment(params, verbose=False)
+    grid = config.param_grid()
+    schedule = [(params, rep) for rep in range(config.reps) for params in grid]
+    for params, rep in tqdm(schedule, desc="Running experiments", disable=not verbose):
+        allocator = allocator_factory(params, rep) if allocator_factory is not None else None
+        sim.run_task_v4_experiment(params, verbose=False, allocator=allocator)
     return sim
 
 
@@ -482,21 +493,6 @@ def compute_item_generalizability(
     return pd.DataFrame(rows)
 
 
-def _topk_similar_jaccard(a: np.ndarray, b: np.ndarray, frac: float) -> float:
-    """Jaccard overlap of the *smallest* ``frac`` fraction of two distance vectors.
-
-    The smallest distances are the most-similar (closest) pairs - the 'too-similar' candidates. Both
-    vectors index the same pair set, so we compare which pairs each rep flags as closest. Returns
-    ``|A n B| / |A u B|`` (equal set sizes, so 0..1; 1 = identical closest-pair set).
-    """
-    n = a.shape[0]
-    k = max(1, int(round(frac * n)))
-    ma = np.zeros(n, dtype=bool); ma[np.argpartition(a, k - 1)[:k]] = True
-    mb = np.zeros(n, dtype=bool); mb[np.argpartition(b, k - 1)[:k]] = True
-    union = int(np.count_nonzero(ma | mb))
-    return int(np.count_nonzero(ma & mb)) / union if union else np.nan
-
-
 def compute_topk_similar_pair_stability(
     store: ResultStore, top_fracs: Sequence[float] = (0.05, 0.1, 0.25),
     group_fields: Optional[Sequence[str]] = None, verbose: bool = True,
@@ -524,11 +520,61 @@ def compute_topk_similar_pair_stability(
         confdists = [store.confdist(int(r)) for r in grp["confdist_row"]]
         key_tuple = key if isinstance(key, tuple) else (key,)
         for f in fracs:
-            js = [_topk_similar_jaccard(a, b, f) for a, b in combinations(confdists, 2)]
+            js = [topk_similar_jaccard(a, b, f) for a, b in combinations(confdists, 2)]
             js = [j for j in js if not np.isnan(j)]
             rows.append({
                 **dict(zip(group_fields, key_tuple)), "top_frac": f, "n_reps": len(confdists),
                 "mean_jaccard": float(np.mean(js)) if js else np.nan,
                 "sem_jaccard": (float(np.std(js, ddof=1) / np.sqrt(len(js))) if len(js) > 1 else np.nan),
             })
+    return pd.DataFrame(rows)
+
+
+def compute_recovery_vs_gt(
+    store: ResultStore, gt_condensed: np.ndarray,
+    fracs: Sequence[float] = (0.01, 0.05, 0.10),
+    group_fields: Optional[Sequence[str]] = None, verbose: bool = True,
+) -> pd.DataFrame:
+    """How well each rep recovers the **ground truth's** closest pairs (simulation only).
+
+    The counterpart to `compute_topk_similar_pair_stability`: that one asks whether two cohorts
+    agree with each other (reproducibility), this one asks whether a cohort finds the pairs that
+    are genuinely closest in the space the data were generated from (recovery). They can diverge -
+    two cohorts can agree on the wrong answer - so both are reported.
+
+    Scored per rep and then averaged within a configuration group, giving one row per
+    (group, `top_frac`) with the mean and SEM of `recall`, `dprime`, `separation_dprime` and `auc`.
+    See `recovery` for why both a thresholded and a threshold-free d-prime are carried.
+    """
+    from SpAM_Simulations.recovery import recovery_summary
+
+    gt_condensed = np.asarray(gt_condensed, dtype=np.float64)
+    fracs = [float(fracs)] if isinstance(fracs, (int, float)) else [float(x) for x in fracs]
+    if any(not (0 < f <= 1) for f in fracs):
+        raise ValueError(f"fracs must be in (0, 1], got {fracs}")
+    grouped, group_fields = _grouped_successful(store, group_fields)
+    metrics = ("recall", "dprime", "separation_dprime", "auc")
+    rows = []
+    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Recovery vs GT", disable=not verbose):
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        per_frac: dict = {f: [] for f in fracs}
+        for row in grp["confdist_row"]:
+            confdist = store.confdist(int(row))
+            if confdist.shape != gt_condensed.shape:
+                raise ValueError(
+                    f"stored confdist has {confdist.shape[0]} pairs but the supplied ground truth "
+                    f"has {gt_condensed.shape[0]}; they must index the same image set"
+                )
+            for summary in recovery_summary(confdist, gt_condensed, fracs):
+                per_frac[summary["top_frac"]].append(summary)
+        for f in fracs:
+            entries = per_frac[f]
+            out = {**dict(zip(group_fields, key_tuple)), "top_frac": f, "n_reps": len(entries)}
+            for m in metrics:
+                vals = np.array([e[m] for e in entries], dtype=float)
+                vals = vals[np.isfinite(vals)]
+                out[f"mean_{m}"] = float(vals.mean()) if vals.size else np.nan
+                out[f"sem_{m}"] = (float(vals.std(ddof=1) / np.sqrt(vals.size))
+                                   if vals.size > 1 else np.nan)
+            rows.append(out)
     return pd.DataFrame(rows)

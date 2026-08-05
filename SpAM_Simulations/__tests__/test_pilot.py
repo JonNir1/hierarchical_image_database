@@ -63,6 +63,19 @@ def _loaded(trials_df, participants_df=None):
     return {"participants": participants_df, "trials": trials_df.drop(columns=["task_version"])}
 
 
+def test_shine_variant_is_carried_through_when_present(tmp_path):
+    df = _trials_df([{"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .2, (0, 2): .4, (1, 2): .6}}])
+    _, rel2idx = pilot.load_manifest(_write_manifest(tmp_path))
+    assert pilot.subject_from_trials(df.assign(shine_variant="post"), rel2idx).shine_variant == "post"
+
+
+def test_shine_variant_defaults_to_empty_without_the_column(tmp_path):
+    """Hand-built frames (and any pre-variant caller) must keep working."""
+    subj = _subject(tmp_path, [{"images": MANIFEST_IMAGES[:3],
+                                "dists": {(0, 1): .2, (0, 2): .4, (1, 2): .6}}])
+    assert subj.shine_variant == ""
+
+
 def _subject(tmp_path, trials, **kw):
     _, rel2idx = pilot.load_manifest(_write_manifest(tmp_path))
     return pilot.subject_from_trials(_trials_df(trials, **kw), rel2idx)
@@ -216,11 +229,21 @@ def test_calibrate_params_from_pilot_uses_v3_for_retest_and_all_for_agreement(tm
         return {"mean_agreement": 0.2, "sem_agreement": 0.0, "n_dyads": 3, "median_overlap": 3}
     monkeypatch.setattr(pilot, "between_subject_agreement", _spy_agr)
 
-    coords, fit, info = pilot.calibrate_params_from_pilot("d", "m", gt_method="classical", reps=3, verbose=False)
+    coords, fit, info = pilot.calibrate_params_from_pilot("d", "m", gt_method="classical", reps=3,
+                                                          n_dims=3, verbose=False)
     assert coords.shape == (5, 3) and info["n_dims"] == 3
     assert seen["n_rows"] == 3            # agreement over all subjects (2 v3 + 1 v2)
     assert captured["num_subjects"] == 2  # the fit's matched sim uses the 2 v3 subjects
     assert captured["reps"] == 3 and fit["perspective_dispersion"] == 0.2
+
+
+def test_calibrate_params_from_pilot_requires_n_dims(tmp_path, monkeypatch):
+    """The old default read an imputed eigenspectrum and returned its cap; silence is not an option."""
+    v3, other = _fake_subjects(tmp_path)
+    monkeypatch.setattr(pilot, "load_pilot_subjects", lambda d, m: v3 + other)
+    _stub_gt_and_fit(monkeypatch, {})
+    with pytest.raises(ValueError, match="`n_dims` is required"):
+        pilot.calibrate_params_from_pilot("d", "m", gt_method="classical", verbose=False)
 
 
 def test_calibrate_params_from_pilot_saves_artifacts(tmp_path, monkeypatch):
@@ -229,7 +252,7 @@ def test_calibrate_params_from_pilot_saves_artifacts(tmp_path, monkeypatch):
     monkeypatch.setattr(pilot, "load_pilot_subjects", lambda d, m: v3 + other)
     _stub_gt_and_fit(monkeypatch, {})
     gt_path = tmp_path / "gt.npy"; params_path = tmp_path / "params.json"
-    pilot.calibrate_params_from_pilot("d", "m", gt_method="classical",
+    pilot.calibrate_params_from_pilot("d", "m", gt_method="classical", n_dims=3,
                                       save_gt=str(gt_path), save_params=str(params_path), verbose=False)
     assert np.load(gt_path).shape == (5, 3)
     saved = json.loads(params_path.read_text())
@@ -358,6 +381,18 @@ class TestCohortIsolation:
         subs = pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path),
                                          cohorts=("pilot", "production"))
         assert sorted(s.participant_id for s in subs) == ["PILOT_1", "PROD_1"]
+
+    def test_variant_filter_is_independent_of_cohort(self, tmp_path, monkeypatch):
+        """`cohorts` does not imply a SHINE variant, so both filters must apply independently."""
+        trials, participants = self._mixed(tmp_path)
+        participants = participants.assign(shine_variant=["post", "pre"])  # PILOT_1 post, PROD_1 pre
+        monkeypatch.setattr(pilot, "load_data", lambda d: _loaded(trials, participants))
+        # pilot cohort alone keeps the post-SHINE pilot subject...
+        assert [s.participant_id for s in
+                pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path))] == ["PILOT_1"]
+        # ...and adding the variant filter drops it, without pulling in the pre-SHINE production one.
+        assert pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path),
+                                         variants=("pre",)) == []
 
     def test_catch_trials_are_dropped(self, tmp_path):
         """The parser exposes is_catch; previously catch trials were only incidentally harmless."""

@@ -60,7 +60,11 @@ def format_value(val: object) -> str:
 
 @dataclass
 class RunData:
-    """Everything a completed run wrote, loaded once and reused by every figure cell."""
+    """Everything a completed run wrote, loaded once and reused by every figure cell.
+
+    The optional frames are ``None`` when the run did not produce them, so a v3-era run still
+    loads. Every consumer must therefore check before using one.
+    """
     run_dir: Path
     coverage: pd.DataFrame
     stability: pd.DataFrame
@@ -68,29 +72,66 @@ class RunData:
     mds_meta: pd.DataFrame
     levers: Dict[str, list]
     task_version: float
+    embedding_generalizability: Optional[pd.DataFrame] = None
+    item_generalizability: Optional[pd.DataFrame] = None
+    topk_jaccard: Optional[pd.DataFrame] = None
+    recovery_vs_gt: Optional[pd.DataFrame] = None
+    cluster_agreement: Optional[pd.DataFrame] = None
+    dendrogram_agreement: Optional[pd.DataFrame] = None
+    cluster_sizes: Optional[pd.DataFrame] = None
+    k_selection: Optional[pd.DataFrame] = None
+    design_only: Optional[pd.DataFrame] = None
+
+
+# Absent -> FileNotFoundError. These four define a loadable run.
+_REQUIRED_FILES = {
+    "coverage": ("out", "coverage.csv"),
+    "stability": ("out", "stability.csv"),
+    "embedding_stability": ("out", "embedding_stability.csv"),
+    "mds_meta": ("mds_store", "meta.csv"),
+}
+
+# Absent -> None. Which of these exist depends on the sweep: the generalizability/top-k/recovery
+# tables come from the task-v4 EC2 script, the cluster tables from the local post-processing pass.
+_OPTIONAL_FILES = {
+    "embedding_generalizability": ("out", "embedding_generalizability.csv"),
+    "item_generalizability": ("out", "item_generalizability.csv"),
+    "topk_jaccard": ("out", "topk_jaccard.csv"),
+    "recovery_vs_gt": ("out", "recovery_vs_gt.csv"),
+    "cluster_agreement": ("out", "cluster_agreement.csv"),
+    "dendrogram_agreement": ("out", "dendrogram_agreement.csv"),
+    "cluster_sizes": ("out", "cluster_sizes.csv"),
+    "k_selection": ("out", "k_selection.csv"),
+    "design_only": ("out", "design_only.csv"),
+}
 
 
 def load_run(run_results_dir: str | Path) -> RunData:
     """Resolve `run_results_dir` under this module's own directory (`SpAM_Simulations/`),
-    not the notebook kernel's cwd, and load the four small result files.
+    not the notebook kernel's cwd, and load a run's small result files.
 
-    Raises FileNotFoundError naming every missing path explicitly if the run directory or
-    any of the four expected files is absent.
+    Four files are required; the rest load as ``None`` when absent. Splitting them this way is what
+    makes the newer tables reachable at all: this loader used to hard-require exactly the four, so
+    `embedding_generalizability.csv`, `item_generalizability.csv` and `topk_jaccard.csv` were
+    written by the task-v4 sweep and then never read by anything.
+
+    Raises FileNotFoundError naming every missing *required* path explicitly.
     """
     run_dir = Path(__file__).resolve().parent / run_results_dir
-    expected = {
-        "coverage": run_dir / "out" / "coverage.csv",
-        "stability": run_dir / "out" / "stability.csv",
-        "embedding_stability": run_dir / "out" / "embedding_stability.csv",
-        "mds_meta": run_dir / "mds_store" / "meta.csv",
-    }
     if not run_dir.is_dir():
         raise FileNotFoundError(f"run directory not found: {run_dir}")
-    missing = [str(p) for p in expected.values() if not p.is_file()]
+
+    required = {name: run_dir.joinpath(*parts) for name, parts in _REQUIRED_FILES.items()}
+    missing = [str(p) for p in required.values() if not p.is_file()]
     if missing:
         raise FileNotFoundError(f"run directory {run_dir} is missing expected file(s): {missing}")
 
-    frames = {name: pd.read_csv(path) for name, path in expected.items()}
+    frames = {name: pd.read_csv(path) for name, path in required.items()}
+    optional = {
+        name: (pd.read_csv(run_dir.joinpath(*parts))
+               if run_dir.joinpath(*parts).is_file() else None)
+        for name, parts in _OPTIONAL_FILES.items()
+    }
     levers = {
         col: sorted(frames["mds_meta"][col].unique())
         for col in LEVER_COLUMNS
@@ -104,6 +145,7 @@ def load_run(run_results_dir: str | Path) -> RunData:
         mds_meta=frames["mds_meta"],
         levers=levers,
         task_version=3.0,  # this module is task-v3-only (breaking change from the multi-version loader)
+        **optional,
     )
 
 

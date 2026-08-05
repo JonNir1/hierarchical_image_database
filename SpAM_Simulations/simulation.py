@@ -216,14 +216,18 @@ class Simulation:
         return exp_results
 
     def run_task_v4_experiment(
-            self, params: TaskV4ExperimentParameters, verbose: bool = True
+            self, params: TaskV4ExperimentParameters, verbose: bool = True, allocator=None
     ) -> TaskV4ExperimentResults:
         """Same as `run_task_v3_experiment`, but for the task-v4 simulation (v3 + screening block).
 
         Like v3 it consumes ``self.gt_embeddings`` (the N x D coordinates) rather than the
         condensed distances, since the observation model is generative in coordinate space.
+
+        ``allocator`` overrides how images are assigned to trials (see ``allocation``); ``None``
+        keeps the deployed per-subject random draw.
         """
-        exp_params, exp_results = simulate_task_v4_experiment(params, self.gt_embeddings, self.rng, verbose)
+        exp_params, exp_results = simulate_task_v4_experiment(
+            params, self.gt_embeddings, self.rng, verbose, allocator=allocator)
         self._results.setdefault(exp_params, []).append(exp_results)
         return exp_results
 

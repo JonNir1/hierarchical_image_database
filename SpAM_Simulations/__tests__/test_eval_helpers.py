@@ -319,3 +319,46 @@ def test_test_retest_figure_raises_without_column(tmp_path):
     run = eh.load_run(_write_run(tmp_path, coverage, stability, embstab, mds_meta))
     with pytest.raises(ValueError, match="mean_test_retest"):
         eh.test_retest_figure(run.coverage)
+
+
+# --------------------------------------------------------------------- optional result frames
+
+class TestOptionalFrames:
+    """The newer tables must be reachable, and their absence must not break a v3-era run.
+
+    load_run used to hard-require exactly four files, which is why embedding_generalizability.csv,
+    item_generalizability.csv and topk_jaccard.csv were written by the task-v4 sweep and then never
+    read by anything.
+    """
+
+    _OPTIONAL = ("embedding_generalizability", "item_generalizability", "topk_jaccard",
+                 "recovery_vs_gt", "cluster_agreement", "dendrogram_agreement",
+                 "cluster_sizes", "k_selection", "design_only")
+
+    def _minimal_run(self, tmp_path):
+        combos = [{"num_subjects": 10, "trials_per_subject": 8, "images_per_trial": 10,
+                   "subjects_noise_scale": 0.5, "subjects_noise_df": 5,
+                   "frac_trials_repeated": 0.25, "perspective_dispersion": 0.2}]
+        return _write_run(tmp_path, *_build_frames(combos))
+
+    def test_a_run_without_them_still_loads(self, tmp_path):
+        run = eh.load_run(self._minimal_run(tmp_path))
+        for name in self._OPTIONAL:
+            assert getattr(run, name) is None, name
+
+    def test_present_files_are_loaded(self, tmp_path):
+        run_dir = self._minimal_run(tmp_path)
+        frame = pd.DataFrame([{"num_subjects": 10, "ndim": 5, "linkage": "average", "k": 3,
+                               "mean_vi_norm": 0.1, "sem_vi_norm": 0.01}])
+        frame.to_csv(run_dir / "out" / "cluster_agreement.csv", index=False)
+        frame.to_csv(run_dir / "out" / "topk_jaccard.csv", index=False)
+        run = eh.load_run(run_dir)
+        assert run.cluster_agreement is not None and len(run.cluster_agreement) == 1
+        assert run.topk_jaccard is not None
+        assert run.cluster_sizes is None, "absent ones stay None"
+
+    def test_a_missing_required_file_still_raises(self, tmp_path):
+        run_dir = self._minimal_run(tmp_path)
+        (run_dir / "out" / "coverage.csv").unlink()
+        with pytest.raises(FileNotFoundError, match="coverage.csv"):
+            eh.load_run(run_dir)

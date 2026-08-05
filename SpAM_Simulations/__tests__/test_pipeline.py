@@ -343,28 +343,6 @@ def test_task_v3_run_mds_sweep_store_roundtrips_seven_field_params(tmp_path, mon
     assert "perspective_dispersion" in cols and "frac_images_repeated" not in cols
 
 
-class TestTopKSimilarJaccard:
-    def test_identical_vectors_give_one(self):
-        rng = np.random.default_rng(0)
-        v = rng.random(200)
-        assert pipeline._topk_similar_jaccard(v, v.copy(), 0.1) == 1.0
-
-    def test_reversed_ranking_gives_zero(self):
-        # smallest of v are the largest of -v -> the top-k closest sets are disjoint
-        v = np.arange(200, dtype=float)
-        assert pipeline._topk_similar_jaccard(v, -v, 0.25) == 0.0
-
-    def test_known_overlap(self):
-        # a's 2 smallest = idx {0,1}; b's 2 smallest = idx {1,2}; Jaccard = 1/3
-        a = np.array([0.0, 1.0, 2.0, 3.0])
-        b = np.array([3.0, 0.0, 1.0, 2.0])
-        assert pipeline._topk_similar_jaccard(a, b, 0.5) == pytest.approx(1 / 3)
-
-    def test_frac_rounds_to_at_least_one(self):
-        v = np.arange(10, dtype=float)
-        assert pipeline._topk_similar_jaccard(v, v.copy(), 0.001) == 1.0   # k floored to 1
-
-
 # ------------------------------------------------------- configuration-space generalizability
 
 def _conf_store(tmp_path, confs, n_images, max_ndim, ndim=None, statuses=None):

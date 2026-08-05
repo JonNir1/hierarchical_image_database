@@ -211,6 +211,49 @@ class TestSingleSubject:
         assert run.repeat_correlations == [] and run.repeat_procrustes == []
 
 
+class TestRecruitmentCap:
+    """An unreachable screening threshold must fail fast, not spin forever.
+
+    The loop retries until `num_subjects` candidates pass, so with a threshold nothing can reach it
+    produces no output at all. On an unattended EC2 sweep that burns the whole run and surfaces only
+    as a stalled log, which is why this is an error rather than a warning.
+    """
+
+    def test_unreachable_threshold_raises_rather_than_hanging(self):
+        with pytest.raises(RuntimeError, match="screening recruited"):
+            simulate_task_v4_experiment(
+                _params(num_subjects=2, screening_trials=4, screening_repeats=1,
+                        screening_min_reliability=1.0, subjects_noise_scale=0.8),
+                GT, np.random.default_rng(0), verbose=False, max_recruit_per_subject=20,
+            )
+
+    def test_the_error_names_the_pass_rate_and_the_threshold(self):
+        """The message has to be diagnosable from a log with no other context."""
+        with pytest.raises(RuntimeError) as excinfo:
+            simulate_task_v4_experiment(
+                _params(num_subjects=2, screening_trials=4, screening_repeats=1,
+                        screening_min_reliability=1.0, subjects_noise_scale=0.8),
+                GT, np.random.default_rng(0), verbose=False, max_recruit_per_subject=20,
+            )
+        msg = str(excinfo.value)
+        assert "pass rate" in msg
+        assert "screening_min_reliability=1.0" in msg
+        assert "subjects_noise_scale=0.8" in msg
+
+    def test_the_cap_scales_with_num_subjects(self):
+        """Absolute caps break real configurations: the deployed 0.4 threshold legitimately
+        screens ~52 candidates per retained subject, so the budget must grow with the cohort."""
+        params = _params(num_subjects=4, screening_trials=4, screening_repeats=1,
+                         screening_min_reliability=1.0, subjects_noise_scale=0.8)
+        with pytest.raises(RuntimeError, match="recruited 40 candidates"):
+            simulate_task_v4_experiment(params, GT, np.random.default_rng(0), verbose=False,
+                                        max_recruit_per_subject=10)
+
+    def test_a_reachable_threshold_is_unaffected(self):
+        res = _run(seed=1, screening_trials=4, screening_repeats=1, screening_min_reliability=-1.0)
+        assert res.n_candidates_screened == 20   # nobody rejected, so no extra recruitment
+
+
 class TestValidation:
     @pytest.mark.parametrize("bad", [
         dict(screening_trials=-1),

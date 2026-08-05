@@ -52,6 +52,7 @@ from tqdm import trange
 
 from SpAM_Simulations.design import build_trial_lists, distinct_trial_count, select_repeat_trials
 from SpAM_Simulations.noise_population import draw_subject_noises, resolve_family
+from SpAM_Simulations.allocation import DESIGNED, RANDOM
 from SpAM_Simulations.helpers import mean_from_sum_and_count
 from SpAM_Simulations.task_v3_experiment import (
     _draw_perspective_weights, _simulate_trial, _trial_test_retest, _trial_test_retest_procrustes,
@@ -70,7 +71,22 @@ TaskV4ExperimentParameters = NamedTuple("TaskV4ExperimentParameters", [
     ("screening_min_reliability", float), # exclude if min per-repeat rho < this (-1 = exclude nobody)
     ("subjects_noise_lognormal_sigma", float),  # >0 -> lognormal noise population with this sigma;
                                                 # 0.0 -> |t(subjects_noise_df)| (historical default)
+    ("allocation_mode", float),           # allocation.RANDOM (0.0, the deployed scheme) | DESIGNED (1.0)
 ])
+
+# `allocation_mode` defaults to RANDOM so existing callers keep their exact meaning without
+# threading a new argument, and so an omission can only ever fall back to the deployed behaviour
+# rather than silently opting into the experimental arm. `param_grid` always supplies it
+# explicitly, so the default never masks a sweep configuration error.
+TaskV4ExperimentParameters.__new__.__defaults__ = (RANDOM,)
+
+# Recruitment cap, PER RETAINED SUBJECT rather than absolute. The screening loop retries until
+# `num_subjects` candidates pass, so a threshold nothing can reach spins forever with no output -
+# which on an unattended multi-hour EC2 sweep burns the whole run and shows up only as a stalled
+# log. An absolute cap would be wrong: the existing 0.4-threshold cell has a 1.9% pass rate and
+# legitimately screened 6283 candidates to retain 121 subjects, i.e. ~52 per subject. 500 leaves
+# roughly 10x headroom over that while still failing fast on a genuinely unreachable threshold.
+MAX_RECRUIT_PER_SUBJECT = 500
 
 SubjectRun = NamedTuple("SubjectRun", [
     ("observations", np.ndarray),          # condensed sum of this stage's observed distances
@@ -97,6 +113,8 @@ def simulate_task_v4_experiment(
         rng: np.random.Generator,
         verbose: bool = True,
         return_per_subject: bool = False,
+        allocator=None,
+        max_recruit_per_subject: int = MAX_RECRUIT_PER_SUBJECT,
 ) -> Tuple[TaskV4ExperimentParameters, TaskV4ExperimentResults]:
     """Simulate a screened cohort under the task-v4 model.
 
@@ -112,6 +130,10 @@ def simulate_task_v4_experiment(
     With ``return_per_subject=True`` the return value gains a third element: a ``(num_subjects,
     n_pairs)`` float32 array of each retained subject's own mean observed distances (NaN where
     unobserved), matching ``simulate_task_v3_experiment``'s contract.
+
+    Raises ``RuntimeError`` if recruitment exceeds ``max_recruit_per_subject * num_subjects``
+    candidates, which is what an unreachable ``screening_min_reliability`` looks like from inside
+    the loop. See :data:`MAX_RECRUIT_PER_SUBJECT` for why the cap is per-subject and not absolute.
     """
     _validate(params)
     gt_embeddings = np.asarray(gt_embeddings, dtype=np.float32)
@@ -148,36 +170,63 @@ def simulate_task_v4_experiment(
     )
     retained = 0
     n_candidates = 0
+    max_candidates = params.num_subjects * max_recruit_per_subject
     with trange(params.num_subjects, desc="Simulating subjects", disable=not verbose) as bar:
         while retained < params.num_subjects:
+            if n_candidates >= max_candidates:
+                raise RuntimeError(
+                    f"screening recruited {n_candidates} candidates and retained only {retained} of "
+                    f"{params.num_subjects} (pass rate {retained / n_candidates:.4%}); giving up at "
+                    f"the cap of {max_recruit_per_subject} candidates per subject. "
+                    f"screening_min_reliability={params.screening_min_reliability} is likely "
+                    f"unreachable at subjects_noise_scale={params.subjects_noise_scale} with "
+                    f"{params.screening_trials} screening trials. Lower the threshold, or raise "
+                    f"`max_recruit_per_subject` if this pass rate is genuinely expected."
+                )
             n_candidates += 1
             noise = noise_pool.next()
 
             screening = None
             screen_images, main_images = None, None
+            screen_trials, main_trials = None, None
+            if allocator is not None:
+                # Explicit trial lists: the designed arm's blocks must survive intact, and
+                # `build_trial_lists` would reshuffle them back into an arbitrary partition.
+                allocation = allocator.draw(rng)
+                screen_trials, main_trials = allocation.screen, allocation.main
+
             if params.screening_trials > 0:
                 # ONE pool per candidate, partitioned across the two stages, so no image appears in
                 # both - matching `trial_generator.js::partitionIntoStages`. Drawing the two stages
                 # independently would overlap them (at the deployed design, ~40 of a subject's 360
                 # images), manufacturing within-subject cross-stage pair observations the real task
                 # cannot produce.
-                pool = rng.choice(N, size=screen_unique + n_unique, replace=False)
-                screen_images, main_images = pool[:screen_unique], pool[screen_unique:]
+                if allocator is None:
+                    pool = rng.choice(N, size=screen_unique + n_unique, replace=False)
+                    screen_images, main_images = pool[:screen_unique], pool[screen_unique:]
                 screening = simulate_task_v4_single_subject(
                     subject_noise=noise, perspective_dispersion=params.perspective_dispersion,
                     t_distinct=screen_distinct, k=k, n_unique=screen_unique,
                     n_repeats=params.screening_repeats, gt_embeddings=gt_embeddings, rng=rng,
-                    image_indices=screen_images,
+                    image_indices=screen_images, trials=screen_trials,
                 )
                 if not _passes_screening(screening.repeat_correlations,
                                          params.screening_min_reliability):
-                    continue  # screened out: their data is discarded and they are replaced
+                    # Screened out: discard and replace. Returning the session to the pool keeps
+                    # the design a plan over ANALYSED subjects, so coverage does not silently
+                    # degrade in proportion to the rejection rate.
+                    if allocator is not None:
+                        allocator.rollback()
+                    continue
 
             main = simulate_task_v4_single_subject(
                 subject_noise=noise, perspective_dispersion=params.perspective_dispersion,
                 t_distinct=t_distinct, k=k, n_unique=n_unique, n_repeats=n_repeats,
                 gt_embeddings=gt_embeddings, rng=rng, image_indices=main_images,
+                trials=main_trials,
             )
+            if allocator is not None:
+                allocator.commit()
             # A retained subject's screening trials are analysed data, so pool both stages.
             observations = main.observations
             n_obs = main.n_obs
@@ -256,6 +305,7 @@ def simulate_task_v4_single_subject(
         gt_embeddings: np.ndarray,
         rng: np.random.Generator,
         image_indices: Optional[np.ndarray] = None,
+        trials: Optional[List[np.ndarray]] = None,
 ) -> SubjectRun:
     """Simulate one stage for one subject: ``t_distinct`` distinct trials plus ``n_repeats`` repeats.
 
@@ -277,21 +327,37 @@ def simulate_task_v4_single_subject(
     caller uses it to partition ONE per-subject pool across the screening and main stages, so no
     image appears in both - mirroring ``trial_generator.js::partitionIntoStages``. Left as ``None``
     the pool is drawn here, which is what task-v3 does and keeps the no-screening arm bit-exact.
+
+    ``trials`` goes one step further and supplies the trial lists themselves, bypassing both the
+    pool draw and ``build_trial_lists``. The designed-allocation arm needs this: its blocks are
+    chosen so image pairs co-occur about equally often across the cohort, and re-partitioning them
+    through ``build_trial_lists`` would shuffle that structure away. Mutually exclusive with
+    ``image_indices``.
     """
     assert subject_noise >= 0, "`subject_noise` must be non-negative"
     assert n_repeats >= 0, "`n_repeats` must be non-negative"
     N, D = gt_embeddings.shape
     assert n_unique <= N, f"`n_unique`(={n_unique}) must not exceed the image pool size (N={N})"
+    assert trials is None or image_indices is None, (
+        "pass `trials` or `image_indices`, not both: `trials` already fixes the partition"
+    )
 
     weights = _draw_perspective_weights(D, perspective_dispersion, rng)
-    if image_indices is None:
-        active_indices = rng.choice(N, size=n_unique, replace=False)
-    else:
-        active_indices = np.asarray(image_indices)
-        assert active_indices.size == n_unique, (
-            f"`image_indices` has {active_indices.size} entries, expected n_unique={n_unique}"
+    if trials is not None:
+        assert len(trials) == t_distinct, (
+            f"`trials` has {len(trials)} entries, expected t_distinct={t_distinct}"
         )
-    trials = build_trial_lists(active_indices, t_distinct, k, n_double=0, rng=rng)
+        trials = [np.asarray(t) for t in trials]
+        assert all(t.size == k for t in trials), f"every supplied trial must hold k={k} images"
+    else:
+        if image_indices is None:
+            active_indices = rng.choice(N, size=n_unique, replace=False)
+        else:
+            active_indices = np.asarray(image_indices)
+            assert active_indices.size == n_unique, (
+                f"`image_indices` has {active_indices.size} entries, expected n_unique={n_unique}"
+            )
+        trials = build_trial_lists(active_indices, t_distinct, k, n_double=0, rng=rng)
 
     n_pairs = N * (N - 1) // 2
     observations = np.zeros(n_pairs, dtype=np.float64)
@@ -363,4 +429,8 @@ def _validate(params: TaskV4ExperimentParameters) -> None:
     assert params.subjects_noise_lognormal_sigma >= 0, (
         f"`subjects_noise_lognormal_sigma` must be >= 0, with 0 meaning 'use the t family' "
         f"(got {params.subjects_noise_lognormal_sigma})"
+    )
+    assert params.allocation_mode in (RANDOM, DESIGNED), (
+        f"`allocation_mode` must be {RANDOM} (random, the deployed scheme) or {DESIGNED} "
+        f"(balanced design), got {params.allocation_mode}"
     )

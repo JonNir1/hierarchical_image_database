@@ -84,14 +84,59 @@ pip install -q "numpy>=2.4" "scipy>=1.17" "pandas>=3.0" "scikit-learn>=1.8" \
 mkdir -p out
 export PYTHONPATH="$PWD"
 
+# --------------------------------------------------------------------------- staging helpers
+# A run is a sequence of stages, and $WORKDIR does not survive between them - line 68 above does
+# `rm -rf "$WORKDIR"` for a clean clone, and an instance is terminated as soon as its stage ends.
+# So stages hand work to each other through S3, and a long loop pushes partials as it goes: an
+# 8-hour scan that dies at hour 7 must not lose the six dimensionalities it already finished.
+#
+#   stage_pull <name> [<local-dir>]   fetch a previous stage's artifacts (missing prefix = no-op)
+#   stage_push <name> [<local-dir>]   publish this stage's artifacts so far
+stage_pull() {
+  local name="$1" dest="${2:-$1}"
+  mkdir -p "$dest"
+  echo ">> [stage] pulling $S3_URI/$name/ -> $dest/"
+  aws s3 sync "$S3_URI/$name/" "$dest/" --only-show-errors || true
+}
+
+stage_push() {
+  local name="$1" src="${2:-$1}"
+  if [ ! -d "$src" ]; then
+    echo ">> [stage] nothing to push: $src does not exist"
+    return 0
+  fi
+  echo ">> [stage] pushing $src/ -> $S3_URI/$name/"
+  aws s3 sync "$src/" "$S3_URI/$name/" --only-show-errors "${@:3}"
+}
+
 # --------------------------------------------------------------------------- upload + wrap-up
 # Call this from the entrypoint after the sweep finishes writing out/ and mds_store/.
+#
+# `confdists.f32` is NOT uploaded. It is exactly `pdist(conf)` per row, so it is fully recoverable
+# from `confs.f32`, which is ~20x smaller (n_images * max_ndim floats against n_images^2 / 2).
+# Syncing it anyway is what accumulated 26 GiB of pure redundancy across previous runs. Set
+# UPLOAD_CONFDISTS=true to override; a store written without configurations (store_conf=False, the
+# pre-v2 format) has nothing to recover from, so there the exclusion is skipped automatically.
+UPLOAD_CONFDISTS="${UPLOAD_CONFDISTS:-false}"
+
 upload_and_finish() {
   echo ">> uploading results to $S3_URI ..."
-  aws s3 sync out/        "$S3_URI/out/"        --only-show-errors      # small summary CSVs
-  aws s3 sync mds_store/  "$S3_URI/mds_store/"  --only-show-errors      # the confdist store
+  aws s3 sync out/ "$S3_URI/out/" --only-show-errors                    # small summary CSVs
+
+  local exclude=(--exclude "*confdists.f32")
+  if [ "$UPLOAD_CONFDISTS" = "true" ]; then
+    echo ">> [upload] UPLOAD_CONFDISTS=true: including confdists.f32 (large, and derivable from confs)"
+    exclude=()
+  elif ! find mds_store/ -name confs.f32 -size +0c 2>/dev/null | grep -q .; then
+    echo "!! [upload] no non-empty confs.f32 under mds_store/ - this store cannot regenerate"
+    echo "!! confdists, so it is being uploaded in full. Pass store_conf=True to run_mds_sweep."
+    exclude=()
+  else
+    echo ">> [upload] excluding confdists.f32 (recoverable as pdist(conf) from confs.f32)"
+  fi
+  aws s3 sync mds_store/ "$S3_URI/mds_store/" --only-show-errors "${exclude[@]}"
 
   echo ">> ALL DONE. Results at $S3_URI"
-  echo ">> Tip: you usually only need out/*.csv + mds_store/meta.csv locally; confdists.f32 is the big file."
+  echo ">> Tip: out/*.csv + mds_store/{meta.csv,store_info.json,confs.f32} is the whole local analysis input."
   echo ">> !! TERMINATE THIS EC2 INSTANCE NOW to stop incurring charges !!"
 }

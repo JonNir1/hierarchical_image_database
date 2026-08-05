@@ -101,9 +101,17 @@ has been done and what is pending.
 
 ## Phase 1 — Data collection & QC
 
-### Phase 1a — Pilot (mode: `"pilot"`, ~15-20 participants, pre-SHINE only)
+### Phase 1a — Pilot (mode: `"pilot"`, ~15-20 participants, mostly pre-SHINE)
 - [ ] Launch pilot study with `deployment.mode = "pilot"` in `task_config.json`.
-      All pilot participants are assigned to the pre-SHINE cohort.
+      `task.js` assigns pilot participants the pre-SHINE images.
+
+> **The collected pilot data does not match that rule.** Of the 47 loadable pilot
+> subjects, **41 are `pre` and 6 are `post`** (all v3.06) — some pilot sessions ran
+> under a build that did not pin the variant. So `cohort == "pilot"` is **not** a
+> pre-SHINE filter, and anything variant-sensitive must filter on `shine_variant`
+> explicitly (`load_pilot_subjects(..., variants=("pre",))`). Ground-truth
+> construction does; noise-model fitting deliberately does not, since it estimates
+> a property of subjects rather than of the images.
 - [ ] Download data from Pavlovia. Inspect QC pass-rates, trial RT distributions,
       image loading, and CSV format. Fix any issues before full launch.
 - [ ] After pilot sign-off: set `deployment.mode = "production"` in `task_config.json`,

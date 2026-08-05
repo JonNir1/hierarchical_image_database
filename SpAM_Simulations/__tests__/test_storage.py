@@ -213,3 +213,97 @@ def test_storage_smaller_than_float64(tmp_path):
     f32_bytes = (tmp_path / "s" / "confdists.f32").stat().st_size
     assert f32_bytes == n * L * 4  # exact float32 packing
     assert f32_bytes < n * L * 8  # smaller than float64
+
+
+# --------------------------------------------------------------------- conf-only stores
+
+class TestConfOnlyStore:
+    """A store whose `confdists.f32` was never downloaded must still open and serve `conf`.
+
+    `confdist == pdist(conf)` and a conf row is ~20x smaller, so the cluster analysis pulls confs
+    alone (~28 MB against ~500 MB for a full sweep). That download is a supported read mode, not a
+    corrupt store, so the record count comes from meta.csv rather than the binary's size.
+    """
+
+    def _store(self, tmp_path, n_images=6, max_ndim=4, n_rows=3):
+        L = n_images * (n_images - 1) // 2
+        rng = np.random.default_rng(0)
+        confs = {r: rng.random((n_images, max_ndim)).astype(np.float32) for r in range(n_rows)}
+        store = ResultStore.create(tmp_path / "s", confdist_len=L, meta_columns=META_COLS,
+                                   n_images=n_images, max_ndim=max_ndim)
+        for r, cf in confs.items():
+            store.append(_meta(rep=r), rng.random(L).astype(np.float32), cf)
+        store.close()
+        return tmp_path / "s", confs
+
+    def _strip_confdists(self, path):
+        (path / "confdists.f32").unlink()
+
+    def test_conf_still_readable_without_confdists(self, tmp_path):
+        path, confs = self._store(tmp_path)
+        self._strip_confdists(path)
+        reopened = ResultStore.open(path)
+        for r, expected in confs.items():
+            np.testing.assert_array_equal(reopened.conf(r), expected)
+
+    def test_record_count_survives(self, tmp_path):
+        """The count must come from meta.csv; deriving it from the binary would give 0."""
+        path, confs = self._store(tmp_path)
+        before = len(ResultStore.open(path))
+        self._strip_confdists(path)
+        assert len(ResultStore.open(path)) == before == len(confs)
+
+    def test_has_confdists_reports_the_truth(self, tmp_path):
+        path, _ = self._store(tmp_path)
+        assert ResultStore.open(path).has_confdists
+        self._strip_confdists(path)
+        assert not ResultStore.open(path).has_confdists
+
+    def test_confdist_raises_a_directed_error(self, tmp_path):
+        path, _ = self._store(tmp_path)
+        self._strip_confdists(path)
+        with pytest.raises(ValueError, match="confdists.f32"):
+            ResultStore.open(path).confdist(0)
+
+    def test_conf_trimming_still_works(self, tmp_path):
+        path, confs = self._store(tmp_path, max_ndim=4)
+        self._strip_confdists(path)
+        trimmed = ResultStore.open(path).conf(0, ndim=2)
+        assert trimmed.shape == (6, 2)
+        np.testing.assert_array_equal(trimmed, confs[0][:, :2])
+
+    def test_iter_results_yields_none_rather_than_raising(self, tmp_path):
+        path, confs = self._store(tmp_path)
+        self._strip_confdists(path)
+        out = list(ResultStore.open(path).iter_results())
+        assert len(out) == len(confs)
+        assert all(cd is None for _, cd in out)
+
+    def test_a_normal_store_is_unaffected(self, tmp_path):
+        """The meta.csv-derived count must agree with the old file-size derivation."""
+        path, confs = self._store(tmp_path)
+        reopened = ResultStore.open(path)
+        assert reopened.has_confdists and len(reopened) == len(confs)
+        assert reopened.confdist(0).shape == (15,)
+        np.testing.assert_array_equal(reopened.conf(1), confs[1])
+
+    def test_failed_rows_do_not_inflate_the_binary_row_count(self, tmp_path):
+        """Metadata-only records carry confdist_row = -1 and occupy no row in either binary.
+
+        `len(store)` counts metadata records (so it stays 2 here); the binary row count is what
+        must ignore the -1, and reading past it must raise rather than return padding.
+        """
+        L = 15
+        store = ResultStore.create(tmp_path / "f", confdist_len=L, meta_columns=META_COLS,
+                                   n_images=6, max_ndim=4)
+        rng = np.random.default_rng(1)
+        store.append(_meta(rep=0), rng.random(L).astype(np.float32),
+                     rng.random((6, 4)).astype(np.float32))
+        store.append(_meta(rep=1, status="error"))          # no confdist, no conf
+        store.close()
+
+        reopened = ResultStore.open(tmp_path / "f")
+        assert len(reopened) == 2, "both metadata records are still records"
+        assert reopened.conf(0).shape == (6, 4)
+        with pytest.raises(IndexError):
+            reopened.conf(1)

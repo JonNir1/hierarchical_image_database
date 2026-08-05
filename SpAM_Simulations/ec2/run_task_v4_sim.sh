@@ -89,6 +89,11 @@ GIT_REF="${GIT_REF:-main}"
 S3_URI="${S3_URI:?set S3_URI, e.g. s3://my-bucket/spam-simulations/task-v4}"
 WORKDIR="${WORKDIR:-$HOME/spam_run}"
 GT_METHOD="${GT_METHOD:-smacof}"          # 'smacof' (needs R, canonical) or 'classical' (no-R smoke test)
+# GT dimensionality. REQUIRED, no default: it used to be inferred from a mean-imputed eigenspectrum,
+# which manufactures rank on this coverage and always returned its cap. Take it from the selection
+# written by run_gt_construction.sh (gt/selection.json).
+N_DIMS="${N_DIMS:?set N_DIMS, e.g. from gt/selection.json produced by run_gt_construction.sh}"
+export N_DIMS
 REPS="${REPS:-6}"                         # cohorts per fit point; C(REPS,2) cohort pairs compared
 # MDS worker processes. All vCPUs OOM'd a run (each worker holds its own R/smacof process), so
 # default to 2/3 of them.
@@ -200,7 +205,11 @@ NDIMS = [5, 6, 8, 10]
 allsub = load_pilot_subjects(PILOT, MANIFEST)
 print(f"[gt] loaded {len(allsub)} completed sessions; calculating GT embeddings "
       f"({GT_METHOD}) - this may take a few minutes ...", flush=True)   # SMACOF runs silently in R
-coords, gt_info = build_gt_from_pilot(allsub, method=GT_METHOD)
+# GT dimensionality is no longer inferred here. build_gt_from_pilot used to default n_dims from the
+# eigenspectrum of a mean-imputed aggregate; on 63.6%-unobserved data that manufactures rank and
+# simply returned its cap of 15. N_DIMS is required, and comes from a run_gt_construction.sh scan.
+N_DIMS = int(os.environ["N_DIMS"])
+coords, gt_info = build_gt_from_pilot(allsub, n_dims=N_DIMS, method=GT_METHOD)
 np.save("calibration/gt_pilot_coords.npy", coords)
 print(f"[gt] {gt_info['method']}: N={coords.shape[0]}, n_dims={gt_info['n_dims']}, "
       f"observed {gt_info['observed_frac']:.1%} of pairs")
