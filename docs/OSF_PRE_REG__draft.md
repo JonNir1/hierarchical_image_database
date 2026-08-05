@@ -132,8 +132,29 @@ Additional reporting (following Shoham et al. 2024, Nature Human Behaviour):
   t-tests. FDR (Benjamini-Hochberg) across the three predictors.
 
 The same confirmatory model is also fit under $D_{sem} = D_{WN}$ (WordNet shortest-path
-distance, synsets from image category labels) as a registered supplementary robustness check; agreement between
-sources is informative but not required for the H3 conclusion.
+distance, synsets from image category labels) as a registered supplementary specification.
+
+*Note on what the WordNet fit does and does not test*: we originally framed this as a
+robustness check on $D_{sem} = D_{KM}$. Pre-data diagnostics on the reference RDMs
+(`analysis/rdms/compare_to_hierarchy.ipynb`) show that framing to be wrong.
+$D_{WN}$ and $D_{CLIP}$ are near-orthogonal to each other (Spearman ρ = 0.05, and
+slightly negative at −0.06 once $D_{KM}$ is held fixed), while each independently tracks
+$D_{KM}$ (ρ = 0.29 and 0.35). Their joint $R^2$ predicting $D_{KM}$ is 0.194, against
+0.203 expected if they were fully independent, i.e. they carry almost entirely
+non-overlapping information. $D_{KM}$ and $D_{WN}$ are therefore *different semantic
+constructs*, not two noisy measurements of one. Consequently, disagreement between
+$α^{KM}$ and $α^{WN}$ is not evidence that the H3 result is fragile; it would indicate
+that the two semantic sources pick out different structure, and both are reported on
+their own terms. The KM fit remains the confirmatory one, because the KM hierarchy is
+the curated organisation the dataset was actually built around.
+
+We also note a known limitation of the WordNet metric surfaced by the same diagnostics:
+shortest-path length reflects taxonomic bookkeeping rather than perceived similarity.
+Within our primate categories, for instance, `baboon`–`capuchin` scores 18 edges (the
+path is forced up through the primate root, since the two sit in different Old/New World
+subtrees) while `baboon`–`macaque` scores 2. This inflates $D_{WN}$ for some
+perceptually and folk-semantically close pairs, and is one reason $D_{WN}$'s agreement
+with the curated hierarchy is non-monotonic at the deepest tree level.
 
 H3 exploratory variants (registered, not confirmatory):
 - $D_{sem} = D_{sem}^{SGPT}$ — matches Shoham et al.'s exact "semantic"
@@ -149,11 +170,19 @@ H3 exploratory variants (registered, not confirmatory):
 objects to minimize the correlation between their visual (VGG), visual-semantic
 (CLIP), and semantic (SGPT) DNN embeddings, giving them near-orthogonal predictors.
 Our 725-image set was curated for hierarchical coverage of Kiani-Mur, with no such
-orthogonality guarantee. Predictor multicollinearity in our H3 regression will
-therefore be substantively higher than in Shoham et al. NNLS coefficients on
-correlated predictors are known to be unstable; the partial-correlation and
-hierarchical-$R^2$ analyses in the reporting protocol mitigate this by attributing
-unique vs shared variance per predictor.
+orthogonality guarantee, so we anticipated substantively higher multicollinearity than
+Shoham et al. and flagged NNLS coefficient instability as a risk.
+
+Measuring it on the built reference RDMs before data collection, that concern appears
+unfounded, in the favourable direction. The H3 predictors are already close to
+orthogonal: ρ($D_{CLIP}$, $D_{WN}$) = 0.05, ρ($D_{CLIP}$, $D_{sens}$) = 0.24, and
+ρ($D_{WN}$, $D_{sens}$) = −0.07 (pre-SHINE; post-SHINE values are comparable). Under
+$D_{sem} = D_{KM}$ the strongest predictor pair is ρ($D_{KM}$, $D_{CLIP}$) = 0.35. We
+therefore do not expect the coefficient instability this note originally anticipated.
+We retain the partial-correlation and hierarchical-$R^2$ analyses in the reporting
+protocol regardless, both because they were pre-registered and because they answer the
+unique-versus-shared variance question directly rather than only as a collinearity
+remedy.
 <br><br><br>
 **Exploratory / Supplementary Analyses; not part of main RQs:**
 - use hyperbolic embeddings (e.g. Poincaré disk; Marton 2025 HyPoE or equivalent) to replicate the H2 and H3 analyses in a non-Euclidean space.
@@ -239,7 +268,21 @@ intervals of 5 subjects after reaching N=75).
 - Subject-level reliability index: Spearman ρ on the 50 within-subject repeated images
 - Population-level perceptual RDMs from unweighted metric MDS (`smacof` in R; binary pair weights — 1 if observed, 0 otherwise): $D^{pre}_{perc}$ and $D^{post}_{perc}$
 - Semantic distance matrices: $D_{sem}^{KM}$ (Kiani-Mur graph distance) and $D_{sem}^{WN}$
-  (WordNet shortest-path distance). For $D_{sem}^{WN}$, each image is assigned a WordNet
+  (WordNet shortest-path distance).
+  $D_{sem}^{KM}$ is the path length through the curated directory tree:
+  $d(i,j) = \text{depth}_i + \text{depth}_j - 2\,\text{depth}_{LCA(i,j)}$, floored at 1
+  off-diagonal so two distinct images in the same leaf folder are never at distance 0.
+  *Note on tree raggedness*: the hierarchy is not depth-uniform. Of the 725 images, 336
+  sit at directory depth 3, 316 at depth 4, and 73 at depth 5, because some branches are
+  subdivided more finely than others. Two consequences follow, and both are properties of
+  the curated hierarchy rather than of the distance metric. First, $D_{sem}^{KM}$ is not a
+  function of how far up the tree two images diverge (their LCA depth) alone: a given LCA
+  depth maps to several distinct KM distances. Second, KM distances are not directly
+  comparable across branches, since an equally-related pair in a finely subdivided branch
+  is assigned a larger distance than one in a coarse branch. Any level-stratified analysis
+  ($H1b$, $H2d$) inherits this asymmetry, so level-wise comparisons are interpreted within
+  branch-depth strata and not as a single monotone scale across the whole tree.
+  For $D_{sem}^{WN}$, each image is assigned a WordNet
   noun synset from its filename stem and parent directory label: e.g., `duck3.png` in a
   `bird/` subdirectory resolves to `duck.n.01`; a `bird/` image whose filename does not
   yield a valid synset falls back to `bird.n.01`. Manual overrides handle polysemous stems

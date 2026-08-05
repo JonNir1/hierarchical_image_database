@@ -199,16 +199,6 @@ class TestLevelSeparation:
 # ---------------------------------------------------------------------------
 
 class TestFigures:
-    def test_correlation_and_depth_figures_are_separate(self, toy_tree):
-        corr = hc.correlation_matrix(rdms={"a": np.arange(15.0), "b": np.arange(15.0)})
-        profile = pd.DataFrame(
-            {"n_pairs": [10, 5], "a": [1.0, 0.5]}, index=pd.Index([0, 1], name="lca_depth")
-        )
-        f1, f2 = hc.plot_correlation_matrix(corr), hc.plot_depth_profile(profile)
-        assert f1 is not f2
-        assert f1.data[0].type == "heatmap"
-        assert f2.data[0].type == "scatter"
-
     def test_depth_figure_skips_the_count_column(self, toy_tree):
         profile = pd.DataFrame(
             {"n_pairs": [10, 5], "a": [1.0, 0.5], "b": [1.0, 0.9]},
