@@ -28,6 +28,10 @@ def patched_results(tmp_path, monkeypatch):
     monkeypatch.setattr(vr, "RESULTS_DIR", tmp_path)
     monkeypatch.setattr(vr, "_EXPECTED_LEN", _LEN)
     monkeypatch.setattr(vr, "_N", _N)
+    # run_all_checks opens with the manifest phase, which reads the real
+    # manifest and the real image directories. Stub it out so these tests stay
+    # unit-level; it has dedicated coverage in TestCheckManifestMatchesDisk.
+    monkeypatch.setattr(vr, "check_manifest_matches_disk", lambda: None)
     return tmp_path
 
 
@@ -166,6 +170,85 @@ class TestCheckClipCorrelation:
         d_post = d_pre[::-1]
         with pytest.raises(vr.CheckFailed, match="Spearman rho"):
             vr.check_clip_correlation(d_pre, d_post)
+
+
+# ---------------------------------------------------------------------------
+# check_manifest_matches_disk
+# ---------------------------------------------------------------------------
+
+_MANIFEST_HEADER = "curated_path,curated_filename,category,wn_synset_name\n"
+_TEST_PATHS = [
+    r"animate\human\face\caucasian\male1.png",
+    r"animate\human\face\hispanic\male1.png",
+    r"inanimate\tool\hammer1.png",
+]
+
+
+def _write_manifest(path, curated_paths: list[str]) -> None:
+    rows = "".join(
+        f"{p},{p.rsplit(chr(92), 1)[-1]},HF,man.n.01\n" for p in curated_paths
+    )
+    path.write_text(_MANIFEST_HEADER + rows, encoding="utf-8")
+
+
+@pytest.fixture()
+def manifest_env(tmp_path, monkeypatch):
+    """Build a 3-image dataset on disk (both SHINE variants) plus a matching
+    manifest, and point common/validate_rdms at them. Returns the manifest path
+    so individual tests can rewrite it into a broken state."""
+    images_root = tmp_path / "images"
+    for variant in ("pre_shine", "post_shine"):
+        for rel in _TEST_PATHS:
+            f = images_root / variant / rel.replace("\\", "/")
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_bytes(b"")  # content is irrelevant; only the path set is checked
+
+    manifest_path = tmp_path / "manifest.csv"
+    _write_manifest(manifest_path, _TEST_PATHS)
+
+    monkeypatch.setattr(common, "MANIFEST_PATH", manifest_path)
+    monkeypatch.setattr(vr, "IMAGES_ROOT", images_root)
+    monkeypatch.setattr(vr, "_EXPECTED_N", len(_TEST_PATHS))
+    common.order_hash.cache_clear()
+    return manifest_path
+
+
+class TestCheckManifestMatchesDisk:
+    def test_matching_manifest_passes(self, manifest_env):
+        vr.check_manifest_matches_disk()  # should not raise
+
+    def test_duplicate_path_raises(self, manifest_env):
+        # The dbd2b3e curation error: a row keeps a stale directory component
+        # and collides with an existing row. Row count is unchanged and every
+        # path still resolves to a real file, so only uniqueness catches it.
+        _write_manifest(manifest_env, [
+            r"animate\human\face\caucasian\male1.png",
+            r"animate\human\face\caucasian\male1.png",
+            r"inanimate\tool\hammer1.png",
+        ])
+        with pytest.raises(vr.CheckFailed, match="duplicated curated_path"):
+            vr.check_manifest_matches_disk()
+
+    def test_wrong_row_count_raises(self, manifest_env):
+        _write_manifest(manifest_env, _TEST_PATHS[:-1])
+        with pytest.raises(vr.CheckFailed, match="rows, expected"):
+            vr.check_manifest_matches_disk()
+
+    def test_path_with_no_image_on_disk_raises(self, manifest_env):
+        _write_manifest(manifest_env, [
+            r"animate\human\face\caucasian\male1.png",
+            r"animate\human\face\hispanic\male99.png",  # not on disk
+            r"inanimate\tool\hammer1.png",
+        ])
+        with pytest.raises(vr.CheckFailed, match="no image on disk"):
+            vr.check_manifest_matches_disk()
+
+    def test_post_shine_divergence_raises(self, manifest_env):
+        # pre_shine matches but post_shine does not: pre/post correspondence is
+        # a filename match, so a variant-only gap must still fail.
+        (vr.IMAGES_ROOT / "post_shine" / "inanimate" / "tool" / "hammer1.png").unlink()
+        with pytest.raises(vr.CheckFailed, match="post_shine"):
+            vr.check_manifest_matches_disk()
 
 
 # ---------------------------------------------------------------------------

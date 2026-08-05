@@ -53,8 +53,24 @@ def load_manifest() -> pd.DataFrame:
 
     This row order is the canonical image index: row i <-> index i in every
     condensed RDM vector.
+
+    Raises ValueError if curated_path has duplicates. A duplicated path is
+    silently destructive: every builder still sees _EXPECTED_N rows and every
+    path still resolves to a real file, so one image is encoded twice and
+    another is dropped without any downstream check noticing. Set-equality
+    against the image directories is the stronger check but requires disk
+    access; see check_manifest_matches_disk() in validate_rdms.py.
     """
-    return pd.read_csv(MANIFEST_PATH)
+    df = pd.read_csv(MANIFEST_PATH)
+    dupes = df["curated_path"][df["curated_path"].duplicated(keep=False)]
+    if not dupes.empty:
+        listed = "\n  ".join(sorted(dupes.unique()))
+        raise ValueError(
+            f"{MANIFEST_PATH} has {dupes.nunique()} duplicated curated_path "
+            f"value(s), so it indexes fewer than {len(df)} distinct images:\n"
+            f"  {listed}"
+        )
+    return df
 
 
 @lru_cache(maxsize=1)

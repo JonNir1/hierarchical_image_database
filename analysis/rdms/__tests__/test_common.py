@@ -46,6 +46,30 @@ def test_load_manifest_shape():
     assert "category" in df.columns
 
 
+def test_load_manifest_paths_are_unique():
+    df = common.load_manifest()
+    assert df["curated_path"].is_unique, "curated_path must index 725 distinct images"
+
+
+def test_load_manifest_rejects_duplicate_paths(tmp_path, monkeypatch):
+    """A duplicated curated_path is silently destructive: row count is still
+    725 and every path still resolves to a real file, so one image would be
+    encoded twice and another dropped from every RDM without any downstream
+    check noticing. load_manifest() must refuse to return it."""
+    broken = tmp_path / "manifest.csv"
+    broken.write_text(
+        "curated_path,curated_filename,category\n"
+        "a\\x1.png,x1.png,HF\n"
+        "a\\x1.png,x1.png,HF\n"
+        "b\\y1.png,y1.png,HF\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(common, "MANIFEST_PATH", broken)
+    common.order_hash.cache_clear()
+    with pytest.raises(ValueError, match="duplicated curated_path"):
+        common.load_manifest()
+
+
 # ---------------------------------------------------------------------------
 # order_hash
 # ---------------------------------------------------------------------------
