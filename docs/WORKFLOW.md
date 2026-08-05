@@ -72,6 +72,17 @@ has been done and what is pending.
       Pairwise **cosine** distance via `cosine_distances()`. Variant-agnostic — one
       RDM, used for both cohorts.
       Out: `E_sem_sgpt.npy`, `D_sem_sgpt.npy`.
+- [ ] Reference-RDM diagnostics vs the curated hierarchy.
+      `code: analysis/rdms/hierarchy_comparison.py` + `analysis/rdms/compare_to_hierarchy.ipynb`.
+      Confirms `D_sem_km` reproduces the directory tree exactly (independent
+      reimplementation of the LCA computation, so the check is not a tautology),
+      then asks how far each non-KM RDM tracks that tree. Two distinct questions,
+      deliberately plotted as two separate figures: pairwise rank agreement
+      (`plot_correlation_matrix`) and distance-vs-hierarchical-depth
+      (`plot_depth_profile`). Inference uses image-label shuffling, never analytic
+      p-values, since the 262,450 condensed entries come from only 725 images.
+      Not a gate on anything; run it after the reference RDMs are built and before
+      committing to a `D_sem` source for RQ3.
 - [ ] SHINE manipulation check. `code: analysis/rdms/manip_check.ipynb`.
       Verify `D_sens_post` has much lower variance in luminance + color-histogram
       moments than `D_sens_pre`. If not, abort and re-run SHINE.
