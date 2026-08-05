@@ -9,6 +9,9 @@ sweep on EC2. For *what* the simulations answer and *how* the pipeline is put to
 - [Performance and storage notes](#performance-and-storage-notes)
 - [Running with R (rpy2 + smacof)](#running-with-r-rpy2--smacof)
 - [Running on EC2](#running-on-ec2)
+  - [Calibrated flavor (fit to pilot first)](#calibrated-flavor-fit-to-pilot-first)
+  - [Task-v4 flavor (screening block, pilot-calibrated)](#task-v4-flavor-screening-block-pilot-calibrated)
+  - [Two-stage flavor: GT construction, then designed vs random](#two-stage-flavor-gt-construction-then-designed-vs-random)
 
 ## Quick start
 
@@ -41,8 +44,15 @@ Or run the bundled example: `python -m SpAM_Simulations.example_pipeline` (from 
   ~half the memory). The serial path is bit-exact and fully reproducible from `seed`.
 - `run_mds_sweep(parallel=True, n_jobs=...)` distributes the independent MDS runs across
   processes (joblib/loky), streaming results to disk so peak memory stays bounded.
-- `ResultStore` keeps a human-readable `meta.csv` plus a flat float32 `confdists.f32`
-  (memory-mapped on read), replacing the old multi-GB append-only pickle.
+- `ResultStore` keeps a human-readable `meta.csv` plus flat float32 binaries (memory-mapped on
+  read), replacing the old multi-GB append-only pickle: `confdists.f32` holds each fit's condensed
+  distance vector and `confs.f32` its `(n_images, ndim)` coordinates, zero-padded to `max_ndim`.
+- **`confdists.f32` is not uploaded to S3.** It is exactly `pdist(conf)` per row, so it is fully
+  recoverable from `confs.f32` at roughly a twentieth of the size. `upload_and_finish` excludes it;
+  set `UPLOAD_CONFDISTS=true` to override. A store written without configurations
+  (`store_conf=False`) has nothing to recover from, so there the exclusion is skipped automatically
+  and a warning is printed. Syncing it unconditionally is what accumulated ~26 GiB of pure
+  redundancy across earlier runs.
 
 For real pilot data instead of synthetic, see
 [Calibrating to pilot data](README.md#step-a-calibrate-to-the-pilot) in the README. For
@@ -73,9 +83,12 @@ still isn't found, set `R_HOME` explicitly.
 
 ## Running on EC2
 
-Five shell scripts, under `ec2/`, handle the full-scale sweeps remotely:
+Eight shell scripts, under `ec2/`, handle the full-scale sweeps remotely. The last two are the
+current programme; the rest are the historical runs, kept because their results are cited.
 - `ec2/prepare_machine.sh` - shared provisioning (system packages, R 4.5 + `smacof`, awscli v2,
-  sparse-checkout clone of `SpAM_Simulations/`, Python venv). Sourced, not run directly.
+  sparse-checkout clone of `SpAM_Simulations/`, Python venv), plus `stage_pull`/`stage_push` for
+  handing artifacts between stages and `upload_and_finish` for the final sync. Sourced, not run
+  directly.
 - `ec2/run_task_v0_1_sim.sh` - runs the task-v0.1 (original) simulation's full-study sweep.
 - `ec2/run_task_v2_3_sim.sh` - runs the task-v2.3 (per-subject trial design) simulation's
   full-study sweep (actually fewer total MDS fits than the task-v0.1 sweep - same instance
@@ -97,6 +110,13 @@ Five shell scripts, under `ec2/`, handle the full-scale sweeps remotely:
   test-retest R. One run answers four questions: embedding generalizability between two cohorts of
   N, whether screening lowers required-N and at what recruitment cost, required-N at the deployed
   design, and item-level recoverability. See *Task-v4 flavor* below.
+- `ec2/run_gt_construction.sh` - **stage 1 of the current programme.** Chooses the GT
+  dimensionality by split-half agreement, corroborates it with leave-k-out CV over subjects, and
+  fits the final embedding on the 41 pre-SHINE pilot subjects. Its `gt/selection.json` supplies
+  `N_DIMS` to every later script. See *Two-stage flavor* below.
+- `ec2/run_design_comparison.sh` - **stage 2 of the current programme.** Designed versus random
+  image-to-trial allocation, both arms in one store as a swept `allocation_mode` lever. Pulls
+  stage 1's ground truth and never rebuilds it. See *Two-stage flavor* below.
 
 All entrypoints `source` `prepare_machine.sh` by relative path, so copy `prepare_machine.sh`
 together with whichever entrypoint(s) you want onto the instance (don't transfer an entrypoint
@@ -239,14 +259,26 @@ $RUN_NAME = "task-v2.4"                                   # match the S3_URI you
 $S3_URI   = "s3://jon-nir/spam-simulations/$RUN_NAME"
 $DEST     = "SpAM_Simulations\sim_results\$RUN_NAME"
 
-# Pull only the small files the read-only notebook needs: out/*.csv + mds_store/meta.csv.
+# Pull out/*.csv, mds_store/meta.csv, store_info.json AND confs.f32 - but never confdists.f32.
 aws s3 sync "$S3_URI/out/"       "$DEST\out\"       --only-show-errors
 aws s3 sync "$S3_URI/mds_store/" "$DEST\mds_store\" --exclude "confdists.f32" --only-show-errors
-# `confdists.f32` (the reconstructed embeddings) is multi-GB and is NEVER read by
-# eval_helpers.py - drop the `--exclude` only if you need it for ad-hoc analysis.
 
-Get-ChildItem -Recurse $DEST | Select-Object FullName    # expect out/{coverage,stability,embedding_stability}.csv + mds_store/meta.csv
+Get-ChildItem -Recurse $DEST | Select-Object FullName
 ```
+
+**`confs.f32` must come down; `confdists.f32` must not.** The configurations are what
+`compute_embedding_generalizability`, `compute_item_generalizability` and the entire cluster
+analysis read - the last of these recomputes every distance as `pdist(store.conf(row, ndim))`,
+which is bit-identical to the stored distance row and additionally makes Ward linkage valid (Ward's
+objective is defined only for Euclidean input). A conf row is `n_images * max_ndim` floats against
+`n_images^2 / 2` for a distance row, so for a 480-fit sweep that is ~28 MB rather than ~500 MB.
+
+Since the confdists-excluding sync is now the *normal* download, `ResultStore.open` derives its
+record count from `meta.csv` rather than from the `confdists.f32` file size, and a conf-only store
+opens without complaint; `store.has_confdists` reports which kind you have and `store.confdist(row)`
+raises an error naming the missing file. **Newer runs do not upload `confdists.f32` at all** (see
+[Performance and storage notes](#performance-and-storage-notes)), so for those the `--exclude` is
+belt-and-braces rather than load-bearing.
 `sim_results/` is gitignored, so these stay local. Then open
 `SpAM_Simulations/evaluate_simulation.ipynb` and set `RUN_RESULTS_DIR = "sim_results/task-v2.4"`.
 
@@ -329,3 +361,122 @@ reported per cell in `coverage.csv`.
 > the `min_reliability` screening criterion is simulated - not the deployed move-ratio and
 > distance-SD fail-rate criteria. These results bound what *reliability-based* screening can buy.
 
+
+### Two-stage flavor: GT construction, then designed vs random
+
+The current programme runs as **two EC2 stages that hand off through S3**, plus a third step that
+runs locally. They are separate scripts, and separate instances, because stage 2 must never rebuild
+the ground truth: rebuilding it would silently change it between arms and between runs.
+
+`prepare_machine.sh` provides `stage_pull <name>` / `stage_push <name>` for exactly this. They also
+solve the other problem, which is that `prepare_machine.sh` does `rm -rf "$WORKDIR"` for a clean
+clone and an instance is terminated the moment its stage ends: a long loop pushes partials as it
+goes, so an eight-hour scan that dies at hour seven keeps the six dimensionalities it finished.
+
+#### Stage 1 - `run_gt_construction.sh`
+
+Chooses the GT dimensionality from evidence (split-half agreement, corroborated by leave-k-out CV
+over subjects) and fits the final embedding. Runs on the **41 pre-SHINE pilot subjects only**, and
+fails fast if that count has changed.
+
+```bash
+export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
+export GIT_REF=main
+export S3_URI=s3://jon-nir/spam-simulations/gt-construction   # PRIVATE; pilot read from $S3_URI/data/
+bash run_gt_construction.sh 2>&1 | tee run.log
+# optional: NDIMS=2,3,4,5,6,7,8,10,12,15,20  N_DRAWS=50  CV_K=5  CV_FOLDS=40  SEED=0
+# TERMINATE the instance when done.
+```
+
+1100 split-half fits + 440 CV fits, roughly 1.5 h at `N_JOBS=10` on a c7i.4xlarge - but **budget
+2x**: a ~20-subject half sits at ~26% coverage and hits `max_iters` far more often than the dense
+41-subject aggregate, and a max-iters fit pays the full 1000 iterations. `scan.csv` carries
+`status_a`/`status_b` and `niter_a`/`niter_b` precisely so the first pushed partial can be checked
+and the run killed early if that rate is high.
+
+Fully resumable: `stage_pull gt` runs first, and any dimensionality already in `scan.csv`/`cv.csv`
+is skipped. The half-splits are persisted to `gt/splits.npz`, so a resumed run scores the *same*
+draws and the comparison across dimensionalities stays paired.
+
+| Output | What it is |
+|---|---|
+| `gt/selection.json` | The chosen `n_dims` and the evidence. **Supplies `N_DIMS` to every later script** |
+| `gt/gt_pre_shine_d{K}.npy` | The final `(725, K)` coordinates, fitted on all 41 subjects |
+| `gt/scan.csv`, `gt/scan_summary.csv` | Split-half scores per (ndim, draw), plus solver status |
+| `gt/cv.csv`, `gt/cv_summary.csv` | Held-out Spearman per (ndim, fold) |
+| `gt/discard_rates.json` | The split-search diagnostics - **read these** |
+
+> **Read `discard_rates.json` before trusting the scan.** A half is disconnected precisely when it
+> holds poorly-covered subjects, so discard-and-redraw is a *biased* filter that over-represents
+> well-covered subjects and makes the split-half curve optimistic. Above ~30% discard, or with a
+> material `mean_coverage_kept` vs `mean_coverage_discarded` gap, use the leave-k-out curve alone.
+
+#### Stage 2 - `run_design_comparison.sh`
+
+Designed vs random image-to-trial allocation. Pulls stage 1's `gt/` prefix and **fails fast** if
+`gt/selection.json` is absent.
+
+```bash
+export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
+export GIT_REF=main
+export S3_URI=s3://jon-nir/spam-simulations/design-comparison    # FRESH prefix; PRIVATE
+export GT_S3_URI=s3://jon-nir/spam-simulations/gt-construction   # where stage 1 wrote gt/
+bash run_design_comparison.sh 2>&1 | tee run.log
+# optional: REPS=10 (>=10 enforced)  N_LIST=30,50,75,300  NDIMS=...  MINREL=0.0
+# TERMINATE the instance when done.
+```
+
+`REPS >= 10` is **enforced, not suggested**: C(6,2)=15 cohort pairs gives visibly wide SEMs, and the
+k-selection rule reads those SEMs directly. C(10,2)=45 is the design point.
+
+The D grid defaults to `D_gt + {-3, -1, 0, +2, +5, +10}`, clipped to `[2, 20]` - it must span below,
+at and above the selected dimensionality, since a sweep that recovers structure only at exactly the
+dimensionality it was generated in has demonstrated nothing. `max(D)` sets the download size (conf
+rows are zero-padded to `max_ndim`), so raising it costs twice.
+
+Both arms land in **one store**, with `allocation_mode` (0.0 random / 1.0 designed) as a swept
+numeric lever. Every `compute_*` table therefore gains an `allocation_mode` grouping column for
+free, and both arms are guaranteed to share a ground truth and a noise draw. Each rep gets a
+**fresh** session design; sharing one would leave the designed arm with zero allocation variance
+while the random arm carried it, making the two spreads incomparable.
+
+| Output | What it is |
+|---|---|
+| `out/design_only.csv` | Stage 2a: the arms compared as pure sampling plans (no subjects, no MDS, no R). Runs and is pushed **first** - if the arms do not separate here, 2b has nothing to find |
+| `out/coverage.csv`, `out/stability.csv` | Per-cohort coverage and recruitment cost, by arm |
+| `out/embedding_generalizability.csv` | Procrustes M² between cohorts' spaces (lower = better) |
+| `out/topk_jaccard.csv`, `out/recovery_vs_gt.csv` | Item-level reproducibility, and recovery of the GT's genuinely-closest pairs |
+| `out/validity_gradient.csv`, `out/validity.json` | The floor check (below) |
+| `mds_store/` | ~480 fits, uploaded **without** `confdists.f32` |
+
+> **The validity check is a gate, not a footnote.** If the simulated semantic gradient
+> (same-subcategory < same-category < cross-category) does not reproduce, the cohorts are not
+> structurally realistic and **the arm comparison should not be trusted**, however clean the arm
+> contrast looks. The script prints a warning; do not ignore it.
+
+#### Step 3 (local) - `run_cluster_analysis.py`
+
+Pipeline steps g-i. No R, no EC2, a few minutes on one machine. Download the store as above (with
+`confs.f32`, without `confdists.f32`), then from the repo root:
+
+```bash
+python SpAM_Simulations/run_cluster_analysis.py --store SpAM_Simulations/sim_results/design-comparison/mds_store --out SpAM_Simulations/sim_results/design-comparison/out
+```
+
+It writes `cluster_agreement.csv`, `dendrogram_agreement.csv`, `cluster_sizes.csv` and
+`k_selection.csv` into `out/`, where `eval_helpers.load_run` picks them up as optional frames, and
+prints the continuum verdicts.
+
+**`k_selection.csv` reports two granularities, and they answer different questions.** `k_star` is
+selected on VI (one-SE rule) and is the *coarsest granularity that reproduces*: the conservative
+deduplication rule, since a coarser cut merges more images and excludes more candidate pairs.
+`k_star_sil` is selected on cross-cohort silhouette and is *where the structure actually is*. They
+differ because VI measures reproducibility rather than correctness of granularity - on three
+well-separated planted blobs VI is exactly 0 at k=2 and at k=3 alike, because both cohorts merge the
+same two blobs, and only silhouette distinguishes them (0.93 at the true 3 against 0.76 at 2).
+
+> **A continuum is a result.** If `is_flat` (VI varies by less than 0.02 across the whole k grid) or
+> `is_arbitrary_slicing` (cross-cohort silhouette at k\* below 0.05) comes back true, the cohorts
+> reproducibly agree on a cut of a space that has no separation in it. That means "one image per
+> cluster" is the wrong deduplication rule for this data and a distance threshold should be used
+> instead. It is a finding, not a failed run.

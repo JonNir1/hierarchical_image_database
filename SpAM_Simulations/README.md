@@ -114,7 +114,11 @@ small-k bias to first order, and reads as optimism: near 1 means the separation 
 
 **Good at**: the granularity question. Reproducibility as a function of k tells you the finest
 resolution the data supports, which is the level at which to deduplicate.
-**Bad at**: telling you whether clusters exist at all. VI and ARI measure agreement on a partition,
+**Bad at**: identifying the number of clusters, and telling you whether clusters exist at all. VI
+scores *reproducibility*, and a coarse cut of a well-separated structure reproduces just as
+perfectly as the right one: on three planted blobs VI is exactly 0 at both k=2 and k=3, because
+every cohort merges the same two blobs. Cross-cohort silhouette is what distinguishes them, which is
+why both `k_star` (VI) and `k_star_sil` (silhouette) are reported. VI and ARI measure agreement on a partition,
 not whether that partition is meaningful. Two cohorts can reproducibly agree on an arbitrary slicing
 of a continuum, which is exactly why the silhouette ratio is carried alongside: high agreement with
 near-zero cross-cohort silhouette is the signature of that failure, and it would mean "one image per
@@ -226,6 +230,14 @@ on a flat curve a plain argmax is noise-driven and drifts high.
 `method="classical"` exists for running this without R. It mean-imputes, i.e. does the very thing
 described above, so it is a **plumbing smoke test only** and must never select a dimensionality.
 
+This whole step is its own EC2 stage, `ec2/run_gt_construction.sh`, and its own instance. The scan
+is 1100 fits and the CV another 440, so `gt_construction` carries a joblib payload path alongside
+the readable serial one (`split_aggregates`, `scan_ndim_parallel`, `cross_validate_ndim_parallel`),
+mirroring `pipeline`'s: subjects are pooled into arrays once, R is imported inside each worker, and
+a failed fit is recorded rather than raised so one bad draw cannot abort a multi-hour scan. The
+drivers take **one `ndim` per call** so the loop checkpoints to S3 after each dimensionality. The
+stage writes `gt/selection.json`, which is what supplies `N_DIMS` to every later script.
+
 ### Steps b-c: generate cohorts
 
 Each simulated subject gets a placement precision drawn from the fitted noise population, a
@@ -249,7 +261,16 @@ re-running skips work already recorded, which is the only checkpointing an inter
 
 ### Steps g-i: cluster and decide
 
-These run **locally**, on a downloaded store, and need no R:
+These run **locally**, on a downloaded store, and need no R. `run_cluster_analysis.py` is the
+one-command driver:
+
+```bash
+python SpAM_Simulations/run_cluster_analysis.py --store <run>/mds_store --out <run>/out
+```
+
+It writes `cluster_agreement.csv`, `dendrogram_agreement.csv`, `cluster_sizes.csv` and
+`k_selection.csv`, which `eval_helpers.load_run` picks up as optional frames. Or call the pieces
+directly:
 
 ```python
 from SpAM_Simulations import cluster_stability as cs
@@ -279,6 +300,15 @@ the full 12-k × 3-linkage grid, so a 2,160-pair sweep is ~40 min single-core.
 For a deduplication rule the parsimonious end is the safe one: a coarser k merges more images and
 excludes more candidate pairs, which is the conservative error.
 
+**Two granularities are reported, because VI does not identify the number of clusters.** VI measures
+*reproducibility*, and a coarse cut of a well-separated structure reproduces perfectly too. On three
+planted blobs, VI is exactly 0 at k=2 and at k=3 alike (every cohort merges the same two blobs), so
+the parsimony tiebreak returns 2; cross-cohort silhouette is what tells them apart, peaking at the
+true 3 (0.93 against 0.76). So `k_selection.csv` carries both: `k_star`, selected on VI, is the
+coarsest granularity that reproduces and is the safe deduplication rule; `k_star_sil`, selected on
+cross-cohort silhouette, is where the structure actually is. Reading k\* off VI alone would
+systematically under-report the granularity the data supports.
+
 > One caveat inherited from every rep-pair metric here: the C(r,2) pairs are **not independent**,
 > since each cohort appears in r-1 of them, so the reported SEM understates the true uncertainty.
 
@@ -300,18 +330,19 @@ excludes more candidate pairs, which is the conservative error.
 | `pipeline.py` | Orchestration: generate, coverage, stability, MDS sweep, embedding/item generalizability, top-k stability, `compute_recovery_vs_gt`. |
 | `storage.py` | `ResultStore`: compact, streamable, resumable on-disk store. Holds each fit's `confdist` and, optionally, its MDS configuration (`confs.f32`). Format v2; v1 stores still open unchanged. |
 | `pilot.py` | **Read-only** pilot ingestion + calibration: load the flat `data/` dir, filter by cohort / version / **SHINE variant**, the test-retest and between-subject-agreement observables, and `calibrate_params_from_pilot`. |
-| `gt_construction.py` | **Task-agnostic** GT construction: `dimensionality_scan`, `select_ndim` (one-SE), `cross_validate_ndim`, `build_gt`. Replaces the retired imputed-eigenspectrum rule. |
+| `gt_construction.py` | **Task-agnostic** GT construction: `dimensionality_scan`, `select_ndim` (one-SE), `cross_validate_ndim`, `build_gt`, plus the joblib payload path (`split_aggregates`, `scan_ndim_parallel`, `cross_validate_ndim_parallel`) the EC2 stage needs. Replaces the retired imputed-eigenspectrum rule. |
 | `block_design.py` | Balanced incomplete block designs (MacDonald's "best of greedy", vectorised): `greedy_design`, `best_of_greedy`, `schonheim`, `greedy_session_design`. |
 | `allocation.py` | The `allocation_mode` arm: `RandomAllocator` (deployed scheme) and `DesignedAllocator` (balanced sessions, with rollback). |
 | `design_comparison.py` | Compares allocation arms as **sampling plans** (coverage, per-image balance, waste). No subjects, no MDS, no R. |
 | `recovery.py` | Recovery of the GT's closest pairs: `recall_at_frac`, `dprime_at_frac`, `separation_dprime`, `auc_near_pairs`. |
 | `validity.py` | Is a simulated cohort realistic: distance-distribution comparison plus the semantic-hierarchy gradient. |
 | `cluster_stability.py` | Between-cohort cluster agreement: VI/ARI/AMI, cross-cohort silhouette, cluster-wise Jaccard, Baker's gamma; the `compute_cluster_*` store drivers; and `select_k` / `continuum_diagnostics`. Runs **locally** on a downloaded store. |
+| `run_cluster_analysis.py` | Local CLI driver for pipeline steps g-i: opens a downloaded store, writes the four cluster tables, prints the continuum verdicts. No R, no EC2. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
 | `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb`. No simulation, no MDS, no R. |
 | `evaluate_simulation.ipynb` | Overview/drill-down figures for a completed run, via `eval_helpers.py`. |
 | `evaluation_v0_1.ipynb`, `evaluation_task_v2_3.ipynb`, `evaluation_task_v2_4.ipynb` | Per-task-version plotting notebooks for the older simulations. |
-| `ec2/` | Provisioning (`prepare_machine.sh`) + per-task sweep scripts. See [Cookbook.md](Cookbook.md#running-on-ec2). |
+| `ec2/` | Provisioning + staging helpers (`prepare_machine.sh`) and the sweep entrypoints, including the current two-stage programme (`run_gt_construction.sh`, `run_design_comparison.sh`). See [Cookbook.md](Cookbook.md#running-on-ec2). |
 | `sim_results/<run-name>/` | Local copy of a completed run's small files, downloaded from S3. Gitignored. |
 
 ## Tests
@@ -320,7 +351,7 @@ excludes more candidate pairs, which is the conservative error.
 .venv/Scripts/python.exe -m pytest SpAM_Simulations/__tests__ -q
 ```
 
-465 tests, 5 skipped without R. R-dependent tests (`test_pipeline_mds.py`, one case in
+549 tests, 5 skipped without R. R-dependent tests (`test_pipeline_mds.py`, one case in
 `test_gt_construction.py`) auto-skip if the bridge can't be imported; the rest run anywhere.
 
 Two suites pin behaviour that must not drift. `test_bit_exact.py` checks `simulate_experiment`
