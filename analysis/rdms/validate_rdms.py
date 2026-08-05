@@ -19,7 +19,9 @@ import numpy as np
 from scipy.spatial.distance import squareform
 from scipy.stats import spearmanr
 
-from analysis.rdms.common import RESULTS_DIR, _EXPECTED_LEN, _EXPECTED_N, load_rdm
+from analysis.rdms.common import (
+    IMAGES_ROOT, RESULTS_DIR, _EXPECTED_LEN, _EXPECTED_N, load_manifest, load_rdm,
+)
 
 _ALL_NAMES = ["sens_pre", "sens_post", "sem_km", "sem_wn", "clip_pre", "clip_post"]
 _N = _EXPECTED_N       # 725
@@ -38,6 +40,47 @@ class CheckFailed(AssertionError):
 def _check(condition: bool, msg: str) -> None:
     if not condition:
         raise CheckFailed(msg)
+
+
+# ---------------------------------------------------------------------------
+# Manifest checks (run before any RDM check; independent of what is built)
+# ---------------------------------------------------------------------------
+
+def check_manifest_matches_disk() -> None:
+    """
+    The manifest's curated_path column must be exactly the set of .png files
+    under images/pre_shine/ and images/post_shine/, with _EXPECTED_N rows.
+
+    This is the check that would have caught the dbd2b3e curation error, where
+    6 rows kept a stale directory component and collided with existing rows:
+    the row count stayed at 725 and every path still resolved to a real file,
+    so 6 images were encoded twice and 6 never at all, silently, in every RDM.
+
+    load_manifest() already rejects duplicate curated_path values, so a failure
+    here means the manifest and the image directories have genuinely diverged.
+    """
+    try:
+        df = load_manifest()
+    except ValueError as exc:
+        raise CheckFailed(str(exc)) from exc
+    _check(len(df) == _EXPECTED_N, f"manifest has {len(df)} rows, expected {_EXPECTED_N}")
+    manifest_paths = {p.replace("\\", "/") for p in df["curated_path"]}
+
+    for variant in ("pre_shine", "post_shine"):
+        variant_root = IMAGES_ROOT / variant
+        _check(variant_root.is_dir(), f"missing image directory {variant_root}")
+        on_disk = {
+            p.relative_to(variant_root).as_posix()
+            for p in variant_root.rglob("*.png")
+        }
+        missing = sorted(on_disk - manifest_paths)   # on disk, unlisted
+        extra = sorted(manifest_paths - on_disk)     # listed, not on disk
+        _check(
+            not missing and not extra,
+            f"{variant}: {len(missing)} image(s) on disk but not in manifest "
+            f"{missing[:5]}; {len(extra)} manifest path(s) with no image on disk "
+            f"{extra[:5]}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +184,28 @@ def run_all_checks(names: list[str] | None = None) -> bool:
     Returns True if every present RDM passes; False if any check fails.
     """
     targets = names if names is not None else _ALL_NAMES
+    failures: list[tuple[str, str]] = []
+
+    def run(label: str, fn, *args) -> None:
+        try:
+            fn(*args)
+            print(f"  PASS  {label}")
+        except CheckFailed as exc:
+            print(f"  FAIL  {label}: {exc}")
+            failures.append((label, str(exc)))
+
+    # Manifest phase: runs first and regardless of which RDMs exist. A stale
+    # manifest invalidates every RDM at once, so there is no point validating
+    # individual RDMs against an index that no longer describes the dataset.
+    print("=== Manifest checks ===")
+    run("manifest: unique paths, row count, set-equality with image dirs",
+        check_manifest_matches_disk)
+    if failures:
+        print(f"\n{'=' * 50}")
+        print("FAILED: manifest does not match the image directories. "
+              "Fix images/manifest.csv, then rebuild all RDMs "
+              "(`python -m analysis.rdms.build_all`); their order_hash is now stale.")
+        return False
 
     # Load phase
     present: dict[str, np.ndarray] = {}
@@ -166,16 +231,6 @@ def run_all_checks(names: list[str] | None = None) -> bool:
         return False
 
     # Check phase
-    failures: list[tuple[str, str]] = []
-
-    def run(label: str, fn, *args) -> None:
-        try:
-            fn(*args)
-            print(f"  PASS  {label}")
-        except CheckFailed as exc:
-            print(f"  FAIL  {label}: {exc}")
-            failures.append((label, str(exc)))
-
     print("\n=== Universal checks ===")
     for name, d in present.items():
         run(f"{name}: shape / finite / non-negative / symmetric", check_universal, name, d)

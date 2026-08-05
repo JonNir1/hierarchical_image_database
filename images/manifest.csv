@@ -262,9 +262,9 @@ animate\human\face\caucasian\female31.png,female31.png,HF,Face Place,CF0053_1100
 animate\human\face\hispanic\female2.png,female2.png,HF,Face Place,HF1201_1120_30R.jpg,V,woman.n.01
 animate\human\face\hispanic\female3.png,female3.png,HF,Face Place,HF1201_3330_NE.jpg,V,woman.n.01
 animate\human\face\hispanic\female4.png,female4.png,HF,Face Place,HF1204_1100_NE.jpg,V,woman.n.01
-animate\human\face\caucasian\female5.png,female5.png,HF,Face Place,HF1205_1100_00F.jpg,V,woman.n.01
-animate\human\face\caucasian\female6.png,female6.png,HF,Face Place,HF1211_1101_NE.jpg,V,woman.n.01
-animate\human\face\caucasian\female7.png,female7.png,HF,Face Place,HF1216_1120_NE.jpg,V,woman.n.01
+animate\human\face\hispanic\female5.png,female5.png,HF,Face Place,HF1205_1100_00F.jpg,V,woman.n.01
+animate\human\face\hispanic\female6.png,female6.png,HF,Face Place,HF1211_1101_NE.jpg,V,woman.n.01
+animate\human\face\hispanic\female7.png,female7.png,HF,Face Place,HF1216_1120_NE.jpg,V,woman.n.01
 animate\human\face\caucasian\female4.png,female4.png,HF,Face Place,CF0001_1101_FE.jpg,V,woman.n.01
 animate\human\face\caucasian\female5.png,female5.png,HF,Face Place,CF00017_1100_15L.jpg,V,woman.n.01
 animate\human\face\caucasian\female6.png,female6.png,HF,Face Place,CF00018_1100_45R.jpg,V,woman.n.01
@@ -288,11 +288,11 @@ animate\human\face\caucasian\male21.png,male21.png,HF,Face Place,CM0039_3300_00F
 animate\human\face\caucasian\male22.png,male22.png,HF,Face Place,CM0041_1100_SU.jpg,V,man.n.01
 animate\human\face\caucasian\male23.png,male23.png,HF,Face Place,CM0041_3101_45R.jpg,V,man.n.01
 animate\human\face\caucasian\male24.png,male24.png,HF,Face Place,CM0050_1100_SA.jpg,V,man.n.01
-animate\human\face\caucasian\male2.png,male2.png,HF,Face Place,HM1201_3101_30R.jpg,V,man.n.01
-animate\human\face\caucasian\male3.png,male3.png,HF,Face Place,HM1202_1110_CO.jpg,V,man.n.01
+animate\human\face\hispanic\male2.png,male2.png,HF,Face Place,HM1201_3101_30R.jpg,V,man.n.01
+animate\human\face\hispanic\male3.png,male3.png,HF,Face Place,HM1202_1110_CO.jpg,V,man.n.01
 animate\human\face\caucasian\male3.png,male3.png,HF,Face Place,CM0025_1100_HA.jpg,V,man.n.01
 animate\human\face\caucasian\male4.png,male4.png,HF,Face Place,CM0047_1100_SU.jpg,V,man.n.01
-animate\human\face\caucasian\male1.png,male1.png,HF,Face Place,HM1201_1100_NE.jpg,V,man.n.01
+animate\human\face\hispanic\male1.png,male1.png,HF,Face Place,HM1201_1100_NE.jpg,V,man.n.01
 animate\human\face\caucasian\male6.png,male6.png,HF,Face Place,CM0001_1100_NE.jpg,V,man.n.01
 animate\human\face\caucasian\male7.png,male7.png,HF,Face Place,CM0003_1101_DI.jpg,V,man.n.01
 animate\human\face\caucasian\male8.png,male8.png,HF,Face Place,CM0005_2201_30R.jpg,V,man.n.01
