@@ -488,6 +488,8 @@ rules out.
 | `task_v2_3_experiment.py` | Task-v2.3: per-subject image subset + trial design, plus the within-subject SNR heuristic. |
 | `task_v2_4_experiment.py` | Task-v2.4: v2.3 design **plus** `frac_trials_repeated` whole-trial repeats, yielding per-subject test-retest. Bit-exact to v2.3 at `frac_trials_repeated=0`. |
 | `task_v3_experiment.py` | Task-v3: a **generative coordinate-space** model. Per subject, a perspective weighting of the GT dimensions projected onto a local per-trial 2-D arrangement, then canvas placement noise. |
+| `task_v5_experiment.py` | **Task-v5: the v4 model on a bounded canvas.** Thin wrapper injecting `canvas.make_canvas_trial_simulator` through v4's `trial_simulator` seam, so nothing is duplicated and v4 stays bit-exact. The canvas is intrinsic, not a flag. |
+| `canvas.py` | The 2-D sort rectangle: `CanvasSpec`, per-axis `fit_to_canvas`, smooth `soft_bound` walls, `sample_spec` for per-trial screen shapes. Constants measured on the 26 pilot-cohort v3+ subjects. |
 | `task_v4_experiment.py` | Task-v4: the v3 model **plus the deployed v4.0 screening block**, and the `allocation_mode` arm. Candidates are recruited until `num_subjects` pass, capped by `MAX_RECRUIT_PER_SUBJECT`. `screening_trials=0` reduces to v3 bit-for-bit. |
 | `simulation.py` | `Simulation` container + ground-truth distances; `make` / `from_embeddings` / `build_ground_truth_embeddings`. |
 | `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`, `test_retest_summary`, `screening_summary`, `effective_rank`, `topk_similar_jaccard`. |

@@ -66,7 +66,7 @@ values are not transferable.
 """
 from __future__ import annotations
 
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 import numpy as np
 from scipy.spatial.distance import pdist
@@ -279,3 +279,45 @@ def max_distance_stats(distance_vectors) -> dict:
         # A value above 1 is impossible on a real canvas and means the bound is not being applied.
         "frac_above_one": float(np.mean(maxima > 1.0)),
     }
+
+
+# --------------------------------------------------------------------------- trial simulator
+def make_canvas_trial_simulator(spec: Optional[CanvasSpec] = None,
+                                sample_per_trial: bool = True,
+                                softness: float = DEFAULT_SOFTNESS):
+    """A drop-in replacement for ``task_v3_experiment._simulate_trial`` that uses a bounded canvas.
+
+    Returned as a closure with the *same* signature as the unbounded original, so it can be injected
+    into the existing v3/v4 machinery rather than forking it. That matters: ``task_v4_experiment``
+    already imports v3's trial simulator "rather than duplicated, so the two models cannot drift
+    apart", and duplicating 400 lines to change one step would undo that.
+
+    Differences from the unbounded original, all consequences of the canvas rather than choices:
+
+    * the arrangement is scaled into the box before the noise, so distances are in canvas-diagonal
+      units and cannot exceed 1;
+    * ``subject_noise`` is an **absolute** fraction of canvas width, not a ratio to the trial's own
+      spread, because a fixed canvas supplies the scale that an unbounded plane did not;
+    * the walls saturate smoothly (:func:`soft_bound`) rather than clipping.
+
+    ``sample_per_trial`` draws the canvas from the pilot's observed screen shapes for each trial
+    (:func:`sample_spec`), which is what restores the per-trial variability in extent that a fixed
+    spec loses. Pass an explicit ``spec`` to hold it fixed instead, e.g. when sweeping ``softness``.
+    """
+    from SpAM_Simulations.task_v3_experiment import _condensed_pair_indices, project_2d
+
+    def simulate(trial_images, pair_rows, pair_cols, N, gt_embeddings, weights, subject_noise,
+                 observations, n_obs, rng):
+        this = spec if spec is not None else (
+            sample_spec(rng, softness=softness) if sample_per_trial
+            else CanvasSpec(softness=softness))
+        coords = gt_embeddings[trial_images] * weights
+        fitted = fit_to_canvas(project_2d(coords), this)
+        placed = place(fitted, float(subject_noise), rng, this)
+        trial_dists = canvas_distances(placed, this).astype(np.float32)
+        cond_idx = _condensed_pair_indices(trial_images[pair_rows], trial_images[pair_cols], N)
+        observations[cond_idx] += trial_dists
+        n_obs[cond_idx] += 1
+        return cond_idx, trial_dists, placed.astype(np.float32)
+
+    return simulate
