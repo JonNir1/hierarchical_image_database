@@ -231,6 +231,25 @@ class Simulation:
         self._results.setdefault(exp_params, []).append(exp_results)
         return exp_results
 
+    def run_task_v5_experiment(
+            self,
+            params,
+            verbose: bool = True,
+            allocator=None,
+            **canvas_kwargs,
+    ):
+        """Same as `run_task_v4_experiment`, but on the bounded canvas (task-v5).
+
+        The canvas geometry is resampled per trial from the pilot's screen shapes by default;
+        `canvas_kwargs` forwards `canvas` / `sample_canvas_per_trial` / `softness` for a one-off
+        override. In a sweep, softness travels in `params.canvas_softness` instead.
+        """
+        from SpAM_Simulations.task_v5_experiment import simulate_task_v5_experiment
+        exp_params, exp_results = simulate_task_v5_experiment(
+            params, self.gt_embeddings, self.rng, verbose, allocator=allocator, **canvas_kwargs)
+        self._results.setdefault(exp_params, []).append(exp_results)
+        return exp_results
+
     def get_or_run_experiments(
             self, exp_params: List[ExperimentParameters], reps: int = 1, verbose: bool = True
     ) -> _SimulationResults:

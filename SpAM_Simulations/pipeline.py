@@ -151,6 +151,30 @@ def generate_task_v4_simulation(config: TaskV4SimulationConfig, verbose: bool = 
     return sim
 
 
+def generate_task_v5_simulation(config, verbose: bool = True, allocator_factory=None) -> Simulation:
+    """Same as `generate_task_v4_simulation`, but on the bounded canvas (task-v5).
+
+    Identical scheduling and allocator handling; only the observation model differs, and it differs
+    inside `simulate_task_v5_experiment` rather than here. `canvas_softness` rides in the parameter
+    tuple, so it lands in the store and becomes a grouping column in every compute_* table - which
+    is the point, since it is swept as a sensitivity axis rather than calibrated.
+    """
+    if config.uses_random_ground_truth:
+        embeddings = build_ground_truth_embeddings(
+            config.n_images, config.n_dims, use_isotropic=config.use_isotropic,
+            decay=config.decay, n_clusters=config.n_clusters, seed=config.seed
+        )
+    else:
+        embeddings = config.gt_embeddings
+    sim = Simulation.from_embeddings(embeddings, config.seed)
+    grid = config.param_grid()
+    schedule = [(params, rep) for rep in range(config.reps) for params in grid]
+    for params, rep in tqdm(schedule, desc="Running experiments", disable=not verbose):
+        allocator = allocator_factory(params, rep) if allocator_factory is not None else None
+        sim.run_task_v5_experiment(params, verbose=False, allocator=allocator)
+    return sim
+
+
 # --------------------------------------------------------------------------- metric tables
 def compute_coverage_table(sim: Simulation) -> pd.DataFrame:
     """One row per (configuration, repetition) with all coverage metrics.

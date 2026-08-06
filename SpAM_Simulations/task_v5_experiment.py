@@ -31,7 +31,7 @@ content. Both are limitations of the noise model, not of the geometry.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import numpy as np
 
@@ -40,11 +40,20 @@ from SpAM_Simulations.task_v4_experiment import (
     TaskV4ExperimentParameters, TaskV4ExperimentResults, simulate_task_v4_experiment,
 )
 
-# v5 reuses v4's parameter and result tuples verbatim. The canvas is not a swept experiment
-# parameter: it describes the apparatus, not the design, so it is supplied to the simulator rather
-# than carried per-cell. `softness` is the exception - it is a sensitivity axis, so a sweep that
-# varies it passes a different simulator per arm and records the value in its own column.
-TaskV5ExperimentParameters = TaskV4ExperimentParameters
+# v5 reuses v4's result tuple, and extends its parameter tuple by exactly one field.
+#
+# `aspect` and `fill` are NOT parameters: they describe the apparatus and are resampled per trial
+# from the pilot's observed screen shapes, so pinning them per cell would defeat the point.
+# `canvas_softness` IS, because it is the one canvas quantity with no observable distribution to
+# sample from and is therefore swept as a sensitivity axis. Numeric, like `allocation_mode`, because
+# `pipeline._task_key` coerces every field with `float()` and `_completed_keys` rebuilds the tuple
+# from `meta.csv` - so a numeric field survives the ResultStore round-trip and becomes a grouping
+# column in every compute_* table for free.
+TaskV5ExperimentParameters = NamedTuple("TaskV5ExperimentParameters", [
+    *[(f, float) for f in TaskV4ExperimentParameters._fields],
+    ("canvas_softness", float),
+])
+TaskV5ExperimentParameters.__new__.__defaults__ = (DEFAULT_SOFTNESS,)
 TaskV5ExperimentResults = TaskV4ExperimentResults
 
 
@@ -56,7 +65,7 @@ def simulate_task_v5_experiment(
         allocator=None,
         canvas: Optional[CanvasSpec] = None,
         sample_canvas_per_trial: bool = True,
-        softness: float = DEFAULT_SOFTNESS,
+        softness: Optional[float] = None,
 ) -> tuple:
     """Run one task-v5 experiment: the v4 screening model, on a bounded canvas.
 
@@ -65,11 +74,19 @@ def simulate_task_v5_experiment(
     a fixed spec makes every trial use an identical extent (max-distance sd 0.039 against the
     pilot's 0.106).
 
-    ``softness`` is exposed separately from ``canvas`` because it is the one canvas parameter with
-    no observable distribution to sample from, and is therefore swept as a sensitivity axis.
+    ``softness`` defaults to ``params.canvas_softness`` when the parameters carry it, so a sweep
+    varies it through the grid like any other lever; the explicit argument is an override for
+    one-off calls. It is separate from ``canvas`` because it is the one canvas parameter with no
+    observable distribution to sample from, and is therefore a sensitivity axis rather than a
+    calibrated constant.
     """
-    return simulate_task_v4_experiment(
+    if softness is None:
+        softness = float(getattr(params, "canvas_softness", DEFAULT_SOFTNESS))
+    _, results = simulate_task_v4_experiment(
         params, gt_embeddings, rng, verbose=verbose, allocator=allocator,
         trial_simulator=make_canvas_trial_simulator(
             spec=canvas, sample_per_trial=sample_canvas_per_trial, softness=softness),
     )
+    # Return the ORIGINAL params, not v4's echo: v4 rebuilds a TaskV4ExperimentParameters and would
+    # drop `canvas_softness`, which the store needs in order to group by it.
+    return params, results
