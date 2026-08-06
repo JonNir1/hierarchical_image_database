@@ -135,6 +135,71 @@ produced a ratio of +1.84 from a cross of -0.043, i.e. the metric appearing to c
 *improved* out of sample. A negative ratio with a positive denominator is kept, since that
 legitimately reports separation inverting across cohorts.
 
+### Isolation: images that belong to no cluster
+
+Agglomerative clustering assigns **every** image to a cluster, so an image that is genuinely
+confusable with nothing gets absorbed into whichever group is nearest. At k=20 each cluster holds
+~36 of the 725 images, so this is not a rare edge case, and a deduplication rule read off that
+partition would exclude such an image for no reason. `density_clustering` runs HDBSCAN alongside the
+agglomerative pass purely to recover the missing statement.
+
+| Metric | What it measures | Direction |
+|---|---|---|
+| `frac_noise` | share of images HDBSCAN assigns to **no** cluster | descriptive |
+| `noise_jaccard`, `noise_kappa` | do two cohorts agree on *which* images those are | higher = better |
+| `ari_shared_clustered` | ARI over the images both cohorts clustered | higher = better |
+| `isolated_images.frac_cohorts_noise` | per image, the share of cohorts that left it unclustered | descriptive |
+
+**These are descriptive and must never enter the transitivity chain.** A labelling with a noise class
+is not a partition in the sense VI needs: `-1` is not a cluster, it is the absence of one, and
+counting it as a cluster would make VI dominated by a bucket that may hold most of the images. So
+none of this is reported as VI and none of it may be substituted into
+`VI(cohort, paths) <= VI(cohort, cohort') + VI(cohort', paths)`.
+
+**Good at**: the one question the agglomerative pass structurally cannot answer. An image left
+unclustered by every cohort is one nothing is reliably confusable with, which makes it the safest
+possible stimulus. HDBSCAN also *chooses* the number of clusters instead of being told, so it is an
+independent read on granularity.<br>
+**Bad at**: being a primary agreement measure, for the metricity reason above. It also swaps the `k`
+sweep for a `min_cluster_size` sweep rather than removing a hyperparameter, and the noise fraction
+moves with that choice, so it is swept (2, 3, 5, 10, 20) rather than reported at one setting.
+
+### Clustering algorithms: why agglomerative, why HDBSCAN, why not GMM
+
+The clusterer is a measurement instrument here, not a model of the stimuli, and the requirements
+come from that. It must be **deterministic**, because any RNG inside it adds variance that is
+indistinguishable from cohort disagreement and inflates the very quantity being measured. It must be
+**rotation-invariant**, because two cohorts' MDS solutions differ by an arbitrary rotation and a
+coordinate-dependent method would score identical geometries as disagreeing. And it must yield
+**hard partitions** for the primary metric, because that is what makes VI a metric.
+
+| | Agglomerative (primary) | HDBSCAN (descriptive) | GMM (rejected) |
+|---|---|---|---|
+| Deterministic | yes | yes | **no** (EM init) |
+| Rotation-invariant | yes (runs on distances) | yes (`metric="precomputed"`) | only with full covariance |
+| Can say "no cluster" | **no** | yes | no (soft, but every point has mass) |
+| Partition for VI | yes | no (noise class) | no (soft) |
+| Granularity control | `k`, swept | `min_cluster_size`, swept | `k`, swept |
+| Whole k sweep from one fit | yes (one tree) | no | no |
+
+**Agglomerative is primary** because it is the only one that satisfies all three requirements at
+once, and because one linkage tree yields the entire k sweep plus Baker's gamma, the only k-free
+metric in the set. Its cost is the hard-assignment blind spot, which is exactly what the HDBSCAN
+pass above exists to cover.
+
+**GMM is rejected on technical grounds, not preference.** At the granularities of interest there are
+as few as 3.6 images per cluster (725 / 200), while a full covariance in 8-20 dimensions needs
+36-210 parameters per component, so full covariance is unfittable. The fallback, diagonal or
+spherical covariance, is **rotation-dependent** - and since cohort embeddings differ by an arbitrary
+rotation, two cohorts recovering geometrically identical spaces would be scored as disagreeing. That
+alone disqualifies it; EM's stochastic initialisation is a second, independent disqualification.
+Gaussian components are also a density model, and MDS preserves distances, not densities.
+
+**What this does not settle.** None of the above commits the *production* deduplication rule to a
+clustering algorithm. If `is_flat` or `is_arbitrary_slicing` fires, the stated fallback is a plain
+distance threshold, which needs no clusters at all. The clusterers are how the space is measured,
+not how stimuli will ultimately be chosen.
+
 ### Empirical validity
 
 | Function | What it measures |
@@ -266,18 +331,22 @@ one-command driver:
 python SpAM_Simulations/run_cluster_analysis.py --store <run>/mds_store --out <run>/out
 ```
 
-It writes `cluster_agreement.csv`, `dendrogram_agreement.csv`, `cluster_sizes.csv` and
-`k_selection.csv`, which `eval_helpers.load_run` picks up as optional frames. Or call the pieces
+It writes six frames that `eval_helpers.load_run` picks up as optionals: `cluster_agreement.csv`,
+`dendrogram_agreement.csv`, `cluster_sizes.csv` and `k_selection.csv` from the agglomerative pass,
+plus `density_agreement.csv` and `isolated_images.csv` from the HDBSCAN one. Or call the pieces
 directly:
 
 ```python
 from SpAM_Simulations import cluster_stability as cs
+from SpAM_Simulations import density_clustering as dc
 from SpAM_Simulations.storage import ResultStore
 
 store = ResultStore.open("sim_results/<run>/mds_store/<cell>")
 agreement = cs.compute_cluster_agreement(store)      # per (config, ndim, linkage, k)
 sizes     = cs.compute_cluster_sizes(store)
 trees     = cs.compute_dendrogram_agreement(store)   # k-free
+density   = dc.compute_density_agreement(store)      # per (config, ndim, min_cluster_size)
+isolated  = dc.isolated_images(store)                # per image: how often unclustered
 verdicts  = cs.continuum_diagnostics(agreement)      # k*, is_flat, is_arbitrary_slicing
 ```
 
@@ -314,6 +383,12 @@ reproducibility the structured one costs. On the planted blobs the finer `k_star
 be **free** - VI is 0 at both - which is a conclusion you cannot reach from the VI-side columns
 alone, since those only show that the two k\* differ.
 
+The density pass runs over the same prepared distances and is reported separately in both the CSVs
+and the printed summary. Keeping the two apart is deliberate: its noise-class scores do not compose,
+so letting them sit in the same frame as VI would invite exactly the substitution the
+[clustering-algorithms section](#clustering-algorithms-why-agglomerative-why-hdbscan-why-not-gmm)
+rules out.
+
 > One caveat inherited from every rep-pair metric here: the C(r,2) pairs are **not independent**,
 > since each cohort appears in r-1 of them, so the reported SEM understates the true uncertainty.
 
@@ -341,6 +416,7 @@ alone, since those only show that the two k\* differ.
 | `design_comparison.py` | Compares allocation arms as **sampling plans** (coverage, per-image balance, waste). No subjects, no MDS, no R. |
 | `recovery.py` | Recovery of the GT's closest pairs: `recall_at_frac`, `dprime_at_frac`, `separation_dprime`, `auc_near_pairs`. |
 | `validity.py` | Is a simulated cohort realistic: distance-distribution comparison plus the semantic-hierarchy gradient. |
+| `density_clustering.py` | **Descriptive** density pass (HDBSCAN): noise fraction, cross-cohort agreement on *which* images are isolated, `compute_density_agreement`, `isolated_images`. Never enters the VI chain. |
 | `cluster_stability.py` | Between-cohort cluster agreement: VI/ARI/AMI, cross-cohort silhouette, cluster-wise Jaccard, Baker's gamma; the `compute_cluster_*` store drivers; and `select_k` / `continuum_diagnostics`. Runs **locally** on a downloaded store. |
 | `run_cluster_analysis.py` | Local CLI driver for pipeline steps g-i: opens a downloaded store, writes the four cluster tables, prints the continuum verdicts. No R, no EC2. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
