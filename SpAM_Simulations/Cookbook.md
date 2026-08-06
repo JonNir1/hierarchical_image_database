@@ -455,14 +455,12 @@ while the random arm carried it, making the two spreads incomparable.
 > structurally realistic and **the arm comparison should not be trusted**, however clean the arm
 > contrast looks. The script prints a warning; do not ignore it.
 
-**Reading `noise_curve_shape.csv`: one flank is expected to fail.** Empirically the RMSE between a
-pair's two judgements is an inverted U against their mean distance, because clearly-similar and
-clearly-dissimilar pairs are both judged consistently. The low-distance flank is near-forced
-(distances cannot go below zero) so any additive-noise model reproduces it, and a mismatch *there*
-is a real alarm. The high-distance flank is not forced, and the model is expected to miss it: it
-places points on an unbounded plane while real subjects use a bounded canvas. The script prints
-`EXPECTED: the high-distance flank does not match` when that happens. Do not respond by rescaling
-anything - the finding is about the missing canvas ceiling.
+**Reading `noise_curve_shape.csv`.** Empirically the RMSE between a pair's two judgements rises off
+a floor to a late peak (`peak_bin_frac` 0.78) and then drops sharply in the top bin
+(`drop_from_peak` 0.37) - clearly-similar and clearly-dissimilar pairs are both judged consistently.
+The low-end rise is near-forced (distances cannot go below zero) so any additive-noise model gives
+it, and a mismatch *there* is a real alarm. The turnover is the discriminating quantity and needs
+the bounded canvas; `drop_gap` reports how far short the model falls on it.
 
 #### Step 3 (local) - `run_cluster_analysis.py`
 

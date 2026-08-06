@@ -176,16 +176,18 @@ def compare_to_pilot(sim_condensed: np.ndarray, pilot_condensed: np.ndarray,
 # simulation that does not reproduce that is generating the wrong kind of noise, however well its
 # distance histogram matches.
 #
-# **The two flanks are reported separately and are not equally strong tests.** The low-distance
-# flank is close to forced: distances cannot go below zero, so as the true separation approaches 0
-# the gap between two noisy realisations is squeezed against that floor, and any additive-noise
-# model reproduces it. The high-distance flank is the discriminating one, and the current model is
-# expected to FAIL it - `task_v3_experiment` places points on an unbounded plane and its docstring
-# records that "a fixed-canvas ceiling/saturation is a documented future refinement, not modelled",
-# whereas real subjects work on a bounded canvas where a pair already at opposite corners cannot
-# move much further apart. A flat or rising high-distance flank is therefore the predicted result,
-# and is evidence about that missing ceiling rather than a defect in this code.
-FLANK_TOLERANCE = 0.95      # a flank counts as quieter than the middle only below this ratio
+# **The two ends are not equally strong tests.** The low-distance rise is close to forced:
+# distances cannot go below zero, so as the true separation approaches 0 the gap between two noisy
+# realisations is squeezed against that floor, and any additive-noise model reproduces it. The
+# high-distance *turnover* is the discriminating one, and it needs a bounded canvas: a pair already
+# at opposite corners cannot move much further apart, so its upper tail is truncated.
+#
+# Measured on the real pilot (47 subjects, 12,540 repeat pairs): the curve rises off a floor
+# (`rise_from_first` 0.83) to a LATE peak (`peak_bin_frac` 0.78) and then falls sharply
+# (`drop_from_peak` 0.37). The turnover is confined to the top bin, which is why this module
+# describes the curve relative to its peak rather than by comparing thirds - see
+# :func:`noise_curve_shape`.
+TURNOVER_TOLERANCE = 0.10   # a rise or drop counts only above this fraction of the peak
 
 
 def repeat_pairs(subjects: Sequence) -> Tuple[np.ndarray, np.ndarray]:
@@ -323,40 +325,52 @@ def noise_vs_distance(d_orig: np.ndarray, d_repeat: np.ndarray, n_bins: int = 10
     return pd.DataFrame(rows)
 
 
-def noise_curve_shape(table: pd.DataFrame, tolerance: float = FLANK_TOLERANCE) -> Dict[str, float]:
-    """Scale-free descriptors of a :func:`noise_vs_distance` curve, with the flanks kept apart.
+def noise_curve_shape(table: pd.DataFrame, tolerance: float = TURNOVER_TOLERANCE
+                      ) -> Dict[str, float]:
+    """Scale-free descriptors of a :func:`noise_vs_distance` curve.
 
-    Splits the bins into low / middle / high thirds, takes each third's count-weighted RMSE, and
-    reports both flanks against the middle. A ratio below ``tolerance`` means that flank is genuinely
-    quieter than the ambiguous middle. They are returned separately, and ``is_inverted_u`` requires
-    both, because the model is expected to reproduce the low flank (a floor effect any additive
-    noise gives) while failing the high one (no canvas ceiling).
+    **Peak-relative, not thirds-relative, and the difference matters.** An earlier version of this
+    function split the bins into low/middle/high thirds and asked whether each flank was quieter
+    than the middle. Measured against the real pilot that summary returns ``high_over_mid = 1.30``
+    and so calls the empirical data *not* an inverted U - because the turnover is confined to the
+    **top bin** and the peak sits at 78% along the range, not at 50%. The thirds average the drop
+    away. The curve is a long rise to a late peak followed by a sharp fall, so it is described that
+    way:
+
+    * ``rise_from_first`` - ``1 - rmse[0] / rmse[peak]``, how far the curve climbs off its low-end
+      floor. Pilot: 0.83.
+    * ``drop_from_peak`` - ``1 - rmse[-1] / rmse[peak]``, how far it falls after the peak. This is
+      the discriminating quantity. Pilot: 0.37; an unbounded generative model gives exactly 0.
+    * ``peak_bin_frac`` - where the noisiest bin sits along the range. Pilot: 0.78.
+
+    The thirds are still returned as secondary description, but no verdict rests on them.
     """
     if table.empty:
         raise ValueError("cannot describe the shape of an empty curve")
     rmse = table["rmse"].to_numpy(dtype=float)
     counts = table["n_pairs"].to_numpy(dtype=float)
+    peak = int(np.argmax(rmse))
+    peak_rmse = float(rmse[peak])
+    rise = 1.0 - rmse[0] / peak_rmse if peak_rmse > 0 else np.nan
+    drop = 1.0 - rmse[-1] / peak_rmse if peak_rmse > 0 else np.nan
+
     cut = max(1, len(rmse) // 3)
 
     def weighted(lo, hi) -> float:
         seg_r, seg_n = rmse[lo:hi], counts[lo:hi]
         return float(np.average(seg_r, weights=seg_n)) if seg_n.sum() else np.nan
 
-    low = weighted(0, cut)
-    mid = weighted(cut, len(rmse) - cut)
-    high = weighted(len(rmse) - cut, None)
-    low_ratio = low / mid if mid else np.nan
-    high_ratio = high / mid if mid else np.nan
-    peak = int(np.argmax(rmse))
+    low, mid, high = weighted(0, cut), weighted(cut, len(rmse) - cut), weighted(len(rmse) - cut, None)
     return {
-        "rmse_low": low, "rmse_mid": mid, "rmse_high": high,
-        "low_over_mid": low_ratio, "high_over_mid": high_ratio,
-        # Where the noisiest bin sits, as a fraction along the curve. ~0.5 is the inverted-U peak.
+        "rise_from_first": float(rise), "drop_from_peak": float(drop),
         "peak_bin_frac": peak / (len(rmse) - 1) if len(rmse) > 1 else np.nan,
-        "low_flank_quieter": bool(np.isfinite(low_ratio) and low_ratio < tolerance),
-        "high_flank_quieter": bool(np.isfinite(high_ratio) and high_ratio < tolerance),
-        "is_inverted_u": bool(np.isfinite(low_ratio) and np.isfinite(high_ratio)
-                              and low_ratio < tolerance and high_ratio < tolerance),
+        "rmse_peak": peak_rmse, "rmse_first": float(rmse[0]), "rmse_last": float(rmse[-1]),
+        # Secondary, descriptive only - see the docstring for why no verdict uses these.
+        "rmse_low": low, "rmse_mid": mid, "rmse_high": high,
+        "has_low_floor": bool(np.isfinite(rise) and rise > tolerance),
+        "turns_over": bool(np.isfinite(drop) and drop > tolerance),
+        "is_inverted_u": bool(np.isfinite(rise) and np.isfinite(drop)
+                              and rise > tolerance and drop > tolerance),
         "n_bins": int(len(rmse)),
     }
 
@@ -368,11 +382,11 @@ def compare_noise_vs_distance(sim_pairs: Tuple[np.ndarray, np.ndarray],
 
     ``*_pairs`` are ``(d_orig, d_repeat)``, from :func:`repeat_pairs` for the pilot and from a
     repeat-trial simulation for the model. Returns the stacked per-bin table plus a ``shape`` frame
-    with one row per source, so the flanks can be read against each other directly.
+    with one row per source, so the two ends can be read against each other directly.
 
-    ``high_flank_matches`` is the comparison that carries information: the low flank is near-forced
-    for any additive-noise model, so agreeing there says little, while the high flank depends on a
-    canvas ceiling the generative model does not have.
+    ``turnover_matches`` is the comparison that carries information: the low-end rise is near-forced
+    for any additive-noise model, so agreeing there says little, while the turnover depends on a
+    bounded canvas.
     """
     sim = noise_vs_distance(*sim_pairs, n_bins=n_bins)
     pilot = noise_vs_distance(*pilot_pairs, n_bins=n_bins)
@@ -385,8 +399,11 @@ def compare_noise_vs_distance(sim_pairs: Tuple[np.ndarray, np.ndarray],
         "shape": shapes,
         "sim_is_inverted_u": bool(by_source.loc["sim", "is_inverted_u"]),
         "pilot_is_inverted_u": bool(by_source.loc["pilot", "is_inverted_u"]),
-        "low_flank_matches": bool(by_source.loc["sim", "low_flank_quieter"]
-                                  == by_source.loc["pilot", "low_flank_quieter"]),
-        "high_flank_matches": bool(by_source.loc["sim", "high_flank_quieter"]
-                                   == by_source.loc["pilot", "high_flank_quieter"]),
+        "low_end_matches": bool(by_source.loc["sim", "has_low_floor"]
+                                == by_source.loc["pilot", "has_low_floor"]),
+        "turnover_matches": bool(by_source.loc["sim", "turns_over"]
+                                 == by_source.loc["pilot", "turns_over"]),
+        # How far short the model falls on the discriminating quantity, as a plain difference.
+        "drop_gap": float(by_source.loc["pilot", "drop_from_peak"]
+                          - by_source.loc["sim", "drop_from_peak"]),
     }
