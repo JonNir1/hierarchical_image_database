@@ -112,6 +112,7 @@ def simulate_task_v4_experiment(
         gt_embeddings: np.ndarray,
         rng: np.random.Generator,
         verbose: bool = True,
+        trial_simulator=None,
         return_per_subject: bool = False,
         allocator=None,
         max_recruit_per_subject: int = MAX_RECRUIT_PER_SUBJECT,
@@ -209,6 +210,7 @@ def simulate_task_v4_experiment(
                     t_distinct=screen_distinct, k=k, n_unique=screen_unique,
                     n_repeats=params.screening_repeats, gt_embeddings=gt_embeddings, rng=rng,
                     image_indices=screen_images, trials=screen_trials,
+                    trial_simulator=trial_simulator,
                 )
                 if not _passes_screening(screening.repeat_correlations,
                                          params.screening_min_reliability):
@@ -224,6 +226,7 @@ def simulate_task_v4_experiment(
                 t_distinct=t_distinct, k=k, n_unique=n_unique, n_repeats=n_repeats,
                 gt_embeddings=gt_embeddings, rng=rng, image_indices=main_images,
                 trials=main_trials,
+                trial_simulator=trial_simulator,
             )
             if allocator is not None:
                 allocator.commit()
@@ -306,12 +309,19 @@ def simulate_task_v4_single_subject(
         rng: np.random.Generator,
         image_indices: Optional[np.ndarray] = None,
         trials: Optional[List[np.ndarray]] = None,
+        trial_simulator=None,
 ) -> SubjectRun:
     """Simulate one stage for one subject: ``t_distinct`` distinct trials plus ``n_repeats`` repeats.
 
     Identical in mechanics to ``task_v3_experiment.simulate_task_v3_single_subject`` - and it
     delegates to that module's ``_simulate_trial`` so the observation model is literally shared -
-    but returns the **per-repeat** reliability values instead of their mean. Task-v4 needs them
+    ``trial_simulator`` is the seam the bounded-canvas model (task-v5) uses. It defaults to v3's
+    unbounded ``_simulate_trial``, so v4 is bit-for-bit unchanged, and
+    ``canvas.make_canvas_trial_simulator`` supplies a signature-compatible replacement. Injecting it
+    rather than forking keeps the observation model shared, which is the same reason v4 imports v3's
+    simulator instead of copying it.
+
+    Otherwise identical, but returns the **per-repeat** reliability values instead of their mean. Task-v4 needs them
     unaggregated for two reasons: the screening rule is a minimum over repeats (not a mean), and a
     retained subject's screening and main repeats are pooled before averaging, which is not
     recoverable from two separate means.
@@ -359,6 +369,7 @@ def simulate_task_v4_single_subject(
             )
         trials = build_trial_lists(active_indices, t_distinct, k, n_double=0, rng=rng)
 
+    simulate_trial = trial_simulator if trial_simulator is not None else _simulate_trial
     n_pairs = N * (N - 1) // 2
     observations = np.zeros(n_pairs, dtype=np.float64)
     n_obs = np.zeros(n_pairs, dtype=np.float64)
@@ -366,7 +377,7 @@ def simulate_task_v4_single_subject(
     distinct_obs: List[np.ndarray] = []   # per-trial 2-D distance vectors, indexed like `trials`
     distinct_arr: List[np.ndarray] = []   # per-trial 2-D arrangements (k, 2), indexed like `trials`
     for trial_images in trials:
-        _, trial_dists, arrangement = _simulate_trial(
+        _, trial_dists, arrangement = simulate_trial(
             trial_images, pair_rows, pair_cols, N, gt_embeddings, weights, subject_noise,
             observations, n_obs, rng
         )
@@ -378,7 +389,7 @@ def simulate_task_v4_single_subject(
     corrs: List[float] = []
     m2s: List[float] = []
     for orig_idx in repeat_idxs:
-        _, repeat_dists, repeat_arr = _simulate_trial(
+        _, repeat_dists, repeat_arr = simulate_trial(
             trials[orig_idx], pair_rows, pair_cols, N, gt_embeddings, weights, subject_noise,
             observations, n_obs, rng
         )
