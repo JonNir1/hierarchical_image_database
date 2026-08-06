@@ -21,9 +21,19 @@ observed coordinate extent              x approx [0.0, 0.9], y approx [0.0, 0.8]
 ======================================  ==========================================
 
 Two things follow. Subjects **do** spread out to use the canvas rather than clustering in the
-middle, so a trial's arrangement is scaled to occupy most of the box. And the max distance is
-tightly concentrated well below the 1.0 ceiling, so the scaling is close to, but not exactly, a full
-fit - which is what :data:`DEFAULT_FILL` is calibrated against.
+middle, so a trial's arrangement is scaled to occupy the box. And the max distance is tightly
+concentrated well below the 1.0 ceiling, which is what :data:`DEFAULT_FILL` and
+:data:`DEFAULT_SOFTNESS` are jointly calibrated against.
+
+**The walls are soft, and that is measured rather than assumed.** Of 44,080 pilot placements only
+0.005% sit at the exact canvas extreme and 0.02% within 1% of it, so there is no point mass at the
+boundary - but there *is* a pile-up just inside (2x uniform density in the 5-10% band on x, 2.7x in
+the 10-15% band on y) with a sharp dead zone in the outermost band. ``np.clip`` reproduces a spike
+where the data has none, putting 5.2% of placements exactly on a wall. Per-axis min-max rescaling
+is worse still: it pins one item to each end of each axis every trial, i.e. ~20% of placements.
+:func:`soft_bound` reproduces the observed shape, and it also recovers far more of the empirical
+noise-curve turnover than clipping does (``drop_from_peak`` 0.21 against 0.02, versus 0.37 in the
+pilot), because it compresses over a region instead of only at the exact edge.
 
 **Scaling happens before the noise, on mechanistic grounds rather than empirical ones.** The scale
 is a decision the subject makes about the arrangement they intend - "spread these across the space"
@@ -52,11 +62,16 @@ from scipy.spatial.distance import pdist
 # Median aspect across the pilot's 114 v3+ participants. Screen sizes vary (5-95% is [0.451,
 # 0.643]), so this is a representative canvas rather than any one subject's.
 DEFAULT_ASPECT = 0.494
-# Fraction of the box a trial's arrangement is scaled to occupy. Calibrated against the pilot's
-# per-trial maximum distance: at fill=0.85 with placement noise 0.08 the simulated maximum has
-# median 0.807 and sd 0.071, against the observed 0.802 and 0.082. Subjects leave a small margin
-# rather than pushing items flush to the walls, which is why this is below 1.
-DEFAULT_FILL = 0.85
+# Fraction of the box a trial's arrangement is scaled to occupy before the walls soften it. Full
+# extent, because `soft_bound` then pulls the periphery in: at fill=1.0 with softness 4 and
+# placement noise 0.08 the simulated maximum distance has median 0.781 against the observed 0.802.
+# (Under the rejected hard clip the equivalent value was 0.85; the two are not comparable.)
+DEFAULT_FILL = 1.0
+# Saturation exponent. The pilot shows no mass at the wall (0.005% of 44,080 placements sit at the
+# exact extreme) but a pile-up just inside it, so the bound must be smooth rather than a clip. p=4
+# leaves the interior essentially untouched - a point half way to the wall moves by 0.8% - while
+# saturating anything pushed past it.
+DEFAULT_SOFTNESS = 4.0
 
 
 class CanvasSpec(NamedTuple):
@@ -77,6 +92,9 @@ class CanvasSpec(NamedTuple):
     aspect: float = DEFAULT_ASPECT
     fill: float = DEFAULT_FILL
     isotropic: bool = False
+    # Exponent of the smooth saturation at the walls (see `soft_bound`). Larger is harder;
+    # `float("inf")` is exactly `np.clip`, which the pilot's placement density rules out.
+    softness: float = DEFAULT_SOFTNESS
 
     @property
     def diagonal(self) -> float:
@@ -93,6 +111,8 @@ class CanvasSpec(NamedTuple):
             raise ValueError(f"`aspect` must be in (0, 1], got {self.aspect}")
         if not 0 < self.fill <= 1:
             raise ValueError(f"`fill` must be in (0, 1], got {self.fill}")
+        if self.softness <= 0:
+            raise ValueError(f"`softness` must be positive, got {self.softness}")
 
 
 def fit_to_canvas(Y: np.ndarray, spec: CanvasSpec = CanvasSpec()) -> np.ndarray:
@@ -124,20 +144,52 @@ def fit_to_canvas(Y: np.ndarray, spec: CanvasSpec = CanvasSpec()) -> np.ndarray:
     return centred * per_axis + spec.upper / 2.0
 
 
+def soft_bound(Y: np.ndarray, spec: CanvasSpec = CanvasSpec()) -> np.ndarray:
+    """Smoothly saturate an arrangement into the box. Near-identity inside, asymptotic at the walls.
+
+    ``u / (1 + |u/h|^p)^(1/p)`` about the canvas centre, where ``h`` is the half-extent and ``p`` is
+    :attr:`CanvasSpec.softness`. The family interpolates between a gentle squash and a hard clip:
+    ``p -> inf`` recovers ``np.clip``, while at the default ``p = 4`` a point half way to the wall
+    moves by 0.8% and one at the wall lands at 0.84 of the half-extent.
+
+    **Hard clipping is ruled out by the data, not by taste.** Measured over 44,080 pilot placements,
+    only **0.005%** of items sit at the exact canvas extreme and **0.02%** within 1% of it, so there
+    is no point mass at the wall; clipping manufactures one. What the pilot does show is a *pile-up
+    just inside* the edge (the 5-10% band holds 2x the uniform density on x, the 10-15% band 2.7x on
+    y) followed by a sharp dead zone in the outermost band - the signature of a soft wall plus the
+    item's own half-width. This function reproduces that shape; ``np.clip`` reproduces a spike.
+
+    **Per-axis min-max rescaling is ruled out for the same reason.** It pins exactly one item to
+    each end of each axis every trial, which at 20 items per trial would put ~20% of placements
+    exactly on a wall against the observed 0.02%.
+    """
+    spec.validate()
+    Y = np.asarray(Y, dtype=np.float64)
+    half = spec.upper / 2.0
+    u = Y - half
+    p = float(spec.softness)
+    if not np.isfinite(p):                      # p = inf is the hard-clip limit, kept for comparison
+        return np.clip(Y, 0.0, spec.upper)
+    scaled = np.abs(u) / half
+    return half + u / np.power(1.0 + np.power(scaled, p), 1.0 / p)
+
+
 def place(Y: np.ndarray, noise: float, rng: np.random.Generator,
           spec: CanvasSpec = CanvasSpec()) -> np.ndarray:
-    """Perturb a canvas-fitted arrangement by placement noise and clip it into the box.
+    """Perturb a canvas-fitted arrangement by placement noise and bound it into the box.
 
-    ``noise`` is an absolute fraction of the canvas width (see the module docstring). Clipping is
-    what produces the ceiling: a point already against a wall can be pushed inward but not outward,
-    so the upper tail of its distance to a far partner is truncated while the lower tail is not.
+    ``noise`` is an absolute fraction of the canvas width (see the module docstring). The bound is
+    what produces the ceiling: a point already near a wall has room to move inward but not outward,
+    so the upper tail of its distance to a far partner is compressed while the lower tail is not.
+    Saturation is smooth (:func:`soft_bound`) rather than a clip, because the pilot shows no mass at
+    the wall.
     """
     spec.validate()
     Y = np.asarray(Y, dtype=np.float64)
     if noise < 0:
         raise ValueError(f"`noise` must be non-negative, got {noise}")
     jittered = Y + rng.normal(0.0, noise, size=Y.shape) if noise > 0 else Y
-    return np.clip(jittered, 0.0, spec.upper)
+    return soft_bound(jittered, spec)
 
 
 def canvas_distances(Y: np.ndarray, spec: CanvasSpec = CanvasSpec()) -> np.ndarray:
