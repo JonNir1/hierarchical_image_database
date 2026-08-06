@@ -274,6 +274,52 @@ Steps g-i are deliberately **post-processing**. Agglomerative clustering on 725 
 milliseconds against ~25 seconds for one SMACOF fit, so keeping it out of the expensive loop costs
 nothing and lets k, linkage and metric choices be revised without refitting any MDS.
 
+### Parameter ledger
+
+Every free parameter, what identifies it, and **which subjects it was measured on**. The cohort
+column is not bookkeeping: production data must never calibrate a simulation whose purpose is to
+plan the production study, and the bases genuinely differ because different observables need
+different data.
+
+| parameter | identified by | cohort basis | status |
+|---|---|---|---|
+| `n_dims` | split-half agreement + leave-k-out CV | 41 pilot, **pre-SHINE only** | selected out-of-sample |
+| `subjects_noise_scale` | within-subject test-retest | 47 pilot, both variants | calibrated |
+| noise family / shape | per-subject reliability distribution | 47 pilot, both variants | calibrated |
+| `perspective_dispersion` | between-subject agreement | 47 pilot, both variants | calibrated |
+| `canvas.aspect` | screen geometry | 26 pilot, **v3+ only** | measured, or sampled |
+| `canvas.fill` | per-trial max distance | 26 pilot, **v3+ only** | calibrated, or sampled |
+| `canvas.softness` | near-wall placement density | 26 pilot, **v3+ only** | **swept** (sensitivity) |
+
+**Why the three bases differ.** The ground truth is a geometry over a *stimulus set*, so it takes
+pre-SHINE subjects only: the post-SHINE half judged different images and one geometry cannot
+describe both. The noise fit estimates a property of *subjects* - how reliably a person repeats
+their own arrangement - so the post-SHINE half is admissible evidence and all 47 are used. The
+canvas constants need trial-level `final_locations`, which pre-v3 sessions do not record, leaving
+26. **That last base is thin and should be reported as such.**
+
+An earlier version of the canvas constants was measured over 114 v3+ participants with no cohort
+filter, 88 of them production. That is the same contamination recorded for the task-v4 run in
+[FINDINGS.md](FINDINGS.md), caught and corrected here. `aspect` turned out to be cohort-invariant
+(0.494 against 0.499), which is what one expects of screen size, but the pilot value is used anyway
+rather than arguing an exception.
+
+**Sampled rather than fixed.** `aspect` and `fill` are *observable* and have measured
+distributions, so they are resampled per subject/trial from the empirical quantiles
+(`canvas.sample_spec`) rather than pinned at a median. That costs no free parameter and fixes a real
+mismatch: with a fixed spec the simulated per-trial max distance has sd 0.039 against the pilot's
+0.106, and sampling recovers 0.089 of it. `softness` has no observable distribution - nothing in the
+data yields the exponent directly - which is exactly why it is swept as a sensitivity axis instead.
+
+**What this buys against the obvious objection.** A model with seven dials fitted until it matches
+is not evidence of anything. The defence is that each parameter is anchored to a *distinct*
+observable with a stated identification argument (test-retest and between-subject agreement
+identify noise and dispersion *sequentially*, not jointly), that two of them are resampled rather
+than fitted, that one is swept rather than chosen, and that the semantic gradient is a genuine
+out-of-sample check nothing was fitted to. The simulation is a noise-and-sampling model for power
+analysis, not a cognitive theory of SpAM, and the conclusions are reported with sensitivity to the
+parameters that could plausibly drive them.
+
 ### Step a: calibrate to the pilot
 
 Without calibration the simulation's internals are guessed, so the absolute required-N is only as

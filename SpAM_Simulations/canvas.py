@@ -12,25 +12,37 @@ placed in a rectangle whose top-left is (0, 0) and bottom-right is ``(sort_area_
 sort_area_height)``, and every pairwise distance is divided by that rectangle's diagonal. So the
 observable is in [0, 1] with 1 attainable only corner-to-corner.
 
-**Measured from the pilot** (114 v3+ participants, 2,204 non-catch trials):
+**Measured on the PILOT COHORT ONLY** (26 v3+ participants, 440 non-catch trials):
 
 ======================================  ==========================================
-aspect ``height / width``               median 0.494, 5-95% [0.451, 0.643]
-per-trial max normalised distance       median 0.802, sd 0.082, 5-95% [0.616, 0.876]
-observed coordinate extent              x approx [0.0, 0.9], y approx [0.0, 0.8]
+aspect ``height / width``               median 0.499, quartiles [0.474, 0.540]
+per-trial max normalised distance       median 0.779, sd 0.106, quartiles [0.718, 0.815]
+placements at the exact wall            x 0.023%, y 0.034% (of 8,800 each)
 ======================================  ==========================================
+
+**Cohort basis, and why it is narrower than it looks.** The same policy that governs the ground
+truth applies here: production data must not calibrate a simulation whose purpose is to plan the
+production study. An earlier version of these constants was measured over 114 v3+ participants
+without a cohort filter, 88 of whom were production - the same contamination already recorded for
+the task-v4 run. Corrected, the base is 26 subjects, because canvas geometry needs trial-level
+``final_locations`` that pre-v3 sessions do not carry. That is thinner than the 41 subjects behind
+the ground truth or the 47 behind the noise fit, and any report of these constants should say so.
+
+``aspect`` turns out to be cohort-invariant (0.494 over everyone against 0.499 over the pilot),
+which is what one expects of screen geometry, but the pilot value is used anyway rather than
+arguing for an exception to the policy.
 
 Two things follow. Subjects **do** spread out to use the canvas rather than clustering in the
 middle, so a trial's arrangement is scaled to occupy the box. And the max distance is tightly
 concentrated well below the 1.0 ceiling, which is what :data:`DEFAULT_FILL` and
 :data:`DEFAULT_SOFTNESS` are jointly calibrated against.
 
-**The walls are soft, and that is measured rather than assumed.** Of 44,080 pilot placements only
-0.005% sit at the exact canvas extreme and 0.02% within 1% of it, so there is no point mass at the
-boundary - but there *is* a pile-up just inside (2x uniform density in the 5-10% band on x, 2.7x in
-the 10-15% band on y) with a sharp dead zone in the outermost band. ``np.clip`` reproduces a spike
-where the data has none, putting 5.2% of placements exactly on a wall. Per-axis min-max rescaling
-is worse still: it pins one item to each end of each axis every trial, i.e. ~20% of placements.
+**The walls are soft, and that is measured rather than assumed.** Across the pilot cohort's 8,800
+placements per axis, only 0.023% (x) and 0.034% (y) sit at the exact canvas extreme, so there is no
+point mass at the boundary - but there *is* a pile-up just inside it, with a sharp dead zone in the
+outermost band. ``np.clip`` reproduces a spike where the data has none, putting 5.2% of placements
+exactly on a wall. Per-axis min-max rescaling is worse still: it pins one item to each end of each
+axis every trial, i.e. ~20% of placements.
 :func:`soft_bound` reproduces the observed shape, and it also recovers far more of the empirical
 noise-curve turnover than clipping does (``drop_from_peak`` 0.21 against 0.02, versus 0.37 in the
 pilot), because it compresses over a region instead of only at the exact edge.
@@ -59,16 +71,22 @@ from typing import NamedTuple
 import numpy as np
 from scipy.spatial.distance import pdist
 
-# Median aspect across the pilot's 114 v3+ participants. Screen sizes vary (5-95% is [0.451,
-# 0.643]), so this is a representative canvas rather than any one subject's.
-DEFAULT_ASPECT = 0.494
+# Median aspect across the 26 pilot-cohort v3+ participants (quartiles [0.474, 0.540]). Screen
+# shapes vary, so this is a representative canvas rather than any one subject's; `sample_spec`
+# draws from the empirical distribution instead when per-subject variation is wanted.
+DEFAULT_ASPECT = 0.499
 # Fraction of the box a trial's arrangement is scaled to occupy before the walls soften it. Full
 # extent, because `soft_bound` then pulls the periphery in: at fill=1.0 with softness 4 and
-# placement noise 0.08 the simulated maximum distance has median 0.781 against the observed 0.802.
+# placement noise 0.08 the simulated maximum distance has median 0.783 against the pilot's 0.779.
 # (Under the rejected hard clip the equivalent value was 0.85; the two are not comparable.)
+#
+# NOTE: with a FIXED spec the simulated max distance is far too consistent across trials - sd 0.039
+# against the pilot's 0.106 - because `fit_to_canvas` then scales every trial to the same extent.
+# `sample_spec` draws aspect and fill per subject/trial from the observed marginals and recovers
+# most of it (sd 0.089), which is why the sweep should use it rather than the bare default.
 DEFAULT_FILL = 1.0
-# Saturation exponent. The pilot shows no mass at the wall (0.005% of 44,080 placements sit at the
-# exact extreme) but a pile-up just inside it, so the bound must be smooth rather than a clip. p=4
+# Saturation exponent. The pilot shows essentially no mass at the wall (0.02-0.03% of placements sit
+# at the exact extreme) but a pile-up just inside it, so the bound must be smooth, not a clip. p=4
 # leaves the interior essentially untouched - a point half way to the wall moves by 0.8% - while
 # saturating anything pushed past it.
 DEFAULT_SOFTNESS = 4.0
@@ -113,6 +131,37 @@ class CanvasSpec(NamedTuple):
             raise ValueError(f"`fill` must be in (0, 1], got {self.fill}")
         if self.softness <= 0:
             raise ValueError(f"`softness` must be positive, got {self.softness}")
+
+
+# Empirical marginals from the 26 pilot-cohort v3+ participants, for per-subject/per-trial sampling.
+# Quantiles rather than a fitted parametric family: with n=26 subjects there is no basis for
+# choosing a distribution, and resampling the observed values assumes nothing.
+_ASPECT_QUANTILES = (0.463, 0.474, 0.499, 0.540, 0.643)
+_MAX_DISTANCE_QUANTILES = (0.324, 0.718, 0.779, 0.815, 0.883)
+
+
+def sample_spec(rng: np.random.Generator, softness: float = DEFAULT_SOFTNESS,
+                vary_fill: bool = True) -> CanvasSpec:
+    """Draw a canvas from the pilot's observed screen shapes, for per-subject heterogeneity.
+
+    Fixing ``aspect`` and ``fill`` at their medians makes every simulated trial use exactly the same
+    extent, which the data contradicts: the pilot's per-trial max distance has sd 0.106 while the
+    fixed-spec simulation gives 0.039. Sampling recovers most of it, reaching 0.089 - close but not
+    exact, and the residual is plausibly content-dependent spread (a trial of near-identical images
+    presumably gets arranged more tightly) that this model has no mechanism for.
+
+    Costs no free parameter: both marginals are resampled from measured quantiles rather than fitted.
+    """
+    aspect = float(np.interp(rng.random(), np.linspace(0, 1, len(_ASPECT_QUANTILES)),
+                             _ASPECT_QUANTILES))
+    fill = DEFAULT_FILL
+    if vary_fill:
+        # The observed max-distance spread, expressed as a multiplicative deviation about its median
+        # and applied to `fill`; clipped to (0, 1] since a trial cannot use more than the canvas.
+        draw = float(np.interp(rng.random(), np.linspace(0, 1, len(_MAX_DISTANCE_QUANTILES)),
+                               _MAX_DISTANCE_QUANTILES))
+        fill = float(np.clip(DEFAULT_FILL * draw / _MAX_DISTANCE_QUANTILES[2], 0.3, 1.0))
+    return CanvasSpec(aspect=aspect, fill=fill, softness=softness)
 
 
 def fit_to_canvas(Y: np.ndarray, spec: CanvasSpec = CanvasSpec()) -> np.ndarray:
