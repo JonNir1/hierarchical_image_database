@@ -12,21 +12,33 @@ HDBSCAN labels such points ``-1`` (noise), which is precisely the missing statem
 labelled noise by both cohorts is one nothing else is reliably confusable with, i.e. maximally safe
 to use.
 
-**This module is deliberately secondary, and its outputs must not enter the transitivity chain.**
-Variation of Information is primary in `cluster_stability` because it is a true metric on
-*partitions*, which is what licenses `VI(cohort, paths) <= VI(cohort, cohort') + VI(cohort', paths)`
-in the later path-hierarchy comparison. A labelling with a noise class is not a partition in that
-sense: ``-1`` is not a cluster, it is the absence of one, and treating it as a cluster would make VI
-dominated by a bucket that may hold most of the images. So nothing here is reported as VI, and
-nothing here may be substituted into that argument.
+**A noise class is not a partition, but that does not make the labelling unusable for chaining.**
+``-1`` is the absence of a cluster rather than a cluster, so treating it as one would make VI
+dominated by a bucket that may hold most of the images, and the raw HDBSCAN labelling therefore
+cannot carry `VI(cohort, paths) <= VI(cohort, cohort') + VI(cohort', paths)` as it stands.
 
-What is reported instead needs no metricity:
+The fix is to **restrict the ground set**. Drop the noise images from every labelling involved and
+what remains are honest partitions of one shared subset, on which VI is a metric with all its usual
+properties. The chained claim survives in a weaker, explicitly scoped form: *restricted to the
+n-star images that all the labellings clustered*, the triangle inequality holds exactly, so an unmeasured
+leg can still be bounded by the sum of two measured ones. :func:`common_clustered_mask` and
+:func:`pairwise_restricted_vi` exist for precisely that, and they take **all** the labellings at
+once, because scoring each pair on its own intersection puts the terms in different metric spaces
+and they can no longer be added.
+
+The price is stated rather than hidden: the surviving subset is chosen *by the clusterings*, so two
+cohorts that both label aggressively keep only the easy, well-separated core and score well on it.
+``vi_restricted`` is optimistically biased, the bias grows with the noise fraction, and every
+function returning it also returns ``n_shared``/``frac_shared`` so the scope of any claim travels
+with the number.
+
+What is reported:
 
 * **noise fraction and cluster count**, per cohort. HDBSCAN chooses the number of clusters rather
   than being told, so this is a genuinely independent read on the granularity question.
 * **agreement on which images are noise**, which is a *binary* label per image, so plain Jaccard and
-  Cohen's kappa apply directly.
-* **ARI restricted to the images both cohorts clustered**, as a descriptive sanity check only.
+  Cohen's kappa apply directly and need no restriction at all.
+* **VI and ARI over the jointly-clustered subset**, the semi-metric quantities above.
 
 **Why not GMM anywhere.** At the granularities of interest there are as few as 3.6 images per
 cluster (725 / 200), while a full covariance in 8-20 dimensions needs 36-210 parameters per
@@ -119,6 +131,92 @@ def noise_agreement(labels_a: np.ndarray, labels_b: np.ndarray) -> Dict[str, flo
     }
 
 
+def common_clustered_mask(labellings: Sequence[np.ndarray]) -> np.ndarray:
+    """Boolean mask of the images **every** supplied labelling assigned to some cluster.
+
+    This is what makes a chained claim possible. Restricted to this mask each labelling is a genuine
+    partition of the *same* ground set, so VI is a metric on it and the triangle inequality holds
+    exactly. Pass all the labellings the chain will involve at once - two cohorts and a reference,
+    say - rather than intersecting pairwise, because a pairwise-restricted VI is a distance in a
+    different metric space for each pair and those cannot be added.
+    """
+    if not labellings:
+        raise ValueError("need at least one labelling")
+    mask = np.ones(len(labellings[0]), dtype=bool)
+    for labels in labellings:
+        labels = np.asarray(labels)
+        if labels.shape != mask.shape:
+            raise ValueError(f"labellings must match in length, got {labels.shape} and {mask.shape}")
+        mask &= labels != NOISE_LABEL
+    return mask
+
+
+def restricted_vi(labels_a: np.ndarray, labels_b: np.ndarray,
+                  mask: Optional[np.ndarray] = None) -> Dict[str, float]:
+    """VI between two density labellings, over the images both assigned to a cluster.
+
+    Dropping the noise class from *both* sides leaves two honest partitions of the surviving subset,
+    so on that subset VI is a metric with all its usual properties. That supports a real, if
+    narrower, chained claim: **restricted to the images every labelling clustered**, one can still
+    write ``VI(a, ref) <= VI(a, b) + VI(b, ref)``. Pass an explicit ``mask`` from
+    :func:`common_clustered_mask` when the chain involves more than these two labellings, since
+    otherwise each pair is scored on its own ground set and the terms are not addable.
+
+    **The restriction is not neutral and the result is optimistically biased.** The surviving subset
+    is chosen by the clusterings themselves, so two cohorts that both label aggressively keep only
+    the easy, well-separated core and score well on it. The bias grows with the noise fraction,
+    which is exactly why ``n_shared`` and ``frac_shared`` are returned alongside and why no
+    comparison across settings is meaningful without them.
+
+    ``vi_restricted_norm`` divides by ``log(n_shared)``, so it is interpretable within a pair but
+    **not comparable across pairs with different subset sizes**; ``vi_restricted`` in nats is the
+    quantity to add when chaining.
+    """
+    from SpAM_Simulations.cluster_stability import variation_of_information
+
+    a, b = np.asarray(labels_a), np.asarray(labels_b)
+    if a.shape != b.shape:
+        raise ValueError(f"label arrays must match in length, got {a.shape} and {b.shape}")
+    mask = common_clustered_mask([a, b]) if mask is None else np.asarray(mask, dtype=bool)
+    n = int(mask.sum())
+    out = {"n_shared": n, "frac_shared": n / a.size if a.size else np.nan}
+    # log(1) == 0 makes the normalised form undefined, and a single item carries no partition
+    # structure to compare in any case.
+    if n < 2:
+        return {**out, "vi_restricted": np.nan, "vi_restricted_norm": np.nan}
+    return {
+        **out,
+        "vi_restricted": variation_of_information(a[mask], b[mask], normalise=False),
+        "vi_restricted_norm": variation_of_information(a[mask], b[mask], normalise=True),
+    }
+
+
+def pairwise_restricted_vi(labellings: Sequence[np.ndarray],
+                           names: Optional[Sequence[str]] = None) -> pd.DataFrame:
+    """Every pairwise ``vi_restricted`` on the **single** ground set common to all ``labellings``.
+
+    The form to use for a chained claim. Because one mask is shared by every pair, the returned
+    values live in one metric space and the triangle inequality holds between any three of them, so
+    an unmeasured leg can be bounded by the sum of two measured ones. Scoring each pair on its own
+    intersection instead would silently mix metric spaces and the bound would not follow.
+
+    ``n_shared`` is constant across rows by construction and is reported so the scope of the claim
+    ("restricted to these n of 725 images") travels with the numbers.
+    """
+    from itertools import combinations
+
+    labellings = [np.asarray(la) for la in labellings]
+    names = list(names) if names is not None else [str(i) for i in range(len(labellings))]
+    if len(names) != len(labellings):
+        raise ValueError(f"got {len(names)} names for {len(labellings)} labellings")
+    mask = common_clustered_mask(labellings)
+    return pd.DataFrame([
+        {"a": names[i], "b": names[j],
+         **restricted_vi(labellings[i], labellings[j], mask=mask)}
+        for i, j in combinations(range(len(labellings)), 2)
+    ])
+
+
 def clustered_ari(labels_a: np.ndarray, labels_b: np.ndarray) -> Dict[str, float]:
     """ARI over the images **both** cohorts assigned to some cluster. Descriptive only.
 
@@ -157,6 +255,7 @@ def compare_density_partitions(condensed_a: np.ndarray, condensed_b: np.ndarray,
             "mean_frac_noise": 0.5 * (sa["frac_noise"] + sb["frac_noise"]),
             "mean_cluster_size": np.nanmean([sa["cluster_size_mean"], sb["cluster_size_mean"]]),
             **noise_agreement(la, lb), **clustered_ari(la, lb),
+            **restricted_vi(la, lb),
         })
     return pd.DataFrame(rows)
 
@@ -170,7 +269,11 @@ _MEAN_SEM_FIELDS = {
     "both_noise_frac": "both_noise_frac", "either_noise_frac": "either_noise_frac",
     "ari_shared_clustered": "ari_shared_clustered",
     "frac_shared_clustered": "frac_shared_clustered",
+    "vi_restricted": "vi_restricted", "vi_restricted_norm": "vi_restricted_norm",
 }
+# `restricted_vi` and `clustered_ari` both report the shared-subset size, identically whenever no
+# explicit mask is passed. Only `frac_shared_clustered` is carried into the table, so the column is
+# not duplicated; `n_shared` remains on the per-pair dict for standalone callers.
 
 
 def compute_density_agreement(store, min_cluster_sizes: Sequence[int] = DEFAULT_MIN_CLUSTER_SIZES,
@@ -204,7 +307,12 @@ def compute_density_agreement(store, min_cluster_sizes: Sequence[int] = DEFAULT_
         for mcs in min_cluster_sizes:
             labels = [hdbscan_labels(d, mcs, min_samples) for d in dists]
             summaries = [noise_summary(la) for la in labels]
-            pairs = [{**noise_agreement(labels[i], labels[j]), **clustered_ari(labels[i], labels[j])}
+            # Each pair is restricted to its OWN jointly-clustered subset here, which is
+            # right for a descriptive average but means these values are not addable across
+            # pairs. Use `pairwise_restricted_vi` on one shared mask when chaining.
+            pairs = [{**noise_agreement(labels[i], labels[j]),
+                      **clustered_ari(labels[i], labels[j]),
+                      **restricted_vi(labels[i], labels[j])}
                      for i, j in combinations(range(len(labels)), 2)]
             row = {**base, "min_cluster_size": int(mcs), "n_reps": len(labels),
                    "n_pairs": len(pairs)}

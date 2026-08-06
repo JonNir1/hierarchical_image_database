@@ -209,3 +209,108 @@ def test_mean_sem_ignores_nans():
     assert out["mean_x"] == pytest.approx(2.0)
     assert out["sem_x"] > 0
     assert np.isnan(dc._mean_sem([np.nan, np.nan], "x")["mean_x"])
+
+
+# --------------------------------------------------------------------- restricted VI
+# The point of these: a noise class blocks VI on the FULL set, but restricting the ground set to
+# the images every labelling clustered restores a genuine partition metric on that subset, which
+# supports a real chained claim in a narrower, explicitly-scoped form.
+
+def test_common_clustered_mask_intersects_every_labelling():
+    a = np.array([0, 0, -1, 1, 1])
+    b = np.array([0, -1, 0, 1, 1])
+    c = np.array([0, 0, 0, 1, -1])
+    np.testing.assert_array_equal(dc.common_clustered_mask([a, b, c]),
+                                  np.array([True, False, False, True, False]))
+
+
+def test_common_clustered_mask_rejects_mismatched_lengths():
+    with pytest.raises(ValueError, match="match in length"):
+        dc.common_clustered_mask([np.zeros(4), np.zeros(5)])
+
+
+def test_restricted_vi_is_zero_for_labellings_that_agree_where_both_clustered():
+    """Noise placement may differ; what is scored is the structure on the surviving subset."""
+    a = np.array([0, 0, 1, 1, -1, 2, 2])
+    b = np.array([5, 5, 7, 7, 3, -1, 9])
+    # Index 4 is noise in a, index 5 is noise in b, so both drop; the surviving {0,1,2,3,6} carry
+    # the same grouping under both labellings despite entirely different cluster numbering.
+    out = dc.restricted_vi(a, b)
+    assert out["n_shared"] == 5
+    assert out["vi_restricted"] == pytest.approx(0.0, abs=1e-12)
+    assert out["vi_restricted_norm"] == pytest.approx(0.0, abs=1e-12)
+
+
+def test_restricted_vi_is_nan_when_the_shared_subset_is_too_small():
+    """log(1) == 0 makes the normalised form undefined, and one item has no structure anyway."""
+    out = dc.restricted_vi(np.array([-1, -1, 0]), np.array([0, -1, -1]))
+    assert out["n_shared"] == 0
+    assert np.isnan(out["vi_restricted"]) and np.isnan(out["vi_restricted_norm"])
+
+
+def test_restricted_vi_matches_plain_vi_when_nothing_is_noise():
+    """With no noise the restriction is a no-op, so it must reduce to the ordinary metric."""
+    from SpAM_Simulations.cluster_stability import variation_of_information
+    a = np.array([0, 0, 1, 1, 2, 2])
+    b = np.array([0, 1, 1, 1, 2, 2])
+    out = dc.restricted_vi(a, b)
+    assert out["n_shared"] == 6
+    assert out["vi_restricted"] == pytest.approx(variation_of_information(a, b, normalise=False))
+    assert out["vi_restricted_norm"] == pytest.approx(variation_of_information(a, b))
+
+
+def test_restricted_vi_honours_an_explicit_shared_mask():
+    """The mask is how several labellings are forced onto ONE ground set for a chained claim."""
+    a = np.array([0, 0, 1, 1, 2])
+    b = np.array([0, 0, 1, 1, 2])
+    mask = np.array([True, True, False, False, False])
+    out = dc.restricted_vi(a, b, mask=mask)
+    assert out["n_shared"] == 2
+    assert out["vi_restricted"] == pytest.approx(0.0, abs=1e-12)
+
+
+def test_pairwise_restricted_vi_obeys_the_triangle_inequality():
+    """The property the whole restriction exists to buy.
+
+    On one shared ground set the three restricted VIs live in a single metric space, so any leg is
+    bounded by the sum of the other two. That is what lets an unmeasured cohort-to-reference
+    distance be bounded by two measured ones, in the scoped form "restricted to these n images".
+    """
+    rng = np.random.default_rng(0)
+    labellings = []
+    for _ in range(3):
+        la = rng.integers(0, 4, size=40)
+        la[rng.random(40) < 0.2] = dc.NOISE_LABEL      # each marks a different ~20% as noise
+        labellings.append(la)
+    out = dc.pairwise_restricted_vi(labellings, names=["a", "b", "c"]).set_index(["a", "b"])
+    ab, ac, bc = (out.loc[k, "vi_restricted"] for k in (("a", "b"), ("a", "c"), ("b", "c")))
+    assert ac <= ab + bc + 1e-12
+    assert ab <= ac + bc + 1e-12
+    assert bc <= ab + ac + 1e-12
+    # The scope of the claim must travel with it: one ground set, reported.
+    assert out["n_shared"].nunique() == 1
+    assert out["n_shared"].iloc[0] < 40      # the restriction really did drop images
+
+
+def test_pairwise_restricted_vi_uses_one_ground_set_not_per_pair_intersections():
+    """Per-pair intersections would put the terms in different metric spaces and break addition."""
+    a = np.array([0, 0, 1, 1, 2, 2])
+    b = np.array([0, 0, 1, 1, 2, -1])
+    c = np.array([0, 0, 1, 1, -1, -1])
+    out = dc.pairwise_restricted_vi([a, b, c])
+    assert (out["n_shared"] == 4).all()      # the a-b pair alone would have kept 5
+    assert dc.restricted_vi(a, b)["n_shared"] == 5
+
+
+def test_pairwise_restricted_vi_rejects_a_name_count_mismatch():
+    with pytest.raises(ValueError, match="names for"):
+        dc.pairwise_restricted_vi([np.zeros(3, int), np.zeros(3, int)], names=["only-one"])
+
+
+def test_density_agreement_reports_restricted_vi(tmp_path):
+    df = dc.compute_density_agreement(_store(tmp_path), min_cluster_sizes=(5,), verbose=False)
+    for col in ("mean_vi_restricted", "sem_vi_restricted", "mean_vi_restricted_norm"):
+        assert col in df.columns, col
+    # Near-identical cohorts: the surviving subset should agree almost perfectly.
+    assert df["mean_vi_restricted"].iloc[0] == pytest.approx(0.0, abs=1e-6)
+    assert "mean_n_shared" not in df.columns      # frac_shared_clustered already carries this

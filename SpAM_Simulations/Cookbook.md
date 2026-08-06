@@ -472,7 +472,7 @@ prints the continuum verdicts plus the density summary.
 | `dendrogram_agreement.csv` | agglomerative | Baker's gamma and cophenetic fidelity, k-free |
 | `cluster_sizes.csv` | agglomerative | the discovered size distribution |
 | `k_selection.csv` | agglomerative | `k_star_vi`, `k_star_sil` and the continuum verdicts |
-| `density_agreement.csv` | HDBSCAN | noise fraction and cross-cohort agreement on isolation, per `min_cluster_size` |
+| `density_agreement.csv` | HDBSCAN | noise fraction, cross-cohort agreement on isolation, and `vi_restricted`, per `min_cluster_size` |
 | `isolated_images.csv` | HDBSCAN | per image, the fraction of cohorts that left it unclustered |
 
 Useful flags: `--ks` and `--linkages` control the agglomerative grid, `--min-cluster-sizes` the
@@ -492,15 +492,22 @@ metric to price the choice: if `vi_norm_at_k_star_sil` is close to `vi_norm_at_k
 granularity costs nothing in reproducibility and should be preferred; if it is much worse, the
 parsimonious `k_star_vi` is buying something real.
 
-**The density pass answers a different question and its numbers do not compose.** HDBSCAN is there
-because agglomerative clustering assigns every one of the 725 images to a cluster, so a genuinely
-isolated image is absorbed into whichever group is nearest; HDBSCAN's `-1` noise label is the
-missing statement. An image with `frac_cohorts_noise` near 1 is one that no cohort found reliably
-confusable with anything, which makes it the safest kind of stimulus. But a labelling with a noise
-class is **not a partition**, so none of these scores may be substituted into the VI transitivity
-argument. See the README's
+**The density pass answers a different question, and its VI composes only in a scoped form.**
+HDBSCAN is there because agglomerative clustering assigns every one of the 725 images to a cluster,
+so a genuinely isolated image is absorbed into whichever group is nearest; HDBSCAN's `-1` noise
+label is the missing statement. An image with `frac_cohorts_noise` near 1 is one that no cohort
+found reliably confusable with anything, which makes it the safest kind of stimulus.
+
+A labelling with a noise class is not a partition, so `vi_restricted` is computed after dropping the
+noise images from every labelling involved. On that shared subset the triangle inequality holds
+exactly, so a chained bound is still available in the form "restricted to these n of 725 images".
+Two rules when using it: read `n_shared`/`frac_shared` alongside every value, because the subset is
+chosen by the clusterings and the score is optimistically biased towards the easy core; and when
+adding terms, use `density_clustering.pairwise_restricted_vi`, which puts every pair on one ground
+set. The per-pair `mean_vi_restricted` in `density_agreement.csv` is a descriptive average over
+pair-specific subsets and is **not** addable. See the README's
 [clustering-algorithms section](README.md#clustering-algorithms-why-agglomerative-why-hdbscan-why-not-gmm)
-for that, and for why GMM is not an option at all.
+for the full argument, and for why GMM is not an option at all.
 
 > **A continuum is a result.** If `is_flat` (VI varies by less than 0.02 across the whole k grid) or
 > `is_arbitrary_slicing` (cross-cohort silhouette at k\* below 0.05) comes back true, the cohorts

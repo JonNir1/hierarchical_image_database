@@ -147,22 +147,38 @@ agglomerative pass purely to recover the missing statement.
 |---|---|---|
 | `frac_noise` | share of images HDBSCAN assigns to **no** cluster | descriptive |
 | `noise_jaccard`, `noise_kappa` | do two cohorts agree on *which* images those are | higher = better |
+| `vi_restricted` | VI over the images **all** labellings clustered | **lower** = better |
 | `ari_shared_clustered` | ARI over the images both cohorts clustered | higher = better |
 | `isolated_images.frac_cohorts_noise` | per image, the share of cohorts that left it unclustered | descriptive |
 
-**These are descriptive and must never enter the transitivity chain.** A labelling with a noise class
-is not a partition in the sense VI needs: `-1` is not a cluster, it is the absence of one, and
-counting it as a cluster would make VI dominated by a bucket that may hold most of the images. So
-none of this is reported as VI and none of it may be substituted into
-`VI(cohort, paths) <= VI(cohort, cohort') + VI(cohort', paths)`.
+**The noise class blocks VI on the full set, but restricting the ground set recovers a real, if
+narrower, chained claim.** `-1` is the absence of a cluster rather than a cluster, so counting it as
+one would make VI dominated by a bucket that may hold most of the images. Drop the noise images from
+*every* labelling involved, though, and what remains are honest partitions of one shared subset, on
+which VI is a metric with all its usual properties. The claim becomes scoped rather than lost:
+**restricted to the n\* images that all the labellings clustered**, the triangle inequality holds
+exactly, so an unmeasured leg can still be bounded by the sum of two measured ones.
+
+`common_clustered_mask` and `pairwise_restricted_vi` do this, and they take **all** the labellings at
+once. Intersecting pairwise instead would score each pair on its own ground set, putting the terms in
+different metric spaces where they cannot be added, and the bound would not follow.
+
+The price is stated rather than hidden. The surviving subset is chosen *by the clusterings*, so two
+cohorts that both label aggressively keep only the easy, well-separated core and score well on it:
+`vi_restricted` is optimistically biased and the bias grows with the noise fraction. `n_shared` and
+`frac_shared` therefore travel with every value, and `vi_restricted_norm` (divided by
+`log(n_shared)`) is interpretable within a pair but **not** comparable across pairs with different
+subset sizes. When chaining, add the raw nats.
 
 **Good at**: the one question the agglomerative pass structurally cannot answer. An image left
 unclustered by every cohort is one nothing is reliably confusable with, which makes it the safest
 possible stimulus. HDBSCAN also *chooses* the number of clusters instead of being told, so it is an
 independent read on granularity.<br>
-**Bad at**: being a primary agreement measure, for the metricity reason above. It also swaps the `k`
-sweep for a `min_cluster_size` sweep rather than removing a hyperparameter, and the noise fraction
-moves with that choice, so it is swept (2, 3, 5, 10, 20) rather than reported at one setting.
+**Bad at**: being a *primary* agreement measure. Its VI is conditional on a subset the method
+itself chose, which is a weaker footing than the agglomerative pass's unconditional partition, and
+the optimism above has no correction. It also swaps the `k` sweep for a `min_cluster_size` sweep
+rather than removing a hyperparameter, and the noise fraction moves with that choice, so it is swept
+(2, 3, 5, 10, 20) rather than reported at one setting.
 
 ### Clustering algorithms: why agglomerative, why HDBSCAN, why not GMM
 
@@ -178,7 +194,7 @@ coordinate-dependent method would score identical geometries as disagreeing. And
 | Deterministic | yes | yes | **no** (EM init) |
 | Rotation-invariant | yes (runs on distances) | yes (`metric="precomputed"`) | only with full covariance |
 | Can say "no cluster" | **no** | yes | no (soft, but every point has mass) |
-| Partition for VI | yes | no (noise class) | no (soft) |
+| Partition for VI | yes | on the clustered subset only | no (soft) |
 | Granularity control | `k`, swept | `min_cluster_size`, swept | `k`, swept |
 | Whole k sweep from one fit | yes (one tree) | no | no |
 
