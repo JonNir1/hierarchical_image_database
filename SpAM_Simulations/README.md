@@ -8,6 +8,30 @@ pipeline is put together. For how to actually run things (quick start, R setup, 
 [Cookbook.md](Cookbook.md). For what the runs have actually shown, including two results that were
 later withdrawn, see [FINDINGS.md](FINDINGS.md).
 
+## The current model is task-v5
+
+**`task_v5_experiment` is the model this project uses. Everything in `sim_results/` predates it.**
+
+v3 and v4 placed images on an *unbounded plane*. The deployed task places them in a rectangle and
+divides every distance by its diagonal, so the observable cannot exceed 1.0 - but the unbounded
+model produced a median per-trial maximum of **1.39**, i.e. arrangements that cannot physically
+occur. [`canvas.py`](canvas.py) supplies the missing geometry and v5 makes it intrinsic.
+
+| version | status |
+|---|---|
+| task-v0.1 / v2.3 / v2.4 | superseded, kept for their published sweeps |
+| task-v3 | superseded; first generative coordinate-space model |
+| task-v4, task-v4-fitted | **historical.** Every file under `sim_results/` came from these. Reproducible from current code (`test_bit_exact_v4`), which is why v4 is its own module rather than an edit - but not the current model |
+| **task-v5** | **current.** v4's screening model on a bounded canvas. **Not yet run** |
+
+Two consequences to carry into any reading of the older results. Their **comparative** findings
+survive, since a geometry error shared by both arms of a contrast does not reverse it. Their
+**absolute** figures do not - every asymptote and level was computed on an impossible distance
+distribution. And their **calibrated constants do not transfer at all**, because
+`subjects_noise_scale` changes meaning under v5 (an absolute fraction of canvas width, rather than a
+ratio to each trial's arrangement spread), so stage 1 has to be re-run before a v5 sweep means
+anything.
+
 ## Research questions
 
 1. **Required N.** How many subjects does the study need, given a target metric to optimise? The
@@ -540,4 +564,5 @@ Named snapshots at notable `SpAM_Simulations` milestones:
 | `spam-task-v2.5` | `b82f454` | 2026-06-25 | SpAM task v2.5. |
 | `spam-sim-v3-calibrated` | `813896d` | 2026-07-07 | GT-build provenance and the first pilot-calibrated task-v3 sweep. |
 | `spam-task-v3.24` | `7cec31b` | 2026-07-08 | SpAM task v3.24. |
-| `spam-sim-v4.0` | `53d667c` | 2026-07-26 | Noise population fitted to data. **The revision the current `sim_results/` were produced from**, and the last one carrying the v1 parser and the pilot/prod directory layout. |
+| `spam-sim-v4.0` | `53d667c` | 2026-07-26 | Noise population fitted to data. **The revision every file under `sim_results/` was produced from** - historical, not current - and the last one carrying the v1 parser and the pilot/prod directory layout. |
+| *(untagged)* | — | 2026-08 | **task-v5**: the bounded canvas, cluster-reproducibility metrics, the density pass, and the two-stage EC2 programme. Tag when stage 1 has been re-run under v5. |

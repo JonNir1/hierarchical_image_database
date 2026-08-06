@@ -83,8 +83,14 @@ still isn't found, set `R_HOME` explicitly.
 
 ## Running on EC2
 
-Eight shell scripts, under `ec2/`, handle the full-scale sweeps remotely. The last two are the
-current programme; the rest are the historical runs, kept because their results are cited.
+Eight shell scripts, under `ec2/`, handle the full-scale sweeps remotely.
+
+> **The v0.1 / v2.3 / v2.4 / v3 / v4 entrypoints are historical.** They drive models that place
+> images on an unbounded plane, which the deployed task does not - see
+> [the current model is task-v5](README.md#the-current-model-is-task-v5). They are kept because
+> their results are cited in [FINDINGS.md](FINDINGS.md) and remain reproducible, not because they
+> should be run again. New work uses the two-stage programme at the bottom of this list, and that
+> programme still needs updating to task-v5 before it is run.
 - `ec2/prepare_machine.sh` - shared provisioning (system packages, R 4.5 + `smacof`, awscli v2,
   sparse-checkout clone of `SpAM_Simulations/`, Python venv), plus `stage_pull`/`stage_push` for
   handing artifacts between stages and `upload_and_finish` for the final sync. Sourced, not run
@@ -374,6 +380,11 @@ clone and an instance is terminated the moment its stage ends: a long loop pushe
 goes, so an eight-hour scan that dies at hour seven keeps the six dimensionalities it finished.
 
 #### Stage 1 - `run_gt_construction.sh`
+
+> **Not yet updated to task-v5.** It calibrates the v3/v4 unbounded model, whose
+> `subjects_noise_scale` means a ratio to each trial's arrangement spread rather than an absolute
+> fraction of canvas width. Re-running stage 1 under v5 is the first execution step, and its output
+> is what makes a v5 stage 2 interpretable.
 
 Chooses the GT dimensionality from evidence (split-half agreement, corroborated by leave-k-out CV
 over subjects) and fits the final embedding. Runs on the **41 pre-SHINE pilot subjects only**, and

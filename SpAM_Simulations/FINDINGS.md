@@ -7,10 +7,30 @@ source is named so each can be re-derived.
 For *how* the pipeline works see [README.md](README.md), and for how to run it
 [Cookbook.md](Cookbook.md).
 
-> **Read the caveats before quoting anything.** Two results here were revised after the fact, the
-> headline required-N figure is a **non-result** (the sweep never converged), and the latest run's
-> calibration set included 14 production subjects alongside the pilot. All three are flagged inline
-> rather than left for a reader to notice. None of them overturns the comparative findings.
+> ## ⚠️ Every run described here predates task-v5, and none has been re-run under it
+>
+> **The model these runs used placed images on an unbounded plane.** The deployed task places them
+> in a rectangle and divides every distance by its diagonal, so the observable cannot exceed 1.0 -
+> yet the v3/v4 model produced a median per-trial maximum of **1.39**. It was generating
+> arrangements that cannot physically occur. `canvas.py` fixes this and `task_v5_experiment` is the
+> current model; see [README.md](README.md#the-current-model-is-task-v5).
+>
+> What that means for the numbers below:
+>
+> * **Comparative findings survive.** Screening's direction and cost, "reliability beats sample
+>   size", reproducibility ranking designs the same way validity does - these are contrasts between
+>   arms measured under one consistent model, and a geometry error shared by both arms does not
+>   reverse them.
+> * **Absolute figures are provisional.** Every asymptote, every Spearman/M² level, every recall and
+>   Jaccard number was computed on distances drawn from an impossible distribution. Treat them as
+>   ordinal, not as quantities to plan against.
+> * **Calibrated constants do not transfer at all.** `subjects_noise_scale` changes meaning under
+>   v5 (absolute canvas fraction, not a ratio to arrangement spread), so the fitted values here
+>   cannot be reused; stage 1 must be re-run before any v5 sweep means anything.
+>
+> Three further caveats, flagged inline rather than left for a reader to notice: two results were
+> revised after the fact, the headline required-N figure is a **non-result** (the sweep never
+> converged), and the v4-fitted calibration set included 14 production subjects alongside the pilot.
 
 ---
 
@@ -78,9 +98,14 @@ exactly where per-pair noise bites.
 | task-v2.4 | + whole-trial repeats | per-subject test-retest as a lever |
 | task-v3 | **generative coordinate-space model** | perspective weighting + canvas placement noise; first pilot-calibrated GT |
 | task-v4 | + the deployed v4.0 screening block | recruitment cost, retained-cohort precision |
-| **task-v4-fitted** | + noise *shape* fitted, not just scale | the current headline run |
+| task-v4-fitted | + noise *shape* fitted, not just scale | the last run on the **unbounded** model |
+| **task-v5** | + the **bounded 2-D canvas** | distances that can physically occur; **not yet run** |
 
-Tag `spam-sim-v4.0` (`53d667c`) is the revision the current `sim_results/` were produced from.
+Tag `spam-sim-v4.0` (`53d667c`) is the revision every result file under `sim_results/` was produced
+from. It is a **historical** revision, not the current one: `test_bit_exact_v4` guarantees the
+current code can still reproduce it, which is exactly why v4 was kept as its own module rather than
+edited in place, but no conclusion below should be read as describing the model the project now
+uses.
 
 ---
 
@@ -118,7 +143,7 @@ assumes no ground truth. For *absolute* claims they disagree substantially.
 
 ---
 
-## 4. task-v4-fitted: the current run
+## 4. task-v4-fitted: the last unbounded run
 
 Design fixed to the deployed `task_config.json`: 20 images/trial, 8 screening trials (2 repeats) plus
 14 experimental (2 repeats). Sweep: N ∈ {30, 50, 75, 300} x ndim {5,6,8,10} x
@@ -276,7 +301,7 @@ harmless flips) measures the actual decision. That is why the cluster-agreement 
    this are implemented but unrun.
 5. **Statistical power of the existing cells.** 6 reps gives 15 cohort pairs, and those pairs are not
    independent (each cohort appears in 5), so every reported SEM understates the true uncertainty.
-6. **A clean recalibration.** The current fitted constants come from a set that included 14
+6. **A clean recalibration.** The v4-fitted constants come from a set that included 14
    production subjects (section 4). Re-running stage 1 on the 41 pre-SHINE pilot subjects would put
    the absolute numbers on the footing the comparative ones already have.
 
