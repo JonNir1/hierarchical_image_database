@@ -33,7 +33,7 @@ def test_spec_rejects_impossible_geometry():
 
 def test_defaults_come_from_the_pilot():
     """Not round numbers: the aspect is the pilot's median screen shape."""
-    assert cv.DEFAULT_ASPECT == pytest.approx(0.494)      # pilot median screen shape
+    assert cv.DEFAULT_ASPECT == pytest.approx(0.499)      # PILOT-COHORT median screen shape
     assert cv.DEFAULT_FILL == pytest.approx(1.0)          # with soft walls pulling the edge in
     assert cv.DEFAULT_SOFTNESS == pytest.approx(4.0)      # matches the near-wall density
 
@@ -258,3 +258,45 @@ def test_the_bound_produces_no_pile_up_at_the_wall():
                                   spec._replace(softness=float("inf")))
                          for s in range(150)])
     assert np.mean((clipped <= 0.0) | (clipped >= spec.upper)) > 0.01   # the artifact, for contrast
+
+
+# --------------------------------------------------------------------- empirical sampling
+
+def test_sample_spec_stays_within_the_observed_range():
+    """Resampled from measured quantiles, so no draw should invent a screen the pilot never had."""
+    rng = np.random.default_rng(0)
+    specs = [cv.sample_spec(rng) for _ in range(500)]
+    aspects = np.array([sp.aspect for sp in specs])
+    fills = np.array([sp.fill for sp in specs])
+    assert aspects.min() >= 0.463 - 1e-9 and aspects.max() <= 0.643 + 1e-9
+    assert np.all((fills > 0) & (fills <= 1.0))
+    assert aspects.std() > 0 and fills.std() > 0          # it really does vary
+
+
+def test_sample_spec_recovers_the_missing_trial_to_trial_spread():
+    """The reason it exists: a fixed spec makes every trial use the same extent, which is wrong.
+
+    Pilot per-trial max distance has sd 0.106; a fixed spec gives 0.039. Sampling aspect and fill
+    from the observed marginals should land much closer without adding a free parameter.
+    """
+    rng = np.random.default_rng(1)
+    fixed, sampled = [], []
+    for s in range(300):
+        Y = _square(20, seed=s)
+        fixed.append(cv.arrange(Y, 0.08, rng, cv.CanvasSpec()).max())
+        sampled.append(cv.arrange(Y, 0.08, rng, cv.sample_spec(rng)).max())
+    assert np.std(sampled) > 1.5 * np.std(fixed)
+    assert max(sampled) <= 1.0                             # still geometrically possible
+
+
+def test_sample_spec_can_hold_fill_fixed():
+    rng = np.random.default_rng(2)
+    specs = [cv.sample_spec(rng, vary_fill=False) for _ in range(50)]
+    assert {sp.fill for sp in specs} == {cv.DEFAULT_FILL}
+    assert len({sp.aspect for sp in specs}) > 1            # aspect still varies
+
+
+def test_sample_spec_honours_the_softness_argument():
+    """Softness is swept as a sensitivity axis, so it must not be overwritten by the sampler."""
+    rng = np.random.default_rng(3)
+    assert cv.sample_spec(rng, softness=6.0).softness == pytest.approx(6.0)
