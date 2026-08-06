@@ -25,11 +25,15 @@ middle, so a trial's arrangement is scaled to occupy most of the box. And the ma
 tightly concentrated well below the 1.0 ceiling, so the scaling is close to, but not exactly, a full
 fit - which is what :data:`DEFAULT_FILL` is calibrated against.
 
-**Scaling happens before the noise, not after.** Both orders were measured. Scaling the *intended*
-arrangement and then perturbing it reproduces a turnover in the noise-vs-distance curve;
-renormalising the *realised* arrangement destroys it completely (``drop_from_peak`` falls to 0.000),
-because the renormalisation is driven by the extreme points themselves, so their noise propagates
-into the scale and cancels the very truncation it was supposed to create.
+**Scaling happens before the noise, on mechanistic grounds rather than empirical ones.** The scale
+is a decision the subject makes about the arrangement they intend - "spread these across the space"
+- and the placement error then applies to each individual drag. Renormalising the *realised*
+arrangement would instead let one item's motor error rescale every other item, which is not a thing
+a person does. Both orders were measured and neither reproduces the empirical turnover
+(``drop_from_peak`` 0.046 fit-first against 0.066 fit-last, versus 0.369 in the pilot), so the
+ordering is settled by the mechanism, not by fit. An earlier note here claimed fit-last collapsed
+the turnover to 0.000; that was measured under isotropic scaling and does not hold for the per-axis
+fit this module actually uses.
 
 **Noise becomes absolute.** On an unbounded plane the jitter had to be expressed relative to each
 trial's own spread, since there was no other scale. With a fixed canvas there is one: motor and

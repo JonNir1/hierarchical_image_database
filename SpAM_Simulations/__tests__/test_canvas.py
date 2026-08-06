@@ -174,31 +174,18 @@ def test_simulated_max_distance_lands_near_the_pilots():
 
 # --------------------------------------------------------------------- ordering
 
-def test_scaling_must_precede_the_noise():
-    """Measured: renormalising the REALISED arrangement destroys the ceiling effect entirely.
+def test_arrange_is_fit_then_place_then_normalise():
+    """Pin the pipeline order: the scale is decided on the INTENDED arrangement, then perturbed.
 
-    The turnover exists because a point pinned against a wall can only move inward. If the
-    arrangement is rescaled *after* the noise, the extreme points set the scale, their own jitter
-    propagates into it, and the truncation cancels - `drop_from_peak` measured 0.000 that way. This
-    asserts the ordering `arrange` uses is the one that keeps a turnover at all.
+    Renormalising the realised arrangement instead would let one item's motor error rescale every
+    other item, which is not a thing a person does. The ordering is settled mechanistically: both
+    orders were measured and NEITHER reproduces the empirical turnover (drop_from_peak 0.046
+    fit-first, 0.066 fit-last, against 0.369 in the pilot), so the canvas is not the mechanism
+    behind it and fit cannot arbitrate.
     """
-    from SpAM_Simulations import validity as val
     spec = cv.CanvasSpec()
-
-    def curve(fit_last: bool):
-        oa, ra = [], []
-        for s in range(250):
-            Y = _square(20, seed=s)
-            rng = np.random.default_rng(1000 + s)
-            out = []
-            for _ in range(2):
-                if fit_last:
-                    noisy = Y + rng.normal(0, 0.12 * np.ptp(Y), Y.shape)
-                    out.append(cv.canvas_distances(cv.fit_to_canvas(noisy, spec), spec))
-                else:
-                    out.append(cv.arrange(Y, 0.12, rng, spec))
-            oa.append(out[0]); ra.append(out[1])
-        return val.noise_curve_shape(
-            val.noise_vs_distance(np.concatenate(oa), np.concatenate(ra), n_bins=10))
-
-    assert curve(fit_last=False)["drop_from_peak"] > curve(fit_last=True)["drop_from_peak"]
+    Y = _square(20, seed=7)
+    expected = cv.canvas_distances(
+        cv.place(cv.fit_to_canvas(Y, spec), 0.1, np.random.default_rng(11), spec), spec)
+    actual = cv.arrange(Y, 0.1, np.random.default_rng(11), spec)
+    np.testing.assert_allclose(actual, expected)
