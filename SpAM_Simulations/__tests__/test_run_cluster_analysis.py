@@ -1,7 +1,7 @@
 """End-to-end tests for the local cluster-analysis driver (pipeline steps g-i).
 
 The driver is thin, so these check the two things that are actually its job: that it produces the
-four CSVs the notebook and ``eval_helpers.load_run`` expect, and that a **conf-only** store - the
+six CSVs the notebook and ``eval_helpers.load_run`` expect, and that a **conf-only** store - the
 one the download command actually produces, with ``confdists.f32`` deliberately left on S3 - runs
 through it unchanged.
 """
@@ -15,7 +15,7 @@ from SpAM_Simulations.storage import ResultStore
 N_IMAGES, MAX_NDIM = 45, 4
 META = ["num_subjects", "allocation_mode", "rep", "ndim", "niter", "stress", "status"]
 OUTPUTS = ("cluster_agreement.csv", "dendrogram_agreement.csv", "cluster_sizes.csv",
-           "k_selection.csv")
+           "k_selection.csv", "density_agreement.csv", "isolated_images.csv")
 
 
 def _blobs(n_per, k, sd, seed, ndim):
@@ -40,14 +40,14 @@ def _store(tmp_path, *, n_reps=3, arms=(0.0, 1.0), sd=0.25, seed=0):
     return tmp_path / "s"
 
 
-def test_run_writes_the_four_tables(tmp_path):
+def test_run_writes_every_table(tmp_path):
     out = tmp_path / "out"
     frames = rca.run(_store(tmp_path), out, ks=(2, 3, 5), linkages=("average", "ward"),
-                     verbose=False)
+                     min_cluster_sizes=(3,), verbose=False)
     for name in OUTPUTS:
         assert (out / name).is_file(), name
     assert set(frames) == {"cluster_agreement", "dendrogram_agreement", "cluster_sizes",
-                           "k_selection"}
+                           "k_selection", "density_agreement", "isolated_images"}
     # 2 arms x 2 linkages x 3 k, with the arm kept as its own group rather than pooled away.
     assert len(frames["cluster_agreement"]) == 2 * 2 * 3
     assert set(frames["cluster_agreement"]["allocation_mode"]) == {0.0, 1.0}
@@ -56,7 +56,7 @@ def test_run_writes_the_four_tables(tmp_path):
 def test_k_selection_keeps_the_arms_apart(tmp_path):
     """Pooling the arms would hide exactly the difference the sweep exists to measure."""
     frames = rca.run(_store(tmp_path), tmp_path / "out", ks=(2, 3, 5),
-                     linkages=("average",), verbose=False)
+                     linkages=("average",), min_cluster_sizes=(3,), verbose=False)
     sel = frames["k_selection"]
     assert set(sel["allocation_mode"]) == {0.0, 1.0}
     assert len(sel) == 2
@@ -68,7 +68,7 @@ def test_k_selection_keeps_the_arms_apart(tmp_path):
 def test_planted_blobs_are_not_flagged_as_a_continuum(tmp_path):
     """The positive control: separated blobs give high agreement, high silhouette, no verdict."""
     frames = rca.run(_store(tmp_path, sd=0.2), tmp_path / "out", ks=(2, 3, 5, 8),
-                     linkages=("average",), verbose=False)
+                     linkages=("average",), min_cluster_sizes=(3,), verbose=False)
     sel = frames["k_selection"]
     assert not sel["is_flat"].any()
     assert not sel["is_arbitrary_slicing"].any()
@@ -85,7 +85,7 @@ def test_vi_does_not_identify_the_number_of_clusters_but_silhouette_does(tmp_pat
     under-report the granularity the data actually supports.
     """
     frames = rca.run(_store(tmp_path, sd=0.2), tmp_path / "out", ks=(2, 3, 5, 8),
-                     linkages=("average",), verbose=False)
+                     linkages=("average",), min_cluster_sizes=(3,), verbose=False)
     agreement = frames["cluster_agreement"]
     one_arm = agreement[agreement["allocation_mode"] == 0.0].set_index("k")
     assert one_arm.loc[2, "mean_vi_norm"] == pytest.approx(0.0, abs=1e-9)
@@ -105,7 +105,7 @@ def test_both_granularities_are_scored_at_both_k(tmp_path):
     k* differ but not whether taking the finer one was free or expensive.
     """
     frames = rca.run(_store(tmp_path, sd=0.2), tmp_path / "out", ks=(2, 3, 5, 8),
-                     linkages=("average",), verbose=False)
+                     linkages=("average",), min_cluster_sizes=(3,), verbose=False)
     sel = frames["k_selection"]
     for metric in rca.AT_K_METRICS:
         for suffix in ("vi", "sil"):
@@ -153,13 +153,13 @@ def test_runs_on_a_conf_only_store(tmp_path):
     so dropping the large file changes the results by nothing at all.
     """
     path = _store(tmp_path)
-    full = rca.run(path, tmp_path / "out_full", ks=(2, 3), linkages=("average",), verbose=False)
+    full = rca.run(path, tmp_path / "out_full", ks=(2, 3), linkages=("average",), min_cluster_sizes=(3,), verbose=False)
 
     (path / "confdists.f32").unlink()
     reopened = ResultStore.open(path)
     assert not reopened.has_confdists
     partial = rca.run(path, tmp_path / "out_partial", ks=(2, 3), linkages=("average",),
-                      verbose=False)
+                      min_cluster_sizes=(3,), verbose=False)
 
     for name in OUTPUTS:
         assert (tmp_path / "out_partial" / name).is_file(), name
@@ -201,3 +201,31 @@ def test_main_requires_store_and_out(missing):
     args.pop(missing)
     with pytest.raises(SystemExit):
         rca.main([f"--{k}" for pair in args.items() for k in pair])
+
+
+def test_the_density_pass_is_reported_and_kept_out_of_the_vi_tables(tmp_path):
+    """HDBSCAN runs alongside AC, but its noise-class scores must not leak into the VI frame."""
+    frames = rca.run(_store(tmp_path), tmp_path / "out", ks=(2, 3), linkages=("average",),
+                     min_cluster_sizes=(3, 5), verbose=False)
+    density = frames["density_agreement"]
+    # One row per (arm, min_cluster_size): the arm stays a group here too, for the same reason it
+    # does in the VI tables - the arms might differ and pooling would hide it.
+    assert len(density) == 2 * 2
+    assert sorted(density["min_cluster_size"].unique()) == [3, 5]
+    assert set(density["allocation_mode"]) == {0.0, 1.0}
+    for col in ("mean_frac_noise", "mean_noise_kappa", "mean_ari_shared_clustered"):
+        assert col in density.columns, col
+    # The VI-bearing frames must carry no density columns: a noise class is not a partition, and
+    # mixing the two would let a non-metric score be read as though it composed.
+    for frame_name in ("cluster_agreement", "k_selection"):
+        cols = set(frames[frame_name].columns)
+        assert not {c for c in cols if "noise" in c or "min_cluster_size" in c}, frame_name
+
+
+def test_isolated_images_table_is_per_image(tmp_path):
+    frames = rca.run(_store(tmp_path), tmp_path / "out", ks=(2, 3), linkages=("average",),
+                     min_cluster_sizes=(3,), density_mcs=3, verbose=False)
+    iso = frames["isolated_images"]
+    assert set(iso["image"]) == set(range(N_IMAGES))
+    assert (iso["min_cluster_size"] == 3).all()
+    assert iso["frac_cohorts_noise"].between(0, 1).all()

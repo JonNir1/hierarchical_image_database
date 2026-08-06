@@ -463,9 +463,20 @@ Pipeline steps g-i. No R, no EC2, a few minutes on one machine. Download the sto
 python SpAM_Simulations/run_cluster_analysis.py --store SpAM_Simulations/sim_results/design-comparison/mds_store --out SpAM_Simulations/sim_results/design-comparison/out
 ```
 
-It writes `cluster_agreement.csv`, `dendrogram_agreement.csv`, `cluster_sizes.csv` and
-`k_selection.csv` into `out/`, where `eval_helpers.load_run` picks them up as optional frames, and
-prints the continuum verdicts.
+It writes six frames into `out/`, where `eval_helpers.load_run` picks them up as optionals, and
+prints the continuum verdicts plus the density summary.
+
+| File | From | What it holds |
+|---|---|---|
+| `cluster_agreement.csv` | agglomerative | VI/ARI/AMI, silhouettes, cluster-wise Jaccard per (group, linkage, k) |
+| `dendrogram_agreement.csv` | agglomerative | Baker's gamma and cophenetic fidelity, k-free |
+| `cluster_sizes.csv` | agglomerative | the discovered size distribution |
+| `k_selection.csv` | agglomerative | `k_star_vi`, `k_star_sil` and the continuum verdicts |
+| `density_agreement.csv` | HDBSCAN | noise fraction and cross-cohort agreement on isolation, per `min_cluster_size` |
+| `isolated_images.csv` | HDBSCAN | per image, the fraction of cohorts that left it unclustered |
+
+Useful flags: `--ks` and `--linkages` control the agglomerative grid, `--min-cluster-sizes` the
+HDBSCAN sweep, and `--density-mcs` picks the single setting `isolated_images.csv` is built at.
 
 **`k_selection.csv` reports two granularities, and they answer different questions.** `k_star_vi` is
 selected on VI (one-SE rule) and is the *coarsest granularity that reproduces*: the conservative
@@ -480,6 +491,16 @@ Each k\* is scored on **all three** headline metrics, as `<metric>_at_k_star_vi`
 metric to price the choice: if `vi_norm_at_k_star_sil` is close to `vi_norm_at_k_star_vi`, the finer
 granularity costs nothing in reproducibility and should be preferred; if it is much worse, the
 parsimonious `k_star_vi` is buying something real.
+
+**The density pass answers a different question and its numbers do not compose.** HDBSCAN is there
+because agglomerative clustering assigns every one of the 725 images to a cluster, so a genuinely
+isolated image is absorbed into whichever group is nearest; HDBSCAN's `-1` noise label is the
+missing statement. An image with `frac_cohorts_noise` near 1 is one that no cohort found reliably
+confusable with anything, which makes it the safest kind of stimulus. But a labelling with a noise
+class is **not a partition**, so none of these scores may be substituted into the VI transitivity
+argument. See the README's
+[clustering-algorithms section](README.md#clustering-algorithms-why-agglomerative-why-hdbscan-why-not-gmm)
+for that, and for why GMM is not an option at all.
 
 > **A continuum is a result.** If `is_flat` (VI varies by less than 0.02 across the whole k grid) or
 > `is_arbitrary_slicing` (cross-cohort silhouette at k\* below 0.05) comes back true, the cohorts

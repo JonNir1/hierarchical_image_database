@@ -23,6 +23,14 @@ in either geometry. ``continuum_diagnostics`` reports both as booleans and this 
 prominently. Either one means "one image per cluster" is the wrong rule and a distance threshold
 should be used instead - a finding, not a failure.
 
+**Two clusterers, answering two different questions.** ``cluster_stability`` runs agglomerative
+clustering, which assigns *every* image to a cluster; that hard partition is what Variation of
+Information needs to be a metric, and metricity is what the later path-hierarchy comparison chains
+through. But it also means a genuinely isolated image is absorbed into whichever group is nearest.
+``density_clustering`` runs HDBSCAN alongside it purely to recover that missing statement - which
+images belong to no group at all - and its outputs are descriptive: they never enter the VI chain.
+See the README's "Clustering algorithms" section for why GMM is not among the options.
+
 Usage (from the repo root)::
 
     python SpAM_Simulations/run_cluster_analysis.py \\
@@ -40,6 +48,9 @@ import pandas as pd
 from SpAM_Simulations.cluster_stability import (
     DEFAULT_KS, DEFAULT_LINKAGES, compute_cluster_agreement, compute_cluster_sizes,
     compute_dendrogram_agreement, continuum_diagnostics, select_k,
+)
+from SpAM_Simulations.density_clustering import (
+    DEFAULT_MIN_CLUSTER_SIZES, compute_density_agreement, isolated_images,
 )
 from SpAM_Simulations.storage import ResultStore
 
@@ -74,7 +85,9 @@ def _metrics_at_k(frame: pd.DataFrame, agreement: pd.DataFrame, by: list,
 
 
 def run(store_path: Path, out_dir: Path, ks: Sequence[int] = DEFAULT_KS,
-        linkages: Sequence[str] = DEFAULT_LINKAGES, verbose: bool = True) -> dict:
+        linkages: Sequence[str] = DEFAULT_LINKAGES,
+        min_cluster_sizes: Sequence[int] = DEFAULT_MIN_CLUSTER_SIZES,
+        density_mcs: int = 5, verbose: bool = True) -> dict:
     """Compute every cluster table and write it under ``out_dir``. Returns the frames."""
     out_dir.mkdir(parents=True, exist_ok=True)
     store = ResultStore.open(store_path)
@@ -111,12 +124,23 @@ def run(store_path: Path, out_dir: Path, ks: Sequence[int] = DEFAULT_KS,
         k_selection = _metrics_at_k(k_selection, agreement, by, suffix)
     k_selection.to_csv(out_dir / "k_selection.csv", index=False)
 
-    _report(k_selection, dendro)
+    # The density pass, which answers what agglomerative clustering structurally cannot: whether an
+    # image belongs to no group at all. Descriptive only, and never substituted into the VI chain.
+    density = compute_density_agreement(store, min_cluster_sizes=min_cluster_sizes,
+                                        verbose=verbose)
+    density.to_csv(out_dir / "density_agreement.csv", index=False)
+    isolated = isolated_images(store, min_cluster_size=density_mcs, verbose=verbose)
+    isolated.to_csv(out_dir / "isolated_images.csv", index=False)
+
+    _report(k_selection, dendro, density, isolated, density_mcs)
     return {"cluster_agreement": agreement, "dendrogram_agreement": dendro,
-            "cluster_sizes": sizes, "k_selection": k_selection}
+            "cluster_sizes": sizes, "k_selection": k_selection,
+            "density_agreement": density, "isolated_images": isolated}
 
 
-def _report(k_selection: pd.DataFrame, dendro: pd.DataFrame) -> None:
+def _report(k_selection: pd.DataFrame, dendro: pd.DataFrame,
+            density: pd.DataFrame = None, isolated: pd.DataFrame = None,
+            density_mcs: int = 5) -> None:
     """Print the verdicts, loudly. A continuum must not be reported as a k*."""
     n = len(k_selection)
     flat = int(k_selection["is_flat"].sum())
@@ -153,6 +177,29 @@ def _report(k_selection: pd.DataFrame, dendro: pd.DataFrame) -> None:
         if gcol in dendro.columns:
             print(f"\n  Baker's gamma (k-free, per linkage): "
                   f"{dendro.groupby('linkage')[gcol].mean().round(3).to_dict()}")
+
+    # The density pass. Reported separately and never mixed into the VI numbers above, because a
+    # labelling with a noise class is not a partition and its agreement scores do not compose.
+    if density is not None and len(density):
+        print("\n" + "-" * 78)
+        print("DENSITY PASS (HDBSCAN, descriptive - NOT part of the VI/transitivity chain)")
+        print("-" * 78)
+        cols = [c for c in ("min_cluster_size", "mean_n_clusters", "mean_frac_noise",
+                            "mean_noise_kappa", "mean_noise_jaccard",
+                            "mean_ari_shared_clustered", "mean_frac_shared_clustered")
+                if c in density.columns]
+        print(density.groupby("min_cluster_size", as_index=False)[
+            [c for c in cols if c != "min_cluster_size"]].mean().round(3).to_string(index=False))
+        print("  frac_noise  = images HDBSCAN found confusable with nothing - the ones agglomerative")
+        print("                clustering is forced to absorb into some cluster regardless")
+        print("  noise_kappa = do two cohorts agree on WHICH images those are (chance-corrected)")
+    if isolated is not None and len(isolated):
+        always = float((isolated["frac_cohorts_noise"] == 1.0).mean())
+        never = float((isolated["frac_cohorts_noise"] == 0.0).mean())
+        print(f"\n  Per-image isolation at min_cluster_size={density_mcs}: "
+              f"{always:.1%} of images unclustered in EVERY cohort, {never:.1%} in none.")
+        print("  The first group is the safest to use as stimuli; the rest need their group-mates "
+              "excluded.")
     print("=" * 78 + "\n")
 
 
@@ -165,11 +212,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                    help="comma-separated cluster counts to cut at")
     p.add_argument("--linkages", type=str, default=",".join(DEFAULT_LINKAGES),
                    help="comma-separated agglomerative linkages")
+    p.add_argument("--min-cluster-sizes", type=str,
+                   default=",".join(str(m) for m in DEFAULT_MIN_CLUSTER_SIZES),
+                   help="comma-separated HDBSCAN min_cluster_size values (density pass)")
+    p.add_argument("--density-mcs", type=int, default=5,
+                   help="min_cluster_size used for the per-image isolated_images.csv table")
     p.add_argument("--quiet", action="store_true")
     args = p.parse_args(argv)
     run(args.store, args.out,
         ks=[int(k) for k in args.ks.split(",")],
         linkages=tuple(args.linkages.split(",")),
+        min_cluster_sizes=[int(m) for m in args.min_cluster_sizes.split(",")],
+        density_mcs=args.density_mcs,
         verbose=not args.quiet)
     return 0
 
