@@ -95,3 +95,66 @@ def test_v5_is_reproducible_from_its_seed():
     a = simulate_task_v5_experiment(_params(), _gt(), np.random.default_rng(11), verbose=False)[1]
     b = simulate_task_v5_experiment(_params(), _gt(), np.random.default_rng(11), verbose=False)[1]
     np.testing.assert_array_equal(a.distances, b.distances)
+
+
+# --------------------------------------------------------------------- sweepability
+
+def _v5_config(**over):
+    from SpAM_Simulations.config import TaskV5SimulationConfig
+    base = dict(gt_embeddings=_gt(), num_subjects=[5], trials_per_subject=[3],
+                images_per_trial=[10], subjects_noise_scale=[0.08], subjects_noise_df=[5],
+                frac_trials_repeated=[1 / 3], perspective_dispersion=[0.3], screening_trials=[2],
+                screening_repeats=[1], screening_min_reliability=[-1.0], reps=2, seed=1)
+    base.update(over)
+    return TaskV5SimulationConfig(**base)
+
+
+def test_canvas_softness_is_swept_and_reaches_the_metric_tables():
+    """The whole reason it is a parameter: it must become a grouping column, not a hidden constant."""
+    from SpAM_Simulations import pipeline
+    cfg = _v5_config(canvas_softness=[3.0, 8.0])
+    assert len(cfg.param_grid()) == 2
+    sim = pipeline.generate_task_v5_simulation(cfg, verbose=False)
+    cov = pipeline.compute_coverage_table(sim)
+    assert "canvas_softness" in cov.columns
+    assert sorted(cov["canvas_softness"].unique()) == [3.0, 8.0]
+    assert len(cov) == 4                                  # 2 softness x 2 reps
+
+
+def test_v5_params_survive_the_store_round_trip():
+    """`_task_key` coerces every field with float(), so canvas_softness must be numeric."""
+    from SpAM_Simulations.pipeline import _task_key
+    from SpAM_Simulations.task_v5_experiment import TaskV5ExperimentParameters
+    key = _task_key(TaskV5ExperimentParameters(*[1.0] * 12, 4.0), rep=0, ndim=3)
+    assert key[-3] == 4.0                                 # the softness field, floated
+    assert all(isinstance(v, float) for v in key[:-2])
+
+
+def test_the_config_rejects_a_nonpositive_or_empty_softness_grid():
+    with pytest.raises(ValueError, match="non-empty"):
+        _v5_config(canvas_softness=[])
+    with pytest.raises(ValueError, match="positive"):
+        _v5_config(canvas_softness=[0.0])
+
+
+def test_softness_defaults_to_the_value_carried_in_the_params():
+    """A sweep varies softness through the grid, so the simulator must read it from there."""
+    from SpAM_Simulations.task_v5_experiment import TaskV5ExperimentParameters
+    fields = dict(zip(TaskV4ExperimentParameters._fields, _params()))
+    soft = TaskV5ExperimentParameters(**fields, canvas_softness=3.0)
+    hard = TaskV5ExperimentParameters(**fields, canvas_softness=12.0)
+    a = simulate_task_v5_experiment(soft, _gt(), np.random.default_rng(5), verbose=False,
+                                    sample_canvas_per_trial=False)[1]
+    b = simulate_task_v5_experiment(hard, _gt(), np.random.default_rng(5), verbose=False,
+                                    sample_canvas_per_trial=False)[1]
+    assert not np.allclose(a.distances, b.distances)
+
+
+def test_simulate_returns_the_v5_params_not_v4s_echo():
+    """v4 rebuilds its own tuple; returning that would silently drop canvas_softness."""
+    from SpAM_Simulations.task_v5_experiment import TaskV5ExperimentParameters
+    fields = dict(zip(TaskV4ExperimentParameters._fields, _params()))
+    p = TaskV5ExperimentParameters(**fields, canvas_softness=6.0)
+    returned, _ = simulate_task_v5_experiment(p, _gt(), np.random.default_rng(0), verbose=False)
+    assert returned is p
+    assert returned.canvas_softness == 6.0

@@ -283,6 +283,55 @@ class TaskV4SimulationConfig(TaskV3SimulationConfig):
 
 
 @dataclass
+class TaskV5SimulationConfig(TaskV4SimulationConfig):
+    """``TaskV4SimulationConfig`` on a **bounded canvas** (see ``canvas`` and ``task_v5_experiment``).
+
+    Adds exactly one lever. ``canvas_softness`` is the exponent of the smooth saturation at the
+    canvas walls, swept as a **sensitivity axis** rather than calibrated: unlike aspect and fill it
+    has no observable distribution to be drawn from, so the honest treatment is to show the
+    conclusions hold across a range instead of picking a value. ``float("inf")`` is exactly hard
+    clipping, which the pilot's placement density rules out but which is worth carrying as the
+    limiting comparison.
+
+    Aspect and fill are deliberately *not* levers: they describe the apparatus, have measured
+    distributions, and are resampled per trial by ``canvas.sample_spec``.
+
+    **Calibration does not transfer from v4.** ``subjects_noise_scale`` is an absolute fraction of
+    canvas width here, not a ratio to each trial's arrangement spread, so a v5 sweep needs its own
+    calibration run before its numbers mean anything.
+    """
+    canvas_softness: Sequence[float] = (4.0,)
+
+    def __post_init__(self):
+        super().__post_init__()
+        if len(self.canvas_softness) == 0:
+            raise ValueError("`canvas_softness` must be non-empty")
+        if any(sft <= 0 for sft in self.canvas_softness):
+            raise ValueError(f"`canvas_softness` values must be positive, got {self.canvas_softness}")
+
+    def param_grid(self) -> List["TaskV5ExperimentParameters"]:
+        from SpAM_Simulations.task_v5_experiment import TaskV5ExperimentParameters
+        return [
+            TaskV5ExperimentParameters(*p)
+            for p in product(
+                self.num_subjects,
+                self.trials_per_subject,
+                self.images_per_trial,
+                self.subjects_noise_scale,
+                self.subjects_noise_df,
+                self.frac_trials_repeated,
+                self.perspective_dispersion,
+                self.screening_trials,
+                self.screening_repeats,
+                self.screening_min_reliability,
+                self.subjects_noise_lognormal_sigma,
+                self.allocation_mode,
+                self.canvas_softness,
+            )
+        ]
+
+
+@dataclass
 class MDSSweepConfig:
     """Specifies which target dimensionalities to fit and the SMACOF solver settings.
 

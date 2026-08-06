@@ -289,7 +289,7 @@ different data.
 | `perspective_dispersion` | between-subject agreement | 47 pilot, both variants | calibrated |
 | `canvas.aspect` | screen geometry | 26 pilot, **v3+ only** | measured, or sampled |
 | `canvas.fill` | per-trial max distance | 26 pilot, **v3+ only** | calibrated, or sampled |
-| `canvas.softness` | near-wall placement density | 26 pilot, **v3+ only** | **swept** (sensitivity) |
+| `canvas.softness` | near-wall placement density | 26 pilot, **v3+ only** | **swept** (`canvas_softness`, sensitivity) |
 
 **Why the three bases differ.** The ground truth is a geometry over a *stimulus set*, so it takes
 pre-SHINE subjects only: the post-SHINE half judged different images and one geometry cannot
@@ -495,8 +495,8 @@ rules out.
 | `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`, `test_retest_summary`, `screening_summary`, `effective_rank`, `topk_similar_jaccard`. |
 | `helpers.py` | Distance-matrix format conversion (`convert_to_condensed`). |
 | `multi_dimensional_scaling.py` | `run_mds`: weighted SMACOF via R's `smacof` (needs R + rpy2). |
-| `config.py` | `SimulationConfig` and the task-v2.3 / v2.4 / v3 / v4 variants (v4 carries the `allocation_mode` arm), plus `MDSSweepConfig`. |
-| `pipeline.py` | Orchestration: generate, coverage, stability, MDS sweep, embedding/item generalizability, top-k stability, `compute_recovery_vs_gt`. |
+| `config.py` | `SimulationConfig` and the task-v2.3 / v2.4 / v3 / v4 / v5 variants (v4 carries the `allocation_mode` arm, v5 adds `canvas_softness`), plus `MDSSweepConfig`. |
+| `pipeline.py` | Orchestration: generate (v0.1 through v5), coverage, stability, MDS sweep, embedding/item generalizability, top-k stability, `compute_recovery_vs_gt`. |
 | `storage.py` | `ResultStore`: compact, streamable, resumable on-disk store. Holds each fit's `confdist` and, optionally, its MDS configuration (`confs.f32`). Format v2; v1 stores still open unchanged. |
 | `pilot.py` | **Read-only** pilot ingestion + calibration: load the flat `data/` dir, filter by cohort / version / **SHINE variant**, the test-retest and between-subject-agreement observables, and `calibrate_params_from_pilot`. |
 | `gt_construction.py` | **Task-agnostic** GT construction: `dimensionality_scan`, `select_ndim` (one-SE), `cross_validate_ndim`, `build_gt`, plus the joblib payload path (`split_aggregates`, `scan_ndim_parallel`, `cross_validate_ndim_parallel`) the EC2 stage needs. Replaces the retired imputed-eigenspectrum rule. |
