@@ -447,12 +447,22 @@ while the random arm carried it, making the two spreads incomparable.
 | `out/embedding_generalizability.csv` | Procrustes M² between cohorts' spaces (lower = better) |
 | `out/topk_jaccard.csv`, `out/recovery_vs_gt.csv` | Item-level reproducibility, and recovery of the GT's genuinely-closest pairs |
 | `out/validity_gradient.csv`, `out/validity.json` | The floor check (below) |
+| `out/noise_vs_distance.csv`, `out/noise_curve_shape.csv` | RMSE between a pair's two judgements vs their mean distance, sim and pilot side by side |
 | `mds_store/` | ~480 fits, uploaded **without** `confdists.f32` |
 
 > **The validity check is a gate, not a footnote.** If the simulated semantic gradient
 > (same-subcategory < same-category < cross-category) does not reproduce, the cohorts are not
 > structurally realistic and **the arm comparison should not be trusted**, however clean the arm
 > contrast looks. The script prints a warning; do not ignore it.
+
+**Reading `noise_curve_shape.csv`: one flank is expected to fail.** Empirically the RMSE between a
+pair's two judgements is an inverted U against their mean distance, because clearly-similar and
+clearly-dissimilar pairs are both judged consistently. The low-distance flank is near-forced
+(distances cannot go below zero) so any additive-noise model reproduces it, and a mismatch *there*
+is a real alarm. The high-distance flank is not forced, and the model is expected to miss it: it
+places points on an unbounded plane while real subjects use a bounded canvas. The script prints
+`EXPECTED: the high-distance flank does not match` when that happens. Do not respond by rescaling
+anything - the finding is about the missing canvas ceiling.
 
 #### Step 3 (local) - `run_cluster_analysis.py`
 

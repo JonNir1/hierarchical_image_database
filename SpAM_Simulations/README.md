@@ -222,6 +222,7 @@ not how stimuli will ultimately be chosen.
 |---|---|
 | `validity.distribution_comparison` | simulated vs pilot distance distributions, median-rescaled (percentiles, CV, Wasserstein) |
 | `validity.gradient_table` | mean distance by semantic level (same-leaf, same-subcategory, same-category, cross-category), as standardised gaps |
+| `validity.noise_vs_distance` | RMSE between a pair's two judgements, binned by their mean distance: the shape of the **noise** rather than of the signal |
 
 **Good at**: catching a simulation that is not realistic. The gradient was never fitted to, so it is
 a genuine out-of-model check, and it is strong in the real pilot (same-leaf pairs 3.6x closer than
@@ -230,6 +231,31 @@ unrelated ones, a 1.53 SD gap), which means it has demonstrated power to detect 
 from a GT fitted to the pilot. A match there confirms little; a mismatch would still be a real alarm.
 Distances also need median-rescaling first, because simulated distances are in GT-embedding units
 while pilot distances are canvas-diagonal-normalised to [0, 1].
+
+#### The noise-vs-distance curve, and why one half of it is expected to fail
+
+Take every image pair a subject judged twice, plot the RMSE between the two judgements against their
+mean, and the pilot gives an **inverted U**: clearly-similar and clearly-dissimilar pairs are judged
+consistently, the ambiguous middle is where subjects disagree with themselves. It is a property of
+the noise rather than of the signal, so a simulation can match the distance histogram perfectly and
+still fail it.
+
+**The two flanks are not equally strong tests, and `noise_curve_shape` reports them separately.**
+The low-distance flank is close to forced: distances cannot go below zero, so as the true separation
+approaches 0 the gap between two noisy realisations is squeezed against that floor, and any
+additive-noise model reproduces it. The high-distance flank is the discriminating one, and the
+current model is **expected to fail it**. `task_v3_experiment` places points on an unbounded plane
+and its docstring records that a fixed-canvas ceiling is "a documented future refinement, not
+modelled", whereas real subjects work on a bounded canvas where a pair already at opposite corners
+cannot move much further apart.
+
+Measured on the generative model at `subjects_noise_scale=0.35`: `low_over_mid` 0.72 (the flank is
+there) but `high_over_mid` 2.29, with the noisiest bin at the far right rather than the middle. So
+the curve rises monotonically instead of turning over. That is evidence about the missing ceiling,
+recorded as a test so that adding one is noticed rather than silently changing the model's
+behaviour. The check is run standalone from the calibrated parameters (`simulate_repeat_pairs`),
+since it measures the noise model rather than any particular cohort size or allocation arm, and
+therefore needs no MDS.
 
 ## How the pipeline works
 
@@ -431,7 +457,7 @@ rules out.
 | `allocation.py` | The `allocation_mode` arm: `RandomAllocator` (deployed scheme) and `DesignedAllocator` (balanced sessions, with rollback). |
 | `design_comparison.py` | Compares allocation arms as **sampling plans** (coverage, per-image balance, waste). No subjects, no MDS, no R. |
 | `recovery.py` | Recovery of the GT's closest pairs: `recall_at_frac`, `dprime_at_frac`, `separation_dprime`, `auc_near_pairs`. |
-| `validity.py` | Is a simulated cohort realistic: distance-distribution comparison plus the semantic-hierarchy gradient. |
+| `validity.py` | Is a simulated cohort realistic: distance-distribution comparison, the semantic-hierarchy gradient, and the noise-vs-distance curve (`noise_vs_distance`, `noise_curve_shape`, `simulate_repeat_pairs`). |
 | `density_clustering.py` | **Descriptive** density pass (HDBSCAN): noise fraction, cross-cohort agreement on *which* images are isolated, `compute_density_agreement`, `isolated_images`. Never enters the VI chain. |
 | `cluster_stability.py` | Between-cohort cluster agreement: VI/ARI/AMI, cross-cohort silhouette, cluster-wise Jaccard, Baker's gamma; the `compute_cluster_*` store drivers; and `select_k` / `continuum_diagnostics`. Runs **locally** on a downloaded store. |
 | `run_cluster_analysis.py` | Local CLI driver for pipeline steps g-i: opens a downloaded store, writes the four cluster tables, prints the continuum verdicts. No R, no EC2. |
