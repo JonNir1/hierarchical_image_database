@@ -11,7 +11,7 @@ sweep on EC2. For *what* the simulations answer and *how* the pipeline is put to
 - [Running on EC2](#running-on-ec2)
   - [Calibrated flavor (fit to pilot first)](#calibrated-flavor-fit-to-pilot-first)
   - [Task-v4 flavor (screening block, pilot-calibrated)](#task-v4-flavor-screening-block-pilot-calibrated)
-  - [Two-stage flavor: GT construction, then designed vs random](#two-stage-flavor-gt-construction-then-designed-vs-random)
+  - [**Task-v5 flavor: the full two-stage programme (CURRENT)**](#task-v5-flavor-the-full-two-stage-programme-current)
 
 ## Quick start
 
@@ -119,10 +119,10 @@ Eight shell scripts, under `ec2/`, handle the full-scale sweeps remotely.
 - `ec2/run_gt_construction.sh` - **stage 1 of the current programme.** Chooses the GT
   dimensionality by split-half agreement, corroborates it with leave-k-out CV over subjects, and
   fits the final embedding on the 41 pre-SHINE pilot subjects. Its `gt/selection.json` supplies
-  `N_DIMS` to every later script. See *Two-stage flavor* below.
+  `N_DIMS` to every later script. See *Task-v5 flavor* below.
 - `ec2/run_design_comparison.sh` - **stage 2 of the current programme.** Designed versus random
   image-to-trial allocation, both arms in one store as a swept `allocation_mode` lever. Pulls
-  stage 1's ground truth and never rebuilds it. See *Two-stage flavor* below.
+  stage 1's ground truth and never rebuilds it. See *Task-v5 flavor* below.
 
 All entrypoints `source` `prepare_machine.sh` by relative path, so copy `prepare_machine.sh`
 together with whichever entrypoint(s) you want onto the instance (don't transfer an entrypoint
@@ -368,174 +368,193 @@ reported per cell in `coverage.csv`.
 > distance-SD fail-rate criteria. These results bound what *reliability-based* screening can buy.
 
 
-### Two-stage flavor: GT construction, then designed vs random
+### Task-v5 flavor: the full two-stage programme (CURRENT)
 
-The current programme runs as **two EC2 stages that hand off through S3**, plus a third step that
-runs locally. They are separate scripts, and separate instances, because stage 2 must never rebuild
-the ground truth: rebuilding it would silently change it between arms and between runs.
+**This is the recipe to use.** Everything above it drives models that place images on an unbounded
+plane; see [the current model is task-v5](README.md#the-current-model-is-task-v5).
 
-`prepare_machine.sh` provides `stage_pull <name>` / `stage_push <name>` for exactly this. They also
-solve the other problem, which is that `prepare_machine.sh` does `rm -rf "$WORKDIR"` for a clean
-clone and an instance is terminated the moment its stage ends: a long loop pushes partials as it
-goes, so an eight-hour scan that dies at hour seven keeps the six dimensionalities it finished.
+Three steps: stage 1 and stage 2 run on EC2 (Linux bash), step 3 runs locally (Windows PowerShell).
+They hand off through S3 via `stage_pull`/`stage_push`, so no state has to survive an instance.
 
-#### Stage 1 - `run_gt_construction.sh`
+| | where | what | wall |
+|---|---|---|---|
+| Stage 1 | EC2 | GT dimensionality + the ground-truth embedding | ~1.5-3 h |
+| Stage 2 | EC2 | calibration + the full v5 sweep | ~15 h + generation |
+| Step 3 | local | cluster + density analysis | ~10 min |
 
-> **Model-agnostic, so v5 needs no change here.** Stage 1 runs no simulation at all - it fits
-> weighted MDS to *empirical* pilot distances, which are already canvas-normalised by the deployed
-> task. The noise calibration that v5 does invalidate lives entirely in stage 2.
+> **Stage 1 is model-agnostic.** It runs no simulation at all - only weighted MDS on empirical pilot
+> distances, which the deployed task already canvas-normalises. If a usable `gt/selection.json`
+> already exists from a previous run, skip to stage 2 and point `GT_S3_URI` at it.
 
-Chooses the GT dimensionality from evidence (split-half agreement, corroborated by leave-k-out CV
-over subjects) and fits the final embedding. Runs on the **41 pre-SHINE pilot subjects only**, and
-fails fast if that count has changed.
+#### A. Stage the pilot data (local, PowerShell)
+
+The CSVs and manifest are gitignored, so each EC2 script pulls them from S3 and deletes them from
+the box on exit. **Both prefixes need their own copy**: each script reads `$S3_URI/data`, and stage 2
+reads its *own* prefix, not stage 1's.
+
+```powershell
+cd C:\Users\nirjo\Documents\University\PhD\Projects\hierarchical_image_database
+$GT_URI  = "s3://jon-nir/spam-simulations/gt-construction-v5"
+$RUN_URI = "s3://jon-nir/spam-simulations/design-comparison-v5"
+
+foreach ($u in @($GT_URI, $RUN_URI)) {
+  aws s3 cp data/ "$u/data/" --recursive --exclude "*.pdf" --exclude "*prolific_receipt*"
+  aws s3 cp SpAM_Task/stimuli_manifest.json "$u/data/"
+}
+```
+
+> **PRIVATE prefixes.** These hold human-subjects data. The `--exclude` flags matter: payment
+> receipts have historically been uploaded by accident because an earlier recipe's exclusion never
+> took effect. Verify with `aws s3 ls "$GT_URI/data/" --recursive | Select-String pdf` - it should
+> return nothing.
+
+#### B. Launch and connect
+
+Follow steps **(0)-(4)** of [the allocate/run/verify/terminate
+cookbook](#cookbook-allocate---run---verify---terminate) above, with `$INSTANCE_TYPE =
+"c7i.4xlarge"` (16 vCPU). Step (3) copies `SpAM_Simulations\ec2\*.sh` to the instance home dir; both
+stage scripts `source` `prepare_machine.sh` by relative path, so they must travel together.
+
+> **Use On-Demand for stage 2, not Spot.** A 15-hour run has a real chance of being reclaimed. If
+> you do use Spot, the run is resumable - `run_mds_sweep` skips tasks already in the store and stage
+> 2 does `stage_pull mds_store` at the top - so re-launching and re-running the same command
+> continues rather than restarts. Stage 1 is equally resumable via `stage_pull gt`.
+
+#### C. Stage 1 (EC2, bash)
+
+Run inside `tmux` so an SSH drop does not kill it.
 
 ```bash
+tmux new -s gt
 export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
 export GIT_REF=main
-export S3_URI=s3://jon-nir/spam-simulations/gt-construction   # PRIVATE; pilot read from $S3_URI/data/
+export S3_URI=s3://jon-nir/spam-simulations/gt-construction-v5
 bash run_gt_construction.sh 2>&1 | tee run.log
-# optional: NDIMS=2,3,4,5,6,7,8,10,12,15,20  N_DRAWS=50  CV_K=5  CV_FOLDS=40  SEED=0
-# TERMINATE the instance when done.
 ```
 
-1100 split-half fits + 440 CV fits, roughly 1.5 h at `N_JOBS=10` on a c7i.4xlarge - but **budget
-2x**: a ~20-subject half sits at ~26% coverage and hits `max_iters` far more often than the dense
-41-subject aggregate, and a max-iters fit pays the full 1000 iterations. `scan.csv` carries
-`status_a`/`status_b` and `niter_a`/`niter_b` precisely so the first pushed partial can be checked
-and the run killed early if that rate is high.
+Detach with `Ctrl-b d`, reattach with `tmux attach -t gt`.
 
-Fully resumable: `stage_pull gt` runs first, and any dimensionality already in `scan.csv`/`cv.csv`
-is skipped. The half-splits are persisted to `gt/splits.npz`, so a resumed run scores the *same*
-draws and the comparison across dimensionalities stays paired.
+**Three gates before trusting the result.** All three are printed to the log and pushed to S3.
 
-| Output | What it is |
-|---|---|
-| `gt/selection.json` | The chosen `n_dims` and the evidence. **Supplies `N_DIMS` to every later script** |
-| `gt/gt_pre_shine_d{K}.npy` | The final `(725, K)` coordinates, fitted on all 41 subjects |
-| `gt/scan.csv`, `gt/scan_summary.csv` | Split-half scores per (ndim, draw), plus solver status |
-| `gt/cv.csv`, `gt/cv_summary.csv` | Held-out Spearman per (ndim, fold) |
-| `gt/discard_rates.json` | The split-search diagnostics - **read these** |
-
-> **Read `discard_rates.json` before trusting the scan.** A half is disconnected precisely when it
-> holds poorly-covered subjects, so discard-and-redraw is a *biased* filter that over-represents
-> well-covered subjects and makes the split-half curve optimistic. Above ~30% discard, or with a
-> material `mean_coverage_kept` vs `mean_coverage_discarded` gap, use the leave-k-out curve alone.
-
-#### Stage 2 - `run_design_comparison.sh`
-
-Designed vs random image-to-trial allocation. Pulls stage 1's `gt/` prefix and **fails fast** if
-`gt/selection.json` is absent.
+1. **Subject count.** The script hard-fails unless `load_pilot_subjects(variants=("pre",))` resolves
+   exactly **41**. A silently different subject set would invalidate every downstream comparison.
+2. **Discard rate** (`gt/discard_rates.json`). Disconnected half-splits are redrawn, and that is a
+   *biased* filter: a half is disconnected precisely when it holds poorly-covered subjects, so kept
+   draws over-represent well-covered ones. Above ~30%, or with a material gap between
+   `mean_coverage_kept` and `mean_coverage_discarded`, prefer the leave-k-out curve.
+3. **max-iters rate**, in the first pushed `gt/scan.csv` partial. A ~20-subject half sits at ~26%
+   coverage and hits the solver's iteration cap far more often than the dense 41-subject aggregate,
+   and a max-iters fit pays the full 1000 iterations. If most fits never converged, the scan is
+   measuring the stopping rule rather than the data - kill it early.
 
 ```bash
+cat gt/selection.json          # the chosen n_dims, and every rule's choice
+cat gt/discard_rates.json      # gate 2
+head -3 gt/scan_summary.csv    # gate 3 context
+```
+
+**If split-half and leave-k-out disagree materially on `n_dims`, stop and report** rather than
+proceeding. They ask different questions - agreement between halves versus generalisation to unseen
+people - so their agreeing is real corroboration and their disagreeing is a finding.
+
+Terminate the instance (step (11)) or keep it for stage 2.
+
+#### D. Stage 2 (EC2, bash)
+
+```bash
+tmux new -s sweep
 export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
 export GIT_REF=main
-export S3_URI=s3://jon-nir/spam-simulations/design-comparison    # FRESH prefix; PRIVATE
-export GT_S3_URI=s3://jon-nir/spam-simulations/gt-construction   # where stage 1 wrote gt/
+export S3_URI=s3://jon-nir/spam-simulations/design-comparison-v5
+export GT_S3_URI=s3://jon-nir/spam-simulations/gt-construction-v5
 bash run_design_comparison.sh 2>&1 | tee run.log
-# optional: REPS=10 (>=10 enforced)  N_LIST=30,50,75,300  NDIMS=...  MINREL=0.0
-# TERMINATE the instance when done.
 ```
 
-This runs **task-v5** (the bounded canvas). Its calibration is re-derived from scratch on every
-run through the canvas simulator, because `subjects_noise_scale` means an absolute fraction of
-canvas width here and v4's fitted constants do not transfer. `SOFTNESS_LIST` (default `3,4,8`) is
-the canvas-wall **sensitivity arm** - the one canvas quantity with no observable distribution to
-sample from - and it triples the fit count, so set it to a single value if that is not affordable
-and say so rather than reporting a point estimate as robust.
-
-`REPS >= 10` is **enforced, not suggested**: C(6,2)=15 cohort pairs gives visibly wide SEMs, and the
-k-selection rule reads those SEMs directly. C(10,2)=45 is the design point.
-
-The D grid defaults to `D_gt + {-3, -1, 0, +2, +5, +10}`, clipped to `[2, 20]` - it must span below,
-at and above the selected dimensionality, since a sweep that recovers structure only at exactly the
-dimensionality it was generated in has demonstrated nothing. `max(D)` sets the download size (conf
-rows are zero-padded to `max_ndim`), so raising it costs twice.
-
-Both arms land in **one store**, with `allocation_mode` (0.0 random / 1.0 designed) as a swept
-numeric lever. Every `compute_*` table therefore gains an `allocation_mode` grouping column for
-free, and both arms are guaranteed to share a ground truth and a noise draw. Each rep gets a
-**fresh** session design; sharing one would leave the designed arm with zero allocation variance
-while the random arm carried it, making the two spreads incomparable.
-
-| Output | What it is |
-|---|---|
-| `out/design_only.csv` | Stage 2a: the arms compared as pure sampling plans (no subjects, no MDS, no R). Runs and is pushed **first** - if the arms do not separate here, 2b has nothing to find |
-| `out/coverage.csv`, `out/stability.csv` | Per-cohort coverage and recruitment cost, by arm |
-| `out/embedding_generalizability.csv` | Procrustes M² between cohorts' spaces (lower = better) |
-| `out/topk_jaccard.csv`, `out/recovery_vs_gt.csv` | Item-level reproducibility, and recovery of the GT's genuinely-closest pairs |
-| `out/validity_gradient.csv`, `out/validity.json` | The floor check (below) |
-| `out/noise_vs_distance.csv`, `out/noise_curve_shape.csv` | RMSE between a pair's two judgements vs their mean distance, sim and pilot side by side |
-| `mds_store/` | ~480 fits, uploaded **without** `confdists.f32` |
-
-> **The validity check is a gate, not a footnote.** If the simulated semantic gradient
-> (same-subcategory < same-category < cross-category) does not reproduce, the cohorts are not
-> structurally realistic and **the arm comparison should not be trusted**, however clean the arm
-> contrast looks. The script prints a warning; do not ignore it.
-
-**Reading `noise_curve_shape.csv`.** Empirically the RMSE between a pair's two judgements rises off
-a floor to a late peak (`peak_bin_frac` 0.78) and then drops sharply in the top bin
-(`drop_from_peak` 0.37) - clearly-similar and clearly-dissimilar pairs are both judged consistently.
-The low-end rise is near-forced (distances cannot go below zero) so any additive-noise model gives
-it, and a mismatch *there* is a real alarm. The turnover is the discriminating quantity and needs
-the bounded canvas; `drop_gap` reports how far short the model falls on it.
-
-#### Step 3 (local) - `run_cluster_analysis.py`
-
-Pipeline steps g-i. No R, no EC2, a few minutes on one machine. Download the store as above (with
-`confs.f32`, without `confdists.f32`), then from the repo root:
+Optional overrides, all with defaults that encode the decisions already made:
 
 ```bash
-python SpAM_Simulations/run_cluster_analysis.py --store SpAM_Simulations/sim_results/design-comparison/mds_store --out SpAM_Simulations/sim_results/design-comparison/out
+export REPS=10                       # >=10 enforced; C(10,2)=45 cohort pairs
+export N_LIST=30,50,75,500           # 500 is a CEILING PROBE, not a recruitment target
+export MINREL_LIST=-1,0,0.1,0.2      # -1 = no-exclusion control; 0.4 omitted (1.9% pass rate)
+export SOFTNESS_LIST=3,4,8           # canvas-wall sensitivity arm (4 is calibrated)
+export NDIMS=...                     # override the D grid derived from gt/selection.json
 ```
 
-It writes six frames into `out/`, where `eval_helpers.load_run` picks them up as optionals, and
-prints the continuum verdicts plus the density summary.
+`perspective_dispersion` is deliberately **not** an env var: it is fitted from the pilot, then swept
+±0.15 around the fit, clamped to the fitter's own [0, 1.2] search range.
+
+**What to check in the first push**, roughly 20 minutes in, before committing to the remaining ~15
+hours:
+
+```bash
+aws s3 cp "$S3_URI/calibration/calibration.json" - | cat   # the fitted constants
+aws s3 cp "$S3_URI/out/design_only.csv" - | head -5        # stage 2a, banked first
+```
+
+* **`dispersion_swept`** - if it holds only **two** values the fit landed on a clamp boundary (0 or
+  1.2). Not fatal, but the sensitivity arm is then one-sided and should be reported as such.
+* **`screening_pass_rate`** in `out/coverage.csv` once it appears. Under v4, `min_rel=0.2` passed
+  13.1% of candidates, i.e. ~7.6 screened per retained subject. v5 shifts the reliability
+  distribution, and the calibration should re-centre it - but if a cell rejects far harder it will
+  hit `MAX_RECRUIT_PER_SUBJECT=500` and abort with a message naming the achieved rate.
+* **`noise_shape_fit.json`'s `at_shape_boundary`** - if true, the noise *family* rather than the
+  data is the binding constraint, and the required-N numbers should not be trusted until the grid
+  is widened.
+
+> **The semantic-gradient check is a gate, not a footnote.** If the simulated gradient
+> (same-subcategory < same-category < cross-category) does not reproduce, the cohorts are not
+> structurally realistic and **the arm comparison should not be trusted**, however clean it looks.
+> The script prints a warning near the end.
+
+Then terminate the instance - step (11) of the cookbook above.
+
+#### E. Download (local, PowerShell)
+
+Pull `confs.f32`, never `confdists.f32`. The latter is exactly `pdist(conf)` per row and ~20x
+larger; newer runs do not upload it at all, so the exclusion is belt-and-braces.
+
+```powershell
+cd C:\Users\nirjo\Documents\University\PhD\Projects\hierarchical_image_database
+$RUN  = "design-comparison-v5"
+$DEST = "SpAM_Simulations\sim_results\$RUN"
+aws s3 sync "s3://jon-nir/spam-simulations/$RUN/out/"         "$DEST\out\"         --only-show-errors
+aws s3 sync "s3://jon-nir/spam-simulations/$RUN/calibration/" "$DEST\calibration\" --only-show-errors
+aws s3 sync "s3://jon-nir/spam-simulations/$RUN/mds_store/"   "$DEST\mds_store\"   --exclude "confdists.f32" --only-show-errors
+Get-ChildItem -Recurse $DEST | Select-Object FullName
+```
+
+`sim_results/` is gitignored, so these stay local.
+
+#### F. Cluster analysis (local, PowerShell)
+
+```powershell
+.venv\Scripts\python.exe SpAM_Simulations\run_cluster_analysis.py --store SpAM_Simulations\sim_results\design-comparison-v5\mds_store --out SpAM_Simulations\sim_results\design-comparison-v5\out
+```
+
+Needs no R. Writes six frames into `out/`, which `eval_helpers.load_run` then picks up as optional
+frames for the notebook.
 
 | File | From | What it holds |
 |---|---|---|
 | `cluster_agreement.csv` | agglomerative | VI/ARI/AMI, silhouettes, cluster-wise Jaccard per (group, linkage, k) |
 | `dendrogram_agreement.csv` | agglomerative | Baker's gamma and cophenetic fidelity, k-free |
 | `cluster_sizes.csv` | agglomerative | the discovered size distribution |
-| `k_selection.csv` | agglomerative | `k_star_vi`, `k_star_sil` and the continuum verdicts |
-| `density_agreement.csv` | HDBSCAN | noise fraction, cross-cohort agreement on isolation, and `vi_restricted`, per `min_cluster_size` |
+| `k_selection.csv` | agglomerative | `k_star_vi`, `k_star_sil`, and the continuum verdicts |
+| `density_agreement.csv` | HDBSCAN | noise fraction, agreement on isolation, `vi_restricted` |
 | `isolated_images.csv` | HDBSCAN | per image, the fraction of cohorts that left it unclustered |
 
-Useful flags: `--ks` and `--linkages` control the agglomerative grid, `--min-cluster-sizes` the
-HDBSCAN sweep, and `--density-mcs` picks the single setting `isolated_images.csv` is built at.
+#### Full-run checklist
 
-**`k_selection.csv` reports two granularities, and they answer different questions.** `k_star_vi` is
-selected on VI (one-SE rule) and is the *coarsest granularity that reproduces*: the conservative
-deduplication rule, since a coarser cut merges more images and excludes more candidate pairs.
-`k_star_sil` is selected on cross-cohort silhouette and is *where the structure actually is*. They
-differ because VI measures reproducibility rather than correctness of granularity - on three
-well-separated planted blobs VI is exactly 0 at k=2 and at k=3 alike, because both cohorts merge the
-same two blobs, and only silhouette distinguishes them (0.93 at the true 3 against 0.76 at 2).
-
-Each k\* is scored on **all three** headline metrics, as `<metric>_at_k_star_vi` and
-`<metric>_at_k_star_sil` for `vi_norm`, `sil_cross` and `sil_ratio`. Compare the two columns of a
-metric to price the choice: if `vi_norm_at_k_star_sil` is close to `vi_norm_at_k_star_vi`, the finer
-granularity costs nothing in reproducibility and should be preferred; if it is much worse, the
-parsimonious `k_star_vi` is buying something real.
-
-**The density pass answers a different question, and its VI composes only in a scoped form.**
-HDBSCAN is there because agglomerative clustering assigns every one of the 725 images to a cluster,
-so a genuinely isolated image is absorbed into whichever group is nearest; HDBSCAN's `-1` noise
-label is the missing statement. An image with `frac_cohorts_noise` near 1 is one that no cohort
-found reliably confusable with anything, which makes it the safest kind of stimulus.
-
-A labelling with a noise class is not a partition, so `vi_restricted` is computed after dropping the
-noise images from every labelling involved. On that shared subset the triangle inequality holds
-exactly, so a chained bound is still available in the form "restricted to these n of 725 images".
-Two rules when using it: read `n_shared`/`frac_shared` alongside every value, because the subset is
-chosen by the clusterings and the score is optimistically biased towards the easy core; and when
-adding terms, use `density_clustering.pairwise_restricted_vi`, which puts every pair on one ground
-set. The per-pair `mean_vi_restricted` in `density_agreement.csv` is a descriptive average over
-pair-specific subsets and is **not** addable. See the README's
-[clustering-algorithms section](README.md#clustering-algorithms-why-agglomerative-why-hdbscan-why-not-gmm)
-for the full argument, and for why GMM is not an option at all.
-
-> **A continuum is a result.** If `is_flat` (VI varies by less than 0.02 across the whole k grid) or
-> `is_arbitrary_slicing` (cross-cohort silhouette at k\* below 0.05) comes back true, the cohorts
-> reproducibly agree on a cut of a space that has no separation in it. That means "one image per
-> cluster" is the wrong deduplication rule for this data and a distance threshold should be used
-> instead. It is a finding, not a failed run.
+```
+[ ] data staged under BOTH S3 prefixes, no PDFs
+[ ] stage 1: 41 pre-SHINE subjects asserted
+[ ] stage 1: discard rate < ~30%
+[ ] stage 1: max-iters rate acceptable in the first partial
+[ ] stage 1: split-half and leave-k-out agree on n_dims
+[ ] stage 2: dispersion_swept has 3 values (2 = clamped, report as one-sided)
+[ ] stage 2: no cell hit MAX_RECRUIT_PER_SUBJECT
+[ ] stage 2: noise_shape_fit at_shape_boundary is false
+[ ] stage 2: semantic gradient monotone
+[ ] BOTH instances terminated
+[ ] downloaded with confs.f32, without confdists.f32
+```
