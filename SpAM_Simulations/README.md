@@ -18,8 +18,6 @@ later withdrawn, see [FINDINGS.md](FINDINGS.md).
    participant and slices the result into trials, independently per subject and with no cohort-level
    coordination. A balanced incomplete block design instead chooses trials so every image *pair*
    co-occurs about equally often (MacDonald 2020, [10.3758/s13428-019-01326-x](https://doi.org/10.3758/s13428-019-01326-x)).
-   Every result produced before this comparison came from the random arm, so it was untested rather
-   than settled.
 3. **Generalizability of the empirical data.** Given a real cohort, how far can its recovered
    structure be trusted: the geometry, the closest pairs, the cluster structure?
 
@@ -29,43 +27,44 @@ No single metric answers all three questions, and several of them disagree in in
 Each entry says what it measures, and what it is good and bad at.
 
 ### Coverage and connectivity
-
 | Metric | What it measures |
 |---|---|
 | `metrics.coverage` | % of images and of pairs observed at least once, mean observations per pair, number of connected components |
 
 **Good at**: catching a design that cannot be analysed at all. Weighted MDS refuses a disconnected
-pair graph, so `num_connected_components > 1` is fatal rather than merely bad.
+pair graph, so `num_connected_components > 1` is fatal rather than merely bad.<br>
+Image- and pair-coverage are also the only metrics that can be computed **before any subjects are recruited**,
+so they are the only ones that can inform a *design choice* rather than a *sample-size choice*.
+The deployed allocation is a random shuffle, which has statistically lower coverage than a balanced design,
+as MacDonald 2020 shows, and our simulations confirm.<br>
 **Bad at**: discriminating between workable designs. At the deployed session length the pair graph
 is a single component for every arm at every N >= 30, so connectivity saturates and stops carrying
 information. Pair coverage keeps discriminating well past that point.
 
 ### Cohort-to-cohort geometry
-
-Every `rep` in a sweep is an **independently simulated cohort**, so the rep-vs-rep comparison within
+Every `rep` in a sweep is an **independently simulated subject-cohort**, so the rep-vs-rep comparison within
 a configuration answers the study-planning question directly: *if I ran this study twice, would I get
 the same answer?*
 
-| Function | Compares | Direction | Sensitive to |
-|---|---|---|---|
-| `compute_embedding_stability` | reconstructed **distance vectors**, Spearman | higher = better | rank order of the pairs |
-| `compute_embedding_generalizability` | fitted **configurations**, Procrustes M² | **lower** = better | the recovered space itself, incl. metric distortion that leaves rank order intact |
-| `compute_item_generalizability` | per-image residual after that alignment | lower = better | *which* stimuli fail to generalise |
+| Function | Compares                                               | Direction | Sensitive to |
+|---|--------------------------------------------------------|---|---|
+| `compute_embedding_stability` | reconstructed **distance vectors**, Spearman           | higher = better | rank order of the pairs |
+| `compute_embedding_generalizability` | fitted **configurations** (=embeddings), Procrustes M² | **lower** = better | the recovered space itself, incl. metric distortion that leaves rank order intact |
+| `compute_item_generalizability` | per-image residual after that alignment                | lower = better | *which* stimuli fail to generalise |
 
 Procrustes centres, unit-norm scales and optimally rotates/reflects, exactly the gauge freedom an MDS
 solution has, so what remains is genuine disagreement in relative geometry.
 
 **Good at**: a single interpretable summary of whether the whole space reproduces. Procrustes catches
-metric distortion that Spearman is blind to, and the two disagreeing is itself informative.
+metric distortion that Spearman is blind to, and the two disagreeing is itself informative.<br>
 **Bad at**: anything local. Both are computed over all 262,450 pairs, the overwhelming majority of
-which are unrelated-vs-unrelated, so they are dominated by the easy far pairs. A configuration can
-score 0.91 on global Spearman while its closest-pair structure is barely reproducible.
+which are pairs of images from unrelated sub-categories, so they are dominated by the easy far-pairs.
+A configuration can score 0.91 on global Spearman while its closest-pair structure is barely reproducible.
 
 The configuration-space metrics need a store written with `run_mds_sweep(..., store_conf=True)` (the
 default); older stores support only `compute_embedding_stability`.
 
 ### Closest-pair recovery
-
 | Function | Compares | Direction |
 |---|---|---|
 | `compute_topk_similar_pair_stability` | the closest-`frac` **pair sets** of two cohorts, Jaccard | higher = better |
@@ -77,14 +76,13 @@ answer, so both are reported. Recovery-vs-GT is simulation-only, since it needs 
 
 **Good at**: the question the downstream stimulus construction actually poses, which is about near
 neighbours and not about global geometry. At matched set sizes recall equals precision, so one
-number carries it.
+number carries it.<br>
 **Bad at**: anything cluster-shaped. If A, B and C are three near-identical images, which of the
 three pairs is "closest" flips with noise, and Jaccard scores every flip as an error even though all
 three flips give the same practical answer (use one of them). It therefore *understates* usable
 structure whenever the real question is about groups.
 
 ### Cluster structure
-
 Discovered **bottom-up** from each cohort's embedding by agglomerative clustering, swept over
 granularity `k` and over linkage (`average`, `ward`, `complete`). Linkage is the rule for the
 distance between two *clusters*: average is the mean cross-cluster pair distance and assumes least;
@@ -92,13 +90,13 @@ ward merges whichever pair least increases within-cluster variance, which favour
 clusters; complete uses the farthest members. They can disagree on the same embedding, so all three
 are swept.
 
-| Metric | What it measures | Direction |
-|---|---|---|
-| **Variation of Information** | `H(A|B) + H(B|A)` between two cohorts' partitions | **lower** = better |
-| ARI, AMI | chance-corrected partition agreement | higher = better |
-| cross-cohort silhouette, and **cross/within ratio** | labels from cohort A scored against cohort B's distances | higher = better |
-| cluster-wise max-Jaccard **distribution** | per cluster in A, its best match in B | higher = better |
-| Baker's gamma | rank correlation of the two cohorts' cophenetic distances | higher = better |
+| Metric | What it measures                                          | Direction                                     |
+|---|-----------------------------------------------------------|-----------------------------------------------|
+| **Variation of Information** | `H(A\| B) + H(B\|A)` between two cohorts' partitions      | **lower** = better |
+| ARI, AMI | chance-corrected partition agreement                      | higher = better                               |
+| cross-cohort silhouette, and **cross/within ratio** | labels from cohort A scored against cohort B's distances  | higher = better                               |
+| cluster-wise max-Jaccard **distribution** | per cluster in A, its best match in B                     | higher = better                               |
+| Baker's gamma | rank correlation of the two cohorts' cophenetic distances | higher = better                               |
 
 **VI is primary, and specifically not ARI.** VI is a true metric on partitions (Meila 2003:
 symmetric, non-negative, obeys the triangle inequality). That is what licenses chaining two claims,
@@ -113,7 +111,7 @@ regardless of cluster quality. The `cross / within` ratio at matched (D, k) canc
 small-k bias to first order, and reads as optimism: near 1 means the separation genuinely reproduces.
 
 **Good at**: the granularity question. Reproducibility as a function of k tells you the finest
-resolution the data supports, which is the level at which to deduplicate.
+resolution the data supports, which is the level at which to deduplicate.<br>
 **Bad at**: identifying the number of clusters, and telling you whether clusters exist at all. VI
 scores *reproducibility*, and a coarse cut of a well-separated structure reproduces just as
 perfectly as the right one: on three planted blobs VI is exactly 0 at both k=2 and k=3, because
@@ -146,7 +144,7 @@ legitimately reports separation inverting across cohorts.
 
 **Good at**: catching a simulation that is not realistic. The gradient was never fitted to, so it is
 a genuine out-of-model check, and it is strong in the real pilot (same-leaf pairs 3.6x closer than
-unrelated ones, a 1.53 SD gap), which means it has demonstrated power to detect a failure.
+unrelated ones, a 1.53 SD gap), which means it has demonstrated power to detect a failure.<br>
 **Bad at**: the distance-distribution half is nearly circular, since simulated subjects are generated
 from a GT fitted to the pilot. A match there confirms little; a mismatch would still be a real alarm.
 Distances also need median-rescaling first, because simulated distances are in GT-embedding units
@@ -154,17 +152,17 @@ while pilot distances are canvas-diagonal-normalised to [0, 1].
 
 ## How the pipeline works
 
-| | Step | Where |
-|---|---|---|
+| | Step                                                                     | Where |
+|---|--------------------------------------------------------------------------|---|
 | a | Calibrate to the pilot: fit the noise population, build the GT embedding | EC2 (needs R) |
-| b | Generate noisy per-subject distances from the GT | EC2 |
-| c | Pool N subjects into one cohort RDM, per allocation arm | EC2 |
-| d | Sweep D: fit weighted MDS to each cohort | EC2 (needs R) |
-| e | Store configurations, distances and metadata | EC2 |
-| f | Repeat b-e for r reps, each N, and each arm | EC2 |
-| g | Sweep k x linkage over the stored embeddings to get partitions | local |
-| h | Compute between-cohort metrics over the C(r,2) rep pairs | local |
-| i | Select k\*, D\*, required-N; run the continuum diagnostics | local |
+| b | Generate noisy per-subject distances from the GT                         | EC2 |
+| c | Pool `N` subjects into one cohort RDM, per allocation arm                | EC2 |
+| d | Sweep `D`: fit weighted MDS to each cohort                               | EC2 (needs R) |
+| e | Store configurations, distances and metadata                             | EC2 |
+| f | Repeat b-e for `r` reps, each N, and each arm                            | EC2 |
+| g | Sweep `k`×`linkage` over the stored embeddings to get partitions         | local |
+| h | Compute between-cohort metrics over the $C(r,2)$ rep pairs               | local |
+| i | Select `k*`, `D*`, required-`N`; run the continuum diagnostics               | local |
 
 Steps g-i are deliberately **post-processing**. Agglomerative clustering on 725 points is
 milliseconds against ~25 seconds for one SMACOF fit, so keeping it out of the expensive loop costs
