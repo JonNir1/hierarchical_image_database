@@ -89,8 +89,8 @@ Eight shell scripts, under `ec2/`, handle the full-scale sweeps remotely.
 > images on an unbounded plane, which the deployed task does not - see
 > [the current model is task-v5](README.md#the-current-model-is-task-v5). They are kept because
 > their results are cited in [FINDINGS.md](FINDINGS.md) and remain reproducible, not because they
-> should be run again. New work uses the two-stage programme at the bottom of this list, and that
-> programme still needs updating to task-v5 before it is run.
+> should be run again. New work uses the two-stage programme at the bottom of this list, which runs
+> task-v5.
 - `ec2/prepare_machine.sh` - shared provisioning (system packages, R 4.5 + `smacof`, awscli v2,
   sparse-checkout clone of `SpAM_Simulations/`, Python venv), plus `stage_pull`/`stage_push` for
   handing artifacts between stages and `upload_and_finish` for the final sync. Sourced, not run
@@ -381,10 +381,9 @@ goes, so an eight-hour scan that dies at hour seven keeps the six dimensionaliti
 
 #### Stage 1 - `run_gt_construction.sh`
 
-> **Not yet updated to task-v5.** It calibrates the v3/v4 unbounded model, whose
-> `subjects_noise_scale` means a ratio to each trial's arrangement spread rather than an absolute
-> fraction of canvas width. Re-running stage 1 under v5 is the first execution step, and its output
-> is what makes a v5 stage 2 interpretable.
+> **Model-agnostic, so v5 needs no change here.** Stage 1 runs no simulation at all - it fits
+> weighted MDS to *empirical* pilot distances, which are already canvas-normalised by the deployed
+> task. The noise calibration that v5 does invalidate lives entirely in stage 2.
 
 Chooses the GT dimensionality from evidence (split-half agreement, corroborated by leave-k-out CV
 over subjects) and fits the final embedding. Runs on the **41 pre-SHINE pilot subjects only**, and
@@ -436,6 +435,13 @@ bash run_design_comparison.sh 2>&1 | tee run.log
 # optional: REPS=10 (>=10 enforced)  N_LIST=30,50,75,300  NDIMS=...  MINREL=0.0
 # TERMINATE the instance when done.
 ```
+
+This runs **task-v5** (the bounded canvas). Its calibration is re-derived from scratch on every
+run through the canvas simulator, because `subjects_noise_scale` means an absolute fraction of
+canvas width here and v4's fitted constants do not transfer. `SOFTNESS_LIST` (default `3,4,8`) is
+the canvas-wall **sensitivity arm** - the one canvas quantity with no observable distribution to
+sample from - and it triples the fit count, so set it to a single value if that is not affordable
+and say so rather than reporting a point estimate as robust.
 
 `REPS >= 10` is **enforced, not suggested**: C(6,2)=15 cohort pairs gives visibly wide SEMs, and the
 k-selection rule reads those SEMs directly. C(10,2)=45 is the design point.

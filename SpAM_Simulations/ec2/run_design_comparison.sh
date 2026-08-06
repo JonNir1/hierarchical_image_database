@@ -17,7 +17,7 @@
 #       FIRST. It also prices the per-session disjointness constraint via a third, non-deployable
 #       `designed_unconstrained` arm.
 #   2b  FULL SIMULATION. Both arms as ONE sweep, with `allocation_mode` (0.0 random / 1.0 designed)
-#       as a swept numeric lever inside TaskV4SimulationConfig. That puts both arms in a single
+#       as a swept numeric lever inside TaskV5SimulationConfig. That puts both arms in a single
 #       ResultStore keyed on the same ground truth and noise draw, and every compute_* table gains
 #       an `allocation_mode` grouping column for free.
 #
@@ -47,6 +47,16 @@
 # person repeats their own arrangement - not a property of the images, so the post-SHINE half is
 # perfectly good evidence about it, whereas it is unusable for a GT over the pre-SHINE stimulus set.
 #
+# THIS RUNS THE TASK-V5 MODEL: the v4 screening model on a BOUNDED 2-D canvas. v3/v4 placed images on
+# an unbounded plane and produced per-trial maximum distances of 1.39 on a scale whose ceiling is 1.0.
+# Two consequences for this script. The calibration is routed through the canvas simulator
+# (CALIB_SIM), because subjects_noise_scale means an absolute fraction of canvas width here rather
+# than a ratio to each trial's arrangement spread, so v4's fitted constants are NOT transferable and
+# are re-derived from scratch on every run. And `canvas_softness` is swept as a SENSITIVITY AXIS:
+# unlike aspect and fill it has no observable distribution to sample from, so the honest treatment is
+# to show the conclusions hold across a range rather than to pick a value. Stage 1 needs no v5 change
+# - it does no simulation at all, only weighted MDS on empirical distances.
+#
 # WHERE THE CONTRAST IS INFORMATIVE. It is squeezed at both ends: at N=300 random already covers 98%
 # of pairs so there is almost nothing left to win, and at N=30 both arms may be too sparse to recover
 # anything. The informative window is N=50-75. Report N=300 as a "no cost at scale" check, not as a
@@ -67,12 +77,15 @@
 #   export GT_S3_URI=s3://<your-bucket>/spam-simulations/gt-construction  # where stage 1 wrote gt/
 #   # export REPS=10        # cohorts per cell -> C(10,2)=45 cohort pairs. MUST be >= 10.
 #   # export NDIMS=...      # override the D grid derived from gt/selection.json
+#   # export SOFTNESS_LIST=3,4,8   # canvas-wall sensitivity arm (4 is the calibrated value)
 #   bash run_design_comparison.sh
 #
-# Grid: 4 num_subjects x 2 arms x ~6 ndims x 10 reps = ~480 MDS fits (itmax=1000, precalc_init=True).
-# At the ~3.2 s/fit measured on a c7i.4xlarge that is roughly 30 min of SMACOF plus generation, which
-# for the screened arms is slower than it looks because rejected candidates are simulated and thrown
-# away. REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
+# Grid: 4 num_subjects x 2 arms x 3 softness x ~6 ndims x 10 reps = ~1440 MDS fits (itmax=1000,
+# precalc_init=True). At the ~3.2 s/fit measured on a c7i.4xlarge that is roughly 80 min of SMACOF
+# plus generation, which for the screened arms is slower than it looks because rejected candidates
+# are simulated and thrown away. The softness arm triples the fit count against the pre-v5 grid; drop
+# it to a single value if that is not affordable, but then say so rather than reporting a point
+# estimate as though it were robust. REMEMBER TO TERMINATE THE INSTANCE WHEN DONE.
 
 set -euo pipefail
 
@@ -161,6 +174,7 @@ stage_pull out
 N_JOBS="$N_JOBS" GT_METHOD="$GT_METHOD" REPS="$REPS" S3_URI="$S3_URI" \
   NDIMS="${NDIMS:-}" N_LIST="${N_LIST:-30,50,75,300}" SEED="${SEED:-42}" \
   MINREL="${MINREL:-0.0}" DESIGN_REPS_2A="${DESIGN_REPS_2A:-20}" \
+  SOFTNESS_LIST="${SOFTNESS_LIST:-3,4,8}" \
   python - <<'PY'
 import json
 import os
@@ -171,10 +185,10 @@ import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist
 
-from SpAM_Simulations import design_comparison, pipeline, validity
+from SpAM_Simulations import canvas as cv, design_comparison, pipeline, validity
 from SpAM_Simulations.allocation import DESIGNED, RANDOM, make_allocator
 from SpAM_Simulations.block_design import greedy_session_design
-from SpAM_Simulations.config import MDSSweepConfig, TaskV4SimulationConfig
+from SpAM_Simulations.config import MDSSweepConfig, TaskV5SimulationConfig
 from SpAM_Simulations.gt_construction import aggregate_subjects
 from SpAM_Simulations.pilot import (
     between_subject_agreement, fit_dispersion_for_agreement, fit_noise_for_test_retest,
@@ -188,6 +202,14 @@ N_JOBS = int(os.environ["N_JOBS"])
 REPS, SEED = int(os.environ["REPS"]), int(os.environ["SEED"])
 FULL_N = [int(x) for x in os.environ["N_LIST"].split(",")]
 MINREL = float(os.environ["MINREL"])
+# Sensitivity axis, not a calibrated constant: `softness` is the one canvas quantity with no
+# observable distribution to sample from. Aspect and fill ARE sampled per trial, from the pilot's
+# measured marginals, so they are not levers.
+SOFTNESS = [float(x) for x in os.environ["SOFTNESS_LIST"].split(",")]
+# The calibration runs at the DEFAULT softness. It is a point fit, and re-fitting the noise
+# population once per softness value would confound the sensitivity arm with three different noise
+# scales; the arm then varies softness around that one calibrated noise level.
+CALIB_SIM = cv.make_canvas_trial_simulator(sample_per_trial=True, softness=cv.DEFAULT_SOFTNESS)
 
 
 def push(prefix: str, msg: str) -> None:
@@ -225,7 +247,8 @@ if os.environ.get("NDIMS"):
 else:
     NDIMS = sorted({min(20, max(2, D_GT + off)) for off in (-3, -1, 0, 2, 5, 10)})
 print(f"[grid] ndims={NDIMS} (D_gt={D_GT}), num_subjects={FULL_N}, reps={REPS}, "
-      f"arms=[random, designed] -> {len(NDIMS) * len(FULL_N) * REPS * 2} MDS fits", flush=True)
+      f"arms=[random, designed], softness={SOFTNESS} -> "
+      f"{len(NDIMS) * len(FULL_N) * REPS * 2 * len(SOFTNESS)} MDS fits", flush=True)
 
 # --- stage 2a: the design alone ---------------------------------------------------------------
 # Pure combinatorics, ~1 min, and it runs first so its answer is banked before any SMACOF starts.
@@ -251,7 +274,8 @@ emp = subject_reliability_sample(allsub)
 print(f"[shape] empirical reliability: n={len(emp)} median={np.median(emp):.3f} "
       f"q10={np.quantile(emp, .1):.3f} q90={np.quantile(emp, .9):.3f}", flush=True)
 fit = fit_noise_population(coords, emp, images_per_trial=IMAGES_PER_TRIAL,
-                           perspective_dispersion=0.2, n_subjects=80, reps=3, verbose=True)
+                           perspective_dispersion=0.2, n_subjects=80, reps=3, verbose=True,
+                           trial_simulator=CALIB_SIM)
 FB = fit["best"]
 fit["grid"].to_csv(CAL / "noise_shape_grid.csv", index=False)
 (CAL / "noise_shape_fit.json").write_text(json.dumps(
@@ -271,7 +295,8 @@ emp_agr = between_subject_agreement(np.vstack([s.distances for s in allsub]),
                                     min_overlap=20)["mean_agreement"]
 DISP, disp_ach = fit_dispersion_for_agreement(
     coords, emp_agr, noise_scale=float(FB["noise_scale"]), noise_df=SHAPE_DF,
-    lognormal_sigma=LOGN_SIGMA, images_per_trial=IMAGES_PER_TRIAL, reps=REPS)
+    lognormal_sigma=LOGN_SIGMA, images_per_trial=IMAGES_PER_TRIAL, reps=REPS,
+    trial_simulator=CALIB_SIM)
 print(f"[disp] empirical agreement={emp_agr:.4f} -> dispersion={DISP:.2f} (achieved {disp_ach:.4f})",
       flush=True)
 
@@ -280,7 +305,8 @@ print(f"[disp] empirical agreement={emp_agr:.4f} -> dispersion={DISP:.2f} (achie
 TARGET_R = float(np.median(emp))
 NOISE, ach_r = fit_noise_for_test_retest(coords, TARGET_R, noise_df=SHAPE_DF,
                                          lognormal_sigma=LOGN_SIGMA,
-                                         images_per_trial=IMAGES_PER_TRIAL, reps=REPS)
+                                         images_per_trial=IMAGES_PER_TRIAL, reps=REPS,
+                                         trial_simulator=CALIB_SIM)
 print(f"[invert] targetR={TARGET_R:.3f} -> noise={NOISE:.2f} (achieved {ach_r:.3f} @img20)",
       flush=True)
 (CAL / "calibration.json").write_text(json.dumps(dict(
@@ -321,7 +347,7 @@ def allocator_factory(params, rep):
                           sessions=_designs[key])
 
 
-cfg = TaskV4SimulationConfig(
+cfg = TaskV5SimulationConfig(
     gt_embeddings=coords, num_subjects=FULL_N,
     trials_per_subject=[EXP_TRIALS], images_per_trial=[IMAGES_PER_TRIAL],
     subjects_noise_scale=[NOISE], subjects_noise_df=[SHAPE_DF],
@@ -330,9 +356,10 @@ cfg = TaskV4SimulationConfig(
     screening_trials=[SCREEN_TRIALS], screening_repeats=[SCREEN_REPEATS],
     screening_min_reliability=[MINREL],
     allocation_mode=[RANDOM, DESIGNED],
+    canvas_softness=SOFTNESS,
     reps=REPS, seed=SEED,
 )
-sim = pipeline.generate_task_v4_simulation(cfg, verbose=True, allocator_factory=allocator_factory)
+sim = pipeline.generate_task_v5_simulation(cfg, verbose=True, allocator_factory=allocator_factory)
 
 sweep = MDSSweepConfig(ndims=NDIMS, max_iters=1000, convergence_tol=1e-6, precalc_init=True)
 # store_conf ASSERTED, not inherited: the local cluster analysis reads confs.f32 and nothing else,
@@ -398,7 +425,8 @@ if grads:
 sim_pairs = validity.simulate_repeat_pairs(
     coords, subjects_noise_scale=NOISE, n_subjects=60, trials_per_subject=4,
     images_per_trial=IMAGES_PER_TRIAL, perspective_dispersion=float(DISP),
-    noise_df=SHAPE_DF, lognormal_sigma=LOGN_SIGMA, seed=SEED)
+    noise_df=SHAPE_DF, lognormal_sigma=LOGN_SIGMA, seed=SEED,
+    trial_simulator=CALIB_SIM)
 pilot_repeat = validity.repeat_pairs(allsub)
 if pilot_repeat[0].size:
     noise_cmp = validity.compare_noise_vs_distance(sim_pairs, pilot_repeat)
