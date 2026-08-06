@@ -409,13 +409,12 @@ if pilot_repeat[0].size:
     # The low flank is near-forced (distances cannot go below zero) so agreeing there says little.
     # The high flank is the discriminating one, and the model is EXPECTED to miss it: it places
     # points on an unbounded plane, while real subjects work on a bounded canvas.
-    if not noise_cmp["high_flank_matches"]:
-        print("[validity/noise] EXPECTED: the high-distance flank does not match. The generative "
-              "model has no canvas ceiling (task_v3_experiment's docstring records this), so a "
-              "pair already far apart can still move further. Evidence for that missing ceiling, "
-              "not a defect. Do not 'fix' it by rescaling.", flush=True)
-    if not noise_cmp["low_flank_matches"]:
-        print("[validity/noise] WARNING: the LOW-distance flank does not match either. That one is "
+    if not noise_cmp["turnover_matches"]:
+        print(f"[validity/noise] the curve does not turn over as the pilot's does "
+              f"(drop_gap={noise_cmp['drop_gap']:.3f}). Check the canvas bound is active.",
+              flush=True)
+    if not noise_cmp["low_end_matches"]:
+        print("[validity/noise] WARNING: the LOW end does not match either. That one is "
               "near-forced for any additive-noise model, so a mismatch there points at a real "
               "problem with the noise model.", flush=True)
 else:

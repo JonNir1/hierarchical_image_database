@@ -244,22 +244,42 @@ def test_a_planted_inverted_u_is_detected():
     delta = rng.normal(0, sd)
     o, r = pair_mean + delta / 2, pair_mean - delta / 2
     shape = val.noise_curve_shape(val.noise_vs_distance(o, r, n_bins=9))
-    assert shape["low_flank_quieter"] and shape["high_flank_quieter"]
+    assert shape["has_low_floor"] and shape["turns_over"]
     assert shape["is_inverted_u"]
     assert 0.3 < shape["peak_bin_frac"] < 0.7
 
 
-def test_a_monotonically_rising_curve_passes_only_the_low_flank():
-    """The shape the current generative model actually produces - one flank, not both."""
+def test_a_monotonically_rising_curve_rises_but_never_turns_over():
+    """The shape an unbounded generative model produces: a floor, but no ceiling."""
     rng = np.random.default_rng(3)
     pair_mean = rng.uniform(0, 1, 20000)
     delta = rng.normal(0, 0.02 + 0.30 * pair_mean)
     o, r = pair_mean + delta / 2, pair_mean - delta / 2
     shape = val.noise_curve_shape(val.noise_vs_distance(o, r, n_bins=9))
-    assert shape["low_flank_quieter"]
-    assert not shape["high_flank_quieter"]
+    assert shape["has_low_floor"]
+    assert not shape["turns_over"]
+    assert shape["drop_from_peak"] == pytest.approx(0.0, abs=1e-9)
     assert not shape["is_inverted_u"]
-    assert shape["peak_bin_frac"] > 0.8
+    assert shape["peak_bin_frac"] == 1.0
+
+
+def test_the_descriptor_is_peak_relative_not_thirds_relative():
+    """Regression on a real defect: the thirds summary called the PILOT not an inverted U.
+
+    The empirical turnover is confined to the top bin and the peak sits at ~78% of the range, so
+    averaging a high third smears the drop away (the pilot scores high_over_mid = 1.30). Anything
+    that reads the verdict off thirds is wrong for this curve.
+    """
+    # A long rise to a late peak, then one sharp drop - the empirical shape in miniature.
+    rmse = np.array([0.06, 0.12, 0.16, 0.18, 0.20, 0.21, 0.27, 0.32, 0.31, 0.20])
+    table = pd.DataFrame({"rmse": rmse, "n_pairs": np.full(len(rmse), 100)})
+    shape = val.noise_curve_shape(table)
+    assert shape["peak_bin_frac"] == pytest.approx(7 / 9)
+    assert shape["drop_from_peak"] == pytest.approx(1 - 0.20 / 0.32)
+    assert shape["rise_from_first"] == pytest.approx(1 - 0.06 / 0.32)
+    assert shape["turns_over"] and shape["has_low_floor"] and shape["is_inverted_u"]
+    # The thirds are still reported, and on this curve they would have said the opposite.
+    assert shape["rmse_high"] > shape["rmse_mid"]
 
 
 def test_noise_curve_rejects_degenerate_input():
@@ -285,8 +305,8 @@ def test_compare_noise_vs_distance_reports_both_sources_and_the_flank_verdicts()
     assert set(out["curves"]["source"]) == {"sim", "pilot"}
     assert list(out["shape"]["source"]) == ["sim", "pilot"]
     assert out["pilot_is_inverted_u"] and not out["sim_is_inverted_u"]
-    assert out["low_flank_matches"]          # both get the near-forced flank right
-    assert not out["high_flank_matches"]     # only the pilot has the ceiling
+    assert out["low_end_matches"]        # both rise off the near-forced floor
+    assert not out["turnover_matches"]   # only the pilot has the ceiling
 
 
 def test_the_generative_model_reproduces_the_low_flank_but_not_the_high_one():
@@ -303,8 +323,8 @@ def test_the_generative_model_reproduces_the_low_flank_but_not_the_high_one():
     o, r = val.simulate_repeat_pairs(coords, subjects_noise_scale=0.35, n_subjects=15,
                                           trials_per_subject=4, images_per_trial=16, seed=1)
     shape = val.noise_curve_shape(val.noise_vs_distance(o, r, n_bins=10))
-    assert shape["low_flank_quieter"], shape
-    assert not shape["high_flank_quieter"], shape
+    assert shape["has_low_floor"], shape
+    assert not shape["turns_over"], shape
 
 
 def test_simulate_repeat_pairs_returns_matched_vectors_and_checks_the_trial_size():

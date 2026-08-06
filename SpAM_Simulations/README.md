@@ -240,22 +240,21 @@ consistently, the ambiguous middle is where subjects disagree with themselves. I
 the noise rather than of the signal, so a simulation can match the distance histogram perfectly and
 still fail it.
 
-**The two flanks are not equally strong tests, and `noise_curve_shape` reports them separately.**
-The low-distance flank is close to forced: distances cannot go below zero, so as the true separation
-approaches 0 the gap between two noisy realisations is squeezed against that floor, and any
-additive-noise model reproduces it. The high-distance flank is the discriminating one, and the
-current model is **expected to fail it**. `task_v3_experiment` places points on an unbounded plane
-and its docstring records that a fixed-canvas ceiling is "a documented future refinement, not
-modelled", whereas real subjects work on a bounded canvas where a pair already at opposite corners
-cannot move much further apart.
+**Measured on the real pilot** (47 subjects, 12,540 repeat pairs): the curve rises off a floor
+(`rise_from_first` 0.83) to a **late** peak (`peak_bin_frac` 0.78) and then falls sharply
+(`drop_from_peak` 0.37). The turnover is confined to the top bin, so `noise_curve_shape` describes
+the curve **relative to its peak** rather than by comparing thirds. That is not a cosmetic choice:
+an earlier thirds-based summary scored the pilot itself at `high_over_mid` 1.30 and therefore called
+the real data *not* an inverted U, because averaging a high third smears the top-bin drop away.
 
-Measured on the generative model at `subjects_noise_scale=0.35`: `low_over_mid` 0.72 (the flank is
-there) but `high_over_mid` 2.29, with the noisiest bin at the far right rather than the middle. So
-the curve rises monotonically instead of turning over. That is evidence about the missing ceiling,
-recorded as a test so that adding one is noticed rather than silently changing the model's
-behaviour. The check is run standalone from the calibrated parameters (`simulate_repeat_pairs`),
-since it measures the noise model rather than any particular cohort size or allocation arm, and
-therefore needs no MDS.
+The two ends are not equally strong tests. The low-end rise is close to forced, since distances
+cannot go below zero and any additive-noise model reproduces it; a mismatch *there* would be a real
+alarm. The **turnover** is the discriminating quantity, and it requires a bounded canvas: a pair
+already at opposite corners cannot move much further apart, so its upper tail is truncated.
+
+The check runs standalone from the calibrated parameters (`simulate_repeat_pairs`), since it
+measures the noise model rather than any particular cohort size or allocation arm, and therefore
+needs no MDS.
 
 ## How the pipeline works
 
