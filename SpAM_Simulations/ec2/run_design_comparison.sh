@@ -389,6 +389,39 @@ for arm, mode in (("random", RANDOM), ("designed", DESIGNED)):
 
 if grads:
     pd.concat(grads, ignore_index=True).to_csv(OUT / "validity_gradient.csv", index=False)
+
+# --- validity: does the NOISE have the right shape, not just the signal? ----------------------
+# Empirically, RMSE between a pair's two judgements is an inverted U against their mean distance:
+# clearly-similar and clearly-dissimilar pairs are judged consistently, the ambiguous middle is not.
+# This is a property of the noise model rather than of any sweep cell, so it is measured directly
+# from the calibrated generative model - no MDS, seconds to run.
+sim_pairs = validity.simulate_repeat_pairs(
+    coords, subjects_noise_scale=NOISE, n_subjects=60, trials_per_subject=4,
+    images_per_trial=IMAGES_PER_TRIAL, perspective_dispersion=float(DISP),
+    noise_df=SHAPE_DF, lognormal_sigma=LOGN_SIGMA, seed=SEED)
+pilot_repeat = validity.repeat_pairs(allsub)
+if pilot_repeat[0].size:
+    noise_cmp = validity.compare_noise_vs_distance(sim_pairs, pilot_repeat)
+    noise_cmp["curves"].to_csv(OUT / "noise_vs_distance.csv", index=False)
+    noise_cmp["shape"].to_csv(OUT / "noise_curve_shape.csv", index=False)
+    print("\n[validity/noise] RMSE vs distance, both sources:", flush=True)
+    print(noise_cmp["shape"].to_string(index=False), flush=True)
+    # The low flank is near-forced (distances cannot go below zero) so agreeing there says little.
+    # The high flank is the discriminating one, and the model is EXPECTED to miss it: it places
+    # points on an unbounded plane, while real subjects work on a bounded canvas.
+    if not noise_cmp["high_flank_matches"]:
+        print("[validity/noise] EXPECTED: the high-distance flank does not match. The generative "
+              "model has no canvas ceiling (task_v3_experiment's docstring records this), so a "
+              "pair already far apart can still move further. Evidence for that missing ceiling, "
+              "not a defect. Do not 'fix' it by rescaling.", flush=True)
+    if not noise_cmp["low_flank_matches"]:
+        print("[validity/noise] WARNING: the LOW-distance flank does not match either. That one is "
+              "near-forced for any additive-noise model, so a mismatch there points at a real "
+              "problem with the noise model.", flush=True)
+else:
+    print("\n[validity/noise] no pilot repeat trials found; skipping the noise-shape check",
+          flush=True)
+
 (OUT / "validity.json").write_text(json.dumps(reports, indent=2, default=str))
 print("\n[done] stage 2 complete", flush=True)
 PY

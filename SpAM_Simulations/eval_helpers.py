@@ -83,6 +83,8 @@ class RunData:
     design_only: Optional[pd.DataFrame] = None
     density_agreement: Optional[pd.DataFrame] = None
     isolated_images: Optional[pd.DataFrame] = None
+    noise_vs_distance: Optional[pd.DataFrame] = None
+    noise_curve_shape: Optional[pd.DataFrame] = None
 
 
 # Absent -> FileNotFoundError. These four define a loadable run.
@@ -107,6 +109,8 @@ _OPTIONAL_FILES = {
     "design_only": ("out", "design_only.csv"),
     "density_agreement": ("out", "density_agreement.csv"),
     "isolated_images": ("out", "isolated_images.csv"),
+    "noise_vs_distance": ("out", "noise_vs_distance.csv"),
+    "noise_curve_shape": ("out", "noise_curve_shape.csv"),
 }
 
 

@@ -26,7 +26,7 @@ six caucasian faces duplicated and the six hispanic ones missing entirely.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Sequence
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -162,4 +162,231 @@ def compare_to_pilot(sim_condensed: np.ndarray, pilot_condensed: np.ndarray,
         "sim_gradient_monotone": gradient_is_monotone(sim_grad),
         "pilot_gradient_monotone": gradient_is_monotone(pilot_grad),
         "max_abs_std_gap_diff": float(merged["std_gap_diff"].abs().max()),
+    }
+
+
+# --------------------------------------------------------------------------- noise vs distance
+# The third validity check, and the sharpest of the three, because it is about the shape of the
+# NOISE rather than the shape of the signal.
+#
+# The empirical finding (analysis/pilot/figures.py, "Reliability vs. distance"): for every image
+# pair a subject judged twice, plot the RMSE between the two judgements against their mean, and the
+# curve is an inverted U. Pairs that are clearly similar and pairs that are clearly dissimilar are
+# both judged consistently; the ambiguous middle is where subjects disagree with themselves. A
+# simulation that does not reproduce that is generating the wrong kind of noise, however well its
+# distance histogram matches.
+#
+# **The two flanks are reported separately and are not equally strong tests.** The low-distance
+# flank is close to forced: distances cannot go below zero, so as the true separation approaches 0
+# the gap between two noisy realisations is squeezed against that floor, and any additive-noise
+# model reproduces it. The high-distance flank is the discriminating one, and the current model is
+# expected to FAIL it - `task_v3_experiment` places points on an unbounded plane and its docstring
+# records that "a fixed-canvas ceiling/saturation is a documented future refinement, not modelled",
+# whereas real subjects work on a bounded canvas where a pair already at opposite corners cannot
+# move much further apart. A flat or rising high-distance flank is therefore the predicted result,
+# and is evidence about that missing ceiling rather than a defect in this code.
+FLANK_TOLERANCE = 0.95      # a flank counts as quieter than the middle only below this ratio
+
+
+def repeat_pairs(subjects: Sequence) -> Tuple[np.ndarray, np.ndarray]:
+    """Pool every subject's ``(original, repeat)`` trial distance vectors into two flat arrays.
+
+    Reads ``PilotSubject.retest_pairs``, which the loader already populates, so this needs neither
+    the trial-level parser nor a second pass over the raw CSVs.
+    """
+    orig: List[np.ndarray] = []
+    repeat: List[np.ndarray] = []
+    for s in subjects:
+        for o, r in getattr(s, "retest_pairs", []):
+            o = np.asarray(o, dtype=np.float64)
+            r = np.asarray(r, dtype=np.float64)
+            ok = np.isfinite(o) & np.isfinite(r)
+            if ok.any():
+                orig.append(o[ok])
+                repeat.append(r[ok])
+    if not orig:
+        return np.array([]), np.array([])
+    return np.concatenate(orig), np.concatenate(repeat)
+
+
+def simulate_repeat_pairs(gt_embeddings: np.ndarray, subjects_noise_scale: float,
+                          n_subjects: int = 40, trials_per_subject: int = 4,
+                          images_per_trial: int = 20, perspective_dispersion: float = 0.3,
+                          noise_df: int = 5, lognormal_sigma: float = 0.0,
+                          seed: int = 0) -> Tuple[np.ndarray, np.ndarray]:
+    """``(d_orig, d_repeat)`` from verbatim repeat trials of the **deployed generative model**.
+
+    Calls ``task_v3_experiment._simulate_trial`` directly rather than re-deriving the projection, so
+    the curve describes the model the sweep actually runs. A repeat re-projects the same items with
+    the same perspective weights and differs only by fresh placement noise, exactly as
+    ``simulate_task_v3_experiment`` does it - the difference is only that the per-pair values are
+    kept here instead of being collapsed to a Spearman.
+
+    Standalone rather than plumbed through the sweep, and deliberately so: this measures a property
+    of the **noise model**, not of any particular cohort size or allocation arm, so it needs no MDS
+    and costs seconds. The accumulator arrays are throwaway.
+    """
+    from SpAM_Simulations.noise_population import draw_subject_noises, resolve_family
+    from SpAM_Simulations.task_v3_experiment import _draw_perspective_weights, _simulate_trial
+
+    gt = np.asarray(gt_embeddings, dtype=np.float32)
+    n_images, n_dims = gt.shape
+    if images_per_trial > n_images:
+        raise ValueError(f"images_per_trial={images_per_trial} exceeds n_images={n_images}")
+    rng = np.random.default_rng(seed)
+    pair_rows, pair_cols = np.triu_indices(images_per_trial, k=1)
+    n_pairs = n_images * (n_images - 1) // 2
+    # The v4 draw, which handles both the |t(df)| and lognormal families, so a curve measured here
+    # describes the same noise population the calibrated sweep runs.
+    family, shape = resolve_family(noise_df, lognormal_sigma)
+    scales = draw_subject_noises(n_subjects, subjects_noise_scale, rng=rng,
+                                 family=family, shape=shape)
+
+    orig: List[np.ndarray] = []
+    repeat: List[np.ndarray] = []
+    for subject_noise in scales:
+        weights = _draw_perspective_weights(n_dims, perspective_dispersion, rng)
+        for _ in range(trials_per_subject):
+            trial = rng.choice(n_images, size=images_per_trial, replace=False)
+            obs, n_obs = np.zeros(n_pairs, dtype=np.float64), np.zeros(n_pairs, dtype=np.int32)
+            _, d1, _ = _simulate_trial(trial, pair_rows, pair_cols, n_images, gt, weights,
+                                       float(subject_noise), obs, n_obs, rng)
+            _, d2, _ = _simulate_trial(trial, pair_rows, pair_cols, n_images, gt, weights,
+                                       float(subject_noise), obs, n_obs, rng)
+            orig.append(np.asarray(d1, dtype=np.float64))
+            repeat.append(np.asarray(d2, dtype=np.float64))
+    return np.concatenate(orig), np.concatenate(repeat)
+
+
+def noise_vs_distance(d_orig: np.ndarray, d_repeat: np.ndarray, n_bins: int = 10,
+                      binning: str = "quantile", rescale: str = "median") -> pd.DataFrame:
+    """Binned RMSE between two judgements of the same pair, against how far apart they put it.
+
+    One row per bin of ``pair_mean = (d_orig + d_repeat) / 2``, carrying
+    ``rmse = sqrt(mean((d_orig - d_repeat)**2))``. This is the same quantity
+    ``analysis/pilot/figures.py`` plots, and ``binning="fixed"`` with ``rescale="none"`` reproduces
+    its fixed-width bins; a test asserts the two agree on the same input.
+
+    ``binning="quantile"`` is the default here because this comparison is cross-scale. Simulated
+    distances are in ground-truth embedding units while pilot distances are canvas-diagonal
+    normalised, so fixed-width bins would not describe the same parts of the two distributions.
+    Equal-count bins also stabilise the RMSE estimate at the sparse extremes, which is exactly where
+    the shape is being read.
+
+    ``rescale="median"`` divides both arrays by the pooled median first, so the RMSE axis is in
+    median-distance units and comparable between simulation and pilot. The SEM uses the pilot
+    figure's delta method: ``SEM(sqrt(X)) ~= SEM(X) / (2 * sqrt(mean(X)))``.
+    """
+    o = np.asarray(d_orig, dtype=np.float64)
+    r = np.asarray(d_repeat, dtype=np.float64)
+    if o.shape != r.shape:
+        raise ValueError(f"arrays must match in length, got {o.shape} and {r.shape}")
+    ok = np.isfinite(o) & np.isfinite(r)
+    o, r = o[ok], r[ok]
+    if o.size == 0:
+        raise ValueError("no finite (original, repeat) pairs to bin")
+    if rescale == "median":
+        med = float(np.median(np.concatenate([o, r])))
+        if med > 0:
+            o, r = o / med, r / med
+    elif rescale != "none":
+        raise ValueError(f"rescale must be 'median' or 'none', got {rescale!r}")
+
+    pair_mean = 0.5 * (o + r)
+    sq_diff = (o - r) ** 2
+    if binning == "quantile":
+        edges = np.unique(np.quantile(pair_mean, np.linspace(0, 1, n_bins + 1)))
+    elif binning == "fixed":
+        edges = np.linspace(pair_mean.min(), pair_mean.max(), n_bins + 1)
+    else:
+        raise ValueError(f"binning must be 'quantile' or 'fixed', got {binning!r}")
+    if edges.size < 2:
+        raise ValueError("pair_mean is constant; no bins can be formed")
+
+    idx = np.clip(np.digitize(pair_mean, edges[1:-1], right=False), 0, len(edges) - 2)
+    rows: List[Dict[str, float]] = []
+    for b in range(len(edges) - 1):
+        sel = idx == b
+        n = int(sel.sum())
+        if n == 0:
+            continue
+        rmse = float(np.sqrt(sq_diff[sel].mean()))
+        # Delta method, matching the pilot figure. Degenerate at rmse == 0, where the SEM is 0 too.
+        sem_sq = float(sq_diff[sel].std(ddof=1) / np.sqrt(n)) if n > 1 else np.nan
+        sem_rmse = sem_sq / (2 * rmse) if rmse > 0 and np.isfinite(sem_sq) else 0.0
+        rows.append({
+            "bin": b, "bin_low": float(edges[b]), "bin_high": float(edges[b + 1]),
+            "bin_center": float(0.5 * (edges[b] + edges[b + 1])),
+            "mean_pair_distance": float(pair_mean[sel].mean()),
+            "n_pairs": n, "rmse": rmse, "sem_rmse": float(sem_rmse),
+        })
+    return pd.DataFrame(rows)
+
+
+def noise_curve_shape(table: pd.DataFrame, tolerance: float = FLANK_TOLERANCE) -> Dict[str, float]:
+    """Scale-free descriptors of a :func:`noise_vs_distance` curve, with the flanks kept apart.
+
+    Splits the bins into low / middle / high thirds, takes each third's count-weighted RMSE, and
+    reports both flanks against the middle. A ratio below ``tolerance`` means that flank is genuinely
+    quieter than the ambiguous middle. They are returned separately, and ``is_inverted_u`` requires
+    both, because the model is expected to reproduce the low flank (a floor effect any additive
+    noise gives) while failing the high one (no canvas ceiling).
+    """
+    if table.empty:
+        raise ValueError("cannot describe the shape of an empty curve")
+    rmse = table["rmse"].to_numpy(dtype=float)
+    counts = table["n_pairs"].to_numpy(dtype=float)
+    cut = max(1, len(rmse) // 3)
+
+    def weighted(lo, hi) -> float:
+        seg_r, seg_n = rmse[lo:hi], counts[lo:hi]
+        return float(np.average(seg_r, weights=seg_n)) if seg_n.sum() else np.nan
+
+    low = weighted(0, cut)
+    mid = weighted(cut, len(rmse) - cut)
+    high = weighted(len(rmse) - cut, None)
+    low_ratio = low / mid if mid else np.nan
+    high_ratio = high / mid if mid else np.nan
+    peak = int(np.argmax(rmse))
+    return {
+        "rmse_low": low, "rmse_mid": mid, "rmse_high": high,
+        "low_over_mid": low_ratio, "high_over_mid": high_ratio,
+        # Where the noisiest bin sits, as a fraction along the curve. ~0.5 is the inverted-U peak.
+        "peak_bin_frac": peak / (len(rmse) - 1) if len(rmse) > 1 else np.nan,
+        "low_flank_quieter": bool(np.isfinite(low_ratio) and low_ratio < tolerance),
+        "high_flank_quieter": bool(np.isfinite(high_ratio) and high_ratio < tolerance),
+        "is_inverted_u": bool(np.isfinite(low_ratio) and np.isfinite(high_ratio)
+                              and low_ratio < tolerance and high_ratio < tolerance),
+        "n_bins": int(len(rmse)),
+    }
+
+
+def compare_noise_vs_distance(sim_pairs: Tuple[np.ndarray, np.ndarray],
+                              pilot_pairs: Tuple[np.ndarray, np.ndarray],
+                              n_bins: int = 10) -> Dict[str, object]:
+    """Both curves and both shape summaries, side by side.
+
+    ``*_pairs`` are ``(d_orig, d_repeat)``, from :func:`repeat_pairs` for the pilot and from a
+    repeat-trial simulation for the model. Returns the stacked per-bin table plus a ``shape`` frame
+    with one row per source, so the flanks can be read against each other directly.
+
+    ``high_flank_matches`` is the comparison that carries information: the low flank is near-forced
+    for any additive-noise model, so agreeing there says little, while the high flank depends on a
+    canvas ceiling the generative model does not have.
+    """
+    sim = noise_vs_distance(*sim_pairs, n_bins=n_bins)
+    pilot = noise_vs_distance(*pilot_pairs, n_bins=n_bins)
+    shapes = pd.DataFrame([{"source": "sim", **noise_curve_shape(sim)},
+                           {"source": "pilot", **noise_curve_shape(pilot)}])
+    curves = pd.concat([sim.assign(source="sim"), pilot.assign(source="pilot")], ignore_index=True)
+    by_source = shapes.set_index("source")
+    return {
+        "curves": curves,
+        "shape": shapes,
+        "sim_is_inverted_u": bool(by_source.loc["sim", "is_inverted_u"]),
+        "pilot_is_inverted_u": bool(by_source.loc["pilot", "is_inverted_u"]),
+        "low_flank_matches": bool(by_source.loc["sim", "low_flank_quieter"]
+                                  == by_source.loc["pilot", "low_flank_quieter"]),
+        "high_flank_matches": bool(by_source.loc["sim", "high_flank_quieter"]
+                                   == by_source.loc["pilot", "high_flank_quieter"]),
     }
