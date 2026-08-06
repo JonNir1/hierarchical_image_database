@@ -78,15 +78,20 @@
 #   # export REPS=10        # cohorts per cell -> C(10,2)=45 cohort pairs. MUST be >= 10.
 #   # export NDIMS=...      # override the D grid derived from gt/selection.json
 #   # export SOFTNESS_LIST=3,4,8       # canvas-wall sensitivity arm (4 is the calibrated value)
+#   # dispersion is NOT an env var: it is fitted from the pilot, then swept +/-0.15 around the fit
 #   # export MINREL_LIST=-1,0,0.1,0.2  # screening thresholds (-1 = no-exclusion control)
 #   # export N_LIST=30,50,75,500       # 500 is a CEILING PROBE, not a recruitment target
 #   bash run_design_comparison.sh
 #
-# Grid: 4 num_subjects x 4 min_reliability x 2 arms x 3 softness x ~6 ndims x 10 reps = ~5760 MDS
-# fits (itmax=1000, precalc_init=True). At the ~3.2 s/fit measured on a c7i.4xlarge that is roughly
-# 5 h of SMACOF plus generation, and generation is slower than it looks for the screened arms because
-# rejected candidates are simulated and thrown away - at min_rel=0.2 that was ~7.6 candidates per
-# retained subject under v4.
+# Grid: 4 num_subjects x 4 min_reliability x 2 arms x 3 softness x 3 dispersion x ~6 ndims x 10 reps
+# = ~17,280 MDS fits (itmax=1000, precalc_init=True). At the ~3.2 s/fit measured on a c7i.4xlarge
+# that is roughly 15 h of SMACOF plus generation, and generation is slower than it looks for the
+# screened arms because rejected candidates are simulated and thrown away - at min_rel=0.2 that was
+# ~7.6 candidates per retained subject under v4.
+#
+# DISPERSION IS FITTED, THEN SWEPT (+/-0.15, clamped to the fitter's [0, 1.2] search range), so the
+# exact three values are not known until the calibration runs and a clamped fit yields only two.
+# It is the noisiest of the three calibration anchors, which is why it is not trusted as a point.
 #
 # N=500 IS A CEILING PROBE, NOT A RECRUITMENT TARGET. The v4 sweep hit its N=300 ceiling in all 144
 # cells, so the required-N curve never plateaued and the question stayed open. A high anchor is what
@@ -259,8 +264,8 @@ else:
     NDIMS = sorted({min(20, max(2, D_GT + off)) for off in (-3, -1, 0, 2, 5, 10)})
 print(f"[grid] ndims={NDIMS} (D_gt={D_GT}), num_subjects={FULL_N}, reps={REPS}, "
       f"arms=[random, designed], softness={SOFTNESS}, min_rel={MINREL_LIST} -> "
-      f"{len(NDIMS) * len(FULL_N) * REPS * 2 * len(SOFTNESS) * len(MINREL_LIST)} MDS fits",
-      flush=True)
+      f"{len(NDIMS) * len(FULL_N) * REPS * 2 * len(SOFTNESS) * len(MINREL_LIST)} MDS fits "
+      f"per dispersion value (dispersion is fitted below, then swept)", flush=True)
 
 # --- stage 2a: the design alone ---------------------------------------------------------------
 # Pure combinatorics, ~1 min, and it runs first so its answer is banked before any SMACOF starts.
@@ -311,6 +316,22 @@ DISP, disp_ach = fit_dispersion_for_agreement(
     trial_simulator=CALIB_SIM)
 print(f"[disp] empirical agreement={emp_agr:.4f} -> dispersion={DISP:.2f} (achieved {disp_ach:.4f})",
       flush=True)
+# FIT, THEN SWEEP AROUND THE FIT. Dispersion is identified only through between-subject agreement,
+# which is measured on the sparse pair overlap between subjects and is the noisiest of the three
+# calibration anchors - so the fit is carried as a point estimate PLUS one step either side rather
+# than trusted alone.
+#
+# Clamped to the fitter's own search grid, [0, DISP_MAX]. The floor is real: dispersion is the sigma
+# of the lognormal that draws each subject's per-dimension weights, so 0 means every subject shares
+# the ground-truth geometry exactly and between-subject signal disagreement vanishes. The ceiling is
+# NOT 1 - a lognormal sigma has no natural upper bound and the config only requires non-negative -
+# it is the top of the range `fit_dispersion_for_agreement` searched, because sweeping outside that
+# would probe values the calibration could never have selected.
+DISP_STEP, DISP_MAX = 0.15, 1.2
+DISP_LIST = sorted({round(min(max(DISP + d, 0.0), DISP_MAX), 2)
+                    for d in (-DISP_STEP, 0.0, DISP_STEP)})
+print(f"[disp] sweeping dispersion over {DISP_LIST}"
+      + (" (clamped, so fewer than 3 values)" if len(DISP_LIST) < 3 else ""), flush=True)
 
 # One noise level, at the empirically achieved test-retest. The R axis was swept in task-v4-fitted
 # and is not what THIS run is about: holding it fixed keeps every fit paying for the arm contrast.
@@ -323,7 +344,8 @@ print(f"[invert] targetR={TARGET_R:.3f} -> noise={NOISE:.2f} (achieved {ach_r:.3
       flush=True)
 (CAL / "calibration.json").write_text(json.dumps(dict(
     n_pilot_sessions=len(allsub), empirical_agreement=float(emp_agr), dispersion=float(DISP),
-    dispersion_achieved=float(disp_ach), target_test_retest=TARGET_R,
+    dispersion_achieved=float(disp_ach), dispersion_swept=DISP_LIST,
+    target_test_retest=TARGET_R,
     achieved_tr_unscreened=float(ach_r), subjects_noise_scale=float(NOISE),
     noise_family=FB["family"], noise_shape=float(FB["shape"]), n_dims=D_GT,
 ), indent=2))
@@ -364,7 +386,7 @@ cfg = TaskV5SimulationConfig(
     trials_per_subject=[EXP_TRIALS], images_per_trial=[IMAGES_PER_TRIAL],
     subjects_noise_scale=[NOISE], subjects_noise_df=[SHAPE_DF],
     subjects_noise_lognormal_sigma=[LOGN_SIGMA],
-    frac_trials_repeated=[FRAC_REPEATED], perspective_dispersion=[round(DISP, 2)],
+    frac_trials_repeated=[FRAC_REPEATED], perspective_dispersion=DISP_LIST,
     screening_trials=[SCREEN_TRIALS], screening_repeats=[SCREEN_REPEATS],
     screening_min_reliability=MINREL_LIST,
     allocation_mode=[RANDOM, DESIGNED],
