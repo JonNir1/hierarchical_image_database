@@ -34,7 +34,8 @@ def test_spec_rejects_impossible_geometry():
 def test_defaults_come_from_the_pilot():
     """Not round numbers: the aspect is the pilot's median screen shape."""
     assert cv.DEFAULT_ASPECT == pytest.approx(0.494)      # pilot median screen shape
-    assert cv.DEFAULT_FILL == pytest.approx(0.85)         # calibrated to maxd median 0.802
+    assert cv.DEFAULT_FILL == pytest.approx(1.0)          # with soft walls pulling the edge in
+    assert cv.DEFAULT_SOFTNESS == pytest.approx(4.0)      # matches the near-wall density
 
 
 # --------------------------------------------------------------------- fitting
@@ -121,9 +122,19 @@ def test_place_never_leaves_the_box():
     assert np.all(Y >= 0.0) and np.all(Y <= spec.upper)
 
 
-def test_place_with_zero_noise_is_the_identity():
-    Y = cv.fit_to_canvas(_square(), cv.CanvasSpec())
-    np.testing.assert_allclose(cv.place(Y, 0.0, np.random.default_rng(0)), Y)
+def test_place_with_zero_noise_still_applies_the_soft_wall():
+    """Not the identity, and deliberately so: the soft wall is part of how an arrangement renders.
+
+    At fill=1.0 the fitted extremes sit on the boundary, and the wall pulls them in whether or not
+    any placement error was added. That is what makes the simulated max distance 0.78 rather than
+    the geometric 1.0.
+    """
+    spec = cv.CanvasSpec()
+    Y = cv.fit_to_canvas(_square(), spec)
+    placed = cv.place(Y, 0.0, np.random.default_rng(0), spec)
+    np.testing.assert_allclose(placed, cv.soft_bound(Y, spec))
+    assert not np.allclose(placed, Y)                      # the wall did something
+    np.testing.assert_allclose(placed, cv.place(Y, 0.0, np.random.default_rng(9), spec))
 
 
 def test_place_rejects_negative_noise():
@@ -189,3 +200,61 @@ def test_arrange_is_fit_then_place_then_normalise():
         cv.place(cv.fit_to_canvas(Y, spec), 0.1, np.random.default_rng(11), spec), spec)
     actual = cv.arrange(Y, 0.1, np.random.default_rng(11), spec)
     np.testing.assert_allclose(actual, expected)
+
+
+# --------------------------------------------------------------------- soft walls
+
+def test_soft_bound_keeps_everything_strictly_inside():
+    """Asymptotic, so even absurd input stays in the open box rather than landing on the wall."""
+    spec = cv.CanvasSpec(aspect=0.5)
+    Y = np.array([[-50.0, -50.0], [50.0, 50.0], [0.5, 0.25]])
+    out = cv.soft_bound(Y, spec)
+    assert np.all(out > 0.0) and np.all(out < spec.upper)
+
+
+def test_soft_bound_barely_moves_the_interior():
+    """Near-identity where it should be: the bound must not distort the middle of the canvas."""
+    spec = cv.CanvasSpec(aspect=0.5, softness=4.0)
+    half = spec.upper / 2
+    quarter = half / 2                       # half way from centre to wall
+    moved = cv.soft_bound(half + quarter, spec) - (half + quarter)
+    assert np.all(np.abs(moved) / quarter < 0.02)
+
+
+def test_soft_bound_leaves_the_centre_exactly_alone():
+    spec = cv.CanvasSpec(aspect=0.5)
+    np.testing.assert_allclose(cv.soft_bound(spec.upper / 2, spec), spec.upper / 2)
+
+
+def test_infinite_softness_is_exactly_hard_clipping():
+    """The family's limit, kept only so the rejected alternative can be measured against."""
+    spec = cv.CanvasSpec(aspect=0.5, softness=float("inf"))
+    Y = np.array([[-1.0, -1.0], [2.0, 2.0], [0.4, 0.2]])
+    np.testing.assert_allclose(cv.soft_bound(Y, spec), np.clip(Y, 0.0, spec.upper))
+
+
+def test_softer_walls_saturate_more_gently():
+    spec = cv.CanvasSpec(aspect=0.5)
+    at_wall = np.array([[1.0, 0.5]])
+    soft = cv.soft_bound(at_wall, spec._replace(softness=2.0))
+    hard = cv.soft_bound(at_wall, spec._replace(softness=16.0))
+    assert np.all(soft < hard)               # gentler p pulls the point further in
+
+
+def test_the_bound_produces_no_pile_up_at_the_wall():
+    """The empirical constraint: 0.005% of pilot placements sit at the exact extreme.
+
+    A hard clip puts 5.2% there. Anything that manufactures a point mass at the boundary is
+    reproducing an artifact of the bounding rule rather than a property of the task.
+    """
+    spec = cv.CanvasSpec()
+    rng = np.random.default_rng(5)
+    placed = np.vstack([cv.place(cv.fit_to_canvas(_square(20, seed=s), spec), 0.08, rng, spec)
+                        for s in range(150)])
+    at_wall = np.mean((placed <= 0.0) | (placed >= spec.upper))
+    assert at_wall == 0.0
+
+    clipped = np.vstack([cv.place(cv.fit_to_canvas(_square(20, seed=s), spec), 0.08, rng,
+                                  spec._replace(softness=float("inf")))
+                         for s in range(150)])
+    assert np.mean((clipped <= 0.0) | (clipped >= spec.upper)) > 0.01   # the artifact, for contrast
