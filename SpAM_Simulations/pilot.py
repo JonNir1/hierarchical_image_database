@@ -338,7 +338,7 @@ def _simulated_targets(
         gt_embeddings: np.ndarray, noise_scale: float, dispersion: float,
         num_subjects: int, trials_per_subject: int, images_per_trial: int,
         frac_trials_repeated: float, reps: int, seed: int, min_overlap: int,
-        noise_df: int = 1, lognormal_sigma: float = 0.0,
+        noise_df: int = 1, lognormal_sigma: float = 0.0, trial_simulator=None,
 ) -> Tuple[float, float]:
     """Run the matched simulation and return ``(median_test_retest, mean_between_agreement)``.
 
@@ -366,7 +366,8 @@ def _simulated_targets(
     for r in range(reps):
         rng = np.random.default_rng(seed + r)
         _, res, per_subject = simulate_task_v4_experiment(
-            params, gt_embeddings, rng, verbose=False, return_per_subject=True
+            params, gt_embeddings, rng, verbose=False, return_per_subject=True,
+            trial_simulator=trial_simulator,
         )
         trs.append(float(np.nanmedian(res.subject_test_retest)))
         agrs.append(between_subject_agreement(per_subject, min_overlap=min_overlap)["mean_agreement"])
@@ -390,6 +391,7 @@ def fit_noise_for_test_retest(
         frac_trials_repeated: float = 0.15,
         num_subjects: int = 20,
         reps: int = 8,
+        trial_simulator=None,
         noise_grid: Sequence[float] = tuple(np.round(np.arange(0.1, 3.01, 0.1), 2)),
         seed: int = 0,
 ) -> Tuple[float, float]:
@@ -412,6 +414,7 @@ def fit_noise_for_test_retest(
             gt_embeddings, noise, 0.0, num_subjects, trials_per_subject, images_per_trial,
             frac_trials_repeated, reps, seed, min_overlap=25, noise_df=noise_df,
             lognormal_sigma=lognormal_sigma,
+            trial_simulator=trial_simulator,
         )[0]
     noise = _fit_1d(target_test_retest, tr, np.asarray(noise_grid))
     return float(noise), float(tr(noise))
@@ -454,6 +457,7 @@ def _calibrate(
         return _simulated_targets(
             gt_embeddings, noise, disp, num_subjects, trials_per_subject, images_per_trial,
             frac_trials_repeated, reps, seed, min_overlap, noise_df=noise_df,
+            trial_simulator=trial_simulator,
         )
 
     fitted_noise = _fit_1d(target_test_retest, lambda x: common(x, 0.0)[0], np.asarray(noise_grid))
@@ -580,7 +584,7 @@ def subject_reliability_sample(subjects: Sequence[PilotSubject]) -> np.ndarray:
 def simulate_reliability_sample(
         gt_embeddings: np.ndarray, noise_scale: float, *, family: str = "t", shape: float = 5.0,
         n_subjects: int = 60, n_repeats: int = 4, images_per_trial: int = 20,
-        perspective_dispersion: float = 0.2, reps: int = 3, seed: int = 0,
+        perspective_dispersion: float = 0.2, reps: int = 3, seed: int = 0, trial_simulator=None,
 ) -> np.ndarray:
     """The simulated counterpart of :func:`subject_reliability_sample`.
 
@@ -597,6 +601,7 @@ def simulate_reliability_sample(
         noises = draw_subject_noises(n_subjects, noise_scale, rng=rng, family=family, shape=shape)
         for s in range(n_subjects):
             run = simulate_task_v4_single_subject(
+                trial_simulator=trial_simulator,
                 subject_noise=noises[s], perspective_dispersion=perspective_dispersion,
                 t_distinct=n_repeats, k=images_per_trial, n_unique=n_repeats * images_per_trial,
                 n_repeats=n_repeats, gt_embeddings=gt_embeddings, rng=rng)
@@ -614,6 +619,7 @@ def fit_noise_population(
         noise_grid: Sequence[float] = tuple(np.round(np.arange(0.4, 2.61, 0.2), 2)),
         n_subjects: int = 60, n_repeats: int = 4, images_per_trial: int = 20,
         perspective_dispersion: float = 0.2, reps: int = 3, seed: int = 0, verbose: bool = True,
+        trial_simulator=None,
 ) -> dict:
     """Jointly fit the noise population's **scale and shape** to an empirical reliability sample.
 
@@ -647,7 +653,8 @@ def fit_noise_population(
                 sim = simulate_reliability_sample(
                     gt_embeddings, float(scale), family=family, shape=float(shape),
                     n_subjects=n_subjects, n_repeats=n_repeats, images_per_trial=images_per_trial,
-                    perspective_dispersion=perspective_dispersion, reps=reps, seed=seed)
+                    perspective_dispersion=perspective_dispersion, reps=reps, seed=seed,
+                    trial_simulator=trial_simulator)
                 rows.append(dict(family=family, shape=float(shape), noise_scale=float(scale),
                                  distance=float(wasserstein_distance(sim, empirical)),
                                  sim_median=float(np.median(sim)), sim_mean=float(np.mean(sim)),
@@ -676,6 +683,7 @@ def fit_dispersion_for_agreement(
         dispersion_grid: Sequence[float] = tuple(np.round(np.arange(0.0, 1.21, 0.05), 2)),
         num_subjects: int = 20, trials_per_subject: int = 20, images_per_trial: int = 20,
         frac_trials_repeated: float = 0.15, reps: int = 5, seed: int = 0, min_overlap: int = 20,
+        trial_simulator=None,
 ) -> Tuple[float, float]:
     """Fit ``perspective_dispersion`` to a target between-subject agreement, noise held fixed.
 
@@ -697,6 +705,7 @@ def fit_dispersion_for_agreement(
             gt_embeddings, noise_scale, disp, num_subjects, trials_per_subject, images_per_trial,
             frac_trials_repeated, reps, seed, min_overlap, noise_df=noise_df,
             lognormal_sigma=lognormal_sigma,
+            trial_simulator=trial_simulator,
         )[1]
     fitted = _fit_1d(target_agreement, evaluate, np.asarray(dispersion_grid))
     return float(fitted), float(evaluate(fitted))
