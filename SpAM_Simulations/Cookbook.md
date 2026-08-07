@@ -552,7 +552,7 @@ frames for the notebook.
 ```
 [ ] data staged under BOTH S3 prefixes, no PDFs
 [ ] stage 1: 41 pre-SHINE subjects asserted
-[ ] stage 1: discard rate < ~30%
+[ ] stage 1: coverage_gap_frac > 5%
 [ ] stage 1: max-iters rate acceptable in the first partial
 [ ] stage 1: split-half and leave-k-out agree on n_dims
 [ ] stage 2: dispersion_swept has 3 values (2 = clamped, report as one-sided)
