@@ -475,6 +475,30 @@ done
 proceeding. They ask different questions - agreement between halves versus generalisation to unseen
 people - so their agreeing is real corroboration and their disagreeing is a finding.
 
+#### C2. Build the higher-D ground truth (EC2, bash)
+
+**The scan's choice is a floor, not an estimate, and stage 2 deliberately does not use it.** The
+scan picks the dimensionality at which two 20-subject halves still agree; above D~4 the fit has more
+freedom than 17%-coverage halves constrain, so the curve falls from overfitting rather than from the
+higher dimensions being empty. On the pilot it chose **3**, while the top-5% closest-pair Jaccard was
+still climbing at D=20 and peak global agreement was only ρ=0.233 - about 5% shared rank variance,
+i.e. power was binding, not geometry.
+
+A 3-D ground truth is *easier* to recover than the truth, so a planning simulation built on it
+understates required-N. Stage 2 therefore defaults to `GT_NDIM=8`. Build that GT in the stage-1
+clone, where R and the pilot data already are - it is a single SMACOF fit, a couple of minutes:
+
+```bash
+cd ~/spam_run/repo
+python -m SpAM_Simulations.build_extra_gt --ndim 8
+aws s3 sync gt/ "$S3_URI/gt/" --only-show-errors
+```
+
+It writes `gt/gt_pre_shine_d8.npy` and records the build in `gt/extra_gts.json`. It does **not**
+touch `selection.json`, which stays as the record of what the evidence chose; the departure from it
+lives in stage 2's `GT_NDIM`, where it is documented. Set `GT_NDIM=selected` to follow the scan
+instead.
+
 Terminate the instance (step (11)) or keep it for stage 2.
 
 #### D. Stage 2 (EC2, bash)
@@ -569,6 +593,7 @@ frames for the notebook.
 [ ] stage 1: coverage_gap_frac > 5%
 [ ] stage 1: max-iters rate acceptable in the first partial
 [ ] stage 1: split-half and leave-k-out agree on n_dims
+[ ] higher-D GT built and pushed (build_extra_gt --ndim 8), or GT_NDIM=selected chosen deliberately
 [ ] stage 2: dispersion_swept has 3 values (2 = clamped, report as one-sided)
 [ ] stage 2: no cell hit MAX_RECRUIT_PER_SUBJECT
 [ ] stage 2: noise_shape_fit at_shape_boundary is false
