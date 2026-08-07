@@ -420,3 +420,55 @@ def test_cross_validate_ndim_parallel_matches_the_serial_version(monkeypatch):
     parallel = gtc.cross_validate_ndim_parallel(subs, ndim=3, folds=folds, verbose=False)
     np.testing.assert_allclose(serial["spearman"].to_numpy(), parallel["spearman"].to_numpy(),
                                rtol=1e-6)
+
+
+# --------------------------------------------------------------------- split diagnostics
+# Regression on a real defect: the coverage diagnostic used to be `0.5 * (cov_a + cov_b)`, the
+# average of the TWO COMPLEMENTARY halves. A well-covered half forces a poorly-covered partner, so
+# that quantity is near-invariant across permutations - measured on the pilot it had sd 0.0001 and
+# reported 0.172 for kept and discarded alike. It could not have detected a gap of any size.
+
+def test_the_coverage_diagnostic_is_the_binding_half_not_the_average():
+    """The average of two complementary halves is a near-constant and detects nothing."""
+    subs = _cohort(n_subjects=16, n_images=14, observed_frac=0.25, seed=5)
+    _, diag = gtc.draw_valid_splits(subs, n_draws=8, rng=np.random.default_rng(0))
+    assert "mean_binding_coverage_kept" in diag
+    assert "mean_binding_coverage_discarded" in diag
+    assert "coverage_gap" in diag and "coverage_gap_frac" in diag
+    # The retired keys must not come back: they carried a statistic with no power.
+    assert "mean_coverage_kept" not in diag
+    assert "mean_coverage_discarded" not in diag
+
+
+def test_the_binding_coverage_is_the_minimum_of_the_two_halves(monkeypatch):
+    """Pin the definition: a split's recorded coverage is its WORSE half, since that is the one
+    that gets it discarded."""
+    subs = _cohort(n_subjects=10, n_images=12, observed_frac=0.5, seed=2)
+    splits, diag = gtc.draw_valid_splits(subs, n_draws=4, rng=np.random.default_rng(1))
+    expected = [min(gtc.coverage_of([subs[i] for i in a]),
+                    gtc.coverage_of([subs[i] for i in b])) for a, b in splits]
+    assert diag["mean_binding_coverage_kept"] == pytest.approx(float(np.mean(expected)))
+    # and it is strictly below the average of the two halves, which is what made the old one blind
+    avg = [0.5 * (gtc.coverage_of([subs[i] for i in a]) + gtc.coverage_of([subs[i] for i in b]))
+           for a, b in splits]
+    assert float(np.mean(expected)) < float(np.mean(avg))
+
+
+def test_the_gap_is_reported_both_absolutely_and_relatively():
+    """A threshold must read the relative gap: 0.001 means very different things at 0.17 and 0.9."""
+    subs = _cohort(n_subjects=16, n_images=14, observed_frac=0.25, seed=7)
+    _, diag = gtc.draw_valid_splits(subs, n_draws=6, rng=np.random.default_rng(3))
+    if np.isfinite(diag["coverage_gap"]) and diag["mean_binding_coverage_kept"]:
+        assert diag["coverage_gap_frac"] == pytest.approx(
+            diag["coverage_gap"] / diag["mean_binding_coverage_kept"])
+    assert diag["coverage_gap"] == pytest.approx(
+        diag["mean_binding_coverage_kept"] - diag["mean_binding_coverage_discarded"], nan_ok=True)
+
+
+def test_diagnostics_survive_a_run_with_no_discards():
+    """Nothing discarded means no gap to report, not a crash."""
+    subs = _cohort(n_subjects=12, n_images=10, observed_frac=1.0, seed=0)
+    _, diag = gtc.draw_valid_splits(subs, n_draws=3, rng=np.random.default_rng(0))
+    assert diag["n_discarded"] == 0
+    assert np.isnan(diag["mean_binding_coverage_discarded"])
+    assert np.isnan(diag["coverage_gap"])

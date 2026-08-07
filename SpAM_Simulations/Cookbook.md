@@ -438,10 +438,14 @@ Detach with `Ctrl-b d`, reattach with `tmux attach -t gt`.
 
 1. **Subject count.** The script hard-fails unless `load_pilot_subjects(variants=("pre",))` resolves
    exactly **41**. A silently different subject set would invalidate every downstream comparison.
-2. **Discard rate** (`gt/discard_rates.json`). Disconnected half-splits are redrawn, and that is a
-   *biased* filter: a half is disconnected precisely when it holds poorly-covered subjects, so kept
-   draws over-represent well-covered ones. Above ~30%, or with a material gap between
-   `mean_coverage_kept` and `mean_coverage_discarded`, prefer the leave-k-out curve.
+2. **Coverage gap, not discard rate** (`gt/discard_rates.json`). Disconnected half-splits are
+   redrawn, which *could* bias the scan - but only if the filter is selective. Read
+   `coverage_gap_frac` (kept minus discarded binding-half coverage, relative to the kept level);
+   above **5%** the split-half curve is genuinely optimistic and leave-k-out should be used alone.
+   A high `discard_rate` with a negligible gap means the pool is sparse, not the estimate biased,
+   and is expected here: 25 of the 41 pre-SHINE subjects ran v1/v2 at 10 trials each against v3's
+   18, so halves heavy on them are disproportionately disconnected without being lower-coverage.
+   Measured on this pilot: ~40% discarded, gap +0.4%.
 3. **max-iters rate**, in the first pushed `gt/scan.csv` partial. A ~20-subject half sits at ~26%
    coverage and hits the solver's iteration cap far more often than the dense 41-subject aggregate,
    and a max-iters fit pays the full 1000 iterations. If most fits never converged, the scan is

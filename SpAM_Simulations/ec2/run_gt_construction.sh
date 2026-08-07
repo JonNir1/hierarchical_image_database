@@ -34,12 +34,21 @@
 # has changed, because a silently different subject set invalidates every downstream comparison.
 #
 # CONNECTIVITY IS THE BINDING CONSTRAINT. run_mds refuses a disconnected pair graph, and at this
-# coverage a random half of 41 subjects is connected only about 90% of the time. Disconnected splits
-# are discarded and redrawn, which is NOT a neutral filter - a half is disconnected precisely when it
-# holds poorly-covered subjects, so the kept draws over-represent well-covered ones and the agreement
-# estimates are optimistic. gt/discard_rates.json records the rate and the coverage gap. If the
-# discard rate is much above 30%, or the coverage gap is material, the split-half design is not
-# viable at this sample size and the leave-k-out curve should be used alone.
+# coverage a random half of 41 subjects is connected only ~60% of the time. Disconnected splits are
+# discarded and redrawn, which COULD be a biased filter: if a half is disconnected precisely when it
+# holds poorly-covered subjects, kept draws over-represent well-covered ones and the agreement curve
+# is optimistic.
+#
+# READ THE GAP, NOT THE RATE. gt/discard_rates.json reports both. The rate alone says only that the
+# pool is sparse; it is `coverage_gap_frac` - kept minus discarded binding-half coverage, relative to
+# the kept level - that says the filter is SELECTIVE. Measured on this pilot they come apart sharply:
+# ~40% discarded with a gap of +0.4%, i.e. sparse but not measurably biased. That is expected from the
+# pilot's composition rather than the design's: 25 of the 41 pre-SHINE subjects ran task v1/v2 with
+# 10 trials each (1,873 observed pairs) against v3's 16 subjects at 3,230, so halves drawn heavy on
+# v1/v2 are disproportionately disconnected without being systematically lower-coverage. The deployed
+# v4 session collects 18 distinct trials, so this is a pilot artifact, not a forecast for the study.
+# Above ~5% relative gap the split-half curve is genuinely optimistic and leave-k-out should be used
+# alone.
 #
 # OUTPUTS (to $S3_URI/gt/, pushed after EVERY dimensionality so a died-at-hour-7 run keeps its work):
 #   gt/scan.csv              one row per (ndim, draw): all three split-half scores + solver status
@@ -69,7 +78,8 @@
 #   bash run_gt_construction.sh
 #
 # Cost: 11 ndims x 50 draws x 2 halves = 1100 split-half fits, plus 11 x 40 = 440 CV fits.
-# At roughly 3.2 s/fit on a c7i.4xlarge with N_JOBS=10 that is about 1.5 h, but BUDGET 2x: a
+# At the 2.6 s/fit throughput measured on a c7i.4xlarge with N_JOBS=10 that is ~1.1 h if cost is
+# dimensionality-independent and ~4.7 h if it scales linearly with ndim; BUDGET the upper end. A
 # ~20-subject half sits at ~26% coverage and hits max_iters far more often than the dense
 # 41-subject aggregate, and a max-iters fit pays the full 1000 iterations. The status/niter columns
 # are in scan.csv precisely so the first pushed partial can be checked and the run killed early if
@@ -225,12 +235,24 @@ else:
              **{f"b{i}": b for i, (_, b) in enumerate(splits)})
     (GT / "discard_rates.json").write_text(json.dumps(diagnostics, indent=2))
 print(f"[splits] half_size={diagnostics['half_size']} discard_rate={diagnostics['discard_rate']:.1%} "
-      f"coverage kept={diagnostics['mean_coverage_kept']:.3f} "
-      f"discarded={diagnostics['mean_coverage_discarded']:.3f}", flush=True)
-if diagnostics["discard_rate"] > 0.30:
-    print("[splits] WARNING: discard rate above 30%. Discarding is a BIASED filter - a half is "
-          "disconnected precisely when it holds poorly-covered subjects - so the split-half curve "
-          "is optimistic here. Prefer the leave-k-out curve.", flush=True)
+      f"binding coverage kept={diagnostics['mean_binding_coverage_kept']:.4f} "
+      f"discarded={diagnostics['mean_binding_coverage_discarded']:.4f} "
+      f"gap={diagnostics['coverage_gap']:+.4f} ({diagnostics['coverage_gap_frac']:+.1%})", flush=True)
+# The GAP is the diagnostic, not the rate. A high discard rate only says the subject pool is sparse;
+# it is a gap between kept and discarded draws that says the filter is SELECTIVE, i.e. that the
+# retained splits over-represent well-covered subjects and the agreement curve is optimistic.
+# On the pilot these come apart sharply - ~40% discarded with a 0.4% relative gap - because 25 of the
+# 41 pre-SHINE subjects ran v1/v2 at 10 trials each, so halves drawn heavy on them are
+# disproportionately disconnected without being systematically lower-coverage.
+if diagnostics["coverage_gap_frac"] > 0.05:
+    print("[splits] WARNING: kept splits are >5% better covered than discarded ones, so the filter "
+          "IS selective and the split-half curve is optimistic. Prefer the leave-k-out curve.",
+          flush=True)
+elif diagnostics["discard_rate"] > 0.30:
+    print(f"[splits] NOTE: {diagnostics['discard_rate']:.0%} of draws were discarded, but the "
+          f"coverage gap is only {diagnostics['coverage_gap_frac']:+.1%}, so the filter is not "
+          f"measurably selective - the pool is sparse rather than the estimate biased. Expected on "
+          f"this pilot: 25 of 41 subjects ran v1/v2 with 10 trials against v3's 18.", flush=True)
 
 folds = gtc.leave_k_out_folds(len(subjects), k=CV_K, n_folds=CV_FOLDS,
                               rng=np.random.default_rng(SEED))
