@@ -184,7 +184,12 @@ if [ ! -f gt/selection.json ]; then
   echo "!! between arms and between runs. Run run_gt_construction.sh first."
   exit 1
 fi
-echo ">> [gt] selection:"; cat gt/selection.json
+# Deliberately NOT `cat gt/selection.json`. That file records what the stage-1 scan chose, which is
+# usually NOT the GT this run uses (see GT_NDIM above), and dumping it here printed a prominent
+# `"n_dims": 3` immediately before the line reporting the actual GT. It read as a bug and cost two
+# aborted runs. The single source of truth for what this run uses is the `[gt] n_dims=...` line the
+# Python block prints below; the scan's own record stays in gt/selection.json for anyone who wants it.
+echo ">> [gt] gt/selection.json found; the GT this run actually uses is reported below"
 
 # Resume: run_mds_sweep skips tasks already recorded in the store (pipeline.py:298-308).
 stage_pull mds_store
