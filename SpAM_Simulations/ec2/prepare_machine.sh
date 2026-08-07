@@ -84,6 +84,37 @@ pip install -q "numpy>=2.4" "scipy>=1.17" "pandas>=3.0" "scikit-learn>=1.8" \
 mkdir -p out
 export PYTHONPATH="$PWD"
 
+# --------------------------------------------------------------------------- entrypoint drift
+# The entrypoints are `scp`'d to the instance's home dir; only the PACKAGE is cloned. So a change to
+# a run_*.sh reaches the box by scp, NOT by `git push`, and pushing alone leaves the box running an
+# old script against a new package. That failure is silent - the sweep starts normally and produces
+# results for the wrong configuration - so compare them and say so loudly.
+_ENTRY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -d "SpAM_Simulations/ec2" ] && [ "$_ENTRY_DIR" != "$PWD/SpAM_Simulations/ec2" ]; then
+  _drift=()
+  for _f in "$_ENTRY_DIR"/*.sh; do
+    _b="$(basename "$_f")"
+    if [ -f "SpAM_Simulations/ec2/$_b" ] && ! cmp -s "$_f" "SpAM_Simulations/ec2/$_b"; then
+      _drift+=("$_b")
+    fi
+  done
+  if [ ${#_drift[@]} -gt 0 ]; then
+    echo
+    echo "!! ============================================================================"
+    echo "!! STALE ENTRYPOINT(S): ${_drift[*]}"
+    echo "!! The script being executed differs from the same file at $GIT_REF."
+    echo "!! Entrypoints are scp'd to ~, not cloned, so 'git push' does NOT update them."
+    echo "!! Re-copy them from your machine and re-run:"
+    echo "!!     scp -i \$KEY_PATH SpAM_Simulations\\ec2\\*.sh ubuntu@\$IP:~"
+    echo "!! Continuing in 10s - Ctrl-C now if this is not deliberate."
+    echo "!! ============================================================================"
+    echo
+    sleep 10
+  else
+    echo ">> entrypoints match $GIT_REF"
+  fi
+fi
+
 # --------------------------------------------------------------------------- staging helpers
 # A run is a sequence of stages, and $WORKDIR does not survive between them - line 68 above does
 # `rm -rf "$WORKDIR"` for a clean clone, and an instance is terminated as soon as its stage ends.
