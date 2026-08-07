@@ -83,7 +83,7 @@ still isn't found, set `R_HOME` explicitly.
 
 ## Running on EC2
 
-Eight shell scripts, under `ec2/`, handle the full-scale sweeps remotely.
+Nine shell scripts, under `ec2/`, handle the full-scale sweeps remotely.
 
 > **The v0.1 / v2.3 / v2.4 / v3 / v4 entrypoints are historical.** They drive models that place
 > images on an unbounded plane, which the deployed task does not - see
@@ -120,6 +120,11 @@ Eight shell scripts, under `ec2/`, handle the full-scale sweeps remotely.
   dimensionality by split-half agreement, corroborates it with leave-k-out CV over subjects, and
   fits the final embedding on the 41 pre-SHINE pilot subjects. Its `gt/selection.json` supplies
   `N_DIMS` to every later script. See *Task-v5 flavor* below.
+- `ec2/run_build_gt_at.sh` - builds one extra ground truth at a given dimensionality
+  (`bash run_build_gt_at.sh 8`). Sources `prepare_machine.sh`, so the venv, `PYTHONPATH` and
+  `R_LIBS_USER` are right by construction and the pilot data is fetched and scrubbed
+  automatically. Needed because stage 2 defaults to a higher-D GT than the scan selects - see
+  *Task-v5 flavor* below.
 - `ec2/run_design_comparison.sh` - **stage 2 of the current programme.** Designed versus random
   image-to-trial allocation, both arms in one store as a swept `allocation_mode` lever. Pulls
   stage 1's ground truth and never rebuilds it. See *Task-v5 flavor* below.
@@ -502,22 +507,29 @@ A fresh SSH session inherits none of the run's environment - `prepare_machine.sh
 the script's own shell - so all three of these are needed before any in-clone Python will work:
 
 ```bash
-cd ~/spam_run/repo
-source .venv/bin/activate              # puts `python` on PATH at all; the system has no `pip`
-export PYTHONPATH="$PWD"               # makes SpAM_Simulations importable from the repo root
-export R_LIBS_USER="$HOME/R/library"   # where smacof was installed; build_gt needs it via rpy2
+export REPO_URL=https://github.com/JonNir1/hierarchical_image_database.git
+export GIT_REF=main
 export S3_URI=s3://jon-nir/spam-simulations/gt-construction-v5
-
-aws s3 sync "$S3_URI/data" data/ --only-show-errors    # scrubbed at the end of every run
-python -m SpAM_Simulations.build_extra_gt --ndim 8
-aws s3 sync gt/ "$S3_URI/gt/" --only-show-errors
-rm -rf data                                            # put it back the way the trap left it
+bash run_build_gt_at.sh 8
 ```
 
-**The pilot data has to be re-fetched, and scrubbed again after.** Every EC2 entrypoint's exit trap
-runs `rm -rf "$PILOT_DIR"` so human-subjects data never survives a run, let alone a terminated
-instance. That is the policy working, not a bug - but it means any follow-up in an existing clone
-starts without `data/`, and should leave it that way.
+`run_build_gt_at.sh` sources the same `prepare_machine.sh` the sweeps use, so the venv, `PYTHONPATH`,
+`R_LIBS_USER` and working directory are all correct **by construction**. Doing this by hand needs
+those four plus a re-fetch of the pilot data, which every entrypoint's exit trap deliberately
+scrubs - and getting any one wrong costs a round trip. The script's own trap scrubs the data again
+on exit, so the box is left clean whether it succeeds or fails.
+
+Several dimensionalities, if you want a GT-dimensionality sensitivity arm later:
+
+```bash
+for d in 5 8 12; do bash run_build_gt_at.sh "$d"; done
+```
+
+> **A trailing R warning is expected and is not a failure.** After the fit completes, rpy2 prints
+> `libraries '/usr/local/lib/R/site-library', '/usr/lib/R/site-library' contain no packages` as R
+> shuts down. It only says the *default* library paths are empty, which they are - `smacof` lives in
+> `$R_LIBS_USER`, and the fit already used it. Judge success by the `[extra-gt] wrote ...` line and
+> the `>> DONE.` banner, not by the absence of R noise.
 
 It writes `gt/gt_pre_shine_d8.npy` and records the build in `gt/extra_gts.json`. It does **not**
 touch `selection.json`, which stays as the record of what the evidence chose; the departure from it
