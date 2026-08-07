@@ -420,6 +420,19 @@ cookbook](#cookbook-allocate---run---verify---terminate) above, with `$INSTANCE_
 "c7i.4xlarge"` (16 vCPU). Step (3) copies `SpAM_Simulations\ec2\*.sh` to the instance home dir; both
 stage scripts `source` `prepare_machine.sh` by relative path, so they must travel together.
 
+> **`git push` does not update the entrypoints.** The `run_*.sh` scripts are **scp'd** to `~`; only
+> the Python package is cloned. So after changing any entrypoint you must re-copy it - pushing alone
+> leaves the box running an old script against a new package, and the failure is silent: the sweep
+> starts normally and produces results for the wrong configuration.
+>
+> ```powershell
+> scp -i $KEY_PATH SpAM_Simulations\ec2\*.sh ubuntu@${IP}:~
+> ```
+>
+> `prepare_machine.sh` now compares the scp'd scripts against the same files at `$GIT_REF` and prints
+> a 10-second **STALE ENTRYPOINT(S)** banner if they differ, so this is caught at provisioning rather
+> than after a run. A clean box prints `>> entrypoints match main`.
+
 > **Use On-Demand for stage 2, not Spot.** A 15-hour run has a real chance of being reclaimed. If
 > you do use Spot, the run is resumable - `run_mds_sweep` skips tasks already in the store and stage
 > 2 does `stage_pull mds_store` at the top - so re-launching and re-running the same command
