@@ -674,6 +674,19 @@ def fit_noise_population(
     best["at_shape_boundary"] = bool(
         best["shape"] == max(t_shapes if best["family"] == "t" else lognormal_shapes)
         or best["shape"] == min(t_shapes if best["family"] == "t" else lognormal_shapes))
+    # The SCALE boundary, which was missing and is what actually bit. `noise_grid`'s default range
+    # was written for the v3/v4 parameterisation, where noise is a ratio to each trial's arrangement
+    # spread. Under the canvas it is an absolute fraction of canvas width, and the optimum moves an
+    # order of magnitude: reproducing the pilot's median reliability of 0.243 needs ~0.22, while the
+    # default grid starts at 0.4. The fit then pins to its own floor and silently reports an
+    # achieved median less than half the target, which no other diagnostic here would have caught.
+    best["at_noise_boundary"] = bool(
+        best["noise_scale"] == max(noise_grid) or best["noise_scale"] == min(noise_grid))
+    best["noise_grid_min"] = float(min(noise_grid))
+    best["noise_grid_max"] = float(max(noise_grid))
+    # How far the best fit actually lands from the target it is trying to match. A large value here
+    # means the grid could not reach the data, whatever the family and shape.
+    best["median_gap"] = float(best["sim_median"] - best["empirical_median"])
     return {"best": best, "grid": grid}
 
 

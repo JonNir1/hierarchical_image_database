@@ -406,3 +406,44 @@ class TestCohortIsolation:
         np.testing.assert_array_equal(np.nan_to_num(both.distances, nan=-1),
                                       np.nan_to_num(main_only.distances, nan=-1))
         np.testing.assert_array_equal(both.n_obs, main_only.n_obs)
+
+
+def test_noise_population_fit_reports_a_scale_pinned_to_the_grid_edge():
+    """The diagnostic that was missing, and that a 15-hour sweep depended on.
+
+    `noise_grid`'s default range was written for the v3/v4 parameterisation, where noise is a ratio
+    to each trial's arrangement spread. Under the canvas it is an absolute fraction of canvas width
+    and the optimum moves an order of magnitude, so a stale grid can sit entirely above the answer.
+    The fit then pins to its own floor and reports an achieved median less than half the target -
+    which `at_shape_boundary` does not catch, because the shape is fine.
+
+    A two-value grid makes the assertion deterministic: whichever wins IS a boundary.
+    """
+    import numpy as np
+    from SpAM_Simulations import pilot
+
+    gt = np.random.default_rng(0).normal(size=(40, 3)).astype(np.float32)
+    out = pilot.fit_noise_population(
+        gt, np.full(12, 0.25), families=("t",), t_shapes=(5,), noise_grid=(4.0, 8.0),
+        n_subjects=4, n_repeats=2, images_per_trial=8, reps=1, verbose=False)
+    best = out["best"]
+    assert best["at_noise_boundary"] is True
+    assert best["noise_grid_min"] == 4.0 and best["noise_grid_max"] == 8.0
+    assert best["median_gap"] == pytest.approx(best["sim_median"] - best["empirical_median"])
+    # The grid sits far above any plausible scale, so the fit cannot reach a median of 0.25.
+    assert best["median_gap"] < -0.05
+
+
+def test_the_boundary_flag_matches_where_the_optimum_actually_landed():
+    """An invariant rather than a guessed outcome: the flag must agree with the chosen scale."""
+    import numpy as np
+    from SpAM_Simulations import pilot
+
+    grid = (0.05, 0.2, 0.5, 1.0, 2.0, 4.0)
+    gt = np.random.default_rng(1).normal(size=(40, 3)).astype(np.float32)
+    out = pilot.fit_noise_population(
+        gt, np.full(12, 0.25), families=("t",), t_shapes=(5,), noise_grid=grid,
+        n_subjects=4, n_repeats=2, images_per_trial=8, reps=1, verbose=False)
+    best = out["best"]
+    assert set(out["grid"]["noise_scale"]) == set(grid)
+    assert best["at_noise_boundary"] == (best["noise_scale"] in (min(grid), max(grid)))

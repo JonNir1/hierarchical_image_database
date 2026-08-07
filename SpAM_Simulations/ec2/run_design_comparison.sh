@@ -332,9 +332,16 @@ print(f"\n[calibrate] {len(allsub)} pilot sessions (both SHINE variants) for the
 emp = subject_reliability_sample(allsub)
 print(f"[shape] empirical reliability: n={len(emp)} median={np.median(emp):.3f} "
       f"q10={np.quantile(emp, .1):.3f} q90={np.quantile(emp, .9):.3f}", flush=True)
+# The noise grid MUST be given explicitly here. `fit_noise_population`'s default spans [0.4, 2.6],
+# which was written for the v3/v4 parameterisation where noise is a ratio to each trial's
+# arrangement spread. Under the canvas it is an absolute fraction of canvas WIDTH, and the optimum
+# is an order of magnitude smaller: the pilot's median reliability of 0.243 is reproduced at
+# ~0.22, i.e. BELOW the old grid's floor. Left at the default the fit pins to 0.4, reports an
+# achieved median of ~0.11 against a target of 0.243, and everything downstream is mis-calibrated.
+CANVAS_NOISE_GRID = tuple(np.round(np.arange(0.02, 0.81, 0.02), 2))
 fit = fit_noise_population(coords, emp, images_per_trial=IMAGES_PER_TRIAL,
                            perspective_dispersion=0.2, n_subjects=80, reps=3, verbose=True,
-                           trial_simulator=CALIB_SIM)
+                           noise_grid=CANVAS_NOISE_GRID, trial_simulator=CALIB_SIM)
 FB = fit["best"]
 fit["grid"].to_csv(CAL / "noise_shape_grid.csv", index=False)
 (CAL / "noise_shape_fit.json").write_text(json.dumps(
@@ -345,6 +352,21 @@ print(f"[shape] best: family={FB['family']} shape={FB['shape']} scale={FB['noise
 if FB["at_shape_boundary"]:
     print("[shape] WARNING: fit sits on a shape-grid boundary - the family, not the data, is the "
           "binding constraint.")
+# A scale pinned to the grid edge means the grid could not reach the data, so the whole calibration
+# is wrong and every number downstream inherits it. That is worth aborting 15 hours for.
+if FB["at_noise_boundary"]:
+    raise SystemExit(
+        f"[shape] ABORT: the fitted noise scale {FB['noise_scale']:.3f} sits on the edge of the "
+        f"search grid [{FB['noise_grid_min']:.2f}, {FB['noise_grid_max']:.2f}], so the grid could "
+        f"not reach the data: achieved median reliability {FB['sim_median']:.3f} against an "
+        f"empirical {FB['empirical_median']:.3f} (gap {FB['median_gap']:+.3f}). Widen "
+        f"CANVAS_NOISE_GRID in the direction of the boundary and re-run; continuing would "
+        f"mis-calibrate every result in this sweep."
+    )
+if abs(FB["median_gap"]) > 0.05:
+    print(f"[shape] WARNING: best fit lands {FB['median_gap']:+.3f} from the empirical median "
+          f"({FB['sim_median']:.3f} vs {FB['empirical_median']:.3f}) without hitting a grid edge, "
+          f"so the noise FAMILY may be the binding constraint rather than its scale.", flush=True)
 LOGN_SIGMA = float(FB["shape"]) if FB["family"] == "lognormal" else 0.0
 SHAPE_DF = int(FB["shape"]) if FB["family"] == "t" else 5
 
