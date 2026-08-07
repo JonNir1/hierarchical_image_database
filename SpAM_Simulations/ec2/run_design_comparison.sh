@@ -42,6 +42,13 @@
 # and the coordinates; this script fails fast if they are absent. Rebuilding here would silently
 # change the ground truth between runs and make the arms incomparable across invocations.
 #
+# BUT IT DOES NOT USE THE DIMENSIONALITY THE SCAN SELECTED. GT_NDIM defaults to 8 against the pilot
+# scan's 3, because the scan measures the D at which two 20-subject halves still agree - a floor set
+# by sample size, not the intrinsic dimensionality. A 3-D ground truth is easier to recover than the
+# truth, so building the planning simulation on it would understate required-N. Set
+# GT_NDIM=selected to follow the scan instead. The extra GT is built by
+# `python -m SpAM_Simulations.build_extra_gt --ndim 8` inside a stage-1 clone.
+#
 # NOISE IS CALIBRATED ON ALL 47 PILOT SUBJECTS (pre AND post SHINE), unlike the ground truth, which is
 # pre-SHINE only. The reason is that the noise fit estimates a property of SUBJECTS - how reliably a
 # person repeats their own arrangement - not a property of the images, so the post-SHINE half is
@@ -78,6 +85,7 @@
 #   # export REPS=10        # cohorts per cell -> C(10,2)=45 cohort pairs. MUST be >= 10.
 #   # export NDIMS=...      # override the D grid derived from gt/selection.json
 #   # export SOFTNESS_LIST=3,4,8       # canvas-wall sensitivity arm (4 is the calibrated value)
+#   # export GT_NDIM=8                 # GT dimensionality; 'selected' uses the scan's own choice
 #   # dispersion is NOT an env var: it is fitted from the pilot, then swept +/-0.15 around the fit
 #   # export MINREL_LIST=-1,0,0.1,0.2  # screening thresholds (-1 = no-exclusion control)
 #   # export N_LIST=30,50,75,500       # 500 is a CEILING PROBE, not a recruitment target
@@ -186,7 +194,7 @@ stage_pull out
 N_JOBS="$N_JOBS" GT_METHOD="$GT_METHOD" REPS="$REPS" S3_URI="$S3_URI" \
   NDIMS="${NDIMS:-}" N_LIST="${N_LIST:-30,50,75,500}" SEED="${SEED:-42}" \
   MINREL_LIST="${MINREL_LIST:--1,0,0.1,0.2}" DESIGN_REPS_2A="${DESIGN_REPS_2A:-20}" \
-  SOFTNESS_LIST="${SOFTNESS_LIST:-3,4,8}" \
+  SOFTNESS_LIST="${SOFTNESS_LIST:-3,4,8}" GT_NDIM="${GT_NDIM:-8}" \
   python - <<'PY'
 import json
 import os
@@ -249,10 +257,39 @@ FRAC_REPEATED = EXP_REPEATS / EXP_TRIALS
 
 # --- stage 1 artifacts ------------------------------------------------------------------------
 selection = json.loads(pathlib.Path("gt/selection.json").read_text())
-D_GT = int(selection["n_dims"])
-coords = np.load(pathlib.Path("gt") / selection["gt_file"])
+SELECTED = int(selection["n_dims"])
+
+# DELIBERATELY NOT the dimensionality the scan selected. The scan picks the D at which two
+# 20-subject halves still agree, which is a floor set by sample size rather than the intrinsic
+# dimensionality of the space: above D~4 the fit has more freedom than 17%-coverage halves
+# constrain, so the curve falls from overfitting rather than from the higher dimensions being empty.
+# On the pilot it chose 3, while the top-5% closest-pair Jaccard was still climbing at D=20 and peak
+# global agreement was only rho=0.233 (~5% shared rank variance), i.e. power was binding, not
+# geometry. A 3-D ground truth is EASIER to recover than the truth, so a planning simulation built
+# on it understates required-N; erring pessimistic is the right direction here.
+#
+# `GT_NDIM=selected` falls back to the scan's own choice. selection.json is never rewritten - it is
+# the record of what the evidence chose, and this override is the documented departure from it.
+GT_NDIM = os.environ.get("GT_NDIM", "").strip()
+if GT_NDIM in ("", "selected"):
+    D_GT = SELECTED
+else:
+    D_GT = int(GT_NDIM)
+gt_path = pathlib.Path("gt") / (selection["gt_file"] if D_GT == SELECTED
+                                else f"gt_pre_shine_d{D_GT}.npy")
+if not gt_path.exists():
+    raise SystemExit(
+        f"{gt_path} not found. GT_NDIM={D_GT} needs a ground truth built at that dimensionality; "
+        f"build it inside a stage-1 clone with\n"
+        f"    python -m SpAM_Simulations.build_extra_gt --ndim {D_GT}\n"
+        f"then re-push gt/. Or set GT_NDIM=selected to use the scan's own choice "
+        f"({SELECTED}, {selection['gt_file']})."
+    )
+coords = np.load(gt_path)
 N_IMAGES = int(coords.shape[0])
-print(f"[gt] n_dims={D_GT}, coords {coords.shape} from {selection['gt_file']}", flush=True)
+print(f"[gt] n_dims={D_GT}, coords {coords.shape} from {gt_path.name}"
+      + (f"  (scan selected {SELECTED}; see the comment above for why this run differs)"
+         if D_GT != SELECTED else "  (as selected by the scan)"), flush=True)
 
 # The D grid must span below, at and above the selected D_gt: fitting only at D_gt would beg the
 # question, since a sweep that recovers structure only at exactly the dimensionality it was
@@ -348,6 +385,7 @@ print(f"[invert] targetR={TARGET_R:.3f} -> noise={NOISE:.2f} (achieved {ach_r:.3
     target_test_retest=TARGET_R,
     achieved_tr_unscreened=float(ach_r), subjects_noise_scale=float(NOISE),
     noise_family=FB["family"], noise_shape=float(FB["shape"]), n_dims=D_GT,
+    gt_file=gt_path.name, scan_selected_n_dims=SELECTED,
 ), indent=2))
 push("calibration", "calibration artifacts")
 

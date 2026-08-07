@@ -531,6 +531,7 @@ rules out.
 | `validity.py` | Is a simulated cohort realistic: distance-distribution comparison, the semantic-hierarchy gradient, and the noise-vs-distance curve (`noise_vs_distance`, `noise_curve_shape`, `simulate_repeat_pairs`). |
 | `density_clustering.py` | **Descriptive** density pass (HDBSCAN): noise fraction, cross-cohort agreement on *which* images are isolated, `compute_density_agreement`, `isolated_images`. Never enters the VI chain. |
 | `cluster_stability.py` | Between-cohort cluster agreement: VI/ARI/AMI, cross-cohort silhouette, cluster-wise Jaccard, Baker's gamma; the `compute_cluster_*` store drivers; and `select_k` / `continuum_diagnostics`. Runs **locally** on a downloaded store. |
+| `build_extra_gt.py` | Builds a GT at a chosen dimensionality, for when the scan's choice is a sample-size floor rather than the intrinsic dimensionality. Records the build without touching `selection.json`. |
 | `run_cluster_analysis.py` | Local CLI driver for pipeline steps g-i: opens a downloaded store, writes the four cluster tables, prints the continuum verdicts. No R, no EC2. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
 | `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb`. No simulation, no MDS, no R. |
