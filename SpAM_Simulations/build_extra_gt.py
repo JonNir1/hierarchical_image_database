@@ -48,6 +48,18 @@ def build(ndim: int, pilot_dir: str = "data", manifest: str = "data/stimuli_mani
     from SpAM_Simulations.gt_construction import build_gt
     from SpAM_Simulations.pilot import load_pilot_subjects
 
+    # The pilot data is deliberately NOT on the box between runs: every EC2 entrypoint's exit trap
+    # does `rm -rf "$PILOT_DIR"` so human-subjects data never survives a run, let alone a
+    # terminated instance. So any in-clone follow-up has to re-fetch it, and the bare
+    # FileNotFoundError from the manifest loader does not say that.
+    if not Path(manifest).is_file():
+        raise SystemExit(
+            f"{manifest} not found. The pilot data is scrubbed at the end of every run by the exit "
+            f"trap, so a follow-up in an existing clone has to re-fetch it:\n"
+            f"    aws s3 sync \"$S3_URI/data\" {pilot_dir}/ --only-show-errors\n"
+            f"and should scrub it again afterwards:\n"
+            f"    rm -rf {pilot_dir}"
+        )
     subjects = load_pilot_subjects(pilot_dir, manifest, variants=("pre",))
     if len(subjects) != expect_n_subjects:
         raise SystemExit(
