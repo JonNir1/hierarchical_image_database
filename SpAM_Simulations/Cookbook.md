@@ -451,10 +451,24 @@ Detach with `Ctrl-b d`, reattach with `tmux attach -t gt`.
    and a max-iters fit pays the full 1000 iterations. If most fits never converged, the scan is
    measuring the stopping rule rather than the data - kill it early.
 
+`gt/` lives inside the clone, **not** in `$HOME` - `prepare_machine.sh` does `cd "$WORKDIR"` then
+`cd repo`, so a fresh shell (or a `tmux` detach/reattach) starts two levels up. Either `cd` there:
+
 ```bash
-cat gt/selection.json          # the chosen n_dims, and every rule's choice
-cat gt/discard_rates.json      # gate 2
-head -3 gt/scan_summary.csv    # gate 3 context
+cd ~/spam_run/repo                       # $WORKDIR/repo; override WORKDIR and this moves too
+cat gt/selection.json                    # the chosen n_dims, and every rule's choice
+cat gt/discard_rates.json                # gate 2
+column -s, -t gt/scan_summary.csv        # the split-half curve
+column -s, -t gt/cv_summary.csv          # the leave-k-out curve, for gate 4
+```
+
+or read them straight from S3, which works from any directory and after the instance is gone:
+
+```bash
+for f in selection.json discard_rates.json scan_summary.csv cv_summary.csv; do
+  echo "=== $f ==="
+  aws s3 cp "$S3_URI/gt/$f" -
+done
 ```
 
 **If split-half and leave-k-out disagree materially on `n_dims`, stop and report** rather than
