@@ -506,11 +506,18 @@ cd ~/spam_run/repo
 source .venv/bin/activate              # puts `python` on PATH at all; the system has no `pip`
 export PYTHONPATH="$PWD"               # makes SpAM_Simulations importable from the repo root
 export R_LIBS_USER="$HOME/R/library"   # where smacof was installed; build_gt needs it via rpy2
+export S3_URI=s3://jon-nir/spam-simulations/gt-construction-v5
+
+aws s3 sync "$S3_URI/data" data/ --only-show-errors    # scrubbed at the end of every run
 python -m SpAM_Simulations.build_extra_gt --ndim 8
 aws s3 sync gt/ "$S3_URI/gt/" --only-show-errors
+rm -rf data                                            # put it back the way the trap left it
 ```
 
-`$S3_URI` is also not set in a fresh shell - re-export it, or write the bucket path in full.
+**The pilot data has to be re-fetched, and scrubbed again after.** Every EC2 entrypoint's exit trap
+runs `rm -rf "$PILOT_DIR"` so human-subjects data never survives a run, let alone a terminated
+instance. That is the policy working, not a bug - but it means any follow-up in an existing clone
+starts without `data/`, and should leave it that way.
 
 It writes `gt/gt_pre_shine_d8.npy` and records the build in `gt/extra_gts.json`. It does **not**
 touch `selection.json`, which stays as the record of what the evidence chose; the departure from it
