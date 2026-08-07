@@ -451,6 +451,16 @@ Detach with `Ctrl-b d`, reattach with `tmux attach -t gt`.
    and a max-iters fit pays the full 1000 iterations. If most fits never converged, the scan is
    measuring the stopping rule rather than the data - kill it early.
 
+> **A fresh SSH session has none of the run's environment.** `prepare_machine.sh` activates the
+> venv, sets `PYTHONPATH` and `cd`s into the clone inside its *own* shell, so a new session has no
+> `python` on PATH (and no system `pip`), cannot import `SpAM_Simulations`, and starts in `$HOME`.
+> Reading files needs only the `cd`; running anything needs all of:
+>
+> ```bash
+> cd ~/spam_run/repo && source .venv/bin/activate && export PYTHONPATH="$PWD" \
+>   && export R_LIBS_USER="$HOME/R/library"
+> ```
+
 `gt/` lives inside the clone, **not** in `$HOME` - `prepare_machine.sh` does `cd "$WORKDIR"` then
 `cd repo`, so a fresh shell (or a `tmux` detach/reattach) starts two levels up. Either `cd` there:
 
@@ -488,11 +498,19 @@ A 3-D ground truth is *easier* to recover than the truth, so a planning simulati
 understates required-N. Stage 2 therefore defaults to `GT_NDIM=8`. Build that GT in the stage-1
 clone, where R and the pilot data already are - it is a single SMACOF fit, a couple of minutes:
 
+A fresh SSH session inherits none of the run's environment - `prepare_machine.sh` sets it up inside
+the script's own shell - so all three of these are needed before any in-clone Python will work:
+
 ```bash
 cd ~/spam_run/repo
+source .venv/bin/activate              # puts `python` on PATH at all; the system has no `pip`
+export PYTHONPATH="$PWD"               # makes SpAM_Simulations importable from the repo root
+export R_LIBS_USER="$HOME/R/library"   # where smacof was installed; build_gt needs it via rpy2
 python -m SpAM_Simulations.build_extra_gt --ndim 8
 aws s3 sync gt/ "$S3_URI/gt/" --only-show-errors
 ```
+
+`$S3_URI` is also not set in a fresh shell - re-export it, or write the bucket path in full.
 
 It writes `gt/gt_pre_shine_d8.npy` and records the build in `gt/extra_gts.json`. It does **not**
 touch `selection.json`, which stays as the record of what the evidence chose; the departure from it
