@@ -233,8 +233,16 @@ def _prepare_mds_inputs(res: ExperimentResults) -> Tuple[np.ndarray, np.ndarray]
     return dists, weights
 
 
+# Parameters are rounded before they become a key. `storage.metadata` already reads with
+# round-trip precision, so this is belt-and-braces against any future path that formats a float
+# differently on the way to disk - the failure it guards is silent and expensive: one differing
+# last digit makes every key miss, `completed` comes back empty, and a resumed sweep re-runs work
+# it already has. 12 decimals is far finer than any swept grid and far coarser than float noise.
+_KEY_DECIMALS = 12
+
+
 def _task_key(params: ExperimentParameters, rep: int, ndim: int) -> tuple:
-    return (*(float(v) for v in params), int(rep), int(ndim))
+    return (*(round(float(v), _KEY_DECIMALS) for v in params), int(rep), int(ndim))
 
 
 def _completed_keys(store: ResultStore, param_type: type) -> set:

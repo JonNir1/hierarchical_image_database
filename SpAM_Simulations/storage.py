@@ -244,8 +244,17 @@ class ResultStore:
 
     # ------------------------------------------------------------------ reading
     def metadata(self) -> pd.DataFrame:
-        """Return all metadata rows as a DataFrame (the lightweight table; no confdists)."""
-        return pd.read_csv(self.path / _META_FILE)
+        """Return all metadata rows as a DataFrame (the lightweight table; no confdists).
+
+        ``float_precision="round_trip"`` is REQUIRED, not a nicety. pandas' default C parser is not
+        round-trip exact for float64: ``csv`` writes ``2/14`` as ``0.14285714285714285`` (the
+        shortest repr that round-trips) and the default parser reads it back as
+        ``0.1428571428571428``, one digit short. Sweep resume rebuilds each completed task's key
+        from these columns and compares it against a freshly generated one, so a single
+        last-digit difference in `frac_trials_repeated` made every key miss and `completed` come
+        back empty - i.e. resume silently re-ran an entire finished sweep.
+        """
+        return pd.read_csv(self.path / _META_FILE, float_precision="round_trip")
 
     def _confdist_memmap(self) -> Optional[np.memmap]:
         if self._n_confdists == 0 or not self.has_confdists:
