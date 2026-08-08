@@ -259,11 +259,54 @@ class TestConfOnlyStore:
         self._strip_confdists(path)
         assert not ResultStore.open(path).has_confdists
 
-    def test_confdist_raises_a_directed_error(self, tmp_path):
-        path, _ = self._store(tmp_path)
+    def test_confdist_falls_back_to_recomputing_from_conf(self, tmp_path):
+        """A conf-only store must still serve distances: confdist == pdist(conf) exactly.
+
+        This is the identity that justifies excluding confdists.f32 from every upload, so the
+        store should honour it rather than refusing. Refusing is what broke a finished stage-2
+        sweep at the metric-tables step, hours after the fits were done.
+        """
+        from scipy.spatial.distance import pdist
+
+        path, confs = self._store(tmp_path)
         self._strip_confdists(path)
-        with pytest.raises(ValueError, match="confdists.f32"):
-            ResultStore.open(path).confdist(0)
+        got = ResultStore.open(path).confdist(0)
+        np.testing.assert_allclose(got, pdist(confs[0]), atol=1e-6)
+
+    def test_a_truncated_confdists_file_serves_the_missing_rows_from_conf(self, tmp_path):
+        """The resume case: the file restarts at zero while meta.csv keeps counting up.
+
+        Restoring a store without confdists.f32 and then appending leaves recorded row indices
+        ahead of the file's contents. Sizing the memmap from meta.csv then raised
+        "mmap length is greater than file size"; sizing it from the file and recomputing the
+        overhang is correct. Note this fixture stores UNRELATED random confdists, so a row still
+        present in the file must come back unchanged while only the overhang is recomputed - which
+        is exactly the boundary worth pinning.
+        """
+        from scipy.spatial.distance import pdist
+
+        path, confs = self._store(tmp_path)
+        store = ResultStore.open(path)
+        n_pairs = store.confdist_len
+        stored_row0 = store.confdist(0).copy()
+
+        blob = (path / "confdists.f32").read_bytes()
+        (path / "confdists.f32").write_bytes(blob[:n_pairs * 4])   # keep only row 0
+
+        reopened = ResultStore.open(path)
+        assert reopened._confdists_on_disk() == 1
+        assert len(reopened) == len(confs)
+        # Row 0 is still on disk, so it is served verbatim rather than recomputed.
+        np.testing.assert_array_equal(reopened.confdist(0), stored_row0)
+        # Rows past the file are recomputed from their configuration.
+        for row in (1, 2):
+            np.testing.assert_allclose(reopened.confdist(row), pdist(confs[row]), atol=1e-6)
+
+    def test_an_out_of_range_row_still_raises(self, tmp_path):
+        path, confs = self._store(tmp_path)
+        self._strip_confdists(path)
+        with pytest.raises(IndexError):
+            ResultStore.open(path).confdist(len(confs))
 
     def test_conf_trimming_still_works(self, tmp_path):
         path, confs = self._store(tmp_path, max_ndim=4)
