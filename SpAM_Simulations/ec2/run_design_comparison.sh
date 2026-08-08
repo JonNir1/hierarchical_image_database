@@ -136,6 +136,16 @@ echo ">> [start] $(date -u +'%Y-%m-%dT%H:%M:%SZ')  (S3_URI=$S3_URI, designed vs 
 
 _on_exit() {
   local rc=$?
+  # Stop the background store pusher and take one last snapshot, so a crash keeps its work.
+  if [ -n "${_PUSHER_PID:-}" ]; then
+    kill "$_PUSHER_PID" 2>/dev/null || true
+    wait "$_PUSHER_PID" 2>/dev/null || true
+  fi
+  if [ -d "${WORKDIR%/}/repo/mds_store" ]; then
+    echo ">> [push] final mds_store snapshot ..."
+    aws s3 sync "${WORKDIR%/}/repo/mds_store/" "$S3_URI/mds_store/" \
+      --exclude "*confdists.f32" --only-show-errors || true
+  fi
   [ -n "${PILOT_DIR:-}" ] && rm -rf "$PILOT_DIR"   # human-subjects data never left on the box
   echo ">> [end] $(date -u +'%Y-%m-%dT%H:%M:%SZ')  (exit $rc, elapsed $(( $(date -u +%s) - _START_TS ))s)"
   if [ -n "${S3_URI:-}" ]; then
@@ -196,6 +206,20 @@ stage_pull mds_store
 stage_pull out
 
 # --------------------------------------------------------------------------- the sweep
+# PUSH THE STORE WHILE THE SWEEP RUNS. run_mds_sweep streams each fit to disk and is resumable, but
+# nothing left this box until upload_and_finish at the very end - so when a stage-2 run died 7.7 h
+# in, 7,838 completed fits existed only on the instance. A crash is survivable; a lost instance was
+# not. `confdists.f32` is excluded because it is pdist(conf) per row and ~20x larger.
+PUSH_EVERY_S="${PUSH_EVERY_S:-900}"
+(
+  while sleep "$PUSH_EVERY_S"; do
+    [ -d mds_store ] || continue
+    aws s3 sync mds_store/ "$S3_URI/mds_store/" --exclude "*confdists.f32" --only-show-errors || true
+  done
+) &
+_PUSHER_PID=$!
+echo ">> [push] background mds_store sync every ${PUSH_EVERY_S}s (pid $_PUSHER_PID)"
+
 N_JOBS="$N_JOBS" GT_METHOD="$GT_METHOD" REPS="$REPS" S3_URI="$S3_URI" \
   NDIMS="${NDIMS:-}" N_LIST="${N_LIST:-30,50,75,500}" SEED="${SEED:-42}" \
   MINREL_LIST="${MINREL_LIST:--1,0,0.1,0.2}" DESIGN_REPS_2A="${DESIGN_REPS_2A:-20}" \
