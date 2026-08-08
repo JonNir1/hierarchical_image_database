@@ -84,6 +84,21 @@ pip install -q "numpy>=2.4" "scipy>=1.17" "pandas>=3.0" "scikit-learn>=1.8" \
 mkdir -p out
 export PYTHONPATH="$PWD"
 
+# --------------------------------------------------------------------------- joblib scratch
+# joblib memmaps any argument above `max_nbytes` (1 MB by default) to a temp folder, and it PREFERS
+# /dev/shm - a RAM-backed tmpfs, typically half of system memory - over the real disk. Each MDS
+# payload carries a dists and a weights vector of n_images*(n_images-1)/2 float32, which at 725
+# images is 1.05 MB each, so both are memmapped on every task. Left on /dev/shm a long sweep fills
+# ~16 GB of RAM disk and dies with "No space left on device" while `df /` still shows most of the
+# volume free - which is exactly what happened 7.7 h into a task-v5 stage-2 run, and is very
+# misleading to debug because the tmpfs empties the moment the process dies.
+export JOBLIB_TEMP_FOLDER="${JOBLIB_TEMP_FOLDER:-$PWD/.joblib_tmp}"
+mkdir -p "$JOBLIB_TEMP_FOLDER"
+echo ">> joblib scratch -> $JOBLIB_TEMP_FOLDER ($(df -h --output=avail "$JOBLIB_TEMP_FOLDER" | tail -1 | tr -d ' ') free)"
+if [ -d /dev/shm ]; then
+  echo ">> (/dev/shm is $(df -h --output=size /dev/shm | tail -1 | tr -d ' '); joblib is NOT using it)"
+fi
+
 # --------------------------------------------------------------------------- entrypoint drift
 # The entrypoints are `scp`'d to the instance's home dir; only the PACKAGE is cloned. So a change to
 # a run_*.sh reaches the box by scp, NOT by `git push`, and pushing alone leaves the box running an
