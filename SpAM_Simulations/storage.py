@@ -168,8 +168,8 @@ class ResultStore:
             on_disk = (path / _CONFDIST_FILE).stat().st_size // (store.confdist_len * itemsize)
             if on_disk != store._n_confdists:
                 logger.warning(
-                    "%s holds %d records but meta.csv indexes %d; using meta.csv. A truncated or "
-                    "partially-synced confdists.f32 will raise on read.",
+                    "%s holds %d records but meta.csv indexes %d; using meta.csv. Rows beyond the "
+                    "file are recomputed as pdist(conf), which is exact - see `confdist`.",
                     _CONFDIST_FILE, on_disk, store._n_confdists,
                 )
         return store
@@ -256,25 +256,59 @@ class ResultStore:
         """
         return pd.read_csv(self.path / _META_FILE, float_precision="round_trip")
 
+    def _confdists_on_disk(self) -> int:
+        """How many confdist rows the FILE actually holds, which need not be what meta.csv says.
+
+        These diverge whenever a store is restored without ``confdists.f32`` - the normal download,
+        since it is excluded as recoverable from ``confs.f32`` - and then appended to: row indices
+        continue from ``meta.csv``'s count while the file restarts from zero.
+        """
+        if not (self.path / _CONFDIST_FILE).exists():
+            return 0
+        itemsize = np.dtype(_CONFDIST_DTYPE).itemsize
+        return (self.path / _CONFDIST_FILE).stat().st_size // (self.confdist_len * itemsize)
+
     def _confdist_memmap(self) -> Optional[np.memmap]:
         if self._n_confdists == 0 or not self.has_confdists:
             return None
+        # Size the map to the FILE, not to meta.csv. Sizing it to meta.csv is what raised
+        # "mmap length is greater than file size" on a resumed, conf-only-restored store.
+        rows = self._confdists_on_disk()
+        if rows == 0:
+            return None
         return np.memmap(
             self.path / _CONFDIST_FILE, dtype=_CONFDIST_DTYPE, mode="r",
-            shape=(self._n_confdists, self.confdist_len),
+            shape=(rows, self.confdist_len),
         )
 
     def confdist(self, row: int) -> np.ndarray:
-        """Load a single confdist vector by its row index (a copy, not the memmap view)."""
-        if not self.has_confdists:
-            raise ValueError(
-                f"{_CONFDIST_FILE} is missing from {self.path}, so reconstructed distances cannot "
-                f"be read. This is expected for a conf-only download; use `conf(row, ndim)` and "
-                f"`scipy.spatial.distance.pdist` instead, which is equivalent."
-            )
+        """Load a single confdist vector by its row index (a copy, not the memmap view).
+
+        **Falls back to recomputing from the configuration** whenever the stored vector is not
+        available - because ``confdists.f32`` was never downloaded, or because the file holds fewer
+        rows than ``meta.csv`` indexes after a resume. ``confdist == pdist(conf)`` exactly, so the
+        fallback is not an approximation; it is the same identity that justifies excluding the file
+        from every upload in the first place. Zero-padding in the conf row is harmless: padded
+        dimensions are identical across all images and contribute nothing to any pairwise distance.
+
+        Without this, a resumed store whose confdists restarted from zero raised
+        "mmap length is greater than file size" from `compute_embedding_stability` - after the
+        sweep had already finished.
+        """
         if row < 0 or row >= self._n_confdists:
             raise IndexError(f"confdist row {row} out of range [0, {self._n_confdists})")
-        return np.array(self._confdist_memmap()[row])
+        if row < self._confdists_on_disk():
+            mm = self._confdist_memmap()
+            if mm is not None:
+                return np.array(mm[row])
+        if not self.stores_conf:
+            raise ValueError(
+                f"confdist row {row} is not in {_CONFDIST_FILE} ({self._confdists_on_disk()} rows "
+                f"on disk, meta.csv indexes {self._n_confdists}) and this store has no "
+                f"configurations to recompute it from."
+            )
+        from scipy.spatial.distance import pdist
+        return pdist(self.conf(row)).astype(_CONFDIST_DTYPE)
 
     def _conf_memmap(self) -> Optional[np.memmap]:
         if self._n_confdists == 0 or not self.stores_conf:
