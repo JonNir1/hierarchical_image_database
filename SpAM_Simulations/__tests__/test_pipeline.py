@@ -482,3 +482,66 @@ class TestItemGeneralizability:
         out = pipeline.compute_item_generalizability(store, verbose=False)
         assert group_m2["mean_procrustes_m2"].iloc[0] > 0.5      # the spaces barely relate
         assert out.loc[out["mean_residual"].idxmax(), "image_index"] != 7
+
+
+# --------------------------------------------------------------------- resume round-trip
+# Regression on a bug that silently re-ran a finished sweep. pandas' default C parser is not
+# round-trip exact for float64: csv writes 2/14 as 0.14285714285714285 and the default parser
+# reads back 0.1428571428571428. Sweep resume rebuilds each completed key from those columns, so
+# one differing last digit made every key miss and `completed` came back empty.
+
+def test_metadata_reads_floats_back_exactly(tmp_path):
+    """The read side: a float written by `csv` must survive the round trip through pandas."""
+    from SpAM_Simulations.storage import ResultStore
+
+    awkward = 2 / 14                      # 0.14285714285714285 - needs 17 significant digits
+    cols = ["frac_trials_repeated", "rep", "ndim", "niter", "stress", "status"]
+    store = ResultStore.create(tmp_path / "s", 10, cols)
+    store.append({"frac_trials_repeated": awkward, "rep": 0, "ndim": 2,
+                  "niter": 1, "stress": 0.1, "status": "success"},
+                 confdist=np.zeros(10, dtype=np.float32))
+    store.close()
+    got = ResultStore.open(tmp_path / "s").metadata()["frac_trials_repeated"][0]
+    assert got == awkward, f"{got!r} != {awkward!r}"
+
+
+def test_task_key_is_insensitive_to_a_last_digit_difference():
+    """The key side: rounding makes the comparison robust however the float reached disk."""
+    from SpAM_Simulations.pipeline import _task_key
+
+    from typing import NamedTuple
+    Params = NamedTuple("Params", [("a", float), ("b", float)])
+    exact = _task_key(Params(2 / 14, 0.3), rep=1, ndim=8)
+    lossy = _task_key(Params(0.1428571428571428, 0.3), rep=1, ndim=8)
+    assert exact == lossy
+
+
+def test_a_resumed_sweep_skips_work_already_in_the_store(tmp_path):
+    """End to end: the property the bug destroyed.
+
+    `frac_trials_repeated=2/14` is exactly the value the deployed design uses, and exactly the one
+    that failed to round-trip - so this is the real configuration, not a contrived float.
+    """
+    from SpAM_Simulations.config import MDSSweepConfig, SimulationConfig
+    from SpAM_Simulations.pipeline import _completed_keys, _param_type, _task_key, mds_tasks
+    from SpAM_Simulations.storage import ResultStore
+
+    cfg = SimulationConfig(n_images=25, n_dims=3, num_subjects=[8], trials_per_subject=[4],
+                           images_per_trial=[6], subjects_noise_scale=[2 / 14],
+                           subjects_noise_df=[5], reps=1, seed=0)
+    sim = pipeline.generate_simulation(cfg, verbose=False)
+    pt = _param_type(sim)
+    sweep = MDSSweepConfig(ndims=[2], max_iters=5, precalc_init=False)
+    task = next(iter(mds_tasks(sim, sweep)))
+    n_pairs = sim.num_images * (sim.num_images - 1) // 2
+
+    store = ResultStore.create(
+        tmp_path / "s", n_pairs,
+        list(pt._fields) + ["rep", "ndim", "niter", "stress", "status"])
+    store.append({**task[0]._asdict(), "rep": task[1], "ndim": 2, "niter": 3,
+                  "stress": 0.1, "status": "success"},
+                 confdist=np.zeros(n_pairs, dtype=np.float32))
+    store.close()
+
+    completed = _completed_keys(ResultStore.open(tmp_path / "s"), pt)
+    assert _task_key(task[0], task[1], task[3]) in completed, "a resumed sweep would redo this fit"
