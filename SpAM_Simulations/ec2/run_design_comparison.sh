@@ -210,7 +210,10 @@ stage_pull out
 # nothing left this box until upload_and_finish at the very end - so when a stage-2 run died 7.7 h
 # in, 7,838 completed fits existed only on the instance. A crash is survivable; a lost instance was
 # not. `confdists.f32` is excluded because it is pdist(conf) per row and ~20x larger.
-PUSH_EVERY_S="${PUSH_EVERY_S:-900}"
+# Hourly. The store is only a safety net against losing the INSTANCE - a crash is already covered
+# by run_mds_sweep's resume off the local store - so the cost of a stale snapshot is at most an
+# hour of re-fitting, against a sync of the whole confs.f32 every time.
+PUSH_EVERY_S="${PUSH_EVERY_S:-3600}"
 (
   while sleep "$PUSH_EVERY_S"; do
     [ -d mds_store ] || continue
