@@ -243,10 +243,8 @@ from SpAM_Simulations.allocation import DESIGNED, RANDOM, make_allocator
 from SpAM_Simulations.block_design import greedy_session_design
 from SpAM_Simulations.config import MDSSweepConfig, TaskV5SimulationConfig
 from SpAM_Simulations.gt_construction import aggregate_subjects
-from SpAM_Simulations.pilot import (
-    between_subject_agreement, fit_dispersion_for_agreement, fit_noise_for_test_retest,
-    fit_noise_population, load_pilot_subjects, subject_reliability_sample,
-)
+from SpAM_Simulations.calibrate_v5 import CalibrationError, calibrate
+from SpAM_Simulations.pilot import load_pilot_subjects
 
 OUT = pathlib.Path("out"); OUT.mkdir(exist_ok=True)
 CAL = pathlib.Path("calibration"); CAL.mkdir(exist_ok=True)
@@ -363,97 +361,28 @@ else:
     print("[2a] out/design_only.csv already present, skipping", flush=True)
 
 # --- calibration ------------------------------------------------------------------------------
-# On ALL pilot subjects (both SHINE variants): reliability and between-subject agreement are
-# properties of people, not of the stimulus set.
-allsub = load_pilot_subjects(PILOT, MANIFEST)
-print(f"\n[calibrate] {len(allsub)} pilot sessions (both SHINE variants) for the noise fit",
-      flush=True)
-
-emp = subject_reliability_sample(allsub)
-print(f"[shape] empirical reliability: n={len(emp)} median={np.median(emp):.3f} "
-      f"q10={np.quantile(emp, .1):.3f} q90={np.quantile(emp, .9):.3f}", flush=True)
-# The noise grid MUST be given explicitly here. `fit_noise_population`'s default spans [0.4, 2.6],
-# which was written for the v3/v4 parameterisation where noise is a ratio to each trial's
-# arrangement spread. Under the canvas it is an absolute fraction of canvas WIDTH, and the optimum
-# is an order of magnitude smaller: the pilot's median reliability of 0.243 is reproduced at
-# ~0.22, i.e. BELOW the old grid's floor. Left at the default the fit pins to 0.4, reports an
-# achieved median of ~0.11 against a target of 0.243, and everything downstream is mis-calibrated.
-CANVAS_NOISE_GRID = tuple(np.round(np.arange(0.02, 0.81, 0.02), 2))
-fit = fit_noise_population(coords, emp, images_per_trial=IMAGES_PER_TRIAL,
-                           perspective_dispersion=0.2, n_subjects=80, reps=3, verbose=True,
-                           noise_grid=CANVAS_NOISE_GRID, trial_simulator=CALIB_SIM)
-FB = fit["best"]
-fit["grid"].to_csv(CAL / "noise_shape_grid.csv", index=False)
-(CAL / "noise_shape_fit.json").write_text(json.dumps(
-    {k: (float(v) if isinstance(v, (int, float, np.floating)) else v) for k, v in FB.items()},
-    indent=2, default=str))
-print(f"[shape] best: family={FB['family']} shape={FB['shape']} scale={FB['noise_scale']} "
-      f"W1={FB['distance']:.4f} CV={FB['cv']:.3f} boundary={FB['at_shape_boundary']}", flush=True)
-if FB["at_shape_boundary"]:
-    print("[shape] WARNING: fit sits on a shape-grid boundary - the family, not the data, is the "
-          "binding constraint.")
-# A scale pinned to the grid edge means the grid could not reach the data, so the whole calibration
-# is wrong and every number downstream inherits it. That is worth aborting 15 hours for.
-if FB["at_noise_boundary"]:
-    raise SystemExit(
-        f"[shape] ABORT: the fitted noise scale {FB['noise_scale']:.3f} sits on the edge of the "
-        f"search grid [{FB['noise_grid_min']:.2f}, {FB['noise_grid_max']:.2f}], so the grid could "
-        f"not reach the data: achieved median reliability {FB['sim_median']:.3f} against an "
-        f"empirical {FB['empirical_median']:.3f} (gap {FB['median_gap']:+.3f}). Widen "
-        f"CANVAS_NOISE_GRID in the direction of the boundary and re-run; continuing would "
-        f"mis-calibrate every result in this sweep."
-    )
-if abs(FB["median_gap"]) > 0.05:
-    print(f"[shape] WARNING: best fit lands {FB['median_gap']:+.3f} from the empirical median "
-          f"({FB['sim_median']:.3f} vs {FB['empirical_median']:.3f}) without hitting a grid edge, "
-          f"so the noise FAMILY may be the binding constraint rather than its scale.", flush=True)
-LOGN_SIGMA = float(FB["shape"]) if FB["family"] == "lognormal" else 0.0
-SHAPE_DF = int(FB["shape"]) if FB["family"] == "t" else 5
-
-# Dispersion is re-fitted UNDER the newly fitted noise population: agreement depends on the whole
-# noise distribution, so a dispersion calibrated against a different one does not transfer.
-emp_agr = between_subject_agreement(np.vstack([s.distances for s in allsub]),
-                                    min_overlap=20)["mean_agreement"]
-DISP, disp_ach = fit_dispersion_for_agreement(
-    coords, emp_agr, noise_scale=float(FB["noise_scale"]), noise_df=SHAPE_DF,
-    lognormal_sigma=LOGN_SIGMA, images_per_trial=IMAGES_PER_TRIAL, reps=REPS,
-    trial_simulator=CALIB_SIM)
-print(f"[disp] empirical agreement={emp_agr:.4f} -> dispersion={DISP:.2f} (achieved {disp_ach:.4f})",
-      flush=True)
-# FIT, THEN SWEEP AROUND THE FIT. Dispersion is identified only through between-subject agreement,
-# which is measured on the sparse pair overlap between subjects and is the noisiest of the three
-# calibration anchors - so the fit is carried as a point estimate PLUS one step either side rather
-# than trusted alone.
+# All of it lives in SpAM_Simulations.calibrate_v5 now - see that module's docstring for why it is
+# not ninety lines of heredoc. The constants are fitted on ALL pilot subjects (both SHINE variants):
+# reliability and between-subject agreement are properties of people, not of the stimulus set.
 #
-# Clamped to the fitter's own search grid, [0, DISP_MAX]. The floor is real: dispersion is the sigma
-# of the lognormal that draws each subject's per-dimension weights, so 0 means every subject shares
-# the ground-truth geometry exactly and between-subject signal disagreement vanishes. The ceiling is
-# NOT 1 - a lognormal sigma has no natural upper bound and the config only requires non-negative -
-# it is the top of the range `fit_dispersion_for_agreement` searched, because sweeping outside that
-# would probe values the calibration could never have selected.
-DISP_STEP, DISP_MAX = 0.15, 1.2
-DISP_LIST = sorted({round(min(max(DISP + d, 0.0), DISP_MAX), 2)
-                    for d in (-DISP_STEP, 0.0, DISP_STEP)})
-print(f"[disp] sweeping dispersion over {DISP_LIST}"
-      + (" (clamped, so fewer than 3 values)" if len(DISP_LIST) < 3 else ""), flush=True)
-
-# One noise level, at the empirically achieved test-retest. The R axis was swept in task-v4-fitted
-# and is not what THIS run is about: holding it fixed keeps every fit paying for the arm contrast.
-TARGET_R = float(np.median(emp))
-NOISE, ach_r = fit_noise_for_test_retest(coords, TARGET_R, noise_df=SHAPE_DF,
-                                         lognormal_sigma=LOGN_SIGMA,
-                                         images_per_trial=IMAGES_PER_TRIAL, reps=REPS,
-                                         trial_simulator=CALIB_SIM)
-print(f"[invert] targetR={TARGET_R:.3f} -> noise={NOISE:.2f} (achieved {ach_r:.3f} @img20)",
-      flush=True)
-(CAL / "calibration.json").write_text(json.dumps(dict(
-    n_pilot_sessions=len(allsub), empirical_agreement=float(emp_agr), dispersion=float(DISP),
-    dispersion_achieved=float(disp_ach), dispersion_swept=DISP_LIST,
-    target_test_retest=TARGET_R,
-    achieved_tr_unscreened=float(ach_r), subjects_noise_scale=float(NOISE),
-    noise_family=FB["family"], noise_shape=float(FB["shape"]), n_dims=D_GT,
-    gt_file=gt_path.name, scan_selected_n_dims=SELECTED,
-), indent=2))
+# The cache is fingerprint-checked on the ground-truth CONTENTS, the subject sample, the grid and
+# the softness, so a resume skips ~10 min of deterministic re-fitting while a changed input still
+# forces a re-fit. Set REUSE_CALIBRATION=0 to force one anyway.
+allsub = load_pilot_subjects(PILOT, MANIFEST)
+try:
+    CALIB = calibrate(coords, allsub, images_per_trial=IMAGES_PER_TRIAL, reps=REPS, cal_dir=CAL,
+                      trial_simulator=CALIB_SIM, softness=cv.DEFAULT_SOFTNESS,
+                      gt_file=gt_path.name, n_dims=D_GT, scan_selected_n_dims=SELECTED,
+                      reuse=REUSE_CALIBRATION, verbose=True)
+except CalibrationError as exc:
+    raise SystemExit(f"[shape] ABORT: {exc}")
+NOISE = float(CALIB["subjects_noise_scale"])
+DISP = float(CALIB["dispersion"])
+DISP_LIST = list(CALIB["dispersion_swept"])
+LOGN_SIGMA = float(CALIB["noise_lognormal_sigma"])
+SHAPE_DF = int(CALIB["noise_df"])
+print(f"[calibrate] noise={NOISE} family={CALIB['noise_family']} "
+      f"shape={CALIB['noise_shape']} dispersion={DISP} sweeping {DISP_LIST}", flush=True)
 push("calibration", "calibration artifacts")
 
 # --- stage 2b: the allocator factory ----------------------------------------------------------
@@ -550,7 +479,12 @@ if len(manifest_images) != N_IMAGES:
 pilot_mean, pilot_w = aggregate_subjects(allsub)
 pilot_condensed = np.where(pilot_w > 0, pilot_mean, np.nan)
 
-reports, grads = {}, []
+# Scored on EVERY cell of an arm, not on cells[0]. The sweep varies softness, screening threshold
+# and dispersion, and a gradient that survives one combination need not survive all of them - so a
+# single cell answered a narrower question than it was reported as answering, and *which* cell it
+# answered for depended on dict insertion order. Rep 0 of each cell keeps the cost bounded; the
+# variation being characterised is across configurations, not across repetitions of one.
+per_cell, grads = [], []
 # TABLES_ONLY has no cohorts in memory, and validity_gradient.csv is already on S3 from the run
 # being recovered, so there is nothing to redo here.
 arms = () if sim is None else (("random", RANDOM), ("designed", DESIGNED))
@@ -562,30 +496,52 @@ for arm, mode in arms:
              if float(p.allocation_mode) == mode and int(p.num_subjects) == max(FULL_N)]
     if not cells:
         continue
-    _params, results = cells[0]
-    sim_mean, sim_w = pipeline._prepare_mds_inputs(results[0])
-    sim_condensed = np.where(sim_w > 0, sim_mean, np.nan)
-    rep = validity.compare_to_pilot(sim_condensed, pilot_condensed, manifest_images)
-    grads.append(rep["gradient"].assign(arm=arm))
-    reports[arm] = {k: v for k, v in rep.items() if k != "gradient"}
-    print(f"\n[validity/{arm}] N={max(FULL_N)} monotone_sim={rep['sim_gradient_monotone']} "
-          f"monotone_pilot={rep['pilot_gradient_monotone']} "
-          f"max|std_gap_diff|={rep['max_abs_std_gap_diff']:.3f} "
-          f"levels_tested={rep['gradient_levels_tested']} "
-          f"skipped_for_support={rep['gradient_levels_skipped']}", flush=True)
-    print(rep["gradient"].to_string(index=False), flush=True)
-    if not rep["sim_gradient_monotone"]:
-        print(f"[validity/{arm}] WARNING: the simulated semantic gradient is NOT monotone across "
-              f"the levels the data supports. The cohorts are not structurally realistic; do not "
-              f"trust the arm comparison.", flush=True)
-    elif not rep["sim_gradient_monotone_all_levels"]:
-        # Worth saying, but NOT a gate: the levels it fails on are the ones with too few pairs to
-        # carry an ordering. A GT that inverts there inverts for every cell in the sweep, so this
-        # is a property of the ground truth, not a defect of any configuration.
-        print(f"[validity/{arm}] note: monotone on the supported levels but not on all of them "
-              f"({rep['gradient_levels_skipped']} lack the pairs to test). Run "
-              f"`python -m SpAM_Simulations.gt_diagnostics` on this GT if that matters to you.",
-              flush=True)
+    print(f"\n[validity/{arm}] N={max(FULL_N)}: scoring {len(cells)} cells", flush=True)
+    for params, results in cells:
+        sim_mean, sim_w = pipeline._prepare_mds_inputs(results[0])
+        rep = validity.compare_to_pilot(np.where(sim_w > 0, sim_mean, np.nan),
+                                        pilot_condensed, manifest_images)
+        cell = {"arm": arm, "num_subjects": int(params.num_subjects),
+                "canvas_softness": float(params.canvas_softness),
+                "screening_min_reliability": float(params.screening_min_reliability),
+                "perspective_dispersion": float(params.perspective_dispersion)}
+        grads.append(rep["gradient"].assign(**cell))
+        per_cell.append({**cell,
+                         "monotone": bool(rep["sim_gradient_monotone"]),
+                         "monotone_all_levels": bool(rep["sim_gradient_monotone_all_levels"]),
+                         "max_abs_std_gap_diff": float(rep["max_abs_std_gap_diff"]),
+                         "levels_tested": str(rep["gradient_levels_tested"]),
+                         "levels_skipped": str(rep["gradient_levels_skipped"])})
+
+per_cell = pd.DataFrame(per_cell)
+if not per_cell.empty:
+    summary = validity.summarise_gradients(per_cell)
+    per_cell.to_csv(OUT / "validity_gradient_cells.csv", index=False)
+    summary.to_csv(OUT / "validity_gradient_summary.csv", index=False)
+    print("\n[validity] semantic gradient across all cells:", flush=True)
+    print(summary.to_string(index=False), flush=True)
+    worst = per_cell.loc[per_cell["max_abs_std_gap_diff"].idxmax()]
+    print(f"[validity] widest cell: arm={worst['arm']} softness={worst['canvas_softness']} "
+          f"min_rel={worst['screening_min_reliability']} disp={worst['perspective_dispersion']} "
+          f"max|std_gap_diff|={worst['max_abs_std_gap_diff']:.3f}", flush=True)
+    for _, row in summary.iterrows():
+        if row["monotone_frac"] == 0.0:
+            print(f"[validity/{row['arm']}] WARNING: NO cell reproduced the semantic gradient over "
+                  f"the levels the data supports. The cohorts are not structurally realistic; do "
+                  f"not trust the arm comparison.", flush=True)
+        elif row["monotone_frac"] < 1.0:
+            # The informative middle, and the case a boolean could never report: the gradient
+            # depends on a lever the sweep is varying. Which cells fail is in the per-cell CSV.
+            print(f"[validity/{row['arm']}] WARNING: only {row['monotone_frac']:.0%} of cells "
+                  f"({row['n_monotone']}/{row['n_cells']}) reproduced the gradient, so it depends "
+                  f"on the swept levers. See validity_gradient_cells.csv before reading the arms.",
+                  flush=True)
+    if not per_cell["monotone_all_levels"].any() and per_cell["monotone"].all():
+        # A property of the ground truth, not of any configuration: a GT that inverts on an
+        # unsupported level inverts there for every cell. Not a gate.
+        print("[validity] note: monotone on the supported levels in every cell, but on no cell "
+              "across ALL levels. That is the ground truth, not the sweep - run "
+              "`python -m SpAM_Simulations.gt_diagnostics` on it if it matters to you.", flush=True)
 
 if grads:
     pd.concat(grads, ignore_index=True).to_csv(OUT / "validity_gradient.csv", index=False)
@@ -622,7 +578,11 @@ else:
     print("\n[validity/noise] no pilot repeat trials found; skipping the noise-shape check",
           flush=True)
 
-(OUT / "validity.json").write_text(json.dumps(reports, indent=2, default=str))
+# The per-cell detail lives in validity_gradient_cells.csv; this is the one-line-per-arm verdict,
+# kept as JSON so eval_helpers can read it without parsing a frame.
+(OUT / "validity.json").write_text(json.dumps(
+    {} if per_cell.empty else validity.summarise_gradients(per_cell).to_dict(orient="records"),
+    indent=2, default=str))
 print("\n[done] stage 2 complete", flush=True)
 PY
 
