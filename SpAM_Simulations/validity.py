@@ -103,9 +103,29 @@ def gradient_table(condensed: np.ndarray, levels: np.ndarray) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def gradient_is_monotone(table: pd.DataFrame) -> bool:
-    """Do mean distances fall monotonically as pairs become more closely related?"""
-    means = table.sort_values("level")["mean_distance"].to_numpy()
+# A hierarchy level is only worth testing for monotonicity if enough pairs sit in it. The deepest
+# level of this stimulus set (`depth_5`) holds 348 of 262,450 pairs, of which the GT's own subjects
+# judged 100; the empirical ordering it is asked to reproduce is a same_leaf/depth_5 gap of 0.007
+# measured on 121 pilot pairs. A GT fitted on that cell is mostly interpolating, so requiring the
+# embedding to reproduce its ordering is requiring it to reproduce noise - and because a single
+# inversion flips the whole boolean, an underpowered cell silently condemns an otherwise sound run.
+#
+# 500 is a judgement call, not a derived quantity: it is the round number that drops `depth_5` while
+# keeping `same_leaf` (4,758 pairs simulated / 1,723 pilot). Levels excluded by it are reported
+# rather than hidden, so the choice stays visible wherever the flag is used.
+MIN_GRADIENT_PAIRS = 500
+
+
+def gradient_is_monotone(table: pd.DataFrame, min_pairs: int = 0) -> bool:
+    """Do mean distances fall monotonically as pairs become more closely related?
+
+    ``min_pairs`` drops levels with too little support before testing. It defaults to 0 - the strict
+    all-levels test - so this primitive keeps saying exactly what it says; :func:`compare_to_pilot`
+    is where :data:`MIN_GRADIENT_PAIRS` is applied. Fewer than two surviving levels is vacuously
+    monotone, so callers that care should check how many levels were actually tested.
+    """
+    kept = table[table["n_pairs"] >= min_pairs] if min_pairs > 0 else table
+    means = kept.sort_values("level")["mean_distance"].to_numpy()
     return bool(np.all(np.diff(means) <= 0))
 
 
@@ -156,11 +176,23 @@ def compare_to_pilot(sim_condensed: np.ndarray, pilot_condensed: np.ndarray,
     pilot_grad = gradient_table(pilot_condensed, levels)
     merged = sim_grad.merge(pilot_grad, on=["level", "level_name"], suffixes=("_sim", "_pilot"))
     merged["std_gap_diff"] = merged["std_gap_sim"] - merged["std_gap_pilot"]
+    # Test the SAME levels on both sides. Applying the support threshold to each table separately
+    # would compare a sim gradient over one level set against a pilot gradient over another, since
+    # the two have different pair counts at the same level.
+    supported = merged.loc[(merged["n_pairs_sim"] >= MIN_GRADIENT_PAIRS)
+                           & (merged["n_pairs_pilot"] >= MIN_GRADIENT_PAIRS), "level"]
+    tested = sorted(int(x) for x in supported)
+    skipped = sorted(int(x) for x in merged["level"] if int(x) not in tested)
+    sim_tested = sim_grad[sim_grad["level"].isin(tested)]
+    pilot_tested = pilot_grad[pilot_grad["level"].isin(tested)]
     return {
         "distribution": distribution_comparison(sim_condensed, pilot_condensed),
         "gradient": merged,
-        "sim_gradient_monotone": gradient_is_monotone(sim_grad),
-        "pilot_gradient_monotone": gradient_is_monotone(pilot_grad),
+        "sim_gradient_monotone": gradient_is_monotone(sim_tested),
+        "pilot_gradient_monotone": gradient_is_monotone(pilot_tested),
+        "gradient_levels_tested": tested,
+        "gradient_levels_skipped": skipped,
+        "sim_gradient_monotone_all_levels": gradient_is_monotone(sim_grad),
         "max_abs_std_gap_diff": float(merged["std_gap_diff"].abs().max()),
     }
 
@@ -215,14 +247,21 @@ def simulate_repeat_pairs(gt_embeddings: np.ndarray, subjects_noise_scale: float
                           n_subjects: int = 40, trials_per_subject: int = 4,
                           images_per_trial: int = 20, perspective_dispersion: float = 0.3,
                           noise_df: int = 5, lognormal_sigma: float = 0.0,
-                          seed: int = 0) -> Tuple[np.ndarray, np.ndarray]:
+                          seed: int = 0,
+                          trial_simulator=None) -> Tuple[np.ndarray, np.ndarray]:
     """``(d_orig, d_repeat)`` from verbatim repeat trials of the **deployed generative model**.
 
-    Calls ``task_v3_experiment._simulate_trial`` directly rather than re-deriving the projection, so
-    the curve describes the model the sweep actually runs. A repeat re-projects the same items with
-    the same perspective weights and differs only by fresh placement noise, exactly as
+    Calls the trial simulator directly rather than re-deriving the projection, so the curve
+    describes the model the sweep actually runs. A repeat re-projects the same items with the same
+    perspective weights and differs only by fresh placement noise, exactly as
     ``simulate_task_v3_experiment`` does it - the difference is only that the per-pair values are
     kept here instead of being collapsed to a Spearman.
+
+    ``trial_simulator`` is the same seam ``task_v4_experiment`` carries, and passing it is what
+    makes this check meaningful under task-v5: the turnover this function measures is *caused* by
+    the bounded canvas, so measuring it against the unbounded v3 default would report on a model
+    the sweep does not run. It defaults to v3's ``_simulate_trial`` only so the v3/v4 callers and
+    their bit-exactness tests are unaffected.
 
     Standalone rather than plumbed through the sweep, and deliberately so: this measures a property
     of the **noise model**, not of any particular cohort size or allocation arm, so it needs no MDS
@@ -231,6 +270,7 @@ def simulate_repeat_pairs(gt_embeddings: np.ndarray, subjects_noise_scale: float
     from SpAM_Simulations.noise_population import draw_subject_noises, resolve_family
     from SpAM_Simulations.task_v3_experiment import _draw_perspective_weights, _simulate_trial
 
+    simulate = _simulate_trial if trial_simulator is None else trial_simulator
     gt = np.asarray(gt_embeddings, dtype=np.float32)
     n_images, n_dims = gt.shape
     if images_per_trial > n_images:
@@ -251,10 +291,10 @@ def simulate_repeat_pairs(gt_embeddings: np.ndarray, subjects_noise_scale: float
         for _ in range(trials_per_subject):
             trial = rng.choice(n_images, size=images_per_trial, replace=False)
             obs, n_obs = np.zeros(n_pairs, dtype=np.float64), np.zeros(n_pairs, dtype=np.int32)
-            _, d1, _ = _simulate_trial(trial, pair_rows, pair_cols, n_images, gt, weights,
-                                       float(subject_noise), obs, n_obs, rng)
-            _, d2, _ = _simulate_trial(trial, pair_rows, pair_cols, n_images, gt, weights,
-                                       float(subject_noise), obs, n_obs, rng)
+            _, d1, _ = simulate(trial, pair_rows, pair_cols, n_images, gt, weights,
+                                float(subject_noise), obs, n_obs, rng)
+            _, d2, _ = simulate(trial, pair_rows, pair_cols, n_images, gt, weights,
+                                float(subject_noise), obs, n_obs, rng)
             orig.append(np.asarray(d1, dtype=np.float64))
             repeat.append(np.asarray(d2, dtype=np.float64))
     return np.concatenate(orig), np.concatenate(repeat)
