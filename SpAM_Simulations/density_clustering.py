@@ -276,52 +276,61 @@ _MEAN_SEM_FIELDS = {
 # not duplicated; `n_shared` remains on the per-pair dict for standalone callers.
 
 
+def _density_worker(store_path, base, rows, ndim, min_cluster_sizes, min_samples, max_pairs,
+                    pair_seed):
+    """One group's density agreement. Top-level so it can be pickled to a worker."""
+    from SpAM_Simulations.cluster_stability import _fit_distances, sample_pairs
+    from SpAM_Simulations.pipeline import _worker_store
+
+    store = _worker_store(store_path)
+    dists = [_fit_distances(store, int(r), ndim) for r in rows]
+    pairs = sample_pairs(len(dists), max_pairs, pair_seed)
+    out = []
+    for mcs in min_cluster_sizes:
+        labels = [hdbscan_labels(d, mcs, min_samples) for d in dists]
+        summaries = [noise_summary(la) for la in labels]
+        # Each pair is restricted to its OWN jointly-clustered subset here, which is right for a
+        # descriptive average but means these values are not addable across pairs. Use
+        # `pairwise_restricted_vi` on one shared mask when chaining.
+        scored = [{**noise_agreement(labels[i], labels[j]),
+                   **clustered_ari(labels[i], labels[j]),
+                   **restricted_vi(labels[i], labels[j])}
+                  for i, j in pairs]
+        row = {**base, "min_cluster_size": int(mcs), "n_reps": len(labels),
+               "n_pairs": len(scored)}
+        for field, name in _MEAN_SEM_FIELDS.items():
+            vals = ([s[field] for s in summaries] if field in summaries[0]
+                    else [p[field] for p in scored])
+            row.update(_mean_sem(vals, name))
+        out.append(row)
+    return out
+
+
 def compute_density_agreement(store, min_cluster_sizes: Sequence[int] = DEFAULT_MIN_CLUSTER_SIZES,
                               min_samples: Optional[int] = None, group_fields=None,
-                              verbose: bool = True) -> pd.DataFrame:
+                              verbose: bool = True, n_jobs: int = -1,
+                              max_pairs: Optional[int] = None,
+                              pair_seed: int = 0) -> pd.DataFrame:
     """Between-cohort density-clustering agreement per (configuration, ndim, min_cluster_size).
 
-    Mirrors ``cluster_stability.compute_cluster_agreement``, including its caveat that the
-    C(n_reps, 2) rep pairs are **not independent** (each cohort appears in n_reps - 1 of them), so
-    the reported SEM understates the true uncertainty.
+    Mirrors ``cluster_stability.compute_cluster_agreement``, including its caveat that the rep pairs
+    are **not independent** (each cohort appears in many of them), so the reported SEM understates
+    the true uncertainty.
 
     Labels are computed **once per fit** and reused across all pairs, since the pair loop is
-    O(reps²) while labelling is O(reps).
+    O(reps^2) while labelling is O(reps). That is also why ``max_pairs`` defaults to None here and
+    not in the agglomerative pass: HDBSCAN labelling dominates this function, so sampling pairs
+    saves little. Pass one to trade it anyway.
     """
-    from itertools import combinations
-
-    from SpAM_Simulations.cluster_stability import _fit_distances, _require_conf
-    from SpAM_Simulations.pipeline import _grouped_successful
+    from SpAM_Simulations.cluster_stability import _require_conf
+    from SpAM_Simulations.pipeline import group_tasks, map_groups
 
     _require_conf(store)
-    grouped, group_fields = _grouped_successful(store, group_fields)
-    rows = []
-    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Density agreement",
-                         disable=not verbose):
-        if len(grp) < 2:
-            continue          # a lone successful rep has nothing to be compared against
-        ndim = int(grp["ndim"].iloc[0])
-        dists = [_fit_distances(store, int(r), ndim) for r in grp["confdist_row"]]
-        key_tuple = key if isinstance(key, tuple) else (key,)
-        base = dict(zip(group_fields, key_tuple))
-        for mcs in min_cluster_sizes:
-            labels = [hdbscan_labels(d, mcs, min_samples) for d in dists]
-            summaries = [noise_summary(la) for la in labels]
-            # Each pair is restricted to its OWN jointly-clustered subset here, which is
-            # right for a descriptive average but means these values are not addable across
-            # pairs. Use `pairwise_restricted_vi` on one shared mask when chaining.
-            pairs = [{**noise_agreement(labels[i], labels[j]),
-                      **clustered_ari(labels[i], labels[j]),
-                      **restricted_vi(labels[i], labels[j])}
-                     for i, j in combinations(range(len(labels)), 2)]
-            row = {**base, "min_cluster_size": int(mcs), "n_reps": len(labels),
-                   "n_pairs": len(pairs)}
-            for field, name in _MEAN_SEM_FIELDS.items():
-                vals = ([s[field] for s in summaries] if field in summaries[0]
-                        else [p[field] for p in pairs])
-                row.update(_mean_sem(vals, name))
-            rows.append(row)
-    return pd.DataFrame(rows)
+    tasks = group_tasks(store, group_fields, min_size=2)
+    return pd.DataFrame(map_groups(
+        store, tasks, _density_worker, n_jobs=n_jobs, desc="Density agreement", verbose=verbose,
+        min_cluster_sizes=tuple(min_cluster_sizes), min_samples=min_samples,
+        max_pairs=max_pairs, pair_seed=pair_seed))
 
 
 def _mean_sem(values: Sequence[float], name: str) -> Dict[str, float]:
@@ -334,34 +343,35 @@ def _mean_sem(values: Sequence[float], name: str) -> Dict[str, float]:
     return {f"mean_{name}": float(arr.mean()), f"sem_{name}": sem}
 
 
+def _isolated_worker(store_path, base, rows, ndim, min_cluster_size, min_samples):
+    """One group's per-image isolation fractions. Top-level so it can be pickled to a worker."""
+    from SpAM_Simulations.cluster_stability import _fit_distances
+    from SpAM_Simulations.pipeline import _worker_store
+
+    store = _worker_store(store_path)
+    flags = [hdbscan_labels(_fit_distances(store, int(r), ndim), min_cluster_size,
+                            min_samples) == NOISE_LABEL for r in rows]
+    if not flags:
+        return []
+    frac = np.mean(np.vstack(flags), axis=0)
+    return [{**base, "min_cluster_size": int(min_cluster_size), "image": int(i),
+             "frac_cohorts_noise": float(f), "n_reps": len(flags)}
+            for i, f in enumerate(frac)]
+
+
 def isolated_images(store, min_cluster_size: int = 5, min_samples: Optional[int] = None,
-                    group_fields=None, verbose: bool = True) -> pd.DataFrame:
+                    group_fields=None, verbose: bool = True, n_jobs: int = -1) -> pd.DataFrame:
     """Per-image: in what fraction of this group's cohorts was this image unclustered?
 
     The directly actionable table. An image with ``frac_cohorts_noise`` near 1 is one that no
     cohort found reliably confusable with anything, so it is the safest kind of stimulus to use;
     an image near 0 always sits inside some group and its group-mates are the exclusion set.
     """
-    from SpAM_Simulations.cluster_stability import _fit_distances, _require_conf
-    from SpAM_Simulations.pipeline import _grouped_successful
+    from SpAM_Simulations.cluster_stability import _require_conf
+    from SpAM_Simulations.pipeline import group_tasks, map_groups
 
     _require_conf(store)
-    grouped, group_fields = _grouped_successful(store, group_fields)
-    rows = []
-    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Isolated images",
-                         disable=not verbose):
-        ndim = int(grp["ndim"].iloc[0])
-        flags = []
-        for r in grp["confdist_row"]:
-            labels = hdbscan_labels(_fit_distances(store, int(r), ndim), min_cluster_size,
-                                    min_samples)
-            flags.append(labels == NOISE_LABEL)
-        if not flags:
-            continue
-        frac = np.mean(np.vstack(flags), axis=0)
-        key_tuple = key if isinstance(key, tuple) else (key,)
-        base = dict(zip(group_fields, key_tuple))
-        rows.extend({**base, "min_cluster_size": int(min_cluster_size), "image": int(i),
-                     "frac_cohorts_noise": float(f), "n_reps": len(flags)}
-                    for i, f in enumerate(frac))
-    return pd.DataFrame(rows)
+    tasks = group_tasks(store, group_fields, min_size=1)
+    return pd.DataFrame(map_groups(
+        store, tasks, _isolated_worker, n_jobs=n_jobs, desc="Isolated images", verbose=verbose,
+        min_cluster_size=min_cluster_size, min_samples=min_samples))

@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import warnings
 from itertools import combinations
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -53,7 +53,22 @@ from sklearn.metrics import (
 from tqdm.auto import tqdm
 
 DEFAULT_LINKAGES = ("average", "ward", "complete")
+
+# The granularity grid. 725 images, so k=200 averages 3.6 images per cluster and k=150 averages 4.8.
+#
+# READ THE TOP OF THIS GRID WITH CARE. k >= 150 cuts at roughly leaf granularity, and the pilot the
+# ground truth was fitted from supports very little structure at that scale: within `same_leaf`
+# pairs the raw data's own half-split reliability is about 0.05 (see gt_diagnostics), so a GT built
+# on it is largely interpolating there. Agreement scores at those k are therefore reporting on the
+# embedding's smoothness as much as on recoverable structure, and should not carry the same weight
+# as k <= 50. They are kept rather than dropped because the *trend* across k is informative and
+# truncating the grid would hide where it breaks down - but a `k_star` landing at 150 or 200 is a
+# statement about the ground truth, not a recommendation.
+HIGH_K_THRESHOLD = 150
 DEFAULT_KS = (2, 3, 5, 8, 12, 20, 30, 50, 75, 100, 150, 200)
+
+# Rep pairs sampled per group rather than exhausted; see `sample_pairs` for the trade.
+DEFAULT_MAX_PAIRS = 22
 JACCARD_THRESHOLDS = (0.5, 0.75)
 
 # The cross/within ratio needs a denominator that is meaningfully POSITIVE. Below this (including
@@ -379,11 +394,33 @@ def _mean_sem(values: Sequence[float], name: str) -> Dict[str, float]:
     }
 
 
-def _agreement_rows(fits: Sequence["_PreparedFit"], ks: Sequence[int],
-                    linkages: Sequence[str]) -> List[Dict[str, float]]:
-    """Mean and SEM of every metric over all C(n_fits, 2) pairs, per (linkage, k)."""
+def sample_pairs(n_fits: int, max_pairs: Optional[int] = DEFAULT_MAX_PAIRS,
+                 seed: int = 0) -> List[tuple]:
+    """Up to ``max_pairs`` of the C(n_fits, 2) rep pairs, drawn once per group.
+
+    At ``reps=10`` the full set is 45 pairs and the pair loop dominates the whole analysis. Halving
+    it to 22 buys roughly a 40% cut in wall clock for a sqrt(45/22) ~ 1.4x widening of the SEM,
+    which is a good trade here: these pairs were never independent to begin with (each cohort
+    appears in ``n_reps - 1`` of them), so the reported SEM understates the true uncertainty either
+    way, and the quantity being estimated is a mean over a large grid of configurations.
+
+    Drawn once per group and reused across every (linkage, k), so metrics within a group are
+    computed on the same cohort pairs and stay comparable. ``max_pairs=None`` restores the full set.
+    """
+    pairs = list(combinations(range(n_fits), 2))
+    if max_pairs is None or len(pairs) <= max_pairs:
+        return pairs
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(len(pairs), size=int(max_pairs), replace=False)
+    return [pairs[i] for i in sorted(idx)]
+
+
+def _agreement_rows(fits: Sequence["_PreparedFit"], ks: Sequence[int], linkages: Sequence[str],
+                    max_pairs: Optional[int] = DEFAULT_MAX_PAIRS,
+                    pair_seed: int = 0) -> List[Dict[str, float]]:
+    """Mean and SEM of every metric over the sampled rep pairs, per (linkage, k)."""
     rows: List[Dict[str, float]] = []
-    pairs = list(combinations(range(len(fits)), 2))
+    pairs = sample_pairs(len(fits), max_pairs, pair_seed)
     for method in linkages:
         for k in sorted(set(ks) & set(fits[0].labels[method])):
             acc: Dict[str, List[float]] = {m: [] for m in _PAIR_METRICS}
@@ -406,65 +443,77 @@ def _agreement_rows(fits: Sequence["_PreparedFit"], ks: Sequence[int],
     return rows
 
 
+def _agreement_worker(store_path, base, rows, ndim, ks, linkages, max_pairs, pair_seed):
+    """One configuration group's agreement rows. Top-level so it can be pickled to a worker."""
+    from SpAM_Simulations.pipeline import _worker_store
+
+    fits = _prepare_group(_worker_store(store_path), rows, ndim, ks, linkages)
+    return [{**base, **row}
+            for row in _agreement_rows(fits, ks, linkages, max_pairs, pair_seed)]
+
+
 def compute_cluster_agreement(store, ks: Sequence[int] = DEFAULT_KS,
                               linkages: Sequence[str] = DEFAULT_LINKAGES,
-                              group_fields=None, verbose: bool = True) -> pd.DataFrame:
+                              group_fields=None, verbose: bool = True, n_jobs: int = -1,
+                              max_pairs: Optional[int] = DEFAULT_MAX_PAIRS,
+                              pair_seed: int = 0) -> pd.DataFrame:
     """Between-cohort cluster agreement per (configuration, ndim, linkage, k).
 
     Mirrors ``pipeline.compute_embedding_generalizability``: reps within a group are independently
-    simulated cohorts, so the C(n_reps, 2) comparisons answer "would a second run of this study
-    recover the same clusters?".
+    simulated cohorts, so the rep-pair comparisons answer "would a second run of this study recover
+    the same clusters?".
 
-    Note the pairs are **not independent** - each cohort appears in ``n_reps - 1`` of them - so the
-    reported SEM understates the true uncertainty. Every rep-pair metric in the pipeline shares that
-    limitation; it is stated here rather than inherited quietly.
+    Note the pairs are **not independent** - each cohort appears in many of them - so the reported
+    SEM understates the true uncertainty. Every rep-pair metric in the pipeline shares that
+    limitation; it is stated here rather than inherited quietly, and it is also why sampling
+    ``max_pairs`` of them rather than exhausting C(n_reps, 2) costs less than it appears to.
+
+    Groups are independent, so they are the parallel axis. ``n_jobs=1`` runs in-process.
     """
-    from SpAM_Simulations.pipeline import _grouped_successful
+    from SpAM_Simulations.pipeline import group_tasks, map_groups
 
     _require_conf(store)
-    grouped, group_fields = _grouped_successful(store, group_fields)
-    rows = []
-    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Cluster agreement",
-                         disable=not verbose):
-        if len(grp) < 2:
-            continue          # a lone successful rep has nothing to be compared against
-        ndim = int(grp["ndim"].iloc[0])
-        fits = _prepare_group(store, list(grp["confdist_row"]), ndim, ks, linkages)
-        key_tuple = key if isinstance(key, tuple) else (key,)
-        base = dict(zip(group_fields, key_tuple))
-        rows.extend({**base, **row} for row in _agreement_rows(fits, ks, linkages))
-    return pd.DataFrame(rows)
+    tasks = group_tasks(store, group_fields, min_size=2)
+    return pd.DataFrame(map_groups(
+        store, tasks, _agreement_worker, n_jobs=n_jobs, desc="Cluster agreement", verbose=verbose,
+        ks=tuple(ks), linkages=tuple(linkages), max_pairs=max_pairs, pair_seed=pair_seed))
+
+
+def _dendrogram_worker(store_path, base, rows, ndim, linkages, max_pairs, pair_seed):
+    """One group's k-free tree agreement. Top-level so it can be pickled to a worker."""
+    from SpAM_Simulations.pipeline import _worker_store
+
+    fits = _prepare_group(_worker_store(store_path), rows, ndim, (), linkages)
+    pairs = sample_pairs(len(fits), max_pairs, pair_seed)
+    out = []
+    for method in linkages:
+        gammas = [baker_gamma(fits[i].coph_ranks[method], fits[j].coph_ranks[method])
+                  for i, j in pairs]
+        fidelity = [cophenetic_fidelity(f.trees[method], f.condensed) for f in fits]
+        out.append({**base, "linkage": method, "n_reps": len(fits), "n_pairs": len(gammas),
+                    **_mean_sem(gammas, "baker_gamma"),
+                    **_mean_sem(fidelity, "cophenetic_fidelity")})
+    return out
 
 
 def compute_dendrogram_agreement(store, linkages: Sequence[str] = DEFAULT_LINKAGES,
-                                 group_fields=None, verbose: bool = True) -> pd.DataFrame:
+                                 group_fields=None, verbose: bool = True, n_jobs: int = -1,
+                                 max_pairs: Optional[int] = DEFAULT_MAX_PAIRS,
+                                 pair_seed: int = 0) -> pd.DataFrame:
     """k-free agreement between cohorts' whole dendrograms, per (configuration, ndim, linkage).
 
     Baker's gamma summarises the entire merge structure rather than one cut. ``cophenetic_fidelity``
     reports how much of each cohort's own geometry its tree retains, which qualifies the first: if
     the trees are poor summaries of their own distances, their agreeing says little about the space.
+    Fidelity is per-fit, so it is unaffected by ``max_pairs``; Baker's gamma is per-pair and is.
     """
-    from SpAM_Simulations.pipeline import _grouped_successful
+    from SpAM_Simulations.pipeline import group_tasks, map_groups
 
     _require_conf(store)
-    grouped, group_fields = _grouped_successful(store, group_fields)
-    rows = []
-    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Dendrogram agreement",
-                         disable=not verbose):
-        if len(grp) < 2:
-            continue
-        ndim = int(grp["ndim"].iloc[0])
-        fits = _prepare_group(store, list(grp["confdist_row"]), ndim, (), linkages)
-        key_tuple = key if isinstance(key, tuple) else (key,)
-        base = dict(zip(group_fields, key_tuple))
-        for method in linkages:
-            gammas = [baker_gamma(fits[i].coph_ranks[method], fits[j].coph_ranks[method])
-                      for i, j in combinations(range(len(fits)), 2)]
-            fidelity = [cophenetic_fidelity(f.trees[method], f.condensed) for f in fits]
-            rows.append({**base, "linkage": method, "n_reps": len(fits), "n_pairs": len(gammas),
-                         **_mean_sem(gammas, "baker_gamma"),
-                         **_mean_sem(fidelity, "cophenetic_fidelity")})
-    return pd.DataFrame(rows)
+    tasks = group_tasks(store, group_fields, min_size=2)
+    return pd.DataFrame(map_groups(
+        store, tasks, _dendrogram_worker, n_jobs=n_jobs, desc="Dendrogram agreement",
+        verbose=verbose, linkages=tuple(linkages), max_pairs=max_pairs, pair_seed=pair_seed))
 
 
 _SIZE_FIELDS = ("n_clusters_realised", "size_min", "size_median", "size_max", "largest_frac",
@@ -564,9 +613,28 @@ def continuum_diagnostics(agreement: pd.DataFrame, criterion: str = "vi_norm",
     return pd.DataFrame(rows)
 
 
+def _sizes_worker(store_path, base, rows, ndim, ks, linkages):
+    """One group's partition-shape rows. Per-fit, so no pair sampling applies."""
+    from SpAM_Simulations.pipeline import _worker_store
+
+    fits = _prepare_group(_worker_store(store_path), rows, ndim, ks, linkages)
+    if not fits:
+        return []
+    out = []
+    for method in linkages:
+        for k in sorted(set(ks) & set(fits[0].labels[method])):
+            summaries = [cluster_size_summary(f.labels[method][k]) for f in fits]
+            row = {**base, "linkage": method, "k": int(k), "n_reps": len(fits)}
+            for field in _SIZE_FIELDS:
+                row.update(_mean_sem([s[field] for s in summaries], field))
+            out.append(row)
+    return out
+
+
 def compute_cluster_sizes(store, ks: Sequence[int] = DEFAULT_KS,
                           linkages: Sequence[str] = DEFAULT_LINKAGES,
-                          group_fields=None, verbose: bool = True) -> pd.DataFrame:
+                          group_fields=None, verbose: bool = True,
+                          n_jobs: int = -1) -> pd.DataFrame:
     """Shape of the discovered partitions, averaged over reps, per (configuration, ndim, linkage, k).
 
     Descriptive rather than evaluative, and necessary precisely because the clusters are found
@@ -574,23 +642,10 @@ def compute_cluster_sizes(store, ks: Sequence[int] = DEFAULT_KS,
     score is hard to read without knowing whether the partition is balanced or one giant cluster
     plus dust.
     """
-    from SpAM_Simulations.pipeline import _grouped_successful
+    from SpAM_Simulations.pipeline import group_tasks, map_groups
 
     _require_conf(store)
-    grouped, group_fields = _grouped_successful(store, group_fields)
-    rows = []
-    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Cluster sizes", disable=not verbose):
-        ndim = int(grp["ndim"].iloc[0])
-        fits = _prepare_group(store, list(grp["confdist_row"]), ndim, ks, linkages)
-        if not fits:
-            continue
-        key_tuple = key if isinstance(key, tuple) else (key,)
-        base = dict(zip(group_fields, key_tuple))
-        for method in linkages:
-            for k in sorted(set(ks) & set(fits[0].labels[method])):
-                summaries = [cluster_size_summary(f.labels[method][k]) for f in fits]
-                row = {**base, "linkage": method, "k": int(k), "n_reps": len(fits)}
-                for f in _SIZE_FIELDS:
-                    row.update(_mean_sem([s[f] for s in summaries], f))
-                rows.append(row)
-    return pd.DataFrame(rows)
+    tasks = group_tasks(store, group_fields, min_size=1)
+    return pd.DataFrame(map_groups(
+        store, tasks, _sizes_worker, n_jobs=n_jobs, desc="Cluster sizes", verbose=verbose,
+        ks=tuple(ks), linkages=tuple(linkages)))

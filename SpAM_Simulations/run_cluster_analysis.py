@@ -41,13 +41,14 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Sequence
+from typing import Optional, Sequence
 
 import pandas as pd
 
 from SpAM_Simulations.cluster_stability import (
-    DEFAULT_KS, DEFAULT_LINKAGES, compute_cluster_agreement, compute_cluster_sizes,
-    compute_dendrogram_agreement, continuum_diagnostics, select_k,
+    DEFAULT_KS, DEFAULT_LINKAGES, DEFAULT_MAX_PAIRS, HIGH_K_THRESHOLD,
+    compute_cluster_agreement, compute_cluster_sizes, compute_dendrogram_agreement,
+    continuum_diagnostics, select_k,
 )
 from SpAM_Simulations.density_clustering import (
     DEFAULT_MIN_CLUSTER_SIZES, compute_density_agreement, isolated_images,
@@ -87,20 +88,35 @@ def _metrics_at_k(frame: pd.DataFrame, agreement: pd.DataFrame, by: list,
 def run(store_path: Path, out_dir: Path, ks: Sequence[int] = DEFAULT_KS,
         linkages: Sequence[str] = DEFAULT_LINKAGES,
         min_cluster_sizes: Sequence[int] = DEFAULT_MIN_CLUSTER_SIZES,
-        density_mcs: int = 5, verbose: bool = True) -> dict:
-    """Compute every cluster table and write it under ``out_dir``. Returns the frames."""
+        density_mcs: int = 5, verbose: bool = True, n_jobs: int = -1,
+        max_pairs: Optional[int] = DEFAULT_MAX_PAIRS) -> dict:
+    """Compute every cluster table and write it under ``out_dir``. Returns the frames.
+
+    ``n_jobs`` parallelises over configuration groups, which are independent. ``max_pairs`` caps the
+    rep pairs compared per group: at reps=10 the full set is 45 and the pair loop dominates, so the
+    default of 22 roughly halves it for a ~1.4x wider SEM on an estimate that was never based on
+    independent pairs anyway. Pass ``max_pairs=None`` to exhaust them.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     store = ResultStore.open(store_path)
     print(f"[store] {store_path}: {len(store)} records, "
           f"confdists {'present' if store.has_confdists else 'ABSENT (recomputing from confs)'}")
 
-    agreement = compute_cluster_agreement(store, ks=ks, linkages=linkages, verbose=verbose)
+    agreement = compute_cluster_agreement(store, ks=ks, linkages=linkages, verbose=verbose,
+                                          n_jobs=n_jobs, max_pairs=max_pairs)
+    # The caveat travels with the data rather than living only in a comment: k >= 150 cuts at
+    # roughly leaf granularity, where the pilot supports very little structure (gt_diagnostics puts
+    # the raw within-`same_leaf` half-split reliability near 0.05), so those rows report on the
+    # embedding's smoothness as much as on anything recoverable.
+    agreement["high_k"] = agreement["k"] >= HIGH_K_THRESHOLD
     agreement.to_csv(out_dir / "cluster_agreement.csv", index=False)
 
-    dendro = compute_dendrogram_agreement(store, linkages=linkages, verbose=verbose)
+    dendro = compute_dendrogram_agreement(store, linkages=linkages, verbose=verbose,
+                                          n_jobs=n_jobs, max_pairs=max_pairs)
     dendro.to_csv(out_dir / "dendrogram_agreement.csv", index=False)
 
-    sizes = compute_cluster_sizes(store, ks=ks, linkages=linkages, verbose=verbose)
+    sizes = compute_cluster_sizes(store, ks=ks, linkages=linkages, verbose=verbose, n_jobs=n_jobs)
+    sizes["high_k"] = sizes["k"] >= HIGH_K_THRESHOLD
     sizes.to_csv(out_dir / "cluster_sizes.csv", index=False)
 
     by = _select_by(agreement)
@@ -122,14 +138,27 @@ def run(store_path: Path, out_dir: Path, ks: Sequence[int] = DEFAULT_KS,
                                     on=by, how="outer")
     for suffix in ("vi", "sil"):
         k_selection = _metrics_at_k(k_selection, agreement, by, suffix)
+    for suffix in ("vi", "sil"):
+        col = f"k_star_{suffix}"
+        if col in k_selection:
+            k_selection[f"{col}_is_high_k"] = k_selection[col] >= HIGH_K_THRESHOLD
     k_selection.to_csv(out_dir / "k_selection.csv", index=False)
+    for suffix in ("vi", "sil"):
+        flag = f"k_star_{suffix}_is_high_k"
+        if flag in k_selection and k_selection[flag].any():
+            n = int(k_selection[flag].sum())
+            print(f"[k] NOTE: k_star_{suffix} lands at >= {HIGH_K_THRESHOLD} in {n} of "
+                  f"{len(k_selection)} groups. At 725 images that is <5 images per cluster, which "
+                  f"is the granularity the pilot supports least - read those as a statement about "
+                  f"the ground truth rather than as a recommended k.")
 
     # The density pass, which answers what agglomerative clustering structurally cannot: whether an
     # image belongs to no group at all. Descriptive only, and never substituted into the VI chain.
     density = compute_density_agreement(store, min_cluster_sizes=min_cluster_sizes,
-                                        verbose=verbose)
+                                        verbose=verbose, n_jobs=n_jobs)
     density.to_csv(out_dir / "density_agreement.csv", index=False)
-    isolated = isolated_images(store, min_cluster_size=density_mcs, verbose=verbose)
+    isolated = isolated_images(store, min_cluster_size=density_mcs, verbose=verbose,
+                               n_jobs=n_jobs)
     isolated.to_csv(out_dir / "isolated_images.csv", index=False)
 
     _report(k_selection, dendro, density, isolated, density_mcs)
@@ -217,6 +246,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                    help="comma-separated HDBSCAN min_cluster_size values (density pass)")
     p.add_argument("--density-mcs", type=int, default=5,
                    help="min_cluster_size used for the per-image isolated_images.csv table")
+    p.add_argument("--n-jobs", type=int, default=-1,
+                   help="parallel workers over configuration groups; 1 runs in-process")
+    p.add_argument("--max-pairs", type=int, default=DEFAULT_MAX_PAIRS,
+                   help="rep pairs compared per group (0 or negative = all C(n_reps, 2))")
     p.add_argument("--quiet", action="store_true")
     args = p.parse_args(argv)
     run(args.store, args.out,
@@ -224,7 +257,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         linkages=tuple(args.linkages.split(",")),
         min_cluster_sizes=[int(m) for m in args.min_cluster_sizes.split(",")],
         density_mcs=args.density_mcs,
-        verbose=not args.quiet)
+        verbose=not args.quiet,
+        n_jobs=args.n_jobs,
+        # 0 or negative means "no cap", which argparse cannot express as None directly.
+        max_pairs=args.max_pairs if args.max_pairs and args.max_pairs > 0 else None)
     return 0
 
 

@@ -8,6 +8,8 @@ silently returning one.
 No R needed anywhere.
 """
 import numpy as np
+from itertools import combinations
+
 import pandas as pd
 import pytest
 from scipy.spatial.distance import pdist, squareform
@@ -507,3 +509,64 @@ def test_diagnostics_end_to_end_on_a_store(tmp_path):
     for col in ("k_star", "vi_norm_range", "sil_cross_at_k_star", "is_flat",
                 "is_arbitrary_slicing"):
         assert col in out.columns, col
+
+
+# --------------------------------------------------------------------- pair sampling
+
+def test_sample_pairs_caps_and_stays_deterministic():
+    a = cs.sample_pairs(10, max_pairs=22, seed=0)
+    assert len(a) == 22, "C(10,2)=45 must be cut to the cap"
+    assert a == cs.sample_pairs(10, max_pairs=22, seed=0), "same seed, same pairs"
+    assert len(set(a)) == len(a), "pairs must not repeat"
+    assert all(i < j for i, j in a)
+
+
+def test_sample_pairs_returns_everything_when_it_can():
+    assert cs.sample_pairs(4, max_pairs=22) == list(combinations(range(4), 2))
+    assert len(cs.sample_pairs(10, max_pairs=None)) == 45
+
+
+def test_a_different_seed_draws_a_different_subset():
+    assert cs.sample_pairs(10, 22, seed=0) != cs.sample_pairs(10, 22, seed=1)
+
+
+def test_every_linkage_and_k_in_a_group_sees_the_same_pairs(tmp_path):
+    """Otherwise metrics within a group would be computed on different cohorts and not comparable."""
+    store = _conf_store(tmp_path, n_reps=6)
+    df = cs.compute_cluster_agreement(store, ks=(2, 3, 5), linkages=("average", "ward"),
+                                      verbose=False, n_jobs=1, max_pairs=4)
+    assert (df["n_pairs"] == 4).all()
+
+
+# --------------------------------------------------------------------- parallelism
+
+def test_parallel_matches_serial(tmp_path):
+    """The parallel path must be an optimisation, not a different computation."""
+    store = _conf_store(tmp_path, n_reps=4)
+    kw = dict(ks=(2, 3), linkages=("average",), verbose=False, max_pairs=None)
+    serial = cs.compute_cluster_agreement(store, n_jobs=1, **kw)
+    parallel = cs.compute_cluster_agreement(store, n_jobs=2, **kw)
+    pd.testing.assert_frame_equal(serial.sort_index(axis=1), parallel.sort_index(axis=1))
+
+
+def test_parallel_dendrogram_matches_serial(tmp_path):
+    store = _conf_store(tmp_path, n_reps=4)
+    kw = dict(linkages=("average",), verbose=False, max_pairs=None)
+    pd.testing.assert_frame_equal(
+        cs.compute_dendrogram_agreement(store, n_jobs=1, **kw),
+        cs.compute_dendrogram_agreement(store, n_jobs=2, **kw))
+
+
+def test_parallel_sizes_matches_serial(tmp_path):
+    store = _conf_store(tmp_path, n_reps=3)
+    kw = dict(ks=(2, 3), linkages=("average",), verbose=False)
+    pd.testing.assert_frame_equal(cs.compute_cluster_sizes(store, n_jobs=1, **kw),
+                                  cs.compute_cluster_sizes(store, n_jobs=2, **kw))
+
+
+def test_high_k_threshold_sits_inside_the_default_grid():
+    """The caveat must actually flag something, and must not flag the trustworthy end."""
+    assert cs.HIGH_K_THRESHOLD in cs.DEFAULT_KS
+    high = [k for k in cs.DEFAULT_KS if k >= cs.HIGH_K_THRESHOLD]
+    assert high == [150, 200]
+    assert 50 not in high and 100 not in high

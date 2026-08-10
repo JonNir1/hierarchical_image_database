@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from itertools import combinations
 from pathlib import Path
-from typing import Iterator, Optional, Sequence, Tuple
+from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -415,6 +415,67 @@ def _grouped_successful(store: ResultStore, group_fields: Optional[Sequence[str]
     group_fields = list(group_fields)
     df = df[df["status"].isin(_SUCCESS_STATUSES) & (df["confdist_row"] >= 0)]
     return df.groupby(group_fields), group_fields
+
+
+# --------------------------------------------------------------------------- parallel group work
+# The post-MDS cluster metrics are all the same shape: independent work per configuration group,
+# with the O(reps^2) pair comparisons inside. Nothing crosses a group boundary, so groups are the
+# natural parallel axis - and they need to be, because the analysis is otherwise single-threaded
+# and a 17,729-fit store takes hours of wall clock on one core.
+#
+# Workers reopen the store from its PATH rather than receiving it. A ResultStore holds open file
+# handles and memmaps, which do not survive pickling to a spawned process; reopening is cheap and
+# the store is append-only and read-only here.
+_WORKER_STORES: Dict[str, ResultStore] = {}
+
+
+def _worker_store(path: str) -> ResultStore:
+    """The store for this worker process, opened once and cached for the rest of its life."""
+    store = _WORKER_STORES.get(path)
+    if store is None:
+        store = _WORKER_STORES[path] = ResultStore.open(path)
+    return store
+
+
+def group_tasks(store: ResultStore, group_fields: Optional[Sequence[str]] = None,
+                min_size: int = 1) -> List[tuple]:
+    """One ``(base, confdist_rows, ndim)`` task per configuration group.
+
+    ``min_size=2`` drops groups with a single successful rep, which have nothing to compare against.
+    Built in the parent from metadata alone, so no configuration is read until a worker asks for it.
+    """
+    grouped, resolved = _grouped_successful(store, group_fields)
+    tasks = []
+    for key, grp in grouped:
+        if len(grp) < min_size:
+            continue
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        tasks.append((dict(zip(resolved, key_tuple)),
+                      [int(r) for r in grp["confdist_row"]],
+                      int(grp["ndim"].iloc[0])))
+    return tasks
+
+
+def map_groups(store: ResultStore, tasks: Sequence[tuple], worker, *, n_jobs: int = -1,
+               desc: str = "", verbose: bool = True, **kwargs) -> List[Dict]:
+    """Run ``worker(store_path, base, rows, ndim, **kwargs)`` over every task, flattening the rows.
+
+    ``n_jobs=1`` runs in-process, which is what the tests use: identical results, no spawn cost, and
+    a traceback that points at the real line rather than at a worker boundary.
+
+    With a parallel backend the progress bar tracks DISPATCH, not completion. joblib pre-dispatches
+    only a small multiple of ``n_jobs``, so the two stay close, but a bar at 100% means the last
+    task has been handed out rather than finished.
+    """
+    path = str(store.path)
+    if n_jobs == 1:
+        return [row for task in tqdm(tasks, desc=desc, disable=not verbose)
+                for row in worker(path, *task, **kwargs)]
+    from joblib import Parallel, delayed
+    chunks = Parallel(n_jobs=n_jobs)(
+        delayed(worker)(path, *task, **kwargs)
+        for task in tqdm(tasks, desc=desc, disable=not verbose))
+    return [row for chunk in chunks for row in chunk]
 
 
 def _require_conf_store(store: ResultStore) -> None:
