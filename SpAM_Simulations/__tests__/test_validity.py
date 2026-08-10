@@ -413,3 +413,40 @@ def test_simulate_repeat_pairs_defaults_to_the_v3_simulator():
     b = val.simulate_repeat_pairs(gt, trial_simulator=None, **kwargs)
     np.testing.assert_allclose(a[0], b[0])
     np.testing.assert_allclose(a[1], b[1])
+
+
+# --------------------------------------------------------------------- gradient across cells
+
+def _cells(arm, monotone_flags, gaps=None):
+    gaps = [0.3] * len(monotone_flags) if gaps is None else gaps
+    return pd.DataFrame({"arm": arm, "monotone": monotone_flags, "max_abs_std_gap_diff": gaps})
+
+
+def test_summarise_gradients_reports_a_fraction_not_a_verdict():
+    """The case a boolean cannot express: the gradient depends on a lever the sweep varies."""
+    summary = val.summarise_gradients(_cells("random", [True, True, False, True]))
+    row = summary.iloc[0]
+    assert row["n_cells"] == 4 and row["n_monotone"] == 3
+    assert row["monotone_frac"] == pytest.approx(0.75)
+
+
+def test_summarise_gradients_separates_the_arms():
+    per_cell = pd.concat([_cells("random", [True, True]), _cells("designed", [False, False])],
+                         ignore_index=True)
+    summary = val.summarise_gradients(per_cell).set_index("arm")
+    assert summary.loc["random", "monotone_frac"] == 1.0
+    assert summary.loc["designed", "monotone_frac"] == 0.0
+
+
+def test_summarise_gradients_carries_the_gap_spread():
+    summary = val.summarise_gradients(_cells("random", [True] * 3, gaps=[0.1, 0.3, 0.5]))
+    row = summary.iloc[0]
+    assert row["gap_min"] == pytest.approx(0.1) and row["gap_max"] == pytest.approx(0.5)
+    assert row["gap_mean"] == pytest.approx(0.3)
+    assert row["gap_sd"] > 0, "a single number would hide how much the cells differ"
+
+
+def test_summarise_gradients_survives_no_cells():
+    """TABLES_ONLY reruns have no cohorts in memory, and that must not raise."""
+    summary = val.summarise_gradients(pd.DataFrame())
+    assert summary.empty and "monotone_frac" in summary.columns

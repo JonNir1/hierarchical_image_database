@@ -197,6 +197,39 @@ def compare_to_pilot(sim_condensed: np.ndarray, pilot_condensed: np.ndarray,
     }
 
 
+def summarise_gradients(per_cell: pd.DataFrame, group: str = "arm") -> pd.DataFrame:
+    """Aggregate per-cell gradient outcomes into one row per arm.
+
+    Scoring a single cell answers "is this configuration realistic?" and then reports it as though
+    it answered "are the cohorts realistic?". Those differ: the sweep varies softness, screening
+    threshold and dispersion, and a gradient that survives one combination need not survive all of
+    them. Worse, the single cell was whichever came first in dict order, so the answer depended on
+    insertion order rather than on anything about the model.
+
+    ``monotone_frac`` is the number to read. 1.0 says every configuration reproduced the ordering;
+    0.0 says none did and the model is wrong; anything between says the gradient depends on levers
+    the sweep is varying, which is itself the finding and is invisible to a boolean.
+    """
+    if per_cell.empty:
+        return pd.DataFrame(columns=[group, "n_cells", "monotone_frac", "n_monotone"])
+    rows = []
+    for name, sub in per_cell.groupby(group, sort=True):
+        row = {
+            group: name,
+            "n_cells": int(len(sub)),
+            "n_monotone": int(sub["monotone"].sum()),
+            "monotone_frac": float(sub["monotone"].mean()),
+        }
+        if "max_abs_std_gap_diff" in sub:
+            gaps = sub["max_abs_std_gap_diff"].astype(float)
+            row.update({
+                "gap_mean": float(gaps.mean()), "gap_sd": float(gaps.std(ddof=0)),
+                "gap_min": float(gaps.min()), "gap_max": float(gaps.max()),
+            })
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 # --------------------------------------------------------------------------- noise vs distance
 # The third validity check, and the sharpest of the three, because it is about the shape of the
 # NOISE rather than the shape of the signal.
