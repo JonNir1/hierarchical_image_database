@@ -570,3 +570,50 @@ def test_high_k_threshold_sits_inside_the_default_grid():
     high = [k for k in cs.DEFAULT_KS if k >= cs.HIGH_K_THRESHOLD]
     assert high == [150, 200]
     assert 50 not in high and 100 not in high
+
+
+# --------------------------------------------------------------------- duplicate reps
+
+def _append_duplicate_reps(store_path, n_reps, num_subjects, ndim=3, seed=99):
+    """Re-append a second copy of every fit, as a resume that lost track of completed work does."""
+    from SpAM_Simulations.storage import ResultStore
+    rng = np.random.default_rng(seed)
+    truth = _blobs(n_per=N_IMAGES // 3, k=3, sd=0.25, seed=0, ndim=MAX_NDIM)
+    store = ResultStore.open(store_path)
+    for ns in num_subjects:
+        for rep in range(n_reps):
+            coords = (truth + rng.normal(0, 0.1, truth.shape)).astype(np.float32)
+            store.append({"num_subjects": ns, "rep": rep, "ndim": ndim, "niter": 10,
+                          "stress": 0.1, "status": "success"},
+                         confdist=pdist(coords).astype(np.float32), conf=coords)
+    store.close()
+    return ResultStore.open(store_path)
+
+
+def test_duplicate_reps_are_dropped_before_grouping(tmp_path):
+    """An append-only store that was resumed badly holds two copies of a fit; only one may count.
+
+    Left in, the duplicate enters the pair loop as a self-comparison of the same cohort, so VI is
+    exactly 0 and ARI exactly 1 and every rep-pair metric is biased upward. 48 of 1728 groups in the
+    real task-v5 stage-2 store were in this state.
+    """
+    from SpAM_Simulations.pipeline import _grouped_successful
+
+    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,))
+    grouped, _ = _grouped_successful(store, None)
+    assert grouped.size().tolist() == [4]
+
+    doubled = _append_duplicate_reps(store.path, n_reps=4, num_subjects=(20,))
+    assert len(doubled) == 8, "the store really does hold both copies"
+    grouped, _ = _grouped_successful(doubled, None)
+    assert grouped.size().tolist() == [4], "grouping must see each rep once"
+
+
+def test_duplicate_reps_do_not_inflate_agreement(tmp_path):
+    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,))
+    kw = dict(ks=(3,), linkages=("average",), verbose=False, n_jobs=1, max_pairs=None)
+    clean = cs.compute_cluster_agreement(store, **kw)
+    doubled = cs.compute_cluster_agreement(
+        _append_duplicate_reps(store.path, n_reps=4, num_subjects=(20,)), **kw)
+    assert doubled["n_pairs"].iloc[0] == clean["n_pairs"].iloc[0] == 6
+    np.testing.assert_allclose(doubled["mean_vi_norm"], clean["mean_vi_norm"])

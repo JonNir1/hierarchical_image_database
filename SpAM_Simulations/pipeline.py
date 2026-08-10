@@ -414,6 +414,25 @@ def _grouped_successful(store: ResultStore, group_fields: Optional[Sequence[str]
         group_fields = [c for c in df.columns if c not in _non_param_columns]
     group_fields = list(group_fields)
     df = df[df["status"].isin(_SUCCESS_STATUSES) & (df["confdist_row"] >= 0)]
+
+    # ONE ROW PER (configuration, rep). A store is append-only, so a resume that fails to recognise
+    # already-completed work appends a SECOND copy of every fit it redoes - which is exactly what
+    # the pre-round-trip resume bug did: 48 of 1728 groups in the task-v5 stage-2 store hold 20 rows
+    # for 10 reps, with bit-identical stress between the copies.
+    #
+    # Left in, those duplicates enter the C(n, 2) pair loop as self-comparisons of an identical
+    # cohort - VI exactly 0, ARI exactly 1 - so every rep-pair metric is biased upward in precisely
+    # the affected cells. The duplicates are the same cohort refitted deterministically, so keeping
+    # the first is a free choice.
+    before = len(df)
+    df = df.drop_duplicates(subset=group_fields + ["rep"], keep="first")
+    dropped = before - len(df)
+    if dropped:
+        logger.warning(
+            "dropped %d duplicate (configuration, rep) fits of %d: an append-only store that was "
+            "resumed without recognising completed work holds more than one copy of them. Keeping "
+            "the first of each; leaving them in would compare cohorts against themselves.",
+            dropped, before)
     return df.groupby(group_fields), group_fields
 
 
