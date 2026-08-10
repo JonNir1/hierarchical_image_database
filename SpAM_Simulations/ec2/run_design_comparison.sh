@@ -227,6 +227,7 @@ N_JOBS="$N_JOBS" GT_METHOD="$GT_METHOD" REPS="$REPS" S3_URI="$S3_URI" \
   NDIMS="${NDIMS:-}" N_LIST="${N_LIST:-30,50,75,500}" SEED="${SEED:-42}" \
   MINREL_LIST="${MINREL_LIST:--1,0,0.1,0.2}" DESIGN_REPS_2A="${DESIGN_REPS_2A:-20}" \
   SOFTNESS_LIST="${SOFTNESS_LIST:-3,4,8}" GT_NDIM="${GT_NDIM:-8}" \
+  TABLES_ONLY="${TABLES_ONLY:-0}" REUSE_CALIBRATION="${REUSE_CALIBRATION:-1}" \
   python - <<'PY'
 import json
 import os
@@ -262,6 +263,18 @@ MINREL_LIST = [float(x) for x in os.environ["MINREL_LIST"].split(",")]
 # observable distribution to sample from. Aspect and fill ARE sampled per trial, from the pilot's
 # measured marginals, so they are not levers.
 SOFTNESS = [float(x) for x in os.environ["SOFTNESS_LIST"].split(",")]
+
+# TABLES_ONLY recomputes only the tables that read the STORE, skipping cohort generation and the
+# sweep entirely. It exists because a finished 9.5 h sweep died in the metric-tables step, and
+# recovering it cost a further 1.4 h regenerating cohorts to reach tables that needed none of them:
+# compute_coverage_table/compute_stability_table take the Simulation object, so `sim` had to be
+# rebuilt before the store-derived tables could run. Those two are now computed and pushed BEFORE
+# the sweep, which is what makes this mode sufficient for recovery. Requires an mds_store/ already
+# on disk - pull it from S3 first if the instance is new.
+TABLES_ONLY = os.environ.get("TABLES_ONLY", "0") not in ("", "0", "false", "False")
+# Calibration is deterministic in its inputs, so re-deriving it on a resume is ~10 min of waste.
+# Reused only on an exact fingerprint match: a stale calibration would silently mis-scale the run.
+REUSE_CALIBRATION = os.environ.get("REUSE_CALIBRATION", "1") not in ("", "0", "false", "False")
 # The calibration runs at the DEFAULT softness. It is a point fit, and re-fitting the noise
 # population once per softness value would confound the sensitivity arm with three different noise
 # scales; the arm then varies softness around that one calibrated noise level.
@@ -485,22 +498,40 @@ cfg = TaskV5SimulationConfig(
     canvas_softness=SOFTNESS,
     reps=REPS, seed=SEED,
 )
-sim = pipeline.generate_task_v5_simulation(cfg, verbose=True, allocator_factory=allocator_factory)
+if TABLES_ONLY:
+    from SpAM_Simulations.storage import ResultStore
 
-sweep = MDSSweepConfig(ndims=NDIMS, max_iters=1000, convergence_tol=1e-6, precalc_init=True)
-# store_conf ASSERTED, not inherited: the local cluster analysis reads confs.f32 and nothing else,
-# and a store written without it cannot be repaired after the instance is gone.
-store = pipeline.run_mds_sweep(sim, sweep, "mds_store", parallel=True, n_jobs=N_JOBS,
-                               store_conf=True, verbose=True)
-if not store.stores_conf:
-    raise SystemExit("the store holds no configurations; the cluster analysis needs confs.f32")
-print(f"\n[sweep] {len(store)} MDS results", flush=True)
+    if not pathlib.Path("mds_store").is_dir():
+        raise SystemExit("TABLES_ONLY needs an existing mds_store/ on disk. Pull the one from the "
+                         "failed run first:  aws s3 sync \"$S3_URI/mds_store/\" mds_store/")
+    sim = None
+    store = ResultStore.open("mds_store")
+    print(f"[tables-only] reopened {len(store)} fits; skipping generation and the sweep. "
+          f"coverage.csv/stability.csv are NOT rewritten - they were pushed before the sweep.",
+          flush=True)
+else:
+    sim = pipeline.generate_task_v5_simulation(cfg, verbose=True,
+                                               allocator_factory=allocator_factory)
+
+    # BEFORE the sweep, deliberately. Neither table needs a single MDS fit, and computing them
+    # afterwards is what made one post-sweep failure cost 1.4 h of regenerated cohorts. Pushing
+    # here also means a lost instance keeps them.
+    pipeline.compute_coverage_table(sim).to_csv(OUT / "coverage.csv", index=False)
+    pipeline.compute_stability_table(sim).to_csv(OUT / "stability.csv", index=False)
+    push("out", "coverage + stability (pre-sweep)")
+
+    sweep = MDSSweepConfig(ndims=NDIMS, max_iters=1000, convergence_tol=1e-6, precalc_init=True)
+    # store_conf ASSERTED, not inherited: the local cluster analysis reads confs.f32 and nothing
+    # else, and a store written without it cannot be repaired after the instance is gone.
+    store = pipeline.run_mds_sweep(sim, sweep, "mds_store", parallel=True, n_jobs=N_JOBS,
+                                   store_conf=True, verbose=True)
+    if not store.stores_conf:
+        raise SystemExit("the store holds no configurations; the cluster analysis needs confs.f32")
+    print(f"\n[sweep] {len(store)} MDS results", flush=True)
 
 # --- metric tables ----------------------------------------------------------------------------
 # group_fields=None groups by every swept parameter x ndim, with `rep` as the within-group axis,
 # so `allocation_mode` becomes a column of each table without any extra plumbing.
-pipeline.compute_coverage_table(sim).to_csv(OUT / "coverage.csv", index=False)
-pipeline.compute_stability_table(sim).to_csv(OUT / "stability.csv", index=False)
 pipeline.compute_embedding_stability(store).to_csv(OUT / "embedding_stability.csv", index=False)
 pipeline.compute_embedding_generalizability(store).to_csv(
     OUT / "embedding_generalizability.csv", index=False)
@@ -520,7 +551,13 @@ pilot_mean, pilot_w = aggregate_subjects(allsub)
 pilot_condensed = np.where(pilot_w > 0, pilot_mean, np.nan)
 
 reports, grads = {}, []
-for arm, mode in (("random", RANDOM), ("designed", DESIGNED)):
+# TABLES_ONLY has no cohorts in memory, and validity_gradient.csv is already on S3 from the run
+# being recovered, so there is nothing to redo here.
+arms = () if sim is None else (("random", RANDOM), ("designed", DESIGNED))
+if sim is None:
+    print("\n[validity] no in-memory cohorts under TABLES_ONLY; keeping the existing "
+          "validity_gradient.csv", flush=True)
+for arm, mode in arms:
     cells = [(p, res) for p, res in sim._results.items()
              if float(p.allocation_mode) == mode and int(p.num_subjects) == max(FULL_N)]
     if not cells:
@@ -533,11 +570,21 @@ for arm, mode in (("random", RANDOM), ("designed", DESIGNED)):
     reports[arm] = {k: v for k, v in rep.items() if k != "gradient"}
     print(f"\n[validity/{arm}] N={max(FULL_N)} monotone_sim={rep['sim_gradient_monotone']} "
           f"monotone_pilot={rep['pilot_gradient_monotone']} "
-          f"max|std_gap_diff|={rep['max_abs_std_gap_diff']:.3f}", flush=True)
+          f"max|std_gap_diff|={rep['max_abs_std_gap_diff']:.3f} "
+          f"levels_tested={rep['gradient_levels_tested']} "
+          f"skipped_for_support={rep['gradient_levels_skipped']}", flush=True)
     print(rep["gradient"].to_string(index=False), flush=True)
     if not rep["sim_gradient_monotone"]:
-        print(f"[validity/{arm}] WARNING: the simulated semantic gradient is NOT monotone. The "
-              f"cohorts are not structurally realistic; do not trust the arm comparison.",
+        print(f"[validity/{arm}] WARNING: the simulated semantic gradient is NOT monotone across "
+              f"the levels the data supports. The cohorts are not structurally realistic; do not "
+              f"trust the arm comparison.", flush=True)
+    elif not rep["sim_gradient_monotone_all_levels"]:
+        # Worth saying, but NOT a gate: the levels it fails on are the ones with too few pairs to
+        # carry an ordering. A GT that inverts there inverts for every cell in the sweep, so this
+        # is a property of the ground truth, not a defect of any configuration.
+        print(f"[validity/{arm}] note: monotone on the supported levels but not on all of them "
+              f"({rep['gradient_levels_skipped']} lack the pairs to test). Run "
+              f"`python -m SpAM_Simulations.gt_diagnostics` on this GT if that matters to you.",
               flush=True)
 
 if grads:
