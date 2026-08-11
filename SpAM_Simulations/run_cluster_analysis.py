@@ -47,8 +47,7 @@ import pandas as pd
 
 from SpAM_Simulations.cluster_stability import (
     DEFAULT_KS, DEFAULT_LINKAGES, DEFAULT_MAX_PAIRS, HIGH_K_THRESHOLD,
-    compute_cluster_agreement, compute_cluster_sizes, compute_dendrogram_agreement,
-    continuum_diagnostics, select_k,
+    compute_agglomerative_tables, continuum_diagnostics, select_k,
 )
 from SpAM_Simulations.density_clustering import (
     DEFAULT_MIN_CLUSTER_SIZES, compute_density_agreement, isolated_images,
@@ -102,8 +101,11 @@ def run(store_path: Path, out_dir: Path, ks: Sequence[int] = DEFAULT_KS,
     print(f"[store] {store_path}: {len(store)} records, "
           f"confdists {'present' if store.has_confdists else 'ABSENT (recomputing from confs)'}")
 
-    agreement = compute_cluster_agreement(store, ks=ks, linkages=linkages, verbose=verbose,
-                                          n_jobs=n_jobs, max_pairs=max_pairs)
+    # ONE traversal for all three agglomerative tables. Computed separately, each rebuilt the same
+    # linkage trees, cuts and cophenetic rankings for every cohort - three times the dominant cost.
+    agglomerative = compute_agglomerative_tables(store, ks=ks, linkages=linkages, verbose=verbose,
+                                                 n_jobs=n_jobs, max_pairs=max_pairs)
+    agreement = agglomerative["agreement"]
     # The caveat travels with the data rather than living only in a comment: k >= 150 cuts at
     # roughly leaf granularity, where the pilot supports very little structure (gt_diagnostics puts
     # the raw within-`same_leaf` half-split reliability near 0.05), so those rows report on the
@@ -111,11 +113,10 @@ def run(store_path: Path, out_dir: Path, ks: Sequence[int] = DEFAULT_KS,
     agreement["high_k"] = agreement["k"] >= HIGH_K_THRESHOLD
     agreement.to_csv(out_dir / "cluster_agreement.csv", index=False)
 
-    dendro = compute_dendrogram_agreement(store, linkages=linkages, verbose=verbose,
-                                          n_jobs=n_jobs, max_pairs=max_pairs)
+    dendro = agglomerative["dendrogram"]
     dendro.to_csv(out_dir / "dendrogram_agreement.csv", index=False)
 
-    sizes = compute_cluster_sizes(store, ks=ks, linkages=linkages, verbose=verbose, n_jobs=n_jobs)
+    sizes = agglomerative["sizes"]
     sizes["high_k"] = sizes["k"] >= HIGH_K_THRESHOLD
     sizes.to_csv(out_dir / "cluster_sizes.csv", index=False)
 

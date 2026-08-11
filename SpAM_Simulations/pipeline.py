@@ -497,6 +497,31 @@ def map_groups(store: ResultStore, tasks: Sequence[tuple], worker, *, n_jobs: in
     return [row for chunk in chunks for row in chunk]
 
 
+def map_groups_multi(store: ResultStore, tasks: Sequence[tuple], worker, *, n_jobs: int = -1,
+                     desc: str = "", verbose: bool = True, **kwargs) -> Dict[str, List[Dict]]:
+    """As :func:`map_groups`, but the worker returns ``{table_name: rows}`` for several tables.
+
+    This is what lets one traversal feed metrics that would otherwise each rebuild the same
+    per-cohort clustering. Rebuilding it is not cheap - linkage, twelve cuts and a cophenetic
+    ranking per (fit, linkage) - and three separate passes over the same store paid for it three
+    times.
+    """
+    path = str(store.path)
+    if n_jobs == 1:
+        chunks = [worker(path, *task, **kwargs)
+                  for task in tqdm(tasks, desc=desc, disable=not verbose)]
+    else:
+        from joblib import Parallel, delayed
+        chunks = Parallel(n_jobs=n_jobs)(
+            delayed(worker)(path, *task, **kwargs)
+            for task in tqdm(tasks, desc=desc, disable=not verbose))
+    merged: Dict[str, List[Dict]] = {}
+    for chunk in chunks:
+        for name, rows in chunk.items():
+            merged.setdefault(name, []).extend(rows)
+    return merged
+
+
 def _require_conf_store(store: ResultStore) -> None:
     if not store.stores_conf:
         raise ValueError(

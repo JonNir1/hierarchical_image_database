@@ -215,7 +215,9 @@ def safe_silhouette(square_dist: np.ndarray, labels: np.ndarray) -> float:
 
 
 def silhouette_pair(square_a: np.ndarray, square_b: np.ndarray,
-                    labels_a: np.ndarray, labels_b: np.ndarray) -> Dict[str, float]:
+                    labels_a: np.ndarray, labels_b: np.ndarray,
+                    within_a: Optional[float] = None,
+                    within_b: Optional[float] = None) -> Dict[str, float]:
     """Within- and cross-cohort silhouettes, plus their ratio.
 
     ``sil_cross_ab`` scores cohort A's cluster assignment against cohort B's geometry, which is the
@@ -227,8 +229,13 @@ def silhouette_pair(square_a: np.ndarray, square_b: np.ndarray,
     across the sweep, whereas the ratio shares those biases in numerator and denominator. It is NaN
     when the within value is near zero, where the quotient is meaningless.
     """
-    within_a = safe_silhouette(square_a, labels_a)
-    within_b = safe_silhouette(square_b, labels_b)
+    # The WITHIN values depend only on (fit, linkage, k) - not on the pairing - so a caller walking
+    # C(n, 2) pairs recomputes each of them once per pair the fit appears in. At 10 reps and 22
+    # sampled pairs that is ~4.4x more silhouette sweeps than necessary, and silhouette on a
+    # precomputed 725x725 matrix is the single most expensive operation in this module. Pass them in
+    # from `_PreparedFit.within` to skip the repeats; omitting them keeps the standalone behaviour.
+    within_a = safe_silhouette(square_a, labels_a) if within_a is None else within_a
+    within_b = safe_silhouette(square_b, labels_b) if within_b is None else within_b
     cross_ab = safe_silhouette(square_b, labels_a)
     cross_ba = safe_silhouette(square_a, labels_b)
     within = np.nanmean([within_a, within_b])
@@ -354,7 +361,7 @@ class _PreparedFit:
     them inside the pair loop instead would rebuild each fit's tree ``n_reps - 1`` times.
     """
 
-    __slots__ = ("condensed", "square", "trees", "labels", "coph_ranks")
+    __slots__ = ("condensed", "square", "trees", "labels", "coph_ranks", "within")
 
     def __init__(self, condensed: np.ndarray, ks: Sequence[int], linkages: Sequence[str]):
         self.condensed = condensed
@@ -363,6 +370,9 @@ class _PreparedFit:
         self.trees = {m: build_linkage(condensed, m) for m in linkages}
         self.labels = {m: cut_tree(z, ks, n) for m, z in self.trees.items()}
         self.coph_ranks = {m: cophenetic_ranks(z) for m, z in self.trees.items()}
+        # Computed once per (linkage, k) rather than once per pair this fit takes part in.
+        self.within = {(m, k): safe_silhouette(self.square, lab)
+                       for m, by_k in self.labels.items() for k, lab in by_k.items()}
 
 
 def _fit_distances(store, row: int, ndim: int) -> np.ndarray:
@@ -429,7 +439,9 @@ def _agreement_rows(fits: Sequence["_PreparedFit"], ks: Sequence[int], linkages:
                 la, lb = fa.labels[method][k], fb.labels[method][k]
                 scores = {
                     **partition_agreement(la, lb),
-                    **silhouette_pair(fa.square, fb.square, la, lb),
+                    **silhouette_pair(fa.square, fb.square, la, lb,
+                                      within_a=fa.within.get((method, k)),
+                                      within_b=fb.within.get((method, k))),
                     **jaccard_summary(cluster_wise_jaccard(la, lb)),
                     "n_clusters_realised": 0.5 * (np.unique(la).size + np.unique(lb).size),
                 }
@@ -649,3 +661,79 @@ def compute_cluster_sizes(store, ks: Sequence[int] = DEFAULT_KS,
     return pd.DataFrame(map_groups(
         store, tasks, _sizes_worker, n_jobs=n_jobs, desc="Cluster sizes", verbose=verbose,
         ks=tuple(ks), linkages=tuple(linkages)))
+
+
+# --------------------------------------------------------------------------- one traversal, three tables
+def _sizes_rows(fits: Sequence["_PreparedFit"], ks: Sequence[int],
+                linkages: Sequence[str]) -> List[Dict[str, float]]:
+    """The partition-shape rows for one already-prepared group."""
+    out = []
+    for method in linkages:
+        for k in sorted(set(ks) & set(fits[0].labels[method])):
+            summaries = [cluster_size_summary(f.labels[method][k]) for f in fits]
+            row = {"linkage": method, "k": int(k), "n_reps": len(fits)}
+            for field in _SIZE_FIELDS:
+                row.update(_mean_sem([s[field] for s in summaries], field))
+            out.append(row)
+    return out
+
+
+def _dendrogram_rows(fits: Sequence["_PreparedFit"], linkages: Sequence[str],
+                     pairs: Sequence[tuple]) -> List[Dict[str, float]]:
+    """The k-free tree-agreement rows for one already-prepared group."""
+    out = []
+    for method in linkages:
+        gammas = [baker_gamma(fits[i].coph_ranks[method], fits[j].coph_ranks[method])
+                  for i, j in pairs]
+        fidelity = [cophenetic_fidelity(f.trees[method], f.condensed) for f in fits]
+        out.append({"linkage": method, "n_reps": len(fits), "n_pairs": len(gammas),
+                    **_mean_sem(gammas, "baker_gamma"),
+                    **_mean_sem(fidelity, "cophenetic_fidelity")})
+    return out
+
+
+def _agglomerative_worker(store_path, base, rows, ndim, ks, linkages, max_pairs, pair_seed):
+    """All three agglomerative tables for one group, from ONE set of prepared fits."""
+    from SpAM_Simulations.pipeline import _worker_store
+
+    fits = _prepare_group(_worker_store(store_path), rows, ndim, ks, linkages)
+    if not fits:
+        return {"agreement": [], "dendrogram": [], "sizes": []}
+    sizes = [{**base, **row} for row in _sizes_rows(fits, ks, linkages)]
+    if len(fits) < 2:
+        # Sizes are per-fit and still meaningful; the pair metrics have nothing to compare against.
+        return {"agreement": [], "dendrogram": [], "sizes": sizes}
+    pairs = sample_pairs(len(fits), max_pairs, pair_seed)
+    return {
+        "agreement": [{**base, **row}
+                      for row in _agreement_rows(fits, ks, linkages, max_pairs, pair_seed)],
+        "dendrogram": [{**base, **row} for row in _dendrogram_rows(fits, linkages, pairs)],
+        "sizes": sizes,
+    }
+
+
+def compute_agglomerative_tables(store, ks: Sequence[int] = DEFAULT_KS,
+                                 linkages: Sequence[str] = DEFAULT_LINKAGES,
+                                 group_fields=None, verbose: bool = True, n_jobs: int = -1,
+                                 max_pairs: Optional[int] = DEFAULT_MAX_PAIRS,
+                                 pair_seed: int = 0) -> Dict[str, pd.DataFrame]:
+    """``{"agreement", "dendrogram", "sizes"}`` from a SINGLE pass over the store.
+
+    Identical output to calling :func:`compute_cluster_agreement`,
+    :func:`compute_dendrogram_agreement` and :func:`compute_cluster_sizes` separately - and tests
+    assert exactly that - but each cohort's linkage trees, cuts and cophenetic rankings are built
+    once instead of three times. On a 17,729-fit store that redundancy was hours.
+
+    The separate functions are kept: they are the right entry point when only one table is wanted,
+    and they document each metric on its own terms.
+    """
+    from SpAM_Simulations.pipeline import group_tasks, map_groups_multi
+
+    _require_conf(store)
+    tasks = group_tasks(store, group_fields, min_size=1)
+    merged = map_groups_multi(
+        store, tasks, _agglomerative_worker, n_jobs=n_jobs, desc="Agglomerative tables",
+        verbose=verbose, ks=tuple(ks), linkages=tuple(linkages), max_pairs=max_pairs,
+        pair_seed=pair_seed)
+    return {name: pd.DataFrame(merged.get(name, []))
+            for name in ("agreement", "dendrogram", "sizes")}

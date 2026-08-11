@@ -12,6 +12,7 @@ from itertools import combinations
 
 import pandas as pd
 import pytest
+from scipy.cluster.hierarchy import fcluster
 from scipy.spatial.distance import pdist, squareform
 
 from SpAM_Simulations import cluster_stability as cs
@@ -617,3 +618,77 @@ def test_duplicate_reps_do_not_inflate_agreement(tmp_path):
         _append_duplicate_reps(store.path, n_reps=4, num_subjects=(20,)), **kw)
     assert doubled["n_pairs"].iloc[0] == clean["n_pairs"].iloc[0] == 6
     np.testing.assert_allclose(doubled["mean_vi_norm"], clean["mean_vi_norm"])
+
+
+# --------------------------------------------------------------------- merged traversal
+
+def test_merged_traversal_matches_the_separate_passes(tmp_path):
+    """The merge must be an optimisation, not a different computation.
+
+    It exists because the three passes each rebuilt the same linkage trees, cuts and cophenetic
+    rankings - three times the dominant cost on a 17,729-fit store.
+    """
+    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20, 50))
+    kw = dict(ks=(2, 3, 5), linkages=("average", "ward"), verbose=False, n_jobs=1)
+    merged = cs.compute_agglomerative_tables(store, max_pairs=None, **kw)
+
+    pd.testing.assert_frame_equal(
+        merged["agreement"], cs.compute_cluster_agreement(store, max_pairs=None, **kw))
+    pd.testing.assert_frame_equal(
+        merged["dendrogram"],
+        cs.compute_dendrogram_agreement(store, linkages=("average", "ward"), verbose=False,
+                                        n_jobs=1, max_pairs=None))
+    pd.testing.assert_frame_equal(merged["sizes"], cs.compute_cluster_sizes(store, **kw))
+
+
+def test_merged_traversal_matches_under_pair_sampling(tmp_path):
+    """Sampling must draw the same pairs in the merged path as in the separate ones."""
+    store = _conf_store(tmp_path, n_reps=6, num_subjects=(20,))
+    kw = dict(ks=(3,), linkages=("average",), verbose=False, n_jobs=1, max_pairs=5)
+    merged = cs.compute_agglomerative_tables(store, **kw)
+    pd.testing.assert_frame_equal(merged["agreement"], cs.compute_cluster_agreement(store, **kw))
+    assert merged["agreement"]["n_pairs"].iloc[0] == 5
+    assert merged["dendrogram"]["n_pairs"].iloc[0] == 5
+
+
+def test_merged_traversal_parallel_matches_serial(tmp_path):
+    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,))
+    kw = dict(ks=(2, 3), linkages=("average",), verbose=False, max_pairs=None)
+    a = cs.compute_agglomerative_tables(store, n_jobs=1, **kw)
+    b = cs.compute_agglomerative_tables(store, n_jobs=2, **kw)
+    for name in ("agreement", "dendrogram", "sizes"):
+        pd.testing.assert_frame_equal(a[name], b[name])
+
+
+def test_a_lone_rep_still_gets_sizes_but_no_pair_metrics(tmp_path):
+    """Sizes are per-fit, so a group of one is meaningful there and nowhere else."""
+    store = _conf_store(tmp_path, n_reps=1, num_subjects=(20,))
+    merged = cs.compute_agglomerative_tables(store, ks=(3,), linkages=("average",), verbose=False,
+                                             n_jobs=1)
+    assert not merged["sizes"].empty
+    assert merged["agreement"].empty and merged["dendrogram"].empty
+
+
+# --------------------------------------------------------------------- within-silhouette cache
+
+def test_cached_within_silhouette_matches_recomputing_it(tmp_path):
+    """The cache must not change a single reported number."""
+    rng = np.random.default_rng(0)
+    a = _blobs(n_per=8, k=3, sd=0.3, seed=1, ndim=3)
+    b = a + rng.normal(0, 0.1, a.shape)
+    sq_a, sq_b = squareform(pdist(a)), squareform(pdist(b))
+    la = fcluster(cs.build_linkage(pdist(a), "average"), t=3, criterion="maxclust")
+    lb = fcluster(cs.build_linkage(pdist(b), "average"), t=3, criterion="maxclust")
+
+    fresh = cs.silhouette_pair(sq_a, sq_b, la, lb)
+    cached = cs.silhouette_pair(sq_a, sq_b, la, lb,
+                                within_a=cs.safe_silhouette(sq_a, la),
+                                within_b=cs.safe_silhouette(sq_b, lb))
+    assert fresh == cached
+
+
+def test_prepared_fit_caches_one_within_value_per_linkage_and_k():
+    fit = cs._PreparedFit(pdist(_blobs(n_per=8, k=3, sd=0.3, seed=2, ndim=3)),
+                          ks=(2, 3, 5), linkages=("average", "ward"))
+    assert set(fit.within) == {(m, k) for m in ("average", "ward") for k in (2, 3, 5)}
+    assert fit.within[("average", 3)] == cs.safe_silhouette(fit.square, fit.labels["average"][3])
