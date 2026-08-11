@@ -41,8 +41,23 @@ class Run:
              "validity_gradient", "noise_vs_distance", "noise_curve_shape")
     DIAGNOSTICS = ("level_coverage", "gt_gradient", "gt_vs_raw", "noise_ceiling")
 
-    def __init__(self, run_dir: Path):
+    # Stage 1 (ground-truth construction) is a separate EC2 run with its own S3 prefix, so its
+    # artifacts live in a sibling directory rather than inside this one.
+    STAGE1_TABLES = ("scan_summary", "cv_summary")
+    STAGE1_JSON = ("selection", "discard_rates")
+
+    def __init__(self, run_dir: Path, stage1_dir: Optional[Path] = None):
         self.dir = Path(run_dir)
+        self.stage1_dir = Path(stage1_dir) if stage1_dir else self.dir.parent / "gt-construction-v5"
+        self.stage1: Dict[str, object] = {}
+        for name in self.STAGE1_TABLES:
+            path = self.stage1_dir / "gt" / f"{name}.csv"
+            if path.is_file():
+                self.stage1[name] = pd.read_csv(path)
+        for name in self.STAGE1_JSON:
+            path = self.stage1_dir / "gt" / f"{name}.json"
+            if path.is_file():
+                self.stage1[name] = json.loads(path.read_text())
         self.tables: Dict[str, pd.DataFrame] = {}
         for name in self.NAMES:
             path = self.dir / "out" / f"{name}.csv"
@@ -159,32 +174,40 @@ nav a:hover { text-decoration: underline; }
 """
 
 TOC = [
-    ("model", "What was simulated"),
-    ("arms", "The arms, and what is merely swept"),
-    ("gt", "The ground truth, and the limit it puts on everything"),
-    ("coverage", "Does the design see more image pairs?"),
-    ("deploy", "What the deployable constraint costs"),
-    ("reliability", "Reliability before any embedding"),
-    ("embedding", "Does the embedding itself reproduce?"),
-    ("recovery", "Recovering the ground truth"),
-    ("clusters", "At what granularity does structure reproduce?"),
-    ("density", "Which images belong to no group at all?"),
-    ("validity", "Is the simulation realistic enough to believe?"),
-    ("limits", "What this can and cannot answer"),
+    ("summary", "In one page"),
+    ("task", "What participants actually do"),
+    ("why", "Why simulate instead of running the study"),
+    ("map", "Stage 1: turning pilot answers into a map"),
+    ("dims", "Stage 1: how many dimensions?"),
+    ("quality", "Stage 1 check: is the map any good?"),
+    ("arms", "Stage 2: the two ways of handing out images"),
+    ("validity", "Does the simulated participant behave like a real one?"),
+    ("coverage", "Result: how much of the map gets seen"),
+    ("deploy", "What the session rule costs"),
+    ("reliability", "The catch: breadth versus precision"),
+    ("embedding", "Result: does the same map come out?"),
+    ("recovery", "Result: do we recover the right answer?"),
+    ("clusters", "Result: can we sort images into groups?"),
+    ("density", "Result: which images resemble nothing else?"),
+    ("limits", "What to do, and what we don't know"),
+    ("glossary", "Glossary"),
 ]
 
 
-def build(run: Run, title: str = "SpAM design simulation (task-v5, stage 2)") -> str:
+def build(run: Run, title: str = "How should we hand out images? A simulation report") -> str:
     """Assemble the whole page."""
     from SpAM_Simulations.reporting import report_clusters as rc
+    from SpAM_Simulations.reporting import report_intro as ri
     from SpAM_Simulations.reporting import report_sections as rs
 
     sections = [
-        rs.section_model(run), rs.section_arms(run), rs.section_ground_truth(run),
+        ri.section_summary(run), ri.section_task(run), ri.section_why_simulate(run),
+        ri.section_stage1_map(run), ri.section_dimensions(run), ri.section_map_quality(run),
+        rs.section_arms(run), rc.section_validity(run),
         rs.section_coverage(run), rs.section_deployability(run), rs.section_reliability(run),
         rs.section_embedding(run), rs.section_recovery(run),
-        rc.section_clusters(run), rc.section_density(run), rc.section_validity(run),
-        rc.section_limits(run),
+        rc.section_clusters(run), rc.section_density(run),
+        rc.section_limits(run), rc.section_glossary(run),
     ]
     toc = "".join(f'<li><a href="#{a}">{html.escape(t)}</a></li>' for a, t in TOC)
     missing = [n for n in ("embedding_stability", "recovery_vs_gt") if not run.has(n)]
@@ -203,8 +226,9 @@ def build(run: Run, title: str = "SpAM design simulation (task-v5, stage 2)") ->
 {plotly_js}
 </head><body><div class="wrap">
 <h1>{html.escape(title)}</h1>
-<p class="sub">Simulation report &mdash; does a designed image-to-trial allocation recover the
-perceptual space better than the random allocation currently deployed?</p>
+<p class="sub">Building a perceptual map of 725 images: how many people we need, how to
+spread their effort, and what the data can and cannot support. Written to be read without prior
+knowledge of the project &mdash; section 15 defines every term.</p>
 {banner}
 <nav><strong>Contents</strong><ol>{toc}</ol></nav>
 {"".join(sections)}
@@ -216,10 +240,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--run", required=True, type=Path, help="downloaded run directory")
     p.add_argument("--out", type=Path, default=None, help="defaults to <run>/report_v5.html")
-    p.add_argument("--title", default="SpAM design simulation (task-v5, stage 2)")
+    p.add_argument("--stage1", type=Path, default=None,
+                   help="stage-1 run directory holding gt/ (selection.json, scan_summary.csv). "
+                        "Defaults to a sibling named gt-construction-v5; the stage-1 sections say "
+                        "so rather than inventing numbers when it is absent.")
+    p.add_argument("--title", default="How should we hand out images? A simulation report")
     args = p.parse_args(argv)
 
-    run = Run(args.run)
+    run = Run(args.run, args.stage1)
     print(f"[report] tables loaded: {sorted(run.tables)}")
     absent = [n for n in Run.NAMES if n not in run.tables]
     if absent:
