@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 from scipy.spatial.distance import pdist, squareform
 
-from SpAM_Simulations.simulation import Simulation, build_ground_truth_embeddings
-from SpAM_Simulations.task_v3_experiment import (
+from SpAM_Simulations.core.simulation import Simulation, build_ground_truth_embeddings
+from SpAM_Simulations.models.task_v3_experiment import (
     simulate_task_v3_experiment, simulate_task_v3_single_subject, TaskV3ExperimentParameters,
     project_2d, _draw_perspective_weights, _trial_test_retest,
 )

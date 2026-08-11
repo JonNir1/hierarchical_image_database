@@ -19,8 +19,8 @@ sweep on EC2. For *what* the simulations answer and *how* the pipeline is put to
 `run_mds_sweep` (the weighted-SMACOF reconstruction step) requires R + `smacof`.
 
 ```python
-from SpAM_Simulations.config import SimulationConfig, MDSSweepConfig
-from SpAM_Simulations import pipeline
+from SpAM_Simulations.core.config import SimulationConfig, MDSSweepConfig
+from SpAM_Simulations.core import pipeline
 
 cfg = SimulationConfig(
     n_images=60, n_dims=8,                       # or: gt_embeddings=<N x D array> for real data
@@ -37,7 +37,7 @@ emb   = pipeline.compute_embedding_stability(store)         # Spearman of distan
 gen   = pipeline.compute_embedding_generalizability(store)  # Procrustes M^2 of the spaces (LOWER=better)
 ```
 
-Or run the bundled example: `python -m SpAM_Simulations.example_pipeline` (from the repo root).
+Or run the bundled example: `python -m SpAM_Simulations.cli.example_pipeline` (from the repo root).
 
 ## Performance and storage notes
 - Generation is vectorized and runs in condensed form (~9-10x faster than the original loop,
@@ -634,7 +634,7 @@ Get-ChildItem -Recurse $DEST | Select-Object FullName
 #### F. Cluster analysis (local, PowerShell)
 
 ```powershell
-.venv\Scripts\python.exe -m SpAM_Simulations.run_cluster_analysis --store SpAM_Simulations\sim_results\design-comparison-v5\mds_store --out SpAM_Simulations\sim_results\design-comparison-v5\out
+.venv\Scripts\python.exe -m SpAM_Simulations.cli.run_cluster_analysis --store SpAM_Simulations\sim_results\design-comparison-v5\mds_store --out SpAM_Simulations\sim_results\design-comparison-v5\out
 ```
 
 Needs no R. Writes six frames into `out/`, which `eval_helpers.load_run` then picks up as optional
@@ -665,7 +665,7 @@ fine-grained result: `frac_of_ceiling` above 1 means the embedding reproduces va
 cannot reproduce in itself.
 
 ```powershell
-.venv\Scripts\python.exe -m SpAM_Simulations.gt_diagnostics --gt SpAM_Simulations\sim_results\design-comparison-v5\gt_pre_shine_d8.npy --manifest SpAM_Task\stimuli_manifest.json --out SpAM_Simulations\sim_results\design-comparison-v5\gt_diagnostics
+.venv\Scripts\python.exe -m SpAM_Simulations.empirical.gt_diagnostics --gt SpAM_Simulations\sim_results\design-comparison-v5\gt_pre_shine_d8.npy --manifest SpAM_Task\stimuli_manifest.json --out SpAM_Simulations\sim_results\design-comparison-v5\gt_diagnostics
 ```
 
 #### H. The noise-shape validity check (local, PowerShell)
@@ -675,13 +675,13 @@ seconds. Stage 2 also runs it, but having it locally means a crash at the tail o
 costs nothing.
 
 ```powershell
-.venv\Scripts\python.exe -m SpAM_Simulations.run_validity --run SpAM_Simulations\sim_results\design-comparison-v5 --manifest SpAM_Task\stimuli_manifest.json
+.venv\Scripts\python.exe -m SpAM_Simulations.cli.run_validity --run SpAM_Simulations\sim_results\design-comparison-v5 --manifest SpAM_Task\stimuli_manifest.json
 ```
 
 #### I. Rebuild the store-derived tables (local, only after a grouping fix)
 
 ```powershell
-.venv\Scripts\python.exe -m SpAM_Simulations.recompute_store_tables --run SpAM_Simulations\sim_results\design-comparison-v5
+.venv\Scripts\python.exe -m SpAM_Simulations.cli.recompute_store_tables --run SpAM_Simulations\sim_results\design-comparison-v5
 ```
 
 Rebuilds `embedding_stability`, `embedding_generalizability`, `topk_jaccard` and `recovery_vs_gt`
@@ -690,7 +690,7 @@ against the current grouping. ~3 hours on 8 cores; `--only <name>` for a subset.
 #### J. The report (local, PowerShell)
 
 ```powershell
-.venv\Scripts\python.exe -m SpAM_Simulations.build_report --run SpAM_Simulations\sim_results\design-comparison-v5
+.venv\Scripts\python.exe -m SpAM_Simulations.reporting.build_report --run SpAM_Simulations\sim_results\design-comparison-v5
 ```
 
 Writes a self-contained `report_v5.html` (~5 MB, plotly inlined, opens anywhere). `report_v5.ipynb`

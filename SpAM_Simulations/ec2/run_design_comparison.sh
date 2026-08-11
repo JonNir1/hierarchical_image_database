@@ -47,7 +47,7 @@
 # by sample size, not the intrinsic dimensionality. A 3-D ground truth is easier to recover than the
 # truth, so building the planning simulation on it would understate required-N. Set
 # GT_NDIM=selected to follow the scan instead. The extra GT is built by
-# `python -m SpAM_Simulations.build_extra_gt --ndim 8` inside a stage-1 clone.
+# `python -m SpAM_Simulations.cli.build_extra_gt --ndim 8` inside a stage-1 clone.
 #
 # NOISE IS CALIBRATED ON ALL 47 PILOT SUBJECTS (pre AND post SHINE), unlike the ground truth, which is
 # pre-SHINE only. The reason is that the noise fit estimates a property of SUBJECTS - how reliably a
@@ -238,13 +238,15 @@ import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist
 
-from SpAM_Simulations import canvas as cv, design_comparison, pipeline, validity
-from SpAM_Simulations.allocation import DESIGNED, RANDOM, make_allocator
-from SpAM_Simulations.block_design import greedy_session_design
-from SpAM_Simulations.config import MDSSweepConfig, TaskV5SimulationConfig
-from SpAM_Simulations.gt_construction import aggregate_subjects
-from SpAM_Simulations.calibrate_v5 import CalibrationError, calibrate
-from SpAM_Simulations.pilot import load_pilot_subjects
+from SpAM_Simulations.core import pipeline
+from SpAM_Simulations.measures import design_comparison, validity
+from SpAM_Simulations.models import canvas as cv
+from SpAM_Simulations.models.allocation import DESIGNED, RANDOM, make_allocator
+from SpAM_Simulations.models.block_design import greedy_session_design
+from SpAM_Simulations.core.config import MDSSweepConfig, TaskV5SimulationConfig
+from SpAM_Simulations.empirical.gt_construction import aggregate_subjects
+from SpAM_Simulations.empirical.calibrate_v5 import CalibrationError, calibrate
+from SpAM_Simulations.empirical.pilot import load_pilot_subjects
 
 OUT = pathlib.Path("out"); OUT.mkdir(exist_ok=True)
 CAL = pathlib.Path("calibration"); CAL.mkdir(exist_ok=True)
@@ -324,7 +326,7 @@ if not gt_path.exists():
     raise SystemExit(
         f"{gt_path} not found. GT_NDIM={D_GT} needs a ground truth built at that dimensionality; "
         f"build it inside a stage-1 clone with\n"
-        f"    python -m SpAM_Simulations.build_extra_gt --ndim {D_GT}\n"
+        f"    python -m SpAM_Simulations.cli.build_extra_gt --ndim {D_GT}\n"
         f"then re-push gt/. Or set GT_NDIM=selected to use the scan's own choice "
         f"({SELECTED}, {selection['gt_file']})."
     )
@@ -361,7 +363,7 @@ else:
     print("[2a] out/design_only.csv already present, skipping", flush=True)
 
 # --- calibration ------------------------------------------------------------------------------
-# All of it lives in SpAM_Simulations.calibrate_v5 now - see that module's docstring for why it is
+# All of it lives in SpAM_Simulations.empirical.calibrate_v5 now - see that module's docstring for why it is
 # not ninety lines of heredoc. The constants are fitted on ALL pilot subjects (both SHINE variants):
 # reliability and between-subject agreement are properties of people, not of the stimulus set.
 #
@@ -428,7 +430,7 @@ cfg = TaskV5SimulationConfig(
     reps=REPS, seed=SEED,
 )
 if TABLES_ONLY:
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core.storage import ResultStore
 
     if not pathlib.Path("mds_store").is_dir():
         raise SystemExit("TABLES_ONLY needs an existing mds_store/ on disk. Pull the one from the "
@@ -541,7 +543,7 @@ if not per_cell.empty:
         # unsupported level inverts there for every cell. Not a gate.
         print("[validity] note: monotone on the supported levels in every cell, but on no cell "
               "across ALL levels. That is the ground truth, not the sweep - run "
-              "`python -m SpAM_Simulations.gt_diagnostics` on it if it matters to you.", flush=True)
+              "`python -m SpAM_Simulations.empirical.gt_diagnostics` on it if it matters to you.", flush=True)
 
 if grads:
     pd.concat(grads, ignore_index=True).to_csv(OUT / "validity_gradient.csv", index=False)

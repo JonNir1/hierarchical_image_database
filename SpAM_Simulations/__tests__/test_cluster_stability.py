@@ -15,7 +15,7 @@ import pytest
 from scipy.cluster.hierarchy import fcluster
 from scipy.spatial.distance import pdist, squareform
 
-from SpAM_Simulations import cluster_stability as cs
+from SpAM_Simulations.measures import cluster_stability as cs
 
 
 # --------------------------------------------------------------------- factories
@@ -336,7 +336,7 @@ META = ["num_subjects", "rep", "ndim", "niter", "stress", "status"]
 
 def _conf_store(tmp_path, n_reps=4, num_subjects=(20, 50), ndim=3, statuses=None, seed=0):
     """A store whose cohorts are noisy views of one planted 3-blob structure."""
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core.storage import ResultStore
     rng = np.random.default_rng(seed)
     truth = _blobs(n_per=N_IMAGES // 3, k=3, sd=0.25, seed=seed, ndim=MAX_NDIM)
     store = ResultStore.create(tmp_path / "s", confdist_len=N_IMAGES * (N_IMAGES - 1) // 2,
@@ -388,7 +388,7 @@ def test_a_group_with_one_usable_rep_is_skipped_not_crashed(tmp_path):
 
 
 def test_drivers_reject_a_store_without_configurations(tmp_path):
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core.storage import ResultStore
     store = ResultStore.create(tmp_path / "nc", confdist_len=10, meta_columns=META)
     store.append({"num_subjects": 1, "rep": 0, "ndim": 2, "niter": 1, "stress": 0.1,
                   "status": "success"}, confdist=np.zeros(10, dtype=np.float32))
@@ -418,7 +418,7 @@ def test_drivers_read_conf_not_confdist(tmp_path):
     """The whole point of the conf-only download: clustering must not touch confdists.f32."""
     store = _conf_store(tmp_path)
     (store.path / "confdists.f32").unlink()
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core.storage import ResultStore
     reopened = ResultStore.open(store.path)
     assert not reopened.has_confdists
     df = cs.compute_cluster_agreement(reopened, ks=(3,), linkages=("average",), verbose=False)
@@ -577,7 +577,7 @@ def test_high_k_threshold_sits_inside_the_default_grid():
 
 def _append_duplicate_reps(store_path, n_reps, num_subjects, ndim=3, seed=99):
     """Re-append a second copy of every fit, as a resume that lost track of completed work does."""
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core.storage import ResultStore
     rng = np.random.default_rng(seed)
     truth = _blobs(n_per=N_IMAGES // 3, k=3, sd=0.25, seed=0, ndim=MAX_NDIM)
     store = ResultStore.open(store_path)
@@ -598,7 +598,7 @@ def test_duplicate_reps_are_dropped_before_grouping(tmp_path):
     exactly 0 and ARI exactly 1 and every rep-pair metric is biased upward. 48 of 1728 groups in the
     real task-v5 stage-2 store were in this state.
     """
-    from SpAM_Simulations.pipeline import _grouped_successful
+    from SpAM_Simulations.core.pipeline import _grouped_successful
 
     store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,))
     grouped, _ = _grouped_successful(store, None)

@@ -9,8 +9,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from SpAM_Simulations import gt_diagnostics as gd
-from SpAM_Simulations import validity as val
+from SpAM_Simulations.empirical import gt_diagnostics as gd
+from SpAM_Simulations.measures import validity as val
 
 PATHS = [
     "animate/animal/bird/a1.png",

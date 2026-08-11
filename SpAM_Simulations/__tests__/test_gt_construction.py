@@ -10,10 +10,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from SpAM_Simulations import gt_construction as gtc
+from SpAM_Simulations.empirical import gt_construction as gtc
 
 try:
-    from SpAM_Simulations.multi_dimensional_scaling import run_mds  # noqa: F401
+    from SpAM_Simulations.core.multi_dimensional_scaling import run_mds  # noqa: F401
     _MDS_AVAILABLE, _MDS_SKIP = True, ""
 except (ImportError, IndexError, RuntimeError, OSError, AttributeError) as e:
     _MDS_AVAILABLE, _MDS_SKIP = False, f"R/rpy2/smacof unavailable: {type(e).__name__}: {e}"
@@ -273,7 +273,7 @@ def test_build_gt_refuses_a_disconnected_graph():
 
 def test_build_gt_from_pilot_delegates(monkeypatch):
     """pilot.build_gt_from_pilot is now a thin wrapper; n_dims must be required."""
-    from SpAM_Simulations import pilot
+    from SpAM_Simulations.empirical import pilot
     seen = {}
     monkeypatch.setattr(pilot, "build_gt", lambda s, n, method="smacof": (seen.update(
         dict(n=n, method=method)) or (np.zeros((3, n), dtype=np.float32), {"n_dims": n})))
@@ -283,7 +283,7 @@ def test_build_gt_from_pilot_delegates(monkeypatch):
 
 def test_choose_n_dims_is_gone():
     """The imputed-eigenspectrum rule must not come back: it manufactured rank on sparse data."""
-    from SpAM_Simulations import pilot
+    from SpAM_Simulations.empirical import pilot
     assert not hasattr(pilot, "_choose_n_dims")
 
 

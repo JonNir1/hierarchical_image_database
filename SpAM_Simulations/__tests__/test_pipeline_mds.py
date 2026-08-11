@@ -9,7 +9,7 @@ import pytest
 
 # rpy2's R initialisation can fail with errors other than ImportError when R is misconfigured.
 try:
-    from SpAM_Simulations.multi_dimensional_scaling import run_mds  # noqa: F401
+    from SpAM_Simulations.core.multi_dimensional_scaling import run_mds  # noqa: F401
     _MDS_AVAILABLE = True
     _MDS_SKIP_REASON = ""
 except (ImportError, IndexError, RuntimeError, OSError, AttributeError) as e:
@@ -18,9 +18,9 @@ except (ImportError, IndexError, RuntimeError, OSError, AttributeError) as e:
 
 pytestmark = pytest.mark.skipif(not _MDS_AVAILABLE, reason=_MDS_SKIP_REASON)
 
-from SpAM_Simulations.config import SimulationConfig, MDSSweepConfig
-from SpAM_Simulations import pipeline
-from SpAM_Simulations.storage import ResultStore
+from SpAM_Simulations.core.config import SimulationConfig, MDSSweepConfig
+from SpAM_Simulations.core import pipeline
+from SpAM_Simulations.core.storage import ResultStore
 
 
 def _small_sim():

@@ -10,8 +10,8 @@ import pandas as pd
 import pytest
 from scipy.spatial.distance import pdist
 
-from SpAM_Simulations import run_cluster_analysis as rca
-from SpAM_Simulations.storage import ResultStore
+from SpAM_Simulations.cli import run_cluster_analysis as rca
+from SpAM_Simulations.core.storage import ResultStore
 
 N_IMAGES, MAX_NDIM = 45, 4
 META = ["num_subjects", "allocation_mode", "rep", "ndim", "niter", "stress", "status"]

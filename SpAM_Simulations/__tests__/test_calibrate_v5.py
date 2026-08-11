@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from SpAM_Simulations import calibrate_v5 as cal
+from SpAM_Simulations.empirical import calibrate_v5 as cal
 
 N_PAIRS = 45
 

@@ -9,8 +9,8 @@ No R needed.
 import numpy as np
 import pytest
 
-from SpAM_Simulations import recovery as rec
-from SpAM_Simulations.metrics import topk_mask
+from SpAM_Simulations.measures import recovery as rec
+from SpAM_Simulations.measures.metrics import topk_mask
 
 
 def _gt(n=2000, seed=0):
@@ -124,8 +124,8 @@ def test_recovery_summary_rejects_mismatched_shapes():
 # --------------------------------------------------------------------- pipeline integration
 
 def test_compute_recovery_vs_gt_groups_and_averages(tmp_path):
-    from SpAM_Simulations import pipeline
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core import pipeline
+    from SpAM_Simulations.core.storage import ResultStore
 
     n_pairs = 500
     gt = _gt(n=n_pairs)
@@ -150,8 +150,8 @@ def test_compute_recovery_vs_gt_groups_and_averages(tmp_path):
 
 
 def test_compute_recovery_vs_gt_rejects_a_mismatched_ground_truth(tmp_path):
-    from SpAM_Simulations import pipeline
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core import pipeline
+    from SpAM_Simulations.core.storage import ResultStore
 
     store = ResultStore.create(tmp_path / "s", confdist_len=100,
                                meta_columns=["rep", "ndim", "niter", "stress", "status"])

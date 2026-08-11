@@ -47,8 +47,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/prepare_machine.sh"
 # --------------------------------------------------------------------------- run the sweep
 N_JOBS="$N_JOBS" python - <<'PY'
 import os
-from SpAM_Simulations.config import TaskV2_3SimulationConfig, MDSSweepConfig
-from SpAM_Simulations import pipeline
+from SpAM_Simulations.core.config import TaskV2_3SimulationConfig, MDSSweepConfig
+from SpAM_Simulations.core import pipeline
 
 cfg = TaskV2_3SimulationConfig(
     n_images=725, n_dims=10,

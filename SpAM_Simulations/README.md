@@ -15,7 +15,7 @@ later withdrawn, see [FINDINGS.md](FINDINGS.md).
 v3 and v4 placed images on an *unbounded plane*. The deployed task places them in a rectangle and
 divides every distance by its diagonal, so the observable cannot exceed 1.0 - but the unbounded
 model produced a median per-trial maximum of **1.39**, i.e. arrangements that cannot physically
-occur. [`canvas.py`](canvas.py) supplies the missing geometry and v5 makes it intrinsic.
+occur. [`models/canvas.py`](canvas.py) supplies the missing geometry and v5 makes it intrinsic.
 
 | version | status |
 |---|---|
@@ -347,7 +347,7 @@ parameters that could plausibly drive them.
 ### Step a: calibrate to the pilot
 
 Without calibration the simulation's internals are guessed, so the absolute required-N is only as
-meaningful as the guesses. `pilot.py` anchors them to real data, turning the estimate from "as a
+meaningful as the guesses. `empirical/pilot.py` anchors them to real data, turning the estimate from "as a
 function of guessed internals" into a calibrated number.
 
 Three observables do the work. **Ground-truth geometry** comes from pooling the pre-SHINE pilot
@@ -435,11 +435,11 @@ re-running skips work already recorded, which is the only checkpointing an inter
 
 ### Steps g-i: cluster and decide
 
-These run **locally**, on a downloaded store, and need no R. `run_cluster_analysis.py` is the
+These run **locally**, on a downloaded store, and need no R. `cli/run_cluster_analysis.py` is the
 one-command driver:
 
 ```bash
-python SpAM_Simulations/run_cluster_analysis.py --store <run>/mds_store --out <run>/out
+python -m SpAM_Simulations.cli.run_cluster_analysis --store <run>/mds_store --out <run>/out
 ```
 
 It writes six frames that `eval_helpers.load_run` picks up as optionals: `cluster_agreement.csv`,
@@ -448,9 +448,9 @@ plus `density_agreement.csv` and `isolated_images.csv` from the HDBSCAN one. Or 
 directly:
 
 ```python
-from SpAM_Simulations import cluster_stability as cs
-from SpAM_Simulations import density_clustering as dc
-from SpAM_Simulations.storage import ResultStore
+from SpAM_Simulations.measures import cluster_stability as cs
+from SpAM_Simulations.measures import density_clustering as dc
+from SpAM_Simulations.core.storage import ResultStore
 
 store = ResultStore.open("sim_results/<run>/mds_store/<cell>")
 agreement = cs.compute_cluster_agreement(store)      # per (config, ndim, linkage, k)
@@ -505,6 +505,22 @@ rules out.
 
 ## Modules
 
+```
+SpAM_Simulations/
+  models/     the generative task models        core/       orchestration, storage, MDS
+  measures/   everything that measures          empirical/  pilot, ground truth, calibration
+  reporting/  report + notebook helpers         cli/        entry points
+  notebooks/  *.ipynb                           ec2/        provisioning + sweep entrypoints
+  __tests__/  the suite                         sim_results/  downloaded runs (gitignored)
+```
+
+There is no `__init__.py` anywhere: the repo root is the package root and these are namespace
+packages, so run everything from the repo root.
+
+### `models/`
+
+The generative task models: how a simulated participant produces an arrangement.
+
 | Module | Responsibility |
 |---|---|
 | `experiment.py` | Core simulation: `simulate_experiment` / `simulate_single_subject` (vectorized, condensed form). |
@@ -515,34 +531,74 @@ rules out.
 | `task_v5_experiment.py` | **Task-v5: the v4 model on a bounded canvas.** Thin wrapper injecting `canvas.make_canvas_trial_simulator` through v4's `trial_simulator` seam, so nothing is duplicated and v4 stays bit-exact. The canvas is intrinsic, not a flag. |
 | `canvas.py` | The 2-D sort rectangle: `CanvasSpec`, per-axis `fit_to_canvas`, smooth `soft_bound` walls, `sample_spec` for per-trial screen shapes. Constants measured on the 26 pilot-cohort v3+ subjects. |
 | `task_v4_experiment.py` | Task-v4: the v3 model **plus the deployed v4.0 screening block**, and the `allocation_mode` arm. Candidates are recruited until `num_subjects` pass, capped by `MAX_RECRUIT_PER_SUBJECT`. `screening_trials=0` reduces to v3 bit-for-bit. |
+| `block_design.py` | Balanced incomplete block designs (MacDonald's "best of greedy", vectorised): `greedy_design`, `best_of_greedy`, `schonheim`, `greedy_session_design`. |
+| `allocation.py` | The `allocation_mode` arm: `RandomAllocator` (deployed scheme) and `DesignedAllocator` (balanced sessions, with rollback). |
+
+### `core/`
+
+Orchestration and persistence: configure a sweep, run it, store it.
+
+| Module | Responsibility |
+|---|---|
 | `simulation.py` | `Simulation` container + ground-truth distances; `make` / `from_embeddings` / `build_ground_truth_embeddings`. |
-| `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`, `test_retest_summary`, `screening_summary`, `effective_rank`, `topk_similar_jaccard`. |
 | `helpers.py` | Distance-matrix format conversion (`convert_to_condensed`). |
 | `multi_dimensional_scaling.py` | `run_mds`: weighted SMACOF via R's `smacof` (needs R + rpy2). |
 | `config.py` | `SimulationConfig` and the task-v2.3 / v2.4 / v3 / v4 / v5 variants (v4 carries the `allocation_mode` arm, v5 adds `canvas_softness`), plus `MDSSweepConfig`. |
 | `pipeline.py` | Orchestration: generate (v0.1 through v5), coverage, stability, MDS sweep, embedding/item generalizability, top-k stability, `compute_recovery_vs_gt`. |
 | `storage.py` | `ResultStore`: compact, streamable, resumable on-disk store. Holds each fit's `confdist` and, optionally, its MDS configuration (`confs.f32`). Format v2; v1 stores still open unchanged. |
-| `pilot.py` | **Read-only** pilot ingestion + calibration: load the flat `data/` dir, filter by cohort / version / **SHINE variant**, the test-retest and between-subject-agreement observables, and `calibrate_params_from_pilot`. |
-| `gt_construction.py` | **Task-agnostic** GT construction: `dimensionality_scan`, `select_ndim` (one-SE), `cross_validate_ndim`, `build_gt`, plus the joblib payload path (`split_aggregates`, `scan_ndim_parallel`, `cross_validate_ndim_parallel`) the EC2 stage needs. Replaces the retired imputed-eigenspectrum rule. |
-| `block_design.py` | Balanced incomplete block designs (MacDonald's "best of greedy", vectorised): `greedy_design`, `best_of_greedy`, `schonheim`, `greedy_session_design`. |
-| `allocation.py` | The `allocation_mode` arm: `RandomAllocator` (deployed scheme) and `DesignedAllocator` (balanced sessions, with rollback). |
+
+### `measures/`
+
+Everything that measures a cohort or an embedding. No simulation, no R.
+
+| Module | Responsibility |
+|---|---|
+| `metrics.py` | `coverage`, `spearman_correlation`, `snr_summary`, `test_retest_summary`, `screening_summary`, `effective_rank`, `topk_similar_jaccard`. |
 | `design_comparison.py` | Compares allocation arms as **sampling plans** (coverage, per-image balance, waste). No subjects, no MDS, no R. |
 | `recovery.py` | Recovery of the GT's closest pairs: `recall_at_frac`, `dprime_at_frac`, `separation_dprime`, `auc_near_pairs`. |
 | `validity.py` | Is a simulated cohort realistic: distance-distribution comparison, the semantic-hierarchy gradient, and the noise-vs-distance curve (`noise_vs_distance`, `noise_curve_shape`, `simulate_repeat_pairs`). |
 | `density_clustering.py` | **Descriptive** density pass (HDBSCAN): noise fraction, cross-cohort agreement on *which* images are isolated, `compute_density_agreement`, `isolated_images`. Never enters the VI chain. |
 | `cluster_stability.py` | Between-cohort cluster agreement: VI/ARI/AMI, cross-cohort silhouette, cluster-wise Jaccard, Baker's gamma; the `compute_cluster_*` store drivers; and `select_k` / `continuum_diagnostics`. Runs **locally** on a downloaded store. |
-| `build_extra_gt.py` | Builds a GT at a chosen dimensionality, for when the scan's choice is a sample-size floor rather than the intrinsic dimensionality. Records the build without touching `selection.json`. |
-| `run_cluster_analysis.py` | Local CLI driver for pipeline steps g-i: opens a downloaded store, writes the six cluster tables, prints the continuum verdicts. No R, no EC2. |
+
+### `empirical/`
+
+The pilot data, the ground truth built from it, and the calibration that ties the model to it.
+
+| Module | Responsibility |
+|---|---|
+| `pilot.py` | **Read-only** pilot ingestion + calibration: load the flat `data/` dir, filter by cohort / version / **SHINE variant**, the test-retest and between-subject-agreement observables, and `calibrate_params_from_pilot`. |
+| `gt_construction.py` | **Task-agnostic** GT construction: `dimensionality_scan`, `select_ndim` (one-SE), `cross_validate_ndim`, `build_gt`, plus the joblib payload path (`split_aggregates`, `scan_ndim_parallel`, `cross_validate_ndim_parallel`) the EC2 stage needs. Replaces the retired imputed-eigenspectrum rule. |
 | `calibrate_v5.py` | The three fitted constants (noise population, dispersion, test-retest noise) with a **fingerprint-checked cache**. Lifted out of the EC2 heredoc so it is testable and re-runnable locally. The fingerprint hashes the GT *coordinates*, not its filename. |
 | `gt_diagnostics.py` | Is a fitted GT worth trusting: per-level observed coverage, its own semantic gradient, its in-sample agreement with the raw aggregate, and the **half-split noise ceiling** that makes that agreement interpretable. Cheap screen, no R, no MDS. |
+
+### `reporting/`
+
+Turning a finished run into something readable.
+
+| Module | Responsibility |
+|---|---|
+| `build_report.py`, `report_sections.py`, `report_clusters.py` | Build the self-contained HTML results report. Every number is read from the run's CSVs at build time, so the page cannot drift from the tables. `build_report` also exposes a CLI: `python -m SpAM_Simulations.reporting.build_report`. |
+| `eval_helpers.py` | Read-only loading/plotting helpers for `notebooks/evaluate_simulation.ipynb`. No simulation, no MDS, no R. |
+
+### `cli/`
+
+Entry points. `python -m SpAM_Simulations.cli.<name> --help` for each.
+
+| Module | Responsibility |
+|---|---|
+| `build_extra_gt.py` | Builds a GT at a chosen dimensionality, for when the scan's choice is a sample-size floor rather than the intrinsic dimensionality. Records the build without touching `selection.json`. |
+| `run_cluster_analysis.py` | Local CLI driver for pipeline steps g-i: opens a downloaded store, writes the six cluster tables, prints the continuum verdicts. No R, no EC2. |
 | `run_validity.py` | Local CLI for the noise-vs-distance check, driven from a downloaded run's `calibration.json`. Needs no store and no R; runs in seconds. |
 | `recompute_store_tables.py` | Rebuilds the four store-derived metric tables locally, for when a grouping or de-duplication fix lands after the EC2 run. |
-| `build_report.py`, `report_sections.py`, `report_clusters.py` | Build the self-contained HTML results report. Every number is read from the run's CSVs at build time, so the page cannot drift from the tables. |
-| `report_v5.ipynb` | Notebook companion to the report: same tables, same figures, for checking or re-cutting any of it. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
-| `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb`. No simulation, no MDS, no R. |
-| `evaluate_simulation.ipynb` | Overview/drill-down figures for a completed run, via `eval_helpers.py`. |
-| `evaluation_v0_1.ipynb`, `evaluation_task_v2_3.ipynb`, `evaluation_task_v2_4.ipynb` | Per-task-version plotting notebooks for the older simulations. |
+
+### `notebooks/` and other paths
+
+| Path | Responsibility |
+|---|---|
+| `notebooks/report_v5.ipynb` | Notebook companion to the report: same tables, same figures, for checking or re-cutting any of it. |
+| `notebooks/evaluate_simulation.ipynb` | Overview/drill-down figures for a completed run, via `reporting/eval_helpers.py`. |
+| `notebooks/evaluation_v0_1.ipynb`, `notebooks/evaluation_task_v2_3.ipynb`, `notebooks/evaluation_task_v2_4.ipynb` | Per-task-version plotting notebooks for the older simulations. |
 | `ec2/` | Provisioning + staging helpers (`prepare_machine.sh`) and the sweep entrypoints, including the current two-stage programme (`run_gt_construction.sh`, `run_design_comparison.sh`). See [Cookbook.md](Cookbook.md#running-on-ec2). |
 | `sim_results/<run-name>/` | Local copy of a completed run's small files, downloaded from S3. Gitignored. |
 
@@ -591,7 +647,7 @@ Named snapshots at notable `SpAM_Simulations` milestones:
 | Tag | Commit | Date | Marks |
 |---|---|---|---|
 | `spam-sim-pre-refactor` | `73a9b14` | 2026-06-18 | Last commit before the bit-exact vectorization + reusable pipeline/storage refactor (condensed-form simulation, ~9x speed-up; `ResultStore`; parallel MDS sweep; EC2 provisioning). |
-| `sim-v2.3` | `33d65e2` | 2026-06-24 | `evaluate_simulation.ipynb` display/correctness polish plus the `ec2/`/`sim_results/` directory reorg. |
+| `sim-v2.3` | `33d65e2` | 2026-06-24 | `notebooks/evaluate_simulation.ipynb` display/correctness polish plus the `ec2/`/`sim_results/` directory reorg. |
 | `spam-task-v2.5` | `b82f454` | 2026-06-25 | SpAM task v2.5. |
 | `spam-sim-v3-calibrated` | `813896d` | 2026-07-07 | GT-build provenance and the first pilot-calibrated task-v3 sweep. |
 | `spam-task-v3.24` | `7cec31b` | 2026-07-08 | SpAM task v3.24. |

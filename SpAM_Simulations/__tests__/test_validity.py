@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 from scipy.spatial.distance import squareform
 
-from SpAM_Simulations import validity as val
+from SpAM_Simulations.measures import validity as val
 
 # Two categories, two subcategories each, two images per leaf. LCA depths are checkable by eye.
 PATHS = [

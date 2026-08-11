@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from SpAM_Simulations import eval_helpers as eh
+from SpAM_Simulations.reporting import eval_helpers as eh
 
 
 # --------------------------------------------------------------------- fixtures

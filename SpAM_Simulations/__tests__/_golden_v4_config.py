@@ -22,8 +22,8 @@ The grid deliberately spans the branch points that matter:
 """
 from itertools import product
 
-from SpAM_Simulations.allocation import RANDOM
-from SpAM_Simulations.task_v4_experiment import TaskV4ExperimentParameters
+from SpAM_Simulations.models.allocation import RANDOM
+from SpAM_Simulations.models.task_v4_experiment import TaskV4ExperimentParameters
 
 # Kept tiny so the fixture stays small and the suite stays fast.
 N_IMAGES = 40

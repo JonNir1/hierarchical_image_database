@@ -9,7 +9,7 @@ from collections import Counter
 import numpy as np
 import pytest
 
-from SpAM_Simulations.design import (
+from SpAM_Simulations.models.design import (
     build_trial_lists, compute_design_counts, distinct_trial_count, select_repeat_trials
 )
 

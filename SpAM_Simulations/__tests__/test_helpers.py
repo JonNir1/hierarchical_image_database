@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 from scipy.spatial.distance import squareform
 
-from SpAM_Simulations.helpers import convert_to_condensed
-from SpAM_Simulations.experiment import _condensed_pair_indices
+from SpAM_Simulations.core.helpers import convert_to_condensed
+from SpAM_Simulations.models.experiment import _condensed_pair_indices
 
 
 def test_condensed_input_returns_equal_copy():

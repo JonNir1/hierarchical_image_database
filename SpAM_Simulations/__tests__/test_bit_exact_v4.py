@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 import _golden_v4_config as gc
-from SpAM_Simulations.task_v4_experiment import simulate_task_v4_experiment
+from SpAM_Simulations.models.task_v4_experiment import simulate_task_v4_experiment
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "golden_task_v4.npz"
 

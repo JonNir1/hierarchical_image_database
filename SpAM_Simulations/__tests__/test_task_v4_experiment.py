@@ -8,11 +8,11 @@ a regression guard that v4 without screening still reproduces v3 exactly.
 import numpy as np
 import pytest
 
-from SpAM_Simulations.simulation import build_ground_truth_embeddings
-from SpAM_Simulations.task_v3_experiment import (
+from SpAM_Simulations.core.simulation import build_ground_truth_embeddings
+from SpAM_Simulations.models.task_v3_experiment import (
     simulate_task_v3_experiment, TaskV3ExperimentParameters,
 )
-from SpAM_Simulations.task_v4_experiment import (
+from SpAM_Simulations.models.task_v4_experiment import (
     simulate_task_v4_experiment, simulate_task_v4_single_subject, TaskV4ExperimentParameters,
     _CandidateNoisePool, _passes_screening,
 )
@@ -302,7 +302,7 @@ class TestNoisePopulationFamily:
 
     def test_lognormal_reaches_below_the_t_family_floor(self):
         """The whole reason the family was added: |t| cannot express a concentrated cohort."""
-        from SpAM_Simulations.noise_population import population_cv
+        from SpAM_Simulations.models.noise_population import population_cv
         t_floor = min(population_cv("t", df) for df in (5, 30, 200))
         assert t_floor > 0.74                                   # the half-normal limit
         assert population_cv("lognormal", 0.45) < 0.6           # comfortably below it

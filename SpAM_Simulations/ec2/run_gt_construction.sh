@@ -175,8 +175,8 @@ import subprocess
 import numpy as np
 import pandas as pd
 
-from SpAM_Simulations import gt_construction as gtc
-from SpAM_Simulations.pilot import load_pilot_subjects
+from SpAM_Simulations.empirical import gt_construction as gtc
+from SpAM_Simulations.empirical.pilot import load_pilot_subjects
 
 GT = pathlib.Path("gt")
 GT.mkdir(exist_ok=True)

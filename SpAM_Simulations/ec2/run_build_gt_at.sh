@@ -114,7 +114,7 @@ fi
 stage_pull gt
 
 # --------------------------------------------------------------------------- build
-python -m SpAM_Simulations.build_extra_gt \
+python -m SpAM_Simulations.cli.build_extra_gt \
   --ndim "$NDIM" \
   --pilot-dir "$PILOT_DIR" \
   --manifest "$PILOT_DIR/stimuli_manifest.json" \

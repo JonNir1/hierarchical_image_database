@@ -13,8 +13,8 @@ import pytest
 from scipy.spatial.distance import squareform
 
 import _golden_config as gc
-from SpAM_Simulations.experiment import simulate_single_subject, simulate_experiment, ExperimentParameters
-from SpAM_Simulations.simulation import Simulation
+from SpAM_Simulations.models.experiment import simulate_single_subject, simulate_experiment, ExperimentParameters
+from SpAM_Simulations.core.simulation import Simulation
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "golden_experiment.npz"
 

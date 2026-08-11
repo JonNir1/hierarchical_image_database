@@ -6,8 +6,8 @@ import pytest
 from scipy.spatial.distance import squareform
 from scipy.sparse.csgraph import connected_components
 
-from SpAM_Simulations.experiment import ExperimentResults
-from SpAM_Simulations import metrics
+from SpAM_Simulations.models.experiment import ExperimentResults
+from SpAM_Simulations.measures import metrics
 
 
 def _results(num_obs_condensed, distances_condensed=None):
@@ -153,7 +153,9 @@ class TestTopKSimilarJaccard:
 
 def test_the_three_former_call_sites_agree():
     """The consolidation's whole point: one definition of 'the closest frac of pairs'."""
-    from SpAM_Simulations import gt_construction, pipeline, recovery
+    from SpAM_Simulations.core import pipeline
+    from SpAM_Simulations.empirical import gt_construction
+    from SpAM_Simulations.measures import recovery
     assert gt_construction.topk_similar_jaccard is metrics.topk_similar_jaccard
     assert pipeline.topk_similar_jaccard is metrics.topk_similar_jaccard
     assert recovery.topk_mask is metrics.topk_mask

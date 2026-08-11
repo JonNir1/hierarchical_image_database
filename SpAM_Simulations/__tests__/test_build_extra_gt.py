@@ -9,7 +9,7 @@ import json
 import numpy as np
 import pytest
 
-from SpAM_Simulations import build_extra_gt as beg
+from SpAM_Simulations.cli import build_extra_gt as beg
 
 
 class _Subject:
@@ -36,7 +36,7 @@ def _patch_loader(monkeypatch, subjects, gt_dir=None):
     manifest means the exit trap scrubbed the pilot data, and that has to be reported before
     anything else is attempted.
     """
-    from SpAM_Simulations import pilot
+    from SpAM_Simulations.empirical import pilot
     monkeypatch.setattr(pilot, "load_pilot_subjects",
                         lambda *a, **k: subjects, raising=True)
     if gt_dir is not None:
