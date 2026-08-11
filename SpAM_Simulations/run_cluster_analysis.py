@@ -57,7 +57,22 @@ from SpAM_Simulations.storage import ResultStore
 # Grouping for k-selection and the continuum verdicts. `allocation_mode` is included when present so
 # the two arms get their own k* rather than one averaged over both - the whole point of the sweep is
 # that the arms might differ, and pooling them would hide exactly that.
-SELECT_BY = ("num_subjects", "allocation_mode", "ndim", "linkage")
+# k* is chosen per FULL CONFIGURATION, not per (N, arm, ndim, linkage).
+#
+# Those four were the intended reporting axes, but the agreement frame carries a row per swept
+# parameter combination - softness x min_reliability x dispersion, 36 of them - so grouping by only
+# four of the keys leaves 36 rows per (group, k). That silently broke both consumers: `select_k` fed
+# `apply_selection_rule` a k-axis with every k repeated 36 times, and `_metrics_at_k` merged against
+# a non-unique lookup and multiplied the table by 36 per call. Run twice, that turned 144 groups
+# into 186,624 rows and a 35 MB CSV of nonsense.
+#
+# Averaging the sensitivity axes away first would fix the shape but requires inventing a pooling
+# rule for the SEM. Selecting per configuration needs no such invention, gives exactly one row per
+# k within each group, and answers the more useful question directly: how stable is k* ACROSS the
+# swept range? The reporting axes below are what the distribution of k* is then summarised over.
+REPORT_BY = ("num_subjects", "allocation_mode", "ndim", "linkage")
+# Columns that are outcomes rather than group keys, so everything else identifies a configuration.
+_NON_KEY_COLUMNS = ("k", "n_reps", "n_pairs", "high_k")
 
 # Reported at BOTH chosen granularities. Carrying all three at each k* is what makes the trade
 # readable in either direction: how much separation the parsimonious VI choice gives up, and how
@@ -67,7 +82,9 @@ AT_K_METRICS = ("vi_norm", "sil_cross", "sil_ratio")
 
 
 def _select_by(agreement: pd.DataFrame) -> list:
-    return [c for c in SELECT_BY if c in agreement.columns]
+    """Every column that identifies a configuration: one row per k within each resulting group."""
+    return [c for c in agreement.columns
+            if c not in _NON_KEY_COLUMNS and not c.startswith(("mean_", "sem_"))]
 
 
 def _metrics_at_k(frame: pd.DataFrame, agreement: pd.DataFrame, by: list,
@@ -80,8 +97,51 @@ def _metrics_at_k(frame: pd.DataFrame, agreement: pd.DataFrame, by: list,
     k_col = f"k_star_{suffix}"
     cols = [f"mean_{m}" for m in AT_K_METRICS if f"mean_{m}" in agreement.columns]
     lookup = agreement[by + ["k"] + cols].rename(columns={"k": k_col})
-    merged = frame.merge(lookup, on=by + [k_col], how="left")
+    # A non-unique lookup turns this left merge into a cartesian product, which is how a 144-row
+    # table once became 186,624 rows. Fail loudly instead: it means `by` does not identify a
+    # configuration, and every number downstream would be a duplicate.
+    duplicated = int(lookup.duplicated(subset=by + [k_col]).sum())
+    if duplicated:
+        raise ValueError(
+            f"the agreement lookup has {duplicated} duplicate rows per {by + [k_col]}, so merging "
+            f"would multiply the table. `by` must identify one row per k - check that every swept "
+            f"parameter column is included."
+        )
+    merged = frame.merge(lookup, on=by + [k_col], how="left", validate="one_to_one")
     return merged.rename(columns={f"mean_{m}": f"{m}_at_{k_col}" for m in AT_K_METRICS})
+
+
+def build_k_selection(agreement: pd.DataFrame) -> pd.DataFrame:
+    """Choose a granularity per configuration, with the verdicts that say whether it means anything.
+
+    Derived entirely from the agreement frame, so it can be rebuilt from ``cluster_agreement.csv``
+    without touching the store - which matters, because that frame costs hours and this does not.
+
+    TWO granularities, because VI alone does not identify the number of clusters. VI measures
+    *reproducibility*, and a coarse cut of a well-separated structure is perfectly reproducible too:
+    on three planted blobs VI is exactly 0 at k=2 and at k=3 alike, so the parsimony tiebreak returns
+    2. Silhouette is what distinguishes them - it peaks at the true 3 (0.93 against 0.76).
+    ``k_star_vi`` is the safe deduplication rule; ``k_star_sil`` is the scientific claim.
+
+    ``select_k`` and ``continuum_diagnostics`` take a ``criterion=`` and emit a generic ``k_star``,
+    so the criterion is named here, where the two coexist and a bare ``k_star`` would be ambiguous.
+    """
+    by = _select_by(agreement)
+    diagnostics = continuum_diagnostics(agreement, criterion="vi_norm", by=by)
+    # One file, not two: k* is meaningless without the verdicts that say whether it means anything.
+    k_selection = diagnostics[by + ["k_star", "vi_norm_range", "is_flat", "is_arbitrary_slicing"]]
+    k_selection = k_selection.rename(columns={"k_star": "k_star_vi"}).assign(rule="one_se")
+
+    chosen_sil = select_k(agreement, criterion="sil_cross", by=by)[by + ["k_star"]]
+    k_selection = k_selection.merge(chosen_sil.rename(columns={"k_star": "k_star_sil"}),
+                                    on=by, how="outer", validate="one_to_one")
+    for suffix in ("vi", "sil"):
+        k_selection = _metrics_at_k(k_selection, agreement, by, suffix)
+    for suffix in ("vi", "sil"):
+        col = f"k_star_{suffix}"
+        if col in k_selection:
+            k_selection[f"{col}_is_high_k"] = k_selection[col] >= HIGH_K_THRESHOLD
+    return k_selection
 
 
 def run(store_path: Path, out_dir: Path, ks: Sequence[int] = DEFAULT_KS,
@@ -120,29 +180,8 @@ def run(store_path: Path, out_dir: Path, ks: Sequence[int] = DEFAULT_KS,
     sizes["high_k"] = sizes["k"] >= HIGH_K_THRESHOLD
     sizes.to_csv(out_dir / "cluster_sizes.csv", index=False)
 
+    k_selection = build_k_selection(agreement)
     by = _select_by(agreement)
-    # TWO granularities, because VI alone does not identify the number of clusters. VI measures
-    # *reproducibility*, and a coarse cut of a well-separated structure is perfectly reproducible
-    # too: on three planted blobs VI is exactly 0 at k=2 and at k=3 alike, so the parsimony tiebreak
-    # returns 2. Silhouette is what distinguishes them - it peaks at the true 3 (0.93 against 0.76).
-    # `k_star_vi` is the safe deduplication rule; `k_star_sil` is the scientific claim.
-    #
-    # `select_k` and `continuum_diagnostics` take a `criterion=` and emit a generic `k_star`, so the
-    # criterion is named here, where the two coexist and a bare `k_star` would be ambiguous.
-    diagnostics = continuum_diagnostics(agreement, criterion="vi_norm", by=by)
-    # One file, not two: k* is meaningless without the verdicts that say whether it means anything.
-    k_selection = diagnostics[by + ["k_star", "vi_norm_range", "is_flat", "is_arbitrary_slicing"]]
-    k_selection = k_selection.rename(columns={"k_star": "k_star_vi"}).assign(rule="one_se")
-
-    chosen_sil = select_k(agreement, criterion="sil_cross", by=by)[by + ["k_star"]]
-    k_selection = k_selection.merge(chosen_sil.rename(columns={"k_star": "k_star_sil"}),
-                                    on=by, how="outer")
-    for suffix in ("vi", "sil"):
-        k_selection = _metrics_at_k(k_selection, agreement, by, suffix)
-    for suffix in ("vi", "sil"):
-        col = f"k_star_{suffix}"
-        if col in k_selection:
-            k_selection[f"{col}_is_high_k"] = k_selection[col] >= HIGH_K_THRESHOLD
     k_selection.to_csv(out_dir / "k_selection.csv", index=False)
     for suffix in ("vi", "sil"):
         flag = f"k_star_{suffix}_is_high_k"
