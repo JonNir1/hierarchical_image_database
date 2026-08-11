@@ -286,6 +286,91 @@ harmless flips) measures the actual decision. That is why the cluster-agreement 
 
 ---
 
+## 5b. task-v5 stage 2: the design comparison on a bounded canvas
+
+The current run. 17,280 fits (1,728 configurations x 10 cohorts), GT at D=8 over the pre-SHINE pilot,
+noise and dispersion fitted to all 47 pilot sessions. Report: `sim_results/design-comparison-v5/report_v5.html`.
+
+### The designed allocation wins, on every embedding-level measure, at every N
+
+Both arms collect identical numbers of judgements and differ only in which pairs receive them.
+
+| | N=30 | N=50 | N=75 | N=500 |
+|---|---|---|---|---|
+| pair coverage, designed / random (%) | 38.4 / 32.5 | 60.3 / 48.1 | 81.3 / 62.6 | 100 / 99.9 |
+| relative coverage gain | +17.9% | +25.4% | +29.9% | +0.1% |
+| embedding agreement | .400 / .382 | .514 / .495 | .590 / .574 | .874 / .865 |
+| Procrustes m2 (lower better) | .830 / .842 | .752 / .766 | .679 / .697 | .287 / .305 |
+| top-k Jaccard | .142 / .136 | .179 / .172 | .213 / .205 | .452 / .437 |
+| recovery AUC | .784 / .774 | .839 / .831 | .872 / .865 | .958 / .956 |
+
+At N=50, paired within every sensitivity setting, all four embedding metrics favour the design in
+96-99% of settings with Cohen's dz between 1.4 and 2.2. The deployable per-session constraint costs
+**0.3% relative** coverage; the design also uses the image set ~5x more evenly and wastes ~9x fewer
+judgements.
+
+### ⚠️ Coverage is bought with per-pair precision, and only the embedding resolves it
+
+Pre-MDS reliability - the Spearman between two cohorts' pooled distance matrices - is **lower** for
+the designed arm through the deployable range (.126 vs .143 at N=50, favouring random in 96% of
+settings). Same effort over more pairs means fewer observations each.
+
+That reverses at the embedding. Weighted MDS uses the observation counts, so a pair measured once
+still constrains the solution, and constraining more of the space beats constraining less of it more
+precisely. **The pre-MDS correlation is the input to the method, not its output, and the design
+decision should not rest on it.**
+
+### ⚠️ The space does not support fine-grained clusters
+
+All **5,184 configurations** (1,728 x 3 linkages) selected `k*=2`, on both the reproducibility (VI,
+one-SE) and separation (cross-cohort silhouette) criteria - rules built to disagree where real
+structure exists. Cross-cohort silhouette **crosses zero at k≈12** and is negative beyond it: points
+sit closer to a neighbouring cluster than their own.
+
+HDBSCAN corroborates independently. At `min_cluster_size=5`, 61% of images are unclustered and two
+cohorts agree on *which* at κ=0.20. At `min_cluster_size=2` it finds 171 clusters that two cohorts
+agree on at ARI 0.05. No setting both covers the image set and reproduces.
+
+**Implication: deduplicate by a distance threshold, not by cluster membership.**
+
+### ⚠️ How much of that is the ground truth rather than the method
+
+`gt_diagnostics` compares the D=8 GT against the raw aggregate it was fitted from, with a half-split
+noise ceiling as the control. The GT's within-level agreement runs 0.44-0.50 for the coarse levels
+against ceilings of 0.07 / 0.02 / 0.13 / 0.41 - **3.9x to 20.7x the agreement the data reaches with
+itself.** That is the signature of an embedding fitting noise, and it matches the pilot's own
+out-of-sample split-half peaking at 0.233.
+
+So the fine-grained nulls are partly a statement about 41 participants at 31% coverage, not about
+SpAM or MDS. The *design* comparison is unaffected: both arms face the identical GT.
+
+### The bounded canvas reproduces an observable it was never fitted to
+
+RMSE between a participant's two judgements of a pair, against how far apart they placed it, is an
+inverted U in the pilot. The high-distance turnover requires a bounded canvas. The simulation
+reproduces it: `drop_from_peak` 0.27 against the pilot's 0.37, peak in the same region, `is_inverted_u`
+true for both. The residual mismatch is at the **low** end - the model never gets as quiet on
+obviously-similar pairs as people do, the same fine-grained weakness the semantic gradient shows from
+the other side.
+
+### ⚠️ Required N is still not determined
+
+Recall of the GT's closest pairs is 0.50 at N=500 and AUC is still climbing; no curve plateaued. The
+run locates where the *design advantage* lives (N=50-75, where the coverage gain peaks) and not where
+recovery saturates. This has now been left open by two consecutive sweeps.
+
+### Process failures worth remembering
+
+* A resume that did not recognise completed work appended **449 duplicate fits**, entering the pair
+  loop as self-comparisons (VI exactly 0) and biasing every rep-pair metric upward in the 48 affected
+  cells - all at N=30, dispersion=0.1. Fixed in `_grouped_successful`; the four store-derived tables
+  had to be recomputed.
+* `k_selection.csv` was built by merging against a non-unique lookup, turning 144 groups into 186,624
+  rows. k* is now chosen per full configuration and the merges assert `one_to_one`.
+* The semantic-gradient check scored **one configuration per arm** (whichever came first in dict
+  order) while reporting a conclusion about the cohorts. Now scored on every cell; the figure in the
+  current report predates the fix.
+
 ## 6. What is not established
 
 1. **Required N.** The sweep hit its ceiling; the answer is only "> 300". Extending the range would

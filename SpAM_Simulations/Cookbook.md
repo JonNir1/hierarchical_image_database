@@ -600,6 +600,20 @@ aws s3 cp "$S3_URI/out/design_only.csv" - | head -5        # stage 2a, banked fi
 
 Then terminate the instance - step (11) of the cookbook above.
 
+**If stage 2 dies after the sweep but before the tables**, do not re-run it. `coverage.csv` and
+`stability.csv` are computed and pushed *before* the sweep, so everything still missing derives from
+the store alone:
+
+```bash
+aws s3 sync "$S3_URI/mds_store/" mds_store/ --only-show-errors
+TABLES_ONLY=1 bash run_design_comparison.sh 2>&1 | tee recover.log
+```
+
+That skips cohort generation and the sweep entirely - minutes instead of the ~1.4 h a regeneration
+costs. `REUSE_CALIBRATION=1` (the default) also skips the ~10 min re-fit when no fitted input changed;
+the cache is keyed on the GT contents, the subject sample, the grids and the softness, so a changed
+input still forces a re-fit.
+
 #### E. Download (local, PowerShell)
 
 Pull `confs.f32`, never `confdists.f32`. The latter is exactly `pdist(conf)` per row and ~20x
@@ -620,11 +634,16 @@ Get-ChildItem -Recurse $DEST | Select-Object FullName
 #### F. Cluster analysis (local, PowerShell)
 
 ```powershell
-.venv\Scripts\python.exe SpAM_Simulations\run_cluster_analysis.py --store SpAM_Simulations\sim_results\design-comparison-v5\mds_store --out SpAM_Simulations\sim_results\design-comparison-v5\out
+.venv\Scripts\python.exe -m SpAM_Simulations.run_cluster_analysis --store SpAM_Simulations\sim_results\design-comparison-v5\mds_store --out SpAM_Simulations\sim_results\design-comparison-v5\out
 ```
 
 Needs no R. Writes six frames into `out/`, which `eval_helpers.load_run` then picks up as optional
 frames for the notebook.
+
+**Budget hours, not minutes.** On a full stage-2 store (1,728 groups x 10 fits x 725 images) this took
+~4h50m on 8 cores with everything parallel. It is memory-bandwidth bound, so more cores help less than
+you would expect. `--n-jobs 1` for a serial run, `--max-pairs 0` to compare all `C(10,2)` rep pairs
+instead of the default 22 (slower, tighter SEM).
 
 | File | From | What it holds |
 |---|---|---|
@@ -634,6 +653,48 @@ frames for the notebook.
 | `k_selection.csv` | agglomerative | `k_star_vi`, `k_star_sil`, and the continuum verdicts |
 | `density_agreement.csv` | HDBSCAN | noise fraction, agreement on isolation, `vi_restricted` |
 | `isolated_images.csv` | HDBSCAN | per image, the fraction of cohorts that left it unclustered |
+
+`k_selection.csv` carries one row per **configuration x linkage**, not per reporting axis, and
+`high_k` / `k_star_*_is_high_k` flag cuts at k >= 150 - under five images per cluster at 725 images,
+which is the granularity the pilot supports least.
+
+#### G. Ground-truth diagnostics (local, PowerShell)
+
+Answers whether the GT is a faithful summary of the data it was fitted on. Run it before trusting any
+fine-grained result: `frac_of_ceiling` above 1 means the embedding reproduces variance the raw data
+cannot reproduce in itself.
+
+```powershell
+.venv\Scripts\python.exe -m SpAM_Simulations.gt_diagnostics --gt SpAM_Simulations\sim_results\design-comparison-v5\gt_pre_shine_d8.npy --manifest SpAM_Task\stimuli_manifest.json --out SpAM_Simulations\sim_results\design-comparison-v5\gt_diagnostics
+```
+
+#### H. The noise-shape validity check (local, PowerShell)
+
+Needs no store and no R - it reads `calibration.json` and the pilot repeat trials, and runs in
+seconds. Stage 2 also runs it, but having it locally means a crash at the tail of a 15-hour EC2 script
+costs nothing.
+
+```powershell
+.venv\Scripts\python.exe -m SpAM_Simulations.run_validity --run SpAM_Simulations\sim_results\design-comparison-v5 --manifest SpAM_Task\stimuli_manifest.json
+```
+
+#### I. Rebuild the store-derived tables (local, only after a grouping fix)
+
+```powershell
+.venv\Scripts\python.exe -m SpAM_Simulations.recompute_store_tables --run SpAM_Simulations\sim_results\design-comparison-v5
+```
+
+Rebuilds `embedding_stability`, `embedding_generalizability`, `topk_jaccard` and `recovery_vs_gt`
+against the current grouping. ~3 hours on 8 cores; `--only <name>` for a subset.
+
+#### J. The report (local, PowerShell)
+
+```powershell
+.venv\Scripts\python.exe -m SpAM_Simulations.build_report --run SpAM_Simulations\sim_results\design-comparison-v5
+```
+
+Writes a self-contained `report_v5.html` (~5 MB, plotly inlined, opens anywhere). `report_v5.ipynb`
+reproduces it cell by cell.
 
 #### Full-run checklist
 
@@ -647,7 +708,10 @@ frames for the notebook.
 [ ] stage 2: dispersion_swept has 3 values (2 = clamped, report as one-sided)
 [ ] stage 2: no cell hit MAX_RECRUIT_PER_SUBJECT
 [ ] stage 2: noise_shape_fit at_shape_boundary is false
-[ ] stage 2: semantic gradient monotone
+[ ] stage 2: semantic gradient monotone on the supported levels
+[ ] stage 2: calibration reused or re-fitted deliberately (REUSE_CALIBRATION)
+[ ] local: k_selection.csv has one row per configuration x linkage, not tens of thousands
+[ ] local: _grouped_successful reported 0 duplicates, or the store was resumed and they were dropped
 [ ] BOTH instances terminated
 [ ] downloaded with confs.f32, without confdists.f32
 ```

@@ -532,13 +532,43 @@ rules out.
 | `density_clustering.py` | **Descriptive** density pass (HDBSCAN): noise fraction, cross-cohort agreement on *which* images are isolated, `compute_density_agreement`, `isolated_images`. Never enters the VI chain. |
 | `cluster_stability.py` | Between-cohort cluster agreement: VI/ARI/AMI, cross-cohort silhouette, cluster-wise Jaccard, Baker's gamma; the `compute_cluster_*` store drivers; and `select_k` / `continuum_diagnostics`. Runs **locally** on a downloaded store. |
 | `build_extra_gt.py` | Builds a GT at a chosen dimensionality, for when the scan's choice is a sample-size floor rather than the intrinsic dimensionality. Records the build without touching `selection.json`. |
-| `run_cluster_analysis.py` | Local CLI driver for pipeline steps g-i: opens a downloaded store, writes the four cluster tables, prints the continuum verdicts. No R, no EC2. |
+| `run_cluster_analysis.py` | Local CLI driver for pipeline steps g-i: opens a downloaded store, writes the six cluster tables, prints the continuum verdicts. No R, no EC2. |
+| `calibrate_v5.py` | The three fitted constants (noise population, dispersion, test-retest noise) with a **fingerprint-checked cache**. Lifted out of the EC2 heredoc so it is testable and re-runnable locally. The fingerprint hashes the GT *coordinates*, not its filename. |
+| `gt_diagnostics.py` | Is a fitted GT worth trusting: per-level observed coverage, its own semantic gradient, its in-sample agreement with the raw aggregate, and the **half-split noise ceiling** that makes that agreement interpretable. Cheap screen, no R, no MDS. |
+| `run_validity.py` | Local CLI for the noise-vs-distance check, driven from a downloaded run's `calibration.json`. Needs no store and no R; runs in seconds. |
+| `recompute_store_tables.py` | Rebuilds the four store-derived metric tables locally, for when a grouping or de-duplication fix lands after the EC2 run. |
+| `build_report.py`, `report_sections.py`, `report_clusters.py` | Build the self-contained HTML results report. Every number is read from the run's CSVs at build time, so the page cannot drift from the tables. |
+| `report_v5.ipynb` | Notebook companion to the report: same tables, same figures, for checking or re-cutting any of it. |
 | `example_pipeline.py` | Minimal runnable end-to-end example. |
 | `eval_helpers.py` | Read-only loading/plotting helpers for `evaluate_simulation.ipynb`. No simulation, no MDS, no R. |
 | `evaluate_simulation.ipynb` | Overview/drill-down figures for a completed run, via `eval_helpers.py`. |
 | `evaluation_v0_1.ipynb`, `evaluation_task_v2_3.ipynb`, `evaluation_task_v2_4.ipynb` | Per-task-version plotting notebooks for the older simulations. |
 | `ec2/` | Provisioning + staging helpers (`prepare_machine.sh`) and the sweep entrypoints, including the current two-stage programme (`run_gt_construction.sh`, `run_design_comparison.sh`). See [Cookbook.md](Cookbook.md#running-on-ec2). |
 | `sim_results/<run-name>/` | Local copy of a completed run's small files, downloaded from S3. Gitignored. |
+
+## Running the cluster analysis at scale
+
+The post-MDS cluster metrics walk every configuration group in a store, and a full stage-2 store is
+1,728 groups of 10 fits over 725 images. Three things make that tractable, all on by default:
+
+* **Groups are the parallel axis** (`n_jobs=-1`). They are independent, and workers reopen the store
+  from its path rather than receiving it, because a `ResultStore` holds file handles and memmaps that
+  do not survive pickling. `n_jobs=1` runs in-process and is what the tests use.
+* **Rep pairs are sampled, not exhausted** (`max_pairs=22` of `C(10,2)=45`). Roughly a 40% cut in wall
+  clock for a ~1.4x wider SEM, on an estimate whose pairs were never independent anyway. Pass
+  `--max-pairs 0` to exhaust them.
+* **One traversal, three tables.** `compute_agglomerative_tables` returns agreement, dendrogram and
+  sizes from a single pass; computed separately they each rebuilt the same linkage trees, cuts and
+  cophenetic rankings.
+
+Even so this is hours, not minutes, and it is memory-bandwidth bound rather than compute bound: the
+dominant cost is `silhouette_score` sweeping precomputed 725x725 matrices, and eight concurrent
+workers do not have eight times the cache.
+
+**De-duplication.** `pipeline._grouped_successful` keeps one row per `(configuration, rep)`. An
+append-only store that is resumed without recognising completed work holds two copies of every fit it
+redoes, and a duplicate enters the pair loop as a self-comparison of an identical cohort - VI exactly
+0, ARI exactly 1 - biasing every rep-pair metric upward.
 
 ## Tests
 
