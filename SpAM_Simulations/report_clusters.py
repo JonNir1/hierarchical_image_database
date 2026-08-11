@@ -201,6 +201,14 @@ structure (section 3), and the rest from the noise model.</p>
 more sharply than the simulation does, so real recovery should be <em>easier</em> than simulated, and
 required-sample estimates from this simulation err on the side of asking for too many participants.</p>
 
+<p class="warn"><strong>Scope limit on this check.</strong> The gradient was scored on a single
+configuration per arm at N=500 &mdash; whichever combination of softness, screening threshold and
+dispersion happened to be evaluated first &mdash; not across the swept range. It therefore says the
+gradient reproduces <em>somewhere</em> in the parameter space rather than <em>throughout</em> it. The
+code now scores every configuration and reports the distribution, but producing that requires
+re-running the stage-2 sweep; this figure predates the fix. The noise-shape check below is unaffected,
+since it measures the calibrated noise model directly rather than any sweep cell.</p>
+
 <h3>The shape of the noise</h3>
 <p>This is the sharper test, because it constrains the noise model rather than the signal. In the
 pilot, the disagreement between a participant's two judgements of the same pair is an inverted U
