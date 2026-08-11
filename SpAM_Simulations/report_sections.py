@@ -358,6 +358,17 @@ that actually matters: whether they produce the same <em>space</em>. Two measure
 disagree &mdash; a Spearman correlation between recovered distance matrices, and a Procrustes
 disparity after optimally aligning the two configurations.</p>
 
+<p><strong>This is where section 6 is answered, and it reverses.</strong> The designed arm produces
+more reproducible embeddings than random at <em>every</em> sample size, on <em>both</em> measures
+&mdash; higher agreement between recovered spaces and lower Procrustes disparity. The per-pair
+precision that the design gave up in section 6 does not propagate to the embedding, because weighted
+MDS uses the observation counts: a pair measured once still constrains the solution, and constraining
+more of the space beats constraining less of it more precisely.</p>
+
+<p class="note"><strong>This is the result the design decision should rest on</strong>, not the
+pre-MDS correlation. Section 6 measures the input to the method; this measures its output. They point
+in opposite directions, and only one of them is the quantity anyone cares about.</p>
+
 {"".join(parts)}
 """, figs)
 
@@ -386,6 +397,19 @@ answer as much as a right one. This compares each recovered embedding against th
 generated the data.</p>
 
 {_table_html(g.reset_index())}
+
+<p><strong>The designed arm wins here too, at every sample size and on every measure</strong> &mdash;
+discrimination (AUC), recall of the ground truth's closest pairs, and d&prime;. Together with section
+7 that makes the design comparison unanimous across all four embedding-level metrics, which is a
+stronger statement than any of them alone: the arms were compared on reproducibility, on
+generalisation, on agreement about the closest pairs, and on recovery of the planted truth, and the
+design is ahead on all four.</p>
+
+<p><strong>Required N is not settled by this.</strong> Recall of the ground truth's closest pairs is
+still only 0.50 at N=500, and AUC is still climbing. The curves have not plateaued at the top of the
+grid, so the simulation locates where the <em>design advantage</em> lives (N=50&ndash;75, where the
+coverage gain is largest) without identifying where recovery saturates. That question stays open, as
+it did after the previous sweep.</p>
 
 <p class="note">These numbers are internally consistent by construction &mdash; the same ground truth
 generated the data and scores the recovery &mdash; so they answer &ldquo;how much of the planted
