@@ -13,6 +13,7 @@ Usage (from the repo root)::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 from pathlib import Path
@@ -235,6 +236,58 @@ knowledge of the project &mdash; section 15 defines every term.</p>
 </div></body></html>"""
 
 
+# --------------------------------------------------------------------------- overwrite guard
+# The generated report is a starting point that gets hand-edited afterwards, and a later `build`
+# would silently destroy those edits. So every write records a hash of exactly what was written, and
+# a subsequent write refuses to proceed unless the file on disk still matches it.
+_STAMP_SUFFIX = ".sha256"
+
+
+def _stamp_path(out: Path) -> Path:
+    return out.with_name("." + out.name + _STAMP_SUFFIX)
+
+
+def _digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def guard_output(out: Path, force: bool = False) -> None:
+    """Refuse to overwrite a report that has been edited since it was generated.
+
+    Raises :class:`ReportEditedError` rather than returning a flag, because the whole point is that
+    the caller cannot proceed by accident. ``force=True`` is the deliberate escape hatch.
+    """
+    if not out.exists() or force:
+        return
+    stamp = _stamp_path(out)
+    current = _digest(out.read_text(encoding="utf-8"))
+    recorded = stamp.read_text(encoding="utf-8").strip() if stamp.is_file() else None
+    if recorded == current:
+        return
+    reason = ("it has no generation stamp, so it was written by hand or by an older version"
+              if recorded is None else
+              "its contents have changed since it was last generated")
+    raise ReportEditedError(
+        f"refusing to overwrite {out}: {reason}.\n"
+        f"  Overwriting would discard those edits irrecoverably.\n"
+        f"  Choose one:\n"
+        f"    * write elsewhere and diff:   --out {out.with_name(out.stem + '.generated.html')}\n"
+        f"    * fold the edits back into SpAM_Simulations/reporting/report_*.py, then rebuild\n"
+        f"    * discard the edits on purpose: --force"
+    )
+
+
+class ReportEditedError(RuntimeError):
+    """The target report was modified after generation, so writing it would lose work."""
+
+
+def write_report(out: Path, page: str, force: bool = False) -> None:
+    """Write the page and stamp it, having first checked it is safe to do so."""
+    guard_output(out, force=force)
+    out.write_text(page, encoding="utf-8")
+    _stamp_path(out).write_text(_digest(page), encoding="utf-8")
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -245,15 +298,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         "Defaults to a sibling named gt-construction-v5; the stage-1 sections say "
                         "so rather than inventing numbers when it is absent.")
     p.add_argument("--title", default="How should we hand out images? A simulation report")
+    p.add_argument("--force", action="store_true",
+                   help="overwrite the report even if it was edited after generation. The guard "
+                        "exists because those edits are not recoverable; only pass this knowingly.")
     args = p.parse_args(argv)
+
+    # FIRST, before any work: a refusal should cost nothing and appear at the top of the output,
+    # not buried under a screen of progress lines the reader has already scrolled past.
+    out = args.out or (args.run / "report_v5.html")
+    try:
+        guard_output(out, force=args.force)
+    except ReportEditedError as exc:
+        print(f"\n[report] ABORT: {exc}\n")
+        return 1
 
     run = Run(args.run, args.stage1)
     print(f"[report] tables loaded: {sorted(run.tables)}")
     absent = [n for n in Run.NAMES if n not in run.tables]
     if absent:
         print(f"[report] NOT present: {absent}")
-    out = args.out or (args.run / "report_v5.html")
-    out.write_text(build(run, args.title), encoding="utf-8")
+    write_report(out, build(run, args.title), force=args.force)
     print(f"[report] wrote {out} ({out.stat().st_size / 1e6:.1f} MB)")
     return 0
 
