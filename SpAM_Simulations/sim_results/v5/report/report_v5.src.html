@@ -241,7 +241,24 @@ diagnostic.</p>
 <!-- figure: gt_topk_by_ndim -->
 
 <p>Agreement about <em>which pairs are closest</em> keeps improving out to <i>d</i> = 20 while overall agreement is
-falling. Two measures pointing in opposite directions means the pilot is too small to settle the question.</p>
+falling. Two measures pointing in opposite directions means the pilot is too small to settle the question. Note that
+<i>k</i> here counts <em>pairs</em>, not images: the closest 5% of all 262,450 pairs, so <i>k</i> = 13,122.</p>
+
+<h4>Does the Embedding Itself Suggest a Dimensionality?</h4>
+<p>A natural next question is whether the fitted solution shows an elbow of its own, the way a PCA scree plot does.
+It does not, and the reason is worth stating because it also answers whether fitting a larger embedding would
+help.</p>
+
+<!-- figure: gt_variance_spectrum -->
+
+<p>One axis carries 25% of the variance and the remaining seven split the rest almost evenly, from 15% down to 9%.
+There is no elbow. <b>Fitting at <i>d</i> = 15 and reading its spectrum would not settle it either</b>: SMACOF has no
+eigenvalues in the sense classical MDS does. It is an iterative stress-minimiser that will use every dimension it is
+handed, so its coordinates spread variance across the whole space by construction. A flat-tailed spectrum is what the
+algorithm produces whenever <i>d</i> is larger than the structure requires, which is informative here only in the
+negative sense: it tells us the space is not dominated by two or three axes, and it tells us nothing about where to
+stop. The split-half scan above remains the only evidence that bears on the choice, because it is the only one that
+holds out data.</p>
 
 <h4>Why <i>d</i> = 8</h4>
 <p>We built the ground truth at <i>d</i> = 8 rather than the selected 3, for one reason: a low-dimensional embedding
@@ -265,10 +282,18 @@ comparison is between two quantities:</p>
 <ul>
 <li><b>Blue</b> &ndash; how closely the ground-truth embedding matches the pooled ratings <em>it was fitted on</em>.
 This is an in-sample fit statistic, not a validation.</li>
-<li><b>Red</b> &ndash; how closely those ratings match <em>a second half of the same participants</em>. This is the
-reliability of the data itself, and therefore a ceiling: an embedding fitted to noisy ratings cannot legitimately
-agree with them better than they agree with each other.</li>
+<li><b>Red</b> &ndash; the <b>noise ceiling</b>: how well the pilot ratings agree with <em>themselves</em>.
+Concretely: split the 41 participants at random into two halves, average each half's rating for every pair, correlate
+the two resulting vectors, and repeat over many random splits. Because each half has only ~20 participants, the result
+is corrected up to full-sample size with the Spearman&ndash;Brown formula (<i>2r</i> / (1 + <i>r</i>)). Red is
+therefore not a property of the embedding at all &ndash; it is the reproducibility of the measurement, and it caps
+what any model of that measurement could honestly achieve. If two halves of the same participants only agree with each
+other at &rho; = 0.05, then a model agreeing with the pooled data at &rho; = 0.5 is matching a pattern that does not
+replicate.</li>
 </ul>
+
+<p>The two are computed on the same pairs, at each level of the semantic hierarchy, so they are directly comparable
+bar by bar.</p>
 
 <!-- figure: gt_vs_noise_ceiling -->
 
@@ -323,29 +348,50 @@ to show the conclusions hold across a plausible range (dispersion, canvas softne
 </table>
 
 <h3>The Sweep Grid</h3>
+<p>Not every swept variable plays the same role, and lumping them into one list would misrepresent what the results
+below mean. Three of them are the questions; three are the conditions the answers have to survive.</p>
+
 <table class="datatable">
-<thead><tr><th>Swept variable</th><th>Values</th><th>n</th></tr></thead>
-<tr><td><code>num_subjects</code></td><td>30, 50, 75, 500</td><td>4</td></tr>
-<tr><td><code>perspective_dispersion</code></td><td>0.10, 0.25, 0.40</td><td>3</td></tr>
-<tr><td><code>screening_min_reliability</code></td><td>&minus;1 (no exclusion), 0, 0.1, 0.2</td><td>4</td></tr>
-<tr><td><code>allocation_mode</code></td><td>random, constrained-MacDonald</td><td>2</td></tr>
-<tr><td><code>canvas_softness</code></td><td>3, 4, 8</td><td>3</td></tr>
-<tr><td><code>ndim</code> (MDS fit)</td><td>5, 7, 8, 10, 13, 18</td><td>6</td></tr>
-<tr><td>repetitions</td><td>independent cohorts per cell</td><td>10</td></tr>
+<thead><tr><th>Swept variable</th><th>Values</th><th>n</th><th>Role</th></tr></thead>
+<tr><td><code>num_subjects</code></td><td>30, 50, 75, 500</td><td>4</td>
+    <td><b>Compared.</b> Goal 1 and 2: every figure is plotted against it.</td></tr>
+<tr><td><code>allocation_mode</code></td><td>random, constrained-MacDonald</td><td>2</td>
+    <td><b>Compared.</b> Goal 3: every figure is split by it.</td></tr>
+<tr><td><code>screening_min_reliability</code></td><td>&minus;1 (no exclusion), 0, 0.1, 0.2</td><td>4</td>
+    <td><b>Compared</b>, in <a href="#screening">Screening and Recruitment</a> only. Elsewhere it is averaged
+    over.</td></tr>
+<tr><td><code>perspective_dispersion</code></td><td>0.10, 0.25, 0.40</td><td>3</td>
+    <td><b>Marginalised over.</b> How much subjects differ in which dimensions they weigh. Not estimable from the
+    pilot with any confidence, so it is spanned rather than fitted.</td></tr>
+<tr><td><code>canvas_softness</code></td><td>3, 4, 8</td><td>3</td>
+    <td><b>Marginalised over.</b> How hard the canvas edge pushes back. It has no observable counterpart in the pilot
+    at all, so a single value could not be defended.</td></tr>
+<tr><td><code>ndim</code> (MDS fit)</td><td>5, 7, 8, 10, 13, 18</td><td>6</td>
+    <td><b>Marginalised over.</b> The dimensionality we would <em>fit</em> at analysis time, which is a later
+    decision, not a property of the design being chosen here.</td></tr>
+<tr><td>repetitions</td><td>independent cohorts per cell</td><td>10</td>
+    <td>Replication within a cell.</td></tr>
 </table>
+
+<p>The distinction matters for reading every figure that follows. A point plotted against <i>N</i> is a mean over the
+36 combinations of the three marginalised variables and the 10 repetitions, and its error bar is the SD across all
+360. That spread is therefore <b>not</b> sampling noise: it is mostly the effect of the marginalised variables, which
+is deliberate. A design that only wins at one particular dispersion and softness is not a design worth recommending,
+so a conclusion that survives this spread is stronger than one drawn at a single hand-picked setting. The cost is that
+these figures cannot say how much of the spread each variable contributes, and we do not attempt to.</p>
 
 <p>4 &times; 3 &times; 4 &times; 2 &times; 3 &times; 6 &times; 10 = <b>17,280 MDS fits</b>, run on a
 <code>c7i.4xlarge</code> (16 vCPU) in <b>[TODO: wall-clock time]</b>. <i>N</i> = 500 is a ceiling probe rather than a
 recruitment proposal: it exists to find where the curves stop improving.</p>
 
 <h3>How We Evaluate</h3>
-<p>Five questions, each with its own section, in the order a sceptic would ask them:</p>
+<p>Six questions, each with its own section, in the order a sceptic would ask them:</p>
 <ol>
 <li><a href="#realism">Are the simulated participants realistic?</a> Nothing downstream matters if not.</li>
+<li><a href="#screening">Screening and recruitment.</a> What screening costs in recruited participants, what it
+buys in retained quality, and whether that quality reaches the map.</li>
 <li><a href="#coverage">Coverage and convergence.</a> Does the allocation arm change what gets seen, does the
 session-disjointness constraint cost anything, and does SMACOF converge.</li>
-<li><a href="#screening">Screening and recruitment.</a> What screening costs in recruited participants, and what it
-buys in retained quality.</li>
 <li><a href="#stability">Stability between cohorts.</a> Would a second run of the study produce the same ratings, and
 the same embedding.</li>
 <li><a href="#closest">Closest-pair recovery.</a> Do cohorts agree on which pairs are closest, and are those the
@@ -365,6 +411,17 @@ and under-separates fine semantic distinctions.</p>
 judged, and agreement between one participant's two arrangements of the same 20 images.</p>
 
 <!-- figure: realism_calibration -->
+
+<p>That is the fit as the calibration search left it, before a single sweep cell had run. It is worth checking
+separately whether the 17,280 cohorts the sweep actually produced <em>realised</em> that fit, since a parameter can be
+chosen correctly and still be applied wrongly downstream.</p>
+
+<!-- figure: realism_calibration_realised -->
+
+<p>They did: the unscreened cohorts centre on the calibrated 0.176, tightly and identically in both arms. So the
+28% shortfall against the pilot's 0.243 is a limitation of the <em>calibration</em>, not a bug in the sweep. The
+consequence is one-directional and worth stating plainly: simulated participants are noisier than real ones, so every
+sample size this report derives is, if anything, too large rather than too small.</p>
 
 <p>Between-subject agreement is reproduced to within 2% (0.142 against 0.145). Within-subject test-retest is
 <b>under-reproduced by 28%</b> (0.243 against 0.176) because the inversion ran on a coarse search grid and stopped
@@ -387,11 +444,44 @@ already at opposite corners cannot be pushed further apart. The model reproduces
 against the pilot's <b>0.37</b>). The mismatch is on the left: the model never becomes as quiet as real participants
 on obviously-similar pairs.</p>
 
+<h3>Distance From Random Assignment</h3>
+<p>The checks above all ask whether the simulated participants reproduce a particular <em>statistic</em> of the pilot.
+A blunter question sits underneath them: does either group place images any differently from someone dropping them on
+the canvas at random? The null is easy to compute exactly &ndash; 20 points scattered uniformly on the canvas, with
+distances divided by the diagonal, which is the same normalisation the deployed task applies. Under task-v5 the
+simulated distances are divided by their canvas diagonal too, so all three distributions sit on one [0, 1] axis with
+no rescaling.</p>
+
+<!-- figure: realism_null_distance -->
+
+<p><b>The pilot participants sit 8% below chance and the simulated ones sit 10% above it.</b> The pilot direction is
+the expected one: arranging by similarity means pulling groups of images together, which shortens the average pair.
+The simulation moves the wrong way.</p>
+
+<p>The cause is the canvas fit. Each simulated arrangement is scaled to fill the canvas before the placement noise is
+added, so the items spread out to the edges by construction, and the resulting mean pair distance ends up above what
+uniform scattering would give. Real participants leave the canvas unevenly filled: they cluster what belongs together
+and leave empty space elsewhere.</p>
+
+<p>This is a genuine defect in the generative model and it was not visible in any of the checks above, all of which
+are computed on <em>rank</em> correlations or on distances rescaled by their own median, and are therefore blind to
+the overall spread. What it affects is anything sensitive to the absolute scale or to the shape of the distance
+distribution &ndash; density-based clustering most of all, since <a href="#clusters">HDBSCAN</a> works directly on
+distances rather than on their ranks. It leaves the rank-based results (Spearman, AUC, Jaccard, Procrustes after
+scaling) alone. We record it here rather than fixing it, since fixing it means re-deriving the canvas step and
+re-running stage 2.</p>
+
 <h3>Semantic Gradient Against the Pilot</h3>
 <p>Mean simulated distance per semantic level, relative to unrelated pairs, compared with the same quantity in the
 pilot.</p>
 
 <!-- figure: realism_semantic_gradient -->
+
+<div class="warn"><b>Scope caveat.</b> Unlike every other result in this report, this check was scored on a
+<b>single configuration per arm</b> (<i>N</i> = 500, one repetition) rather than across the sweep. The code to score
+it in every cell exists, but producing that data needs a stage-2 rerun, so it has not been done. Read the figure as
+"the gradient is not broken in this cohort" and not as an estimate with a spread: we cannot currently say whether the
+ordering holds at <i>N</i> = 30, or how much it varies between cohorts. It is the weakest-evidenced figure here.</div>
 
 <p>Both arms order the levels correctly and the two are almost indistinguishable, which is what we would want: the
 allocation should not change what the space looks like, only how well it is measured. Both are compressed against the
@@ -405,6 +495,64 @@ parameter space rather than throughout it.</p>
 other exactly as much as real ones do, and their noise has the right <em>shape</em>. They are too noisy within
 subject, which makes every sample-size recommendation conservative, and they under-separate fine semantic
 distinctions, which means results at the finest granularity understate what real data would give.</p>
+</section>
+
+
+<section id="screening"><h2>Screening and Recruitment</h2>
+<p class="bottom-line"><b>Bottom line.</b> Screening is what separates <i>N<sub>total</sub></i> from <i>N</i>, and it
+is expensive: the recruitment cost rises far faster than the reliability it buys. Retaining <i>N</i>=50 at the
+middle threshold means recruiting about 119 people.</p>
+
+<h3>What Screening Costs and Buys</h3>
+<p>The screening block is simulated along with everything else. Candidates who fail are discarded and replaced, so the
+retained cohort is always the requested size; what changes is how many people had to be paid, and how good the
+survivors are. The threshold is the minimum Spearman &rho; between a participant's two attempts at a repeated trial.</p>
+
+<!-- figure: screening_cost -->
+
+<table class="datatable">
+<thead><tr><th>Threshold</th><th>Pass rate</th><th>Candidates per retained subject</th><th>Median test-retest &rho; of retained</th></tr></thead>
+<tr><td>None (control)</td><td>100%</td><td>1.00</td><td>0.154</td></tr>
+<tr><td><i>&rho; &gt; 0</i></td><td>71.4%</td><td>1.40</td><td>0.204</td></tr>
+<tr><td><i>&rho; &gt; 0.1</i></td><td>42.0%</td><td>2.38</td><td>0.271</td></tr>
+<tr><td><i>&rho; &gt; 0.2</i></td><td>22.9%</td><td>4.37</td><td>0.340</td></tr>
+</table>
+
+<p>The trade is steep and strongly non-linear. Moving from no screening to <i>&rho; &gt; 0.1</i> raises the retained
+cohort's median reliability by 76% and costs 2.4&times; the recruitment. Pushing on to <i>&rho; &gt; 0.2</i> buys a
+further 25% for 4.4&times; the recruitment: roughly a third of the quality gain for nearly twice the cost again.</p>
+
+<h3>Does a Cleaner Cohort Buy a Better Map?</h3>
+<p>The table above shows screening does what it claims: retained participants really are more self-consistent. That is
+not the same as the map being better, and the screening threshold is the one swept axis that varies participant
+<em>quality</em> rather than quantity, so it is the only handle this simulation has on the question. Holding
+<i>N</i> = 50 fixed and letting only the threshold move isolates it.</p>
+
+<!-- figure: screening_pays_off -->
+
+<p><b>Almost nothing.</b> Doubling the retained cohort's test-retest reliability, from 0.154 to 0.340, moves cohort
+agreement, ground-truth recovery and closest-pair agreement hardly at all, and the movement is small next to the
+spread across the remaining swept settings. Fifty screened participants are not worth appreciably more than fifty
+unscreened ones.</p>
+
+<p>This is the most decision-relevant result in the section, and it points the opposite way from the intuition that
+motivated screening. Averaging over many participants already suppresses individual noise, so removing the noisiest
+of them recovers little that pooling had not already recovered. The case for screening therefore rests on the things
+this simulation does not model &ndash; bots, participants who never engage, data that is not merely noisy but
+absent &ndash; rather than on a measurable gain in map quality. That is a real case, but it is an argument for a
+threshold that removes non-participation, which is the lenient one, not the strict one.</p>
+
+<h3>What This Means for <i>N<sub>total</sub></i></h3>
+<p>Retaining <i>N</i>=50 costs about <b>119 recruited participants</b> at <i>&rho; &gt; 0.1</i>, or 70 at
+<i>&rho; &gt; 0</i>, or 219 at <i>&rho; &gt; 0.2</i>. Since <a href="#stability">stability</a> and
+<a href="#closest">recovery</a> were both swept across these thresholds and neither showed a threshold effect large
+enough to justify the steepest option, <i>&rho; &gt; 0.1</i> is the defensible middle: it removes the participants
+who are not doing the task while leaving the recruitment bill payable.</p>
+
+<h3>Verdict</h3>
+<p>Screening works, in the sense that it does what it claims: retained cohorts are markedly more self-consistent than
+unscreened ones. Its cost is the more useful finding, because it converts directly into the recruitment budget, and
+it is the only part of this report that speaks to <i>N<sub>total</sub></i> rather than <i>N</i>.</p>
 </section>
 
 
@@ -457,44 +605,6 @@ with embedding a sparse, noisy matrix in 5&ndash;18 dimensions.</p>
 <h3>Verdict</h3>
 <p>The allocation arm does what it was designed to do, and the constraint that makes it deployable is close to free.
 Convergence is not a concern. Whether the extra coverage buys anything is the subject of the next three sections.</p>
-</section>
-
-
-<section id="screening"><h2>Screening and Recruitment</h2>
-<p class="bottom-line"><b>Bottom line.</b> Screening is what separates <i>N<sub>total</sub></i> from <i>N</i>, and it
-is expensive: the recruitment cost rises far faster than the reliability it buys. Retaining <i>N</i>=50 at the
-middle threshold means recruiting about 119 people.</p>
-
-<h3>What Screening Costs and Buys</h3>
-<p>The screening block is simulated along with everything else. Candidates who fail are discarded and replaced, so the
-retained cohort is always the requested size; what changes is how many people had to be paid, and how good the
-survivors are. The threshold is the minimum Spearman &rho; between a participant's two attempts at a repeated trial.</p>
-
-<!-- figure: screening_cost -->
-
-<table class="datatable">
-<thead><tr><th>Threshold</th><th>Pass rate</th><th>Candidates per retained subject</th><th>Median test-retest &rho; of retained</th></tr></thead>
-<tr><td>None (control)</td><td>100%</td><td>1.00</td><td>0.154</td></tr>
-<tr><td><i>&rho; &gt; 0</i></td><td>71.4%</td><td>1.40</td><td>0.204</td></tr>
-<tr><td><i>&rho; &gt; 0.1</i></td><td>42.0%</td><td>2.38</td><td>0.271</td></tr>
-<tr><td><i>&rho; &gt; 0.2</i></td><td>22.9%</td><td>4.37</td><td>0.340</td></tr>
-</table>
-
-<p>The trade is steep and strongly non-linear. Moving from no screening to <i>&rho; &gt; 0.1</i> raises the retained
-cohort's median reliability by 76% and costs 2.4&times; the recruitment. Pushing on to <i>&rho; &gt; 0.2</i> buys a
-further 25% for 4.4&times; the recruitment: roughly a third of the quality gain for nearly twice the cost again.</p>
-
-<h3>What This Means for <i>N<sub>total</sub></i></h3>
-<p>Retaining <i>N</i>=50 costs about <b>119 recruited participants</b> at <i>&rho; &gt; 0.1</i>, or 70 at
-<i>&rho; &gt; 0</i>, or 219 at <i>&rho; &gt; 0.2</i>. Since <a href="#stability">stability</a> and
-<a href="#closest">recovery</a> were both swept across these thresholds and neither showed a threshold effect large
-enough to justify the steepest option, <i>&rho; &gt; 0.1</i> is the defensible middle: it removes the participants
-who are not doing the task while leaving the recruitment bill payable.</p>
-
-<h3>Verdict</h3>
-<p>Screening works, in the sense that it does what it claims: retained cohorts are markedly more self-consistent than
-unscreened ones. Its cost is the more useful finding, because it converts directly into the recruitment budget, and
-it is the only part of this report that speaks to <i>N<sub>total</sub></i> rather than <i>N</i>.</p>
 </section>
 
 
@@ -556,6 +666,12 @@ than dramatic.</p>
 <p class="bottom-line"><b>Bottom line.</b> Constrained-MacDonald wins at every sample size on every measure, but
 absolute recovery of the closest pairs remains poor: only half of the ground truth's closest pairs are found even at
 <i>N</i>=500.</p>
+
+<p>Both measures in this section depend on a cut: how many pairs count as "closest". <b><i>k</i> is a count of
+pairs, not of images.</b> The dataset has 262,450 pairs, so the top 1% is <i>k</i> = 2,624 pairs, the top 5% is
+13,122, and the top 10% is 26,245. A tighter cut is a harder question and a more relevant one, since the study is
+ultimately about the nearest neighbourhood of each image. Each figure below is split into panels by cut, so the
+sensitivity to that choice is visible rather than buried.</p>
 
 <h3>Agreement Between Cohorts (top-k Jaccard)</h3>
 <p>The overlap between the sets of closest pairs identified by two independent cohorts. It asks for reproducibility
@@ -649,10 +765,11 @@ rule would say 2 and the second 5. Here both say 2, which is harder to dismiss t
 scored by how far up the tree they are first joined. It asks whether two cohorts <em>merge things in the same
 order</em>, at every scale at once.</li>
 <li><b>The cophenetic correlation</b> compares a single tree against the distances it was built from: it asks how much
-of a cohort's own geometry survives being forced into a hierarchy. It is reported alongside because it sets the terms
-for the first. If a tree is a poor summary of its own data, then two such trees agreeing tells us they distort in
-similar ways, not that they found the same structure.</li>
+of a cohort's own geometry survives being forced into a hierarchy.</li>
 </ul>
+
+<p>The second sets the terms for the first. If a tree is a poor summary of its own data, then two such trees agreeing
+tells us they distort in similar ways, not that they found the same structure.</p>
 
 <!-- figure: cluster_dendrogram_agreement -->
 
