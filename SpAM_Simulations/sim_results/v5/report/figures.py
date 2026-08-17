@@ -691,9 +691,38 @@ def screening_pays_off(run: Run) -> go.Figure:
                 error_y=dict(type="data", array=agg["std"], visible=True, thickness=1)),
                 row=1, col=col)
         fig.update_xaxes(title_text="retained cohort's test-retest ρ", row=1, col=col)
-    fig = _style(fig, "At fixed N=50, a cleaner cohort buys very little", height=400)
+    fig = _style(fig, "At fixed N=50, a cleaner cohort is worth a great deal", height=400)
     fig.update_annotations(font_size=12)
     return fig
+
+
+SCREEN_COLOUR = {-1.0: "#888888", 0.0: "#1f77b4", 0.1: "#2ca02c", 0.2: "#d62728"}
+
+
+def screening_per_recruit(run: Run) -> go.Figure:
+    """The same gain, charged against the recruitment it costs rather than the cohort it leaves.
+
+    Screening raises quality per *retained* participant, but every rejected candidate was paid for.
+    Plotting against ``N / pass_rate`` puts all four thresholds on one budget axis, which is the
+    axis the decision is actually made on.
+    """
+    es, cov = run.table("embedding_stability"), run.table("coverage")
+    pass_rate = cov.groupby("screening_min_reliability")["screening_pass_rate"].mean()
+    g = (es.groupby(["screening_min_reliability", "num_subjects"])["mean_spearman"]
+         .agg(["mean", "std"]).reset_index())
+    g["recruited"] = g["num_subjects"] / g["screening_min_reliability"].map(pass_rate)
+    fig = go.Figure()
+    for threshold, sub in g.groupby("screening_min_reliability"):
+        sub = sub.sort_values("recruited")
+        fig.add_trace(go.Scatter(
+            x=sub["recruited"], y=sub["mean"], mode="lines+markers",
+            name=SCREEN_LABEL[threshold], line=dict(color=SCREEN_COLOUR[threshold], width=2),
+            marker=dict(size=8),
+            error_y=dict(type="data", array=sub["std"], visible=True, thickness=1)))
+    fig.update_xaxes(title_text="participants <b>recruited and paid</b> (N ÷ pass rate)", type="log")
+    fig.update_yaxes(title_text="Spearman ρ between cohorts")
+    return _style(fig, "Charged against recruitment, the four thresholds nearly coincide",
+                  height=420)
 
 
 FIGURES: Dict[str, Fig] = {
@@ -809,4 +838,9 @@ FIGURES: Dict[str, Fig] = {
         "N=50 throughout, so only participant quality varies. x is the retained cohort's measured "
         "test-retest ρ, which is what the threshold buys; error bars are ±1 SD across every cohort "
         "and remaining swept setting."),
+    "screening_per_recruit": Fig(
+        screening_per_recruit,
+        "The same four thresholds, with each cohort's x moved from N to N ÷ pass rate: the number "
+        "of people who had to be recruited and paid to retain it. Error bars are ±1 SD across every "
+        "cohort and swept setting. Both axes are logarithmic."),
 }
