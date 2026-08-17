@@ -16,7 +16,7 @@ iterate over configurations.
 """
 from itertools import product
 
-from SpAM_Simulations.experiment import ExperimentParameters
+from SpAM_Simulations.models.experiment import ExperimentParameters
 
 # Ground-truth embedding (kept tiny so the fixture stays small and fast).
 N_IMAGES = 30

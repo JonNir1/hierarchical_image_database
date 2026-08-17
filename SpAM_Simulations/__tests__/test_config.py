@@ -2,13 +2,13 @@
 import numpy as np
 import pytest
 
-from SpAM_Simulations.config import (
+from SpAM_Simulations.core.config import (
     SimulationConfig, TaskV2_3SimulationConfig, TaskV2_4SimulationConfig, TaskV3SimulationConfig,
     TaskV4SimulationConfig, MDSSweepConfig
 )
-from SpAM_Simulations.task_v2_3_experiment import TaskV2_3ExperimentParameters
-from SpAM_Simulations.task_v2_4_experiment import TaskV2_4ExperimentParameters
-from SpAM_Simulations.task_v4_experiment import TaskV4ExperimentParameters
+from SpAM_Simulations.models.task_v2_3_experiment import TaskV2_3ExperimentParameters
+from SpAM_Simulations.models.task_v2_4_experiment import TaskV2_4ExperimentParameters
+from SpAM_Simulations.models.task_v4_experiment import TaskV4ExperimentParameters
 
 
 def _base_grids(**over):

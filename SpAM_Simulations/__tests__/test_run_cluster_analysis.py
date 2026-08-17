@@ -6,11 +6,12 @@ one the download command actually produces, with ``confdists.f32`` deliberately 
 through it unchanged.
 """
 import numpy as np
+import pandas as pd
 import pytest
 from scipy.spatial.distance import pdist
 
-from SpAM_Simulations import run_cluster_analysis as rca
-from SpAM_Simulations.storage import ResultStore
+from SpAM_Simulations.cli import run_cluster_analysis as rca
+from SpAM_Simulations.core.storage import ResultStore
 
 N_IMAGES, MAX_NDIM = 45, 4
 META = ["num_subjects", "allocation_mode", "rep", "ndim", "niter", "stress", "status"]
@@ -229,3 +230,58 @@ def test_isolated_images_table_is_per_image(tmp_path):
     assert set(iso["image"]) == set(range(N_IMAGES))
     assert (iso["min_cluster_size"] == 3).all()
     assert iso["frac_cohorts_noise"].between(0, 1).all()
+
+
+# --------------------------------------------------------------------- k-selection grouping
+
+def _agreement_frame(n_configs=3, ks=(2, 3, 5), linkages=("average",)):
+    """An agreement frame with a swept parameter BEYOND the intended reporting axes."""
+    rows = []
+    for softness in range(n_configs):          # the extra swept axis
+        for linkage in linkages:
+            for k in ks:
+                rows.append({"num_subjects": 30, "allocation_mode": 0.0, "ndim": 5,
+                             "canvas_softness": float(softness), "linkage": linkage, "k": k,
+                             "n_reps": 10, "n_pairs": 22,
+                             "mean_vi_norm": 0.1 + 0.01 * k, "sem_vi_norm": 0.001,
+                             "mean_sil_cross": 0.2 - 0.01 * k, "sem_sil_cross": 0.001,
+                             "mean_sil_ratio": 0.5, "sem_sil_ratio": 0.01})
+    return pd.DataFrame(rows)
+
+
+def test_k_selection_has_one_row_per_configuration():
+    """The bug this guards: 144 groups once became 186,624 rows and a 35 MB CSV.
+
+    The agreement frame carries a row per swept parameter combination. Grouping by only the
+    reporting axes left many rows per (group, k), so the metric merges multiplied the table.
+    """
+    frame = _agreement_frame(n_configs=3, ks=(2, 3, 5), linkages=("average", "ward"))
+    selection = rca.build_k_selection(frame)
+    assert len(selection) == 3 * 2, "one row per (configuration, linkage)"
+    key = rca._select_by(frame)
+    assert not selection.duplicated(subset=key).any()
+
+
+def test_select_by_keeps_every_swept_parameter():
+    frame = _agreement_frame()
+    key = rca._select_by(frame)
+    assert "canvas_softness" in key, "a swept axis must not be collapsed silently"
+    assert "k" not in key and "n_reps" not in key
+    assert not any(c.startswith(("mean_", "sem_")) for c in key)
+
+
+def test_metrics_at_k_refuses_a_non_unique_lookup():
+    """Failing loudly beats multiplying the table by 36 twice over."""
+    frame = _agreement_frame(n_configs=3)
+    bad_by = ["num_subjects", "allocation_mode", "ndim", "linkage"]   # omits canvas_softness
+    selection = pd.DataFrame([{**{c: frame[c].iloc[0] for c in bad_by}, "k_star_vi": 2}])
+    with pytest.raises(ValueError, match="duplicate rows"):
+        rca._metrics_at_k(selection, frame, bad_by, "vi")
+
+
+def test_metrics_at_k_reads_the_curve_at_the_chosen_k():
+    frame = _agreement_frame(n_configs=1, ks=(2, 3, 5))
+    selection = rca.build_k_selection(frame)
+    row = selection.iloc[0]
+    expected = frame[(frame["k"] == row["k_star_vi"]) & (frame["linkage"] == row["linkage"])]
+    assert row["vi_norm_at_k_star_vi"] == pytest.approx(expected["mean_vi_norm"].iloc[0])

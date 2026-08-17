@@ -2,12 +2,12 @@
 import numpy as np
 import pytest
 
-from SpAM_Simulations.design import compute_design_counts, distinct_trial_count
-from SpAM_Simulations.simulation import Simulation
-from SpAM_Simulations.task_v2_3_experiment import (
+from SpAM_Simulations.models.design import compute_design_counts, distinct_trial_count
+from SpAM_Simulations.core.simulation import Simulation
+from SpAM_Simulations.models.task_v2_3_experiment import (
     simulate_task_v2_3_experiment, TaskV2_3ExperimentParameters
 )
-from SpAM_Simulations.task_v2_4_experiment import (
+from SpAM_Simulations.models.task_v2_4_experiment import (
     simulate_task_v2_4_experiment, simulate_task_v2_4_single_subject,
     TaskV2_4ExperimentParameters, _trial_test_retest,
 )

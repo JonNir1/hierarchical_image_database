@@ -10,10 +10,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from SpAM_Simulations import pilot
-from SpAM_Simulations.experiment import _condensed_pair_indices
-from SpAM_Simulations.simulation import build_ground_truth_embeddings
-from SpAM_Simulations.task_v3_experiment import (
+from SpAM_Simulations.empirical import pilot
+from SpAM_Simulations.models.experiment import _condensed_pair_indices
+from SpAM_Simulations.core.simulation import build_ground_truth_embeddings
+from SpAM_Simulations.models.task_v3_experiment import (
     simulate_task_v3_experiment, TaskV3ExperimentParameters,
 )
 
@@ -291,7 +291,7 @@ class TestDispersionRefit:
     GT = None
 
     def _gt(self):
-        from SpAM_Simulations.simulation import build_ground_truth_embeddings
+        from SpAM_Simulations.core.simulation import build_ground_truth_embeddings
         if TestDispersionRefit.GT is None:
             TestDispersionRefit.GT = build_ground_truth_embeddings(90, 4, seed=2)
         return TestDispersionRefit.GT
@@ -302,7 +302,7 @@ class TestDispersionRefit:
         Same mean noise, same dispersion, different noise SHAPE -> different between-subject
         agreement. If this were not so, dispersion could be calibrated once and reused.
         """
-        from SpAM_Simulations.pilot import _simulated_targets
+        from SpAM_Simulations.empirical.pilot import _simulated_targets
         common = dict(gt_embeddings=self._gt(), noise_scale=0.8, dispersion=0.3, num_subjects=25,
                       trials_per_subject=8, images_per_trial=8, frac_trials_repeated=0.25,
                       reps=2, seed=0, min_overlap=3)
@@ -312,7 +312,7 @@ class TestDispersionRefit:
 
     def test_sigma_zero_keeps_the_historical_t_family_path(self):
         """Back-compat: the default routes through |t(df)|, so old calibrations still reproduce."""
-        from SpAM_Simulations.pilot import _simulated_targets
+        from SpAM_Simulations.empirical.pilot import _simulated_targets
         common = dict(gt_embeddings=self._gt(), noise_scale=0.8, dispersion=0.3, num_subjects=20,
                       trials_per_subject=8, images_per_trial=8, frac_trials_repeated=0.25,
                       reps=1, seed=0, min_overlap=3, noise_df=5)
@@ -321,7 +321,7 @@ class TestDispersionRefit:
         assert a == b
 
     def test_fit_returns_a_grid_value_and_its_achieved_agreement(self):
-        from SpAM_Simulations.pilot import fit_dispersion_for_agreement
+        from SpAM_Simulations.empirical.pilot import fit_dispersion_for_agreement
         grid = (0.0, 0.2, 0.4)
         disp, ach = fit_dispersion_for_agreement(
             self._gt(), 0.5, noise_scale=0.8, noise_df=5, dispersion_grid=grid,
@@ -337,8 +337,8 @@ def test_noise_inversion_respects_the_noise_family():
     lognormal, so cells labelled R=0.24/0.35/0.50 actually realised 0.09/0.16/0.29. The mean scale
     is preserved across families, but the realised reliability is not, so the two fits must agree.
     """
-    from SpAM_Simulations.pilot import fit_noise_for_test_retest
-    from SpAM_Simulations.simulation import build_ground_truth_embeddings
+    from SpAM_Simulations.empirical.pilot import fit_noise_for_test_retest
+    from SpAM_Simulations.core.simulation import build_ground_truth_embeddings
     gt = build_ground_truth_embeddings(90, 4, seed=3)
     kw = dict(noise_df=5, images_per_trial=8, trials_per_subject=8,
               frac_trials_repeated=0.25, num_subjects=15, reps=1,
@@ -420,7 +420,7 @@ def test_noise_population_fit_reports_a_scale_pinned_to_the_grid_edge():
     A two-value grid makes the assertion deterministic: whichever wins IS a boundary.
     """
     import numpy as np
-    from SpAM_Simulations import pilot
+    from SpAM_Simulations.empirical import pilot
 
     gt = np.random.default_rng(0).normal(size=(40, 3)).astype(np.float32)
     out = pilot.fit_noise_population(
@@ -437,7 +437,7 @@ def test_noise_population_fit_reports_a_scale_pinned_to_the_grid_edge():
 def test_the_boundary_flag_matches_where_the_optimum_actually_landed():
     """An invariant rather than a guessed outcome: the flag must agree with the chosen scale."""
     import numpy as np
-    from SpAM_Simulations import pilot
+    from SpAM_Simulations.empirical import pilot
 
     grid = (0.05, 0.2, 0.5, 1.0, 2.0, 4.0)
     gt = np.random.default_rng(1).normal(size=(40, 3)).astype(np.float32)

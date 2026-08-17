@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 from scipy.spatial.distance import squareform
 
-from SpAM_Simulations import validity as val
+from SpAM_Simulations.measures import validity as val
 
 # Two categories, two subcategories each, two images per leaf. LCA depths are checkable by eye.
 PATHS = [
@@ -337,3 +337,116 @@ def test_simulate_repeat_pairs_returns_matched_vectors_and_checks_the_trial_size
     assert not np.allclose(o, r)
     with pytest.raises(ValueError, match="exceeds n_images"):
         val.simulate_repeat_pairs(coords, 0.3, images_per_trial=100)
+
+
+# --------------------------------------------------------------------- support-aware gradient gate
+
+def test_min_pairs_ignores_an_underpowered_level():
+    """A level with almost no pairs must not be able to condemn the whole gradient.
+
+    This is the failure that produced a spurious "do not trust the arm comparison" banner on a
+    finished 15-hour run: `depth_5` holds 348 of 262,450 pairs, and its inversion flipped a boolean
+    that gated every downstream conclusion.
+    """
+    table = pd.DataFrame({
+        "level": [0, 1, 2, 3],
+        "n_pairs": [10000, 5000, 2000, 4],       # the last level is the underpowered one
+        "mean_distance": [1.0, 0.8, 0.5, 0.9],   # ... and it inverts
+    })
+    assert not val.gradient_is_monotone(table)
+    assert val.gradient_is_monotone(table, min_pairs=100)
+
+
+def test_min_pairs_does_not_rescue_a_genuinely_broken_gradient():
+    table = pd.DataFrame({
+        "level": [0, 1, 2, 3],
+        "n_pairs": [10000, 5000, 2000, 1000],
+        "mean_distance": [1.0, 0.4, 0.9, 0.2],   # a well-supported level inverts
+    })
+    assert not val.gradient_is_monotone(table, min_pairs=100)
+
+
+def test_compare_to_pilot_tests_the_same_levels_on_both_sides():
+    """Support is judged jointly: a level thin on either side is skipped on both."""
+    levels = val.hierarchy_levels(PATHS)
+    d = _graded(levels, {0: 1.0, 1: 0.8, 2: 0.5, 3: 0.2})
+    rep = val.compare_to_pilot(d, d, PATHS)
+    tested, skipped = rep["gradient_levels_tested"], rep["gradient_levels_skipped"]
+    assert set(tested).isdisjoint(skipped)
+    assert sorted(tested + skipped) == [0, 1, 2, 3]
+    # This toy manifest has far fewer than MIN_GRADIENT_PAIRS per level, so everything is skipped -
+    # and the report must say so rather than quietly returning a vacuous True.
+    assert tested == [] and rep["sim_gradient_monotone_all_levels"] is True
+
+
+# --------------------------------------------------------------------- trial_simulator seam
+
+def test_simulate_repeat_pairs_uses_the_injected_simulator():
+    """The seam exists so the noise curve describes the model the sweep runs.
+
+    Without it this function silently measured task-v3's unbounded placement while the sweep ran
+    task-v5's bounded canvas - and since the turnover being measured is *caused* by the canvas, the
+    check would have been reporting on a model nobody was running. It crashed a 15-hour stage-2 run
+    with a TypeError because nothing exercised the argument.
+    """
+    calls = []
+
+    def fake_simulator(trial, rows, cols, n_images, gt, weights, noise, obs, n_obs, rng):
+        calls.append(noise)
+        return None, np.full(rows.shape[0], 0.25), None
+
+    gt = np.random.default_rng(0).random((12, 3)).astype(np.float32)
+    orig, repeat = val.simulate_repeat_pairs(gt, subjects_noise_scale=0.3, n_subjects=2,
+                                             trials_per_subject=2, images_per_trial=4, seed=1,
+                                             trial_simulator=fake_simulator)
+    assert calls, "the injected simulator was never called"
+    assert np.all(orig == 0.25) and np.all(repeat == 0.25)
+    assert orig.size == repeat.size == 2 * 2 * (4 * 3 // 2)
+
+
+def test_simulate_repeat_pairs_defaults_to_the_v3_simulator():
+    """Omitting the seam must keep the v3/v4 behaviour its bit-exactness tests depend on."""
+    gt = np.random.default_rng(2).random((15, 3)).astype(np.float32)
+    kwargs = dict(subjects_noise_scale=0.2, n_subjects=2, trials_per_subject=2,
+                  images_per_trial=5, seed=7)
+    a = val.simulate_repeat_pairs(gt, **kwargs)
+    b = val.simulate_repeat_pairs(gt, trial_simulator=None, **kwargs)
+    np.testing.assert_allclose(a[0], b[0])
+    np.testing.assert_allclose(a[1], b[1])
+
+
+# --------------------------------------------------------------------- gradient across cells
+
+def _cells(arm, monotone_flags, gaps=None):
+    gaps = [0.3] * len(monotone_flags) if gaps is None else gaps
+    return pd.DataFrame({"arm": arm, "monotone": monotone_flags, "max_abs_std_gap_diff": gaps})
+
+
+def test_summarise_gradients_reports_a_fraction_not_a_verdict():
+    """The case a boolean cannot express: the gradient depends on a lever the sweep varies."""
+    summary = val.summarise_gradients(_cells("random", [True, True, False, True]))
+    row = summary.iloc[0]
+    assert row["n_cells"] == 4 and row["n_monotone"] == 3
+    assert row["monotone_frac"] == pytest.approx(0.75)
+
+
+def test_summarise_gradients_separates_the_arms():
+    per_cell = pd.concat([_cells("random", [True, True]), _cells("designed", [False, False])],
+                         ignore_index=True)
+    summary = val.summarise_gradients(per_cell).set_index("arm")
+    assert summary.loc["random", "monotone_frac"] == 1.0
+    assert summary.loc["designed", "monotone_frac"] == 0.0
+
+
+def test_summarise_gradients_carries_the_gap_spread():
+    summary = val.summarise_gradients(_cells("random", [True] * 3, gaps=[0.1, 0.3, 0.5]))
+    row = summary.iloc[0]
+    assert row["gap_min"] == pytest.approx(0.1) and row["gap_max"] == pytest.approx(0.5)
+    assert row["gap_mean"] == pytest.approx(0.3)
+    assert row["gap_sd"] > 0, "a single number would hide how much the cells differ"
+
+
+def test_summarise_gradients_survives_no_cells():
+    """TABLES_ONLY reruns have no cohorts in memory, and that must not raise."""
+    summary = val.summarise_gradients(pd.DataFrame())
+    assert summary.empty and "monotone_frac" in summary.columns

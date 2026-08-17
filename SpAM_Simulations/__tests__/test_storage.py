@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from SpAM_Simulations.storage import ResultStore
+from SpAM_Simulations.core.storage import ResultStore
 
 META_COLS = ["num_subjects", "trials_per_subject", "rep", "ndim", "niter", "stress", "status"]
 

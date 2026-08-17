@@ -160,9 +160,10 @@ N_JOBS="$N_JOBS" GT_METHOD="$GT_METHOD" REPS="$REPS" DF_LIST="${DF_LIST:-3,5}" \
 import os
 import numpy as np
 import pandas as pd
-from SpAM_Simulations.config import TaskV3SimulationConfig, MDSSweepConfig
-from SpAM_Simulations import pipeline, eval_helpers
-from SpAM_Simulations.pilot import (
+from SpAM_Simulations.core.config import TaskV3SimulationConfig, MDSSweepConfig
+from SpAM_Simulations.core import pipeline
+from SpAM_Simulations.reporting import eval_helpers
+from SpAM_Simulations.empirical.pilot import (
     load_pilot_subjects, build_gt_from_pilot, fit_noise_for_test_retest, _simulated_targets,
 )
 
@@ -247,8 +248,8 @@ else
 # ===== default flavor: synthetic GT + swept guessed noise/dispersion =====
 N_JOBS="$N_JOBS" USE_ISOTROPIC="$USE_ISOTROPIC" python - <<'PY'
 import os
-from SpAM_Simulations.config import TaskV3SimulationConfig, MDSSweepConfig
-from SpAM_Simulations import pipeline
+from SpAM_Simulations.core.config import TaskV3SimulationConfig, MDSSweepConfig
+from SpAM_Simulations.core import pipeline
 
 use_isotropic = os.environ["USE_ISOTROPIC"].strip().lower() in ("1", "true", "yes")
 cfg = TaskV3SimulationConfig(

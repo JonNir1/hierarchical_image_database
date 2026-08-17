@@ -8,7 +8,7 @@ No R needed.
 import numpy as np
 import pytest
 
-from SpAM_Simulations import design_comparison as dc
+from SpAM_Simulations.measures import design_comparison as dc
 
 
 def _rng(seed=0):

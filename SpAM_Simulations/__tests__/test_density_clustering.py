@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from scipy.spatial.distance import pdist, squareform
 
-from SpAM_Simulations import density_clustering as dc
+from SpAM_Simulations.measures import density_clustering as dc
 
 N_IMAGES, MAX_NDIM = 60, 4
 META = ["num_subjects", "rep", "ndim", "niter", "stress", "status"]
@@ -151,7 +151,7 @@ def test_two_cohorts_agree_on_which_images_are_isolated():
 # --------------------------------------------------------------------- store drivers
 
 def _store(tmp_path, n_reps=3, seed=0):
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core.storage import ResultStore
     rng = np.random.default_rng(seed)
     truth = _blobs_with_outliers(seed=seed)
     store = ResultStore.create(tmp_path / "s", confdist_len=N_IMAGES * (N_IMAGES - 1) // 2,
@@ -182,7 +182,7 @@ def test_density_agreement_skips_a_single_rep_group(tmp_path):
 
 
 def test_density_agreement_needs_configurations(tmp_path):
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core.storage import ResultStore
     store = ResultStore.create(tmp_path / "nc", confdist_len=10, meta_columns=META)
     store.append({"num_subjects": 1, "rep": 0, "ndim": 2, "niter": 1, "stress": 0.1,
                   "status": "success"}, confdist=np.zeros(10, dtype=np.float32))
@@ -250,7 +250,7 @@ def test_restricted_vi_is_nan_when_the_shared_subset_is_too_small():
 
 def test_restricted_vi_matches_plain_vi_when_nothing_is_noise():
     """With no noise the restriction is a no-op, so it must reduce to the ordinary metric."""
-    from SpAM_Simulations.cluster_stability import variation_of_information
+    from SpAM_Simulations.measures.cluster_stability import variation_of_information
     a = np.array([0, 0, 1, 1, 2, 2])
     b = np.array([0, 1, 1, 1, 2, 2])
     out = dc.restricted_vi(a, b)

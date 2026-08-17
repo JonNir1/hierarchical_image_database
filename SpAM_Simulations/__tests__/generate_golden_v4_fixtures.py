@@ -20,8 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _golden_v4_config as gc  # noqa: E402
-from SpAM_Simulations.simulation import build_ground_truth_embeddings  # noqa: E402
-from SpAM_Simulations.task_v4_experiment import simulate_task_v4_experiment  # noqa: E402
+from SpAM_Simulations.core.simulation import build_ground_truth_embeddings  # noqa: E402
+from SpAM_Simulations.models.task_v4_experiment import simulate_task_v4_experiment  # noqa: E402
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 FIXTURE_PATH = FIXTURE_DIR / "golden_task_v4.npz"

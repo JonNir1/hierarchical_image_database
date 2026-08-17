@@ -8,11 +8,14 @@ silently returning one.
 No R needed anywhere.
 """
 import numpy as np
+from itertools import combinations
+
 import pandas as pd
 import pytest
+from scipy.cluster.hierarchy import fcluster
 from scipy.spatial.distance import pdist, squareform
 
-from SpAM_Simulations import cluster_stability as cs
+from SpAM_Simulations.measures import cluster_stability as cs
 
 
 # --------------------------------------------------------------------- factories
@@ -333,7 +336,7 @@ META = ["num_subjects", "rep", "ndim", "niter", "stress", "status"]
 
 def _conf_store(tmp_path, n_reps=4, num_subjects=(20, 50), ndim=3, statuses=None, seed=0):
     """A store whose cohorts are noisy views of one planted 3-blob structure."""
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core.storage import ResultStore
     rng = np.random.default_rng(seed)
     truth = _blobs(n_per=N_IMAGES // 3, k=3, sd=0.25, seed=seed, ndim=MAX_NDIM)
     store = ResultStore.create(tmp_path / "s", confdist_len=N_IMAGES * (N_IMAGES - 1) // 2,
@@ -385,7 +388,7 @@ def test_a_group_with_one_usable_rep_is_skipped_not_crashed(tmp_path):
 
 
 def test_drivers_reject_a_store_without_configurations(tmp_path):
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core.storage import ResultStore
     store = ResultStore.create(tmp_path / "nc", confdist_len=10, meta_columns=META)
     store.append({"num_subjects": 1, "rep": 0, "ndim": 2, "niter": 1, "stress": 0.1,
                   "status": "success"}, confdist=np.zeros(10, dtype=np.float32))
@@ -415,7 +418,7 @@ def test_drivers_read_conf_not_confdist(tmp_path):
     """The whole point of the conf-only download: clustering must not touch confdists.f32."""
     store = _conf_store(tmp_path)
     (store.path / "confdists.f32").unlink()
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core.storage import ResultStore
     reopened = ResultStore.open(store.path)
     assert not reopened.has_confdists
     df = cs.compute_cluster_agreement(reopened, ks=(3,), linkages=("average",), verbose=False)
@@ -507,3 +510,185 @@ def test_diagnostics_end_to_end_on_a_store(tmp_path):
     for col in ("k_star", "vi_norm_range", "sil_cross_at_k_star", "is_flat",
                 "is_arbitrary_slicing"):
         assert col in out.columns, col
+
+
+# --------------------------------------------------------------------- pair sampling
+
+def test_sample_pairs_caps_and_stays_deterministic():
+    a = cs.sample_pairs(10, max_pairs=22, seed=0)
+    assert len(a) == 22, "C(10,2)=45 must be cut to the cap"
+    assert a == cs.sample_pairs(10, max_pairs=22, seed=0), "same seed, same pairs"
+    assert len(set(a)) == len(a), "pairs must not repeat"
+    assert all(i < j for i, j in a)
+
+
+def test_sample_pairs_returns_everything_when_it_can():
+    assert cs.sample_pairs(4, max_pairs=22) == list(combinations(range(4), 2))
+    assert len(cs.sample_pairs(10, max_pairs=None)) == 45
+
+
+def test_a_different_seed_draws_a_different_subset():
+    assert cs.sample_pairs(10, 22, seed=0) != cs.sample_pairs(10, 22, seed=1)
+
+
+def test_every_linkage_and_k_in_a_group_sees_the_same_pairs(tmp_path):
+    """Otherwise metrics within a group would be computed on different cohorts and not comparable."""
+    store = _conf_store(tmp_path, n_reps=6)
+    df = cs.compute_cluster_agreement(store, ks=(2, 3, 5), linkages=("average", "ward"),
+                                      verbose=False, n_jobs=1, max_pairs=4)
+    assert (df["n_pairs"] == 4).all()
+
+
+# --------------------------------------------------------------------- parallelism
+
+def test_parallel_matches_serial(tmp_path):
+    """The parallel path must be an optimisation, not a different computation."""
+    store = _conf_store(tmp_path, n_reps=4)
+    kw = dict(ks=(2, 3), linkages=("average",), verbose=False, max_pairs=None)
+    serial = cs.compute_cluster_agreement(store, n_jobs=1, **kw)
+    parallel = cs.compute_cluster_agreement(store, n_jobs=2, **kw)
+    pd.testing.assert_frame_equal(serial.sort_index(axis=1), parallel.sort_index(axis=1))
+
+
+def test_parallel_dendrogram_matches_serial(tmp_path):
+    store = _conf_store(tmp_path, n_reps=4)
+    kw = dict(linkages=("average",), verbose=False, max_pairs=None)
+    pd.testing.assert_frame_equal(
+        cs.compute_dendrogram_agreement(store, n_jobs=1, **kw),
+        cs.compute_dendrogram_agreement(store, n_jobs=2, **kw))
+
+
+def test_parallel_sizes_matches_serial(tmp_path):
+    store = _conf_store(tmp_path, n_reps=3)
+    kw = dict(ks=(2, 3), linkages=("average",), verbose=False)
+    pd.testing.assert_frame_equal(cs.compute_cluster_sizes(store, n_jobs=1, **kw),
+                                  cs.compute_cluster_sizes(store, n_jobs=2, **kw))
+
+
+def test_high_k_threshold_sits_inside_the_default_grid():
+    """The caveat must actually flag something, and must not flag the trustworthy end."""
+    assert cs.HIGH_K_THRESHOLD in cs.DEFAULT_KS
+    high = [k for k in cs.DEFAULT_KS if k >= cs.HIGH_K_THRESHOLD]
+    assert high == [150, 200]
+    assert 50 not in high and 100 not in high
+
+
+# --------------------------------------------------------------------- duplicate reps
+
+def _append_duplicate_reps(store_path, n_reps, num_subjects, ndim=3, seed=99):
+    """Re-append a second copy of every fit, as a resume that lost track of completed work does."""
+    from SpAM_Simulations.core.storage import ResultStore
+    rng = np.random.default_rng(seed)
+    truth = _blobs(n_per=N_IMAGES // 3, k=3, sd=0.25, seed=0, ndim=MAX_NDIM)
+    store = ResultStore.open(store_path)
+    for ns in num_subjects:
+        for rep in range(n_reps):
+            coords = (truth + rng.normal(0, 0.1, truth.shape)).astype(np.float32)
+            store.append({"num_subjects": ns, "rep": rep, "ndim": ndim, "niter": 10,
+                          "stress": 0.1, "status": "success"},
+                         confdist=pdist(coords).astype(np.float32), conf=coords)
+    store.close()
+    return ResultStore.open(store_path)
+
+
+def test_duplicate_reps_are_dropped_before_grouping(tmp_path):
+    """An append-only store that was resumed badly holds two copies of a fit; only one may count.
+
+    Left in, the duplicate enters the pair loop as a self-comparison of the same cohort, so VI is
+    exactly 0 and ARI exactly 1 and every rep-pair metric is biased upward. 48 of 1728 groups in the
+    real task-v5 stage-2 store were in this state.
+    """
+    from SpAM_Simulations.core.pipeline import _grouped_successful
+
+    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,))
+    grouped, _ = _grouped_successful(store, None)
+    assert grouped.size().tolist() == [4]
+
+    doubled = _append_duplicate_reps(store.path, n_reps=4, num_subjects=(20,))
+    assert len(doubled) == 8, "the store really does hold both copies"
+    grouped, _ = _grouped_successful(doubled, None)
+    assert grouped.size().tolist() == [4], "grouping must see each rep once"
+
+
+def test_duplicate_reps_do_not_inflate_agreement(tmp_path):
+    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,))
+    kw = dict(ks=(3,), linkages=("average",), verbose=False, n_jobs=1, max_pairs=None)
+    clean = cs.compute_cluster_agreement(store, **kw)
+    doubled = cs.compute_cluster_agreement(
+        _append_duplicate_reps(store.path, n_reps=4, num_subjects=(20,)), **kw)
+    assert doubled["n_pairs"].iloc[0] == clean["n_pairs"].iloc[0] == 6
+    np.testing.assert_allclose(doubled["mean_vi_norm"], clean["mean_vi_norm"])
+
+
+# --------------------------------------------------------------------- merged traversal
+
+def test_merged_traversal_matches_the_separate_passes(tmp_path):
+    """The merge must be an optimisation, not a different computation.
+
+    It exists because the three passes each rebuilt the same linkage trees, cuts and cophenetic
+    rankings - three times the dominant cost on a 17,729-fit store.
+    """
+    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20, 50))
+    kw = dict(ks=(2, 3, 5), linkages=("average", "ward"), verbose=False, n_jobs=1)
+    merged = cs.compute_agglomerative_tables(store, max_pairs=None, **kw)
+
+    pd.testing.assert_frame_equal(
+        merged["agreement"], cs.compute_cluster_agreement(store, max_pairs=None, **kw))
+    pd.testing.assert_frame_equal(
+        merged["dendrogram"],
+        cs.compute_dendrogram_agreement(store, linkages=("average", "ward"), verbose=False,
+                                        n_jobs=1, max_pairs=None))
+    pd.testing.assert_frame_equal(merged["sizes"], cs.compute_cluster_sizes(store, **kw))
+
+
+def test_merged_traversal_matches_under_pair_sampling(tmp_path):
+    """Sampling must draw the same pairs in the merged path as in the separate ones."""
+    store = _conf_store(tmp_path, n_reps=6, num_subjects=(20,))
+    kw = dict(ks=(3,), linkages=("average",), verbose=False, n_jobs=1, max_pairs=5)
+    merged = cs.compute_agglomerative_tables(store, **kw)
+    pd.testing.assert_frame_equal(merged["agreement"], cs.compute_cluster_agreement(store, **kw))
+    assert merged["agreement"]["n_pairs"].iloc[0] == 5
+    assert merged["dendrogram"]["n_pairs"].iloc[0] == 5
+
+
+def test_merged_traversal_parallel_matches_serial(tmp_path):
+    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,))
+    kw = dict(ks=(2, 3), linkages=("average",), verbose=False, max_pairs=None)
+    a = cs.compute_agglomerative_tables(store, n_jobs=1, **kw)
+    b = cs.compute_agglomerative_tables(store, n_jobs=2, **kw)
+    for name in ("agreement", "dendrogram", "sizes"):
+        pd.testing.assert_frame_equal(a[name], b[name])
+
+
+def test_a_lone_rep_still_gets_sizes_but_no_pair_metrics(tmp_path):
+    """Sizes are per-fit, so a group of one is meaningful there and nowhere else."""
+    store = _conf_store(tmp_path, n_reps=1, num_subjects=(20,))
+    merged = cs.compute_agglomerative_tables(store, ks=(3,), linkages=("average",), verbose=False,
+                                             n_jobs=1)
+    assert not merged["sizes"].empty
+    assert merged["agreement"].empty and merged["dendrogram"].empty
+
+
+# --------------------------------------------------------------------- within-silhouette cache
+
+def test_cached_within_silhouette_matches_recomputing_it(tmp_path):
+    """The cache must not change a single reported number."""
+    rng = np.random.default_rng(0)
+    a = _blobs(n_per=8, k=3, sd=0.3, seed=1, ndim=3)
+    b = a + rng.normal(0, 0.1, a.shape)
+    sq_a, sq_b = squareform(pdist(a)), squareform(pdist(b))
+    la = fcluster(cs.build_linkage(pdist(a), "average"), t=3, criterion="maxclust")
+    lb = fcluster(cs.build_linkage(pdist(b), "average"), t=3, criterion="maxclust")
+
+    fresh = cs.silhouette_pair(sq_a, sq_b, la, lb)
+    cached = cs.silhouette_pair(sq_a, sq_b, la, lb,
+                                within_a=cs.safe_silhouette(sq_a, la),
+                                within_b=cs.safe_silhouette(sq_b, lb))
+    assert fresh == cached
+
+
+def test_prepared_fit_caches_one_within_value_per_linkage_and_k():
+    fit = cs._PreparedFit(pdist(_blobs(n_per=8, k=3, sd=0.3, seed=2, ndim=3)),
+                          ks=(2, 3, 5), linkages=("average", "ward"))
+    assert set(fit.within) == {(m, k) for m in ("average", "ward") for k in (2, 3, 5)}
+    assert fit.within[("average", 3)] == cs.safe_silhouette(fit.square, fit.labels["average"][3])

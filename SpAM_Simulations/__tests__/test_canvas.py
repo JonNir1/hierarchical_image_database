@@ -7,7 +7,7 @@ construction. Several tests below assert bounds that the previous model violated
 import numpy as np
 import pytest
 
-from SpAM_Simulations import canvas as cv
+from SpAM_Simulations.models import canvas as cv
 
 
 def _square(n=12, seed=0):

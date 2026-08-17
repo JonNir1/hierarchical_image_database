@@ -2,10 +2,10 @@
 import numpy as np
 import pytest
 
-from SpAM_Simulations.config import (
+from SpAM_Simulations.core.config import (
     SimulationConfig, TaskV2_3SimulationConfig, TaskV2_4SimulationConfig, TaskV3SimulationConfig
 )
-from SpAM_Simulations import pipeline
+from SpAM_Simulations.core import pipeline
 
 
 def _fake_conf(sim, payload):
@@ -90,7 +90,7 @@ def test_coverage_table_shape_and_columns():
 def test_run_mds_sweep_streams_payloads_lazily(tmp_path, monkeypatch):
     """Payloads (each a full dists+weights pair) must be built on demand and interleaved with
     execution - not all materialised up front, which for a large sweep would need tens of GB."""
-    from SpAM_Simulations.config import MDSSweepConfig
+    from SpAM_Simulations.core.config import MDSSweepConfig
     cfg = SimulationConfig(n_images=30, n_dims=3, num_subjects=[10], trials_per_subject=[5],
                            images_per_trial=[6], subjects_noise_scale=[0.5], subjects_noise_df=[1],
                            reps=3, seed=1)
@@ -168,7 +168,7 @@ def test_task_v2_3_coverage_table_includes_snr_columns():
 def test_task_v2_3_run_mds_sweep_streams_payloads_lazily(tmp_path, monkeypatch):
     """Same lazy-streaming contract as the task-v0.1 simulation, but exercising the dynamically
     derived (rather than hardcoded) parameter fields used to build/read the store."""
-    from SpAM_Simulations.config import MDSSweepConfig
+    from SpAM_Simulations.core.config import MDSSweepConfig
     cfg = _task_v2_3_config(n_images=30, n_dims=3, num_subjects=[10], trials_per_subject=[5],
                              images_per_trial=[6], subjects_noise_scale=[0.5],
                              subjects_noise_df=[1], frac_images_repeated=[1 / 3], reps=3, seed=1)
@@ -240,7 +240,7 @@ def test_task_v2_4_coverage_table_includes_snr_and_test_retest_columns():
 def test_task_v2_4_run_mds_sweep_store_roundtrips_seven_field_params(tmp_path, monkeypatch):
     """The store's metadata columns and completed-key roundtrip are derived from the params
     type, so they must handle the task-v2.4 tuple's extra frac_trials_repeated field."""
-    from SpAM_Simulations.config import MDSSweepConfig
+    from SpAM_Simulations.core.config import MDSSweepConfig
     cfg = _task_v2_4_config(n_images=60, n_dims=3, num_subjects=[10], trials_per_subject=[8],
                             images_per_trial=[6], subjects_noise_scale=[0.5], subjects_noise_df=[1],
                             frac_images_repeated=[0.0], frac_trials_repeated=[0.0, 0.25], reps=2, seed=1)
@@ -322,7 +322,7 @@ def test_task_v3_config_still_requires_one_gt_source():
 def test_task_v3_run_mds_sweep_store_roundtrips_seven_field_params(tmp_path, monkeypatch):
     """The store derives its metadata columns from the params type, so it must handle the v3
     tuple's perspective_dispersion field (and not the dropped frac_images_repeated)."""
-    from SpAM_Simulations.config import MDSSweepConfig
+    from SpAM_Simulations.core.config import MDSSweepConfig
     cfg = _task_v3_config(n_images=60, n_dims=3, num_subjects=[10], trials_per_subject=[8],
                           images_per_trial=[6], subjects_noise_scale=[0.5], subjects_noise_df=[1],
                           frac_trials_repeated=[0.0, 0.25], perspective_dispersion=[0.3], reps=2, seed=1)
@@ -347,7 +347,7 @@ def test_task_v3_run_mds_sweep_store_roundtrips_seven_field_params(tmp_path, mon
 
 def _conf_store(tmp_path, confs, n_images, max_ndim, ndim=None, statuses=None):
     """Build a ResultStore holding the given configurations, one per rep, in one config group."""
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core.storage import ResultStore
     ndim = ndim if ndim is not None else max_ndim
     L = n_images * (n_images - 1) // 2
     cols = ["num_subjects", "rep", "ndim", "niter", "stress", "status"]
@@ -426,7 +426,7 @@ class TestEmbeddingGeneralizability:
         assert out["n_reps"].iloc[0] == 2
 
     def test_store_without_configurations_raises_clearly(self, tmp_path):
-        from SpAM_Simulations.storage import ResultStore
+        from SpAM_Simulations.core.storage import ResultStore
         L = self.N * (self.N - 1) // 2
         cols = ["num_subjects", "rep", "ndim", "niter", "stress", "status"]
         s = ResultStore.create(tmp_path / "s", confdist_len=L, meta_columns=cols)
@@ -492,7 +492,7 @@ class TestItemGeneralizability:
 
 def test_metadata_reads_floats_back_exactly(tmp_path):
     """The read side: a float written by `csv` must survive the round trip through pandas."""
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core.storage import ResultStore
 
     awkward = 2 / 14                      # 0.14285714285714285 - needs 17 significant digits
     cols = ["frac_trials_repeated", "rep", "ndim", "niter", "stress", "status"]
@@ -507,7 +507,7 @@ def test_metadata_reads_floats_back_exactly(tmp_path):
 
 def test_task_key_is_insensitive_to_a_last_digit_difference():
     """The key side: rounding makes the comparison robust however the float reached disk."""
-    from SpAM_Simulations.pipeline import _task_key
+    from SpAM_Simulations.core.pipeline import _task_key
 
     from typing import NamedTuple
     Params = NamedTuple("Params", [("a", float), ("b", float)])
@@ -522,9 +522,9 @@ def test_a_resumed_sweep_skips_work_already_in_the_store(tmp_path):
     `frac_trials_repeated=2/14` is exactly the value the deployed design uses, and exactly the one
     that failed to round-trip - so this is the real configuration, not a contrived float.
     """
-    from SpAM_Simulations.config import MDSSweepConfig, SimulationConfig
-    from SpAM_Simulations.pipeline import _completed_keys, _param_type, _task_key, mds_tasks
-    from SpAM_Simulations.storage import ResultStore
+    from SpAM_Simulations.core.config import MDSSweepConfig, SimulationConfig
+    from SpAM_Simulations.core.pipeline import _completed_keys, _param_type, _task_key, mds_tasks
+    from SpAM_Simulations.core.storage import ResultStore
 
     cfg = SimulationConfig(n_images=25, n_dims=3, num_subjects=[8], trials_per_subject=[4],
                            images_per_trial=[6], subjects_noise_scale=[2 / 14],

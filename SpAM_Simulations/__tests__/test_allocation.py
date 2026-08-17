@@ -8,13 +8,13 @@ No R needed.
 import numpy as np
 import pytest
 
-from SpAM_Simulations.allocation import (
+from SpAM_Simulations.models.allocation import (
     DESIGNED, RANDOM, DesignedAllocator, RandomAllocator, make_allocator,
 )
-from SpAM_Simulations.block_design import greedy_session_design, pair_counts
-from SpAM_Simulations.config import TaskV4SimulationConfig
-from SpAM_Simulations.simulation import build_ground_truth_embeddings
-from SpAM_Simulations.task_v4_experiment import (
+from SpAM_Simulations.models.block_design import greedy_session_design, pair_counts
+from SpAM_Simulations.core.config import TaskV4SimulationConfig
+from SpAM_Simulations.core.simulation import build_ground_truth_embeddings
+from SpAM_Simulations.models.task_v4_experiment import (
     TaskV4ExperimentParameters, simulate_task_v4_experiment,
 )
 
@@ -152,7 +152,7 @@ def test_screened_out_candidates_do_not_burn_design_slots():
 
 
 def test_trials_and_image_indices_are_mutually_exclusive():
-    from SpAM_Simulations.task_v4_experiment import simulate_task_v4_single_subject
+    from SpAM_Simulations.models.task_v4_experiment import simulate_task_v4_single_subject
     with pytest.raises(AssertionError, match="not both"):
         simulate_task_v4_single_subject(
             subject_noise=0.3, perspective_dispersion=0.2, t_distinct=2, k=K, n_unique=2 * K,

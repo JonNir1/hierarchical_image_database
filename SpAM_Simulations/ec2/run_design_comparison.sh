@@ -47,7 +47,7 @@
 # by sample size, not the intrinsic dimensionality. A 3-D ground truth is easier to recover than the
 # truth, so building the planning simulation on it would understate required-N. Set
 # GT_NDIM=selected to follow the scan instead. The extra GT is built by
-# `python -m SpAM_Simulations.build_extra_gt --ndim 8` inside a stage-1 clone.
+# `python -m SpAM_Simulations.cli.build_extra_gt --ndim 8` inside a stage-1 clone.
 #
 # NOISE IS CALIBRATED ON ALL 47 PILOT SUBJECTS (pre AND post SHINE), unlike the ground truth, which is
 # pre-SHINE only. The reason is that the noise fit estimates a property of SUBJECTS - how reliably a
@@ -227,6 +227,7 @@ N_JOBS="$N_JOBS" GT_METHOD="$GT_METHOD" REPS="$REPS" S3_URI="$S3_URI" \
   NDIMS="${NDIMS:-}" N_LIST="${N_LIST:-30,50,75,500}" SEED="${SEED:-42}" \
   MINREL_LIST="${MINREL_LIST:--1,0,0.1,0.2}" DESIGN_REPS_2A="${DESIGN_REPS_2A:-20}" \
   SOFTNESS_LIST="${SOFTNESS_LIST:-3,4,8}" GT_NDIM="${GT_NDIM:-8}" \
+  TABLES_ONLY="${TABLES_ONLY:-0}" REUSE_CALIBRATION="${REUSE_CALIBRATION:-1}" \
   python - <<'PY'
 import json
 import os
@@ -237,15 +238,15 @@ import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist
 
-from SpAM_Simulations import canvas as cv, design_comparison, pipeline, validity
-from SpAM_Simulations.allocation import DESIGNED, RANDOM, make_allocator
-from SpAM_Simulations.block_design import greedy_session_design
-from SpAM_Simulations.config import MDSSweepConfig, TaskV5SimulationConfig
-from SpAM_Simulations.gt_construction import aggregate_subjects
-from SpAM_Simulations.pilot import (
-    between_subject_agreement, fit_dispersion_for_agreement, fit_noise_for_test_retest,
-    fit_noise_population, load_pilot_subjects, subject_reliability_sample,
-)
+from SpAM_Simulations.core import pipeline
+from SpAM_Simulations.measures import design_comparison, validity
+from SpAM_Simulations.models import canvas as cv
+from SpAM_Simulations.models.allocation import DESIGNED, RANDOM, make_allocator
+from SpAM_Simulations.models.block_design import greedy_session_design
+from SpAM_Simulations.core.config import MDSSweepConfig, TaskV5SimulationConfig
+from SpAM_Simulations.empirical.gt_construction import aggregate_subjects
+from SpAM_Simulations.empirical.calibrate_v5 import CalibrationError, calibrate
+from SpAM_Simulations.empirical.pilot import load_pilot_subjects
 
 OUT = pathlib.Path("out"); OUT.mkdir(exist_ok=True)
 CAL = pathlib.Path("calibration"); CAL.mkdir(exist_ok=True)
@@ -262,6 +263,18 @@ MINREL_LIST = [float(x) for x in os.environ["MINREL_LIST"].split(",")]
 # observable distribution to sample from. Aspect and fill ARE sampled per trial, from the pilot's
 # measured marginals, so they are not levers.
 SOFTNESS = [float(x) for x in os.environ["SOFTNESS_LIST"].split(",")]
+
+# TABLES_ONLY recomputes only the tables that read the STORE, skipping cohort generation and the
+# sweep entirely. It exists because a finished 9.5 h sweep died in the metric-tables step, and
+# recovering it cost a further 1.4 h regenerating cohorts to reach tables that needed none of them:
+# compute_coverage_table/compute_stability_table take the Simulation object, so `sim` had to be
+# rebuilt before the store-derived tables could run. Those two are now computed and pushed BEFORE
+# the sweep, which is what makes this mode sufficient for recovery. Requires an mds_store/ already
+# on disk - pull it from S3 first if the instance is new.
+TABLES_ONLY = os.environ.get("TABLES_ONLY", "0") not in ("", "0", "false", "False")
+# Calibration is deterministic in its inputs, so re-deriving it on a resume is ~10 min of waste.
+# Reused only on an exact fingerprint match: a stale calibration would silently mis-scale the run.
+REUSE_CALIBRATION = os.environ.get("REUSE_CALIBRATION", "1") not in ("", "0", "false", "False")
 # The calibration runs at the DEFAULT softness. It is a point fit, and re-fitting the noise
 # population once per softness value would confound the sensitivity arm with three different noise
 # scales; the arm then varies softness around that one calibrated noise level.
@@ -313,7 +326,7 @@ if not gt_path.exists():
     raise SystemExit(
         f"{gt_path} not found. GT_NDIM={D_GT} needs a ground truth built at that dimensionality; "
         f"build it inside a stage-1 clone with\n"
-        f"    python -m SpAM_Simulations.build_extra_gt --ndim {D_GT}\n"
+        f"    python -m SpAM_Simulations.cli.build_extra_gt --ndim {D_GT}\n"
         f"then re-push gt/. Or set GT_NDIM=selected to use the scan's own choice "
         f"({SELECTED}, {selection['gt_file']})."
     )
@@ -350,97 +363,28 @@ else:
     print("[2a] out/design_only.csv already present, skipping", flush=True)
 
 # --- calibration ------------------------------------------------------------------------------
-# On ALL pilot subjects (both SHINE variants): reliability and between-subject agreement are
-# properties of people, not of the stimulus set.
-allsub = load_pilot_subjects(PILOT, MANIFEST)
-print(f"\n[calibrate] {len(allsub)} pilot sessions (both SHINE variants) for the noise fit",
-      flush=True)
-
-emp = subject_reliability_sample(allsub)
-print(f"[shape] empirical reliability: n={len(emp)} median={np.median(emp):.3f} "
-      f"q10={np.quantile(emp, .1):.3f} q90={np.quantile(emp, .9):.3f}", flush=True)
-# The noise grid MUST be given explicitly here. `fit_noise_population`'s default spans [0.4, 2.6],
-# which was written for the v3/v4 parameterisation where noise is a ratio to each trial's
-# arrangement spread. Under the canvas it is an absolute fraction of canvas WIDTH, and the optimum
-# is an order of magnitude smaller: the pilot's median reliability of 0.243 is reproduced at
-# ~0.22, i.e. BELOW the old grid's floor. Left at the default the fit pins to 0.4, reports an
-# achieved median of ~0.11 against a target of 0.243, and everything downstream is mis-calibrated.
-CANVAS_NOISE_GRID = tuple(np.round(np.arange(0.02, 0.81, 0.02), 2))
-fit = fit_noise_population(coords, emp, images_per_trial=IMAGES_PER_TRIAL,
-                           perspective_dispersion=0.2, n_subjects=80, reps=3, verbose=True,
-                           noise_grid=CANVAS_NOISE_GRID, trial_simulator=CALIB_SIM)
-FB = fit["best"]
-fit["grid"].to_csv(CAL / "noise_shape_grid.csv", index=False)
-(CAL / "noise_shape_fit.json").write_text(json.dumps(
-    {k: (float(v) if isinstance(v, (int, float, np.floating)) else v) for k, v in FB.items()},
-    indent=2, default=str))
-print(f"[shape] best: family={FB['family']} shape={FB['shape']} scale={FB['noise_scale']} "
-      f"W1={FB['distance']:.4f} CV={FB['cv']:.3f} boundary={FB['at_shape_boundary']}", flush=True)
-if FB["at_shape_boundary"]:
-    print("[shape] WARNING: fit sits on a shape-grid boundary - the family, not the data, is the "
-          "binding constraint.")
-# A scale pinned to the grid edge means the grid could not reach the data, so the whole calibration
-# is wrong and every number downstream inherits it. That is worth aborting 15 hours for.
-if FB["at_noise_boundary"]:
-    raise SystemExit(
-        f"[shape] ABORT: the fitted noise scale {FB['noise_scale']:.3f} sits on the edge of the "
-        f"search grid [{FB['noise_grid_min']:.2f}, {FB['noise_grid_max']:.2f}], so the grid could "
-        f"not reach the data: achieved median reliability {FB['sim_median']:.3f} against an "
-        f"empirical {FB['empirical_median']:.3f} (gap {FB['median_gap']:+.3f}). Widen "
-        f"CANVAS_NOISE_GRID in the direction of the boundary and re-run; continuing would "
-        f"mis-calibrate every result in this sweep."
-    )
-if abs(FB["median_gap"]) > 0.05:
-    print(f"[shape] WARNING: best fit lands {FB['median_gap']:+.3f} from the empirical median "
-          f"({FB['sim_median']:.3f} vs {FB['empirical_median']:.3f}) without hitting a grid edge, "
-          f"so the noise FAMILY may be the binding constraint rather than its scale.", flush=True)
-LOGN_SIGMA = float(FB["shape"]) if FB["family"] == "lognormal" else 0.0
-SHAPE_DF = int(FB["shape"]) if FB["family"] == "t" else 5
-
-# Dispersion is re-fitted UNDER the newly fitted noise population: agreement depends on the whole
-# noise distribution, so a dispersion calibrated against a different one does not transfer.
-emp_agr = between_subject_agreement(np.vstack([s.distances for s in allsub]),
-                                    min_overlap=20)["mean_agreement"]
-DISP, disp_ach = fit_dispersion_for_agreement(
-    coords, emp_agr, noise_scale=float(FB["noise_scale"]), noise_df=SHAPE_DF,
-    lognormal_sigma=LOGN_SIGMA, images_per_trial=IMAGES_PER_TRIAL, reps=REPS,
-    trial_simulator=CALIB_SIM)
-print(f"[disp] empirical agreement={emp_agr:.4f} -> dispersion={DISP:.2f} (achieved {disp_ach:.4f})",
-      flush=True)
-# FIT, THEN SWEEP AROUND THE FIT. Dispersion is identified only through between-subject agreement,
-# which is measured on the sparse pair overlap between subjects and is the noisiest of the three
-# calibration anchors - so the fit is carried as a point estimate PLUS one step either side rather
-# than trusted alone.
+# All of it lives in SpAM_Simulations.empirical.calibrate_v5 now - see that module's docstring for why it is
+# not ninety lines of heredoc. The constants are fitted on ALL pilot subjects (both SHINE variants):
+# reliability and between-subject agreement are properties of people, not of the stimulus set.
 #
-# Clamped to the fitter's own search grid, [0, DISP_MAX]. The floor is real: dispersion is the sigma
-# of the lognormal that draws each subject's per-dimension weights, so 0 means every subject shares
-# the ground-truth geometry exactly and between-subject signal disagreement vanishes. The ceiling is
-# NOT 1 - a lognormal sigma has no natural upper bound and the config only requires non-negative -
-# it is the top of the range `fit_dispersion_for_agreement` searched, because sweeping outside that
-# would probe values the calibration could never have selected.
-DISP_STEP, DISP_MAX = 0.15, 1.2
-DISP_LIST = sorted({round(min(max(DISP + d, 0.0), DISP_MAX), 2)
-                    for d in (-DISP_STEP, 0.0, DISP_STEP)})
-print(f"[disp] sweeping dispersion over {DISP_LIST}"
-      + (" (clamped, so fewer than 3 values)" if len(DISP_LIST) < 3 else ""), flush=True)
-
-# One noise level, at the empirically achieved test-retest. The R axis was swept in task-v4-fitted
-# and is not what THIS run is about: holding it fixed keeps every fit paying for the arm contrast.
-TARGET_R = float(np.median(emp))
-NOISE, ach_r = fit_noise_for_test_retest(coords, TARGET_R, noise_df=SHAPE_DF,
-                                         lognormal_sigma=LOGN_SIGMA,
-                                         images_per_trial=IMAGES_PER_TRIAL, reps=REPS,
-                                         trial_simulator=CALIB_SIM)
-print(f"[invert] targetR={TARGET_R:.3f} -> noise={NOISE:.2f} (achieved {ach_r:.3f} @img20)",
-      flush=True)
-(CAL / "calibration.json").write_text(json.dumps(dict(
-    n_pilot_sessions=len(allsub), empirical_agreement=float(emp_agr), dispersion=float(DISP),
-    dispersion_achieved=float(disp_ach), dispersion_swept=DISP_LIST,
-    target_test_retest=TARGET_R,
-    achieved_tr_unscreened=float(ach_r), subjects_noise_scale=float(NOISE),
-    noise_family=FB["family"], noise_shape=float(FB["shape"]), n_dims=D_GT,
-    gt_file=gt_path.name, scan_selected_n_dims=SELECTED,
-), indent=2))
+# The cache is fingerprint-checked on the ground-truth CONTENTS, the subject sample, the grid and
+# the softness, so a resume skips ~10 min of deterministic re-fitting while a changed input still
+# forces a re-fit. Set REUSE_CALIBRATION=0 to force one anyway.
+allsub = load_pilot_subjects(PILOT, MANIFEST)
+try:
+    CALIB = calibrate(coords, allsub, images_per_trial=IMAGES_PER_TRIAL, reps=REPS, cal_dir=CAL,
+                      trial_simulator=CALIB_SIM, softness=cv.DEFAULT_SOFTNESS,
+                      gt_file=gt_path.name, n_dims=D_GT, scan_selected_n_dims=SELECTED,
+                      reuse=REUSE_CALIBRATION, verbose=True)
+except CalibrationError as exc:
+    raise SystemExit(f"[shape] ABORT: {exc}")
+NOISE = float(CALIB["subjects_noise_scale"])
+DISP = float(CALIB["dispersion"])
+DISP_LIST = list(CALIB["dispersion_swept"])
+LOGN_SIGMA = float(CALIB["noise_lognormal_sigma"])
+SHAPE_DF = int(CALIB["noise_df"])
+print(f"[calibrate] noise={NOISE} family={CALIB['noise_family']} "
+      f"shape={CALIB['noise_shape']} dispersion={DISP} sweeping {DISP_LIST}", flush=True)
 push("calibration", "calibration artifacts")
 
 # --- stage 2b: the allocator factory ----------------------------------------------------------
@@ -485,22 +429,40 @@ cfg = TaskV5SimulationConfig(
     canvas_softness=SOFTNESS,
     reps=REPS, seed=SEED,
 )
-sim = pipeline.generate_task_v5_simulation(cfg, verbose=True, allocator_factory=allocator_factory)
+if TABLES_ONLY:
+    from SpAM_Simulations.core.storage import ResultStore
 
-sweep = MDSSweepConfig(ndims=NDIMS, max_iters=1000, convergence_tol=1e-6, precalc_init=True)
-# store_conf ASSERTED, not inherited: the local cluster analysis reads confs.f32 and nothing else,
-# and a store written without it cannot be repaired after the instance is gone.
-store = pipeline.run_mds_sweep(sim, sweep, "mds_store", parallel=True, n_jobs=N_JOBS,
-                               store_conf=True, verbose=True)
-if not store.stores_conf:
-    raise SystemExit("the store holds no configurations; the cluster analysis needs confs.f32")
-print(f"\n[sweep] {len(store)} MDS results", flush=True)
+    if not pathlib.Path("mds_store").is_dir():
+        raise SystemExit("TABLES_ONLY needs an existing mds_store/ on disk. Pull the one from the "
+                         "failed run first:  aws s3 sync \"$S3_URI/mds_store/\" mds_store/")
+    sim = None
+    store = ResultStore.open("mds_store")
+    print(f"[tables-only] reopened {len(store)} fits; skipping generation and the sweep. "
+          f"coverage.csv/stability.csv are NOT rewritten - they were pushed before the sweep.",
+          flush=True)
+else:
+    sim = pipeline.generate_task_v5_simulation(cfg, verbose=True,
+                                               allocator_factory=allocator_factory)
+
+    # BEFORE the sweep, deliberately. Neither table needs a single MDS fit, and computing them
+    # afterwards is what made one post-sweep failure cost 1.4 h of regenerated cohorts. Pushing
+    # here also means a lost instance keeps them.
+    pipeline.compute_coverage_table(sim).to_csv(OUT / "coverage.csv", index=False)
+    pipeline.compute_stability_table(sim).to_csv(OUT / "stability.csv", index=False)
+    push("out", "coverage + stability (pre-sweep)")
+
+    sweep = MDSSweepConfig(ndims=NDIMS, max_iters=1000, convergence_tol=1e-6, precalc_init=True)
+    # store_conf ASSERTED, not inherited: the local cluster analysis reads confs.f32 and nothing
+    # else, and a store written without it cannot be repaired after the instance is gone.
+    store = pipeline.run_mds_sweep(sim, sweep, "mds_store", parallel=True, n_jobs=N_JOBS,
+                                   store_conf=True, verbose=True)
+    if not store.stores_conf:
+        raise SystemExit("the store holds no configurations; the cluster analysis needs confs.f32")
+    print(f"\n[sweep] {len(store)} MDS results", flush=True)
 
 # --- metric tables ----------------------------------------------------------------------------
 # group_fields=None groups by every swept parameter x ndim, with `rep` as the within-group axis,
 # so `allocation_mode` becomes a column of each table without any extra plumbing.
-pipeline.compute_coverage_table(sim).to_csv(OUT / "coverage.csv", index=False)
-pipeline.compute_stability_table(sim).to_csv(OUT / "stability.csv", index=False)
 pipeline.compute_embedding_stability(store).to_csv(OUT / "embedding_stability.csv", index=False)
 pipeline.compute_embedding_generalizability(store).to_csv(
     OUT / "embedding_generalizability.csv", index=False)
@@ -519,26 +481,69 @@ if len(manifest_images) != N_IMAGES:
 pilot_mean, pilot_w = aggregate_subjects(allsub)
 pilot_condensed = np.where(pilot_w > 0, pilot_mean, np.nan)
 
-reports, grads = {}, []
-for arm, mode in (("random", RANDOM), ("designed", DESIGNED)):
+# Scored on EVERY cell of an arm, not on cells[0]. The sweep varies softness, screening threshold
+# and dispersion, and a gradient that survives one combination need not survive all of them - so a
+# single cell answered a narrower question than it was reported as answering, and *which* cell it
+# answered for depended on dict insertion order. Rep 0 of each cell keeps the cost bounded; the
+# variation being characterised is across configurations, not across repetitions of one.
+per_cell, grads = [], []
+# TABLES_ONLY has no cohorts in memory, and validity_gradient.csv is already on S3 from the run
+# being recovered, so there is nothing to redo here.
+arms = () if sim is None else (("random", RANDOM), ("designed", DESIGNED))
+if sim is None:
+    print("\n[validity] no in-memory cohorts under TABLES_ONLY; keeping the existing "
+          "validity_gradient.csv", flush=True)
+for arm, mode in arms:
     cells = [(p, res) for p, res in sim._results.items()
              if float(p.allocation_mode) == mode and int(p.num_subjects) == max(FULL_N)]
     if not cells:
         continue
-    _params, results = cells[0]
-    sim_mean, sim_w = pipeline._prepare_mds_inputs(results[0])
-    sim_condensed = np.where(sim_w > 0, sim_mean, np.nan)
-    rep = validity.compare_to_pilot(sim_condensed, pilot_condensed, manifest_images)
-    grads.append(rep["gradient"].assign(arm=arm))
-    reports[arm] = {k: v for k, v in rep.items() if k != "gradient"}
-    print(f"\n[validity/{arm}] N={max(FULL_N)} monotone_sim={rep['sim_gradient_monotone']} "
-          f"monotone_pilot={rep['pilot_gradient_monotone']} "
-          f"max|std_gap_diff|={rep['max_abs_std_gap_diff']:.3f}", flush=True)
-    print(rep["gradient"].to_string(index=False), flush=True)
-    if not rep["sim_gradient_monotone"]:
-        print(f"[validity/{arm}] WARNING: the simulated semantic gradient is NOT monotone. The "
-              f"cohorts are not structurally realistic; do not trust the arm comparison.",
-              flush=True)
+    print(f"\n[validity/{arm}] N={max(FULL_N)}: scoring {len(cells)} cells", flush=True)
+    for params, results in cells:
+        sim_mean, sim_w = pipeline._prepare_mds_inputs(results[0])
+        rep = validity.compare_to_pilot(np.where(sim_w > 0, sim_mean, np.nan),
+                                        pilot_condensed, manifest_images)
+        cell = {"arm": arm, "num_subjects": int(params.num_subjects),
+                "canvas_softness": float(params.canvas_softness),
+                "screening_min_reliability": float(params.screening_min_reliability),
+                "perspective_dispersion": float(params.perspective_dispersion)}
+        grads.append(rep["gradient"].assign(**cell))
+        per_cell.append({**cell,
+                         "monotone": bool(rep["sim_gradient_monotone"]),
+                         "monotone_all_levels": bool(rep["sim_gradient_monotone_all_levels"]),
+                         "max_abs_std_gap_diff": float(rep["max_abs_std_gap_diff"]),
+                         "levels_tested": str(rep["gradient_levels_tested"]),
+                         "levels_skipped": str(rep["gradient_levels_skipped"])})
+
+per_cell = pd.DataFrame(per_cell)
+if not per_cell.empty:
+    summary = validity.summarise_gradients(per_cell)
+    per_cell.to_csv(OUT / "validity_gradient_cells.csv", index=False)
+    summary.to_csv(OUT / "validity_gradient_summary.csv", index=False)
+    print("\n[validity] semantic gradient across all cells:", flush=True)
+    print(summary.to_string(index=False), flush=True)
+    worst = per_cell.loc[per_cell["max_abs_std_gap_diff"].idxmax()]
+    print(f"[validity] widest cell: arm={worst['arm']} softness={worst['canvas_softness']} "
+          f"min_rel={worst['screening_min_reliability']} disp={worst['perspective_dispersion']} "
+          f"max|std_gap_diff|={worst['max_abs_std_gap_diff']:.3f}", flush=True)
+    for _, row in summary.iterrows():
+        if row["monotone_frac"] == 0.0:
+            print(f"[validity/{row['arm']}] WARNING: NO cell reproduced the semantic gradient over "
+                  f"the levels the data supports. The cohorts are not structurally realistic; do "
+                  f"not trust the arm comparison.", flush=True)
+        elif row["monotone_frac"] < 1.0:
+            # The informative middle, and the case a boolean could never report: the gradient
+            # depends on a lever the sweep is varying. Which cells fail is in the per-cell CSV.
+            print(f"[validity/{row['arm']}] WARNING: only {row['monotone_frac']:.0%} of cells "
+                  f"({row['n_monotone']}/{row['n_cells']}) reproduced the gradient, so it depends "
+                  f"on the swept levers. See validity_gradient_cells.csv before reading the arms.",
+                  flush=True)
+    if not per_cell["monotone_all_levels"].any() and per_cell["monotone"].all():
+        # A property of the ground truth, not of any configuration: a GT that inverts on an
+        # unsupported level inverts there for every cell. Not a gate.
+        print("[validity] note: monotone on the supported levels in every cell, but on no cell "
+              "across ALL levels. That is the ground truth, not the sweep - run "
+              "`python -m SpAM_Simulations.empirical.gt_diagnostics` on it if it matters to you.", flush=True)
 
 if grads:
     pd.concat(grads, ignore_index=True).to_csv(OUT / "validity_gradient.csv", index=False)
@@ -575,7 +580,11 @@ else:
     print("\n[validity/noise] no pilot repeat trials found; skipping the noise-shape check",
           flush=True)
 
-(OUT / "validity.json").write_text(json.dumps(reports, indent=2, default=str))
+# The per-cell detail lives in validity_gradient_cells.csv; this is the one-line-per-arm verdict,
+# kept as JSON so eval_helpers can read it without parsing a frame.
+(OUT / "validity.json").write_text(json.dumps(
+    {} if per_cell.empty else validity.summarise_gradients(per_cell).to_dict(orient="records"),
+    indent=2, default=str))
 print("\n[done] stage 2 complete", flush=True)
 PY
 

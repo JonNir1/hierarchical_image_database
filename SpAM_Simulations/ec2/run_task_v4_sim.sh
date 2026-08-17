@@ -168,9 +168,10 @@ import json
 import os
 import numpy as np
 import pandas as pd
-from SpAM_Simulations.config import TaskV4SimulationConfig, MDSSweepConfig
-from SpAM_Simulations import pipeline, eval_helpers
-from SpAM_Simulations.pilot import (
+from SpAM_Simulations.core.config import TaskV4SimulationConfig, MDSSweepConfig
+from SpAM_Simulations.core import pipeline
+from SpAM_Simulations.reporting import eval_helpers
+from SpAM_Simulations.empirical.pilot import (
     load_pilot_subjects, build_gt_from_pilot, fit_noise_for_test_retest,
     subject_reliability_sample, fit_noise_population, fit_dispersion_for_agreement,
     between_subject_agreement,

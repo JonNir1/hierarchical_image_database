@@ -2,16 +2,16 @@
 import numpy as np
 import pytest
 
-from SpAM_Simulations.design import compute_design_counts
-from SpAM_Simulations.task_v2_3_experiment import (
+from SpAM_Simulations.models.design import compute_design_counts
+from SpAM_Simulations.models.task_v2_3_experiment import (
     simulate_task_v2_3_single_subject,
     simulate_task_v2_3_experiment,
     TaskV2_3ExperimentParameters,
     _find_candidate_repeated_pairs,
     _compute_subject_snr,
 )
-from SpAM_Simulations.experiment import _condensed_pair_indices
-from SpAM_Simulations.simulation import Simulation
+from SpAM_Simulations.models.experiment import _condensed_pair_indices
+from SpAM_Simulations.core.simulation import Simulation
 
 TASK_DEFAULTS = dict(t=10, k=20, r=1 / 3)  # matches SpAM_Task/task_config.json
 

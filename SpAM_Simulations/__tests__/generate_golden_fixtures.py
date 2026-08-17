@@ -21,8 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _golden_config as gc  # noqa: E402
-from SpAM_Simulations.experiment import simulate_experiment  # noqa: E402
-from SpAM_Simulations.simulation import Simulation  # noqa: E402
+from SpAM_Simulations.models.experiment import simulate_experiment  # noqa: E402
+from SpAM_Simulations.core.simulation import Simulation  # noqa: E402
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 FIXTURE_PATH = FIXTURE_DIR / "golden_experiment.npz"

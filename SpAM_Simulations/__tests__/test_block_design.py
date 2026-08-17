@@ -11,7 +11,7 @@ in test_design_comparison.py.
 import numpy as np
 import pytest
 
-from SpAM_Simulations.block_design import (
+from SpAM_Simulations.models.block_design import (
     best_of_greedy, design_stats, greedy_design, greedy_session_design, pair_counts,
     schonheim, session_design_stats,
 )

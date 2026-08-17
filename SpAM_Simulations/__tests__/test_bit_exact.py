@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 import _golden_config as gc
-from SpAM_Simulations.experiment import simulate_experiment
+from SpAM_Simulations.models.experiment import simulate_experiment
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "golden_experiment.npz"
 
