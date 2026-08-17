@@ -698,30 +698,51 @@ def screening_pays_off(run: Run) -> go.Figure:
 
 SCREEN_COLOUR = {-1.0: "#888888", 0.0: "#1f77b4", 0.1: "#2ca02c", 0.2: "#d62728"}
 
+# Prolific credits. A screened-out participant is paid for the screening block only, which is what
+# makes strict screening affordable: rejects cost under a third of a completion, so a threshold that
+# rejects 77% of candidates costs 2.0x the unscreened budget rather than the 4.4x its candidate
+# count implies. Both numbers are study parameters, not simulation output.
+CREDITS_RETAINED = 6.67
+CREDITS_SCREENED_OUT = 2.0
 
-def screening_per_recruit(run: Run) -> go.Figure:
-    """The same gain, charged against the recruitment it costs rather than the cohort it leaves.
 
-    Screening raises quality per *retained* participant, but every rejected candidate was paid for.
-    Plotting against ``N / pass_rate`` puts all four thresholds on one budget axis, which is the
-    axis the decision is actually made on.
-    """
+def credits_per_retained(pass_rate: float) -> float:
+    """One retained participant, plus the rejected candidates it took to find them."""
+    return CREDITS_RETAINED + CREDITS_SCREENED_OUT * (1.0 / pass_rate - 1.0)
+
+
+def screening_budget(run: Run) -> pd.DataFrame:
+    """Cohort agreement against total study cost, for every threshold and N."""
     es, cov = run.table("embedding_stability"), run.table("coverage")
     pass_rate = cov.groupby("screening_min_reliability")["screening_pass_rate"].mean()
     g = (es.groupby(["screening_min_reliability", "num_subjects"])["mean_spearman"]
          .agg(["mean", "std"]).reset_index())
-    g["recruited"] = g["num_subjects"] / g["screening_min_reliability"].map(pass_rate)
+    unit = g["screening_min_reliability"].map(pass_rate).map(credits_per_retained)
+    g["credits"] = g["num_subjects"] * unit
+    return g
+
+
+def screening_per_recruit(run: Run) -> go.Figure:
+    """The same gain, charged against what the study actually pays for it.
+
+    Screening raises quality per *retained* participant, but the rejected candidates are paid too,
+    at the screened-out rate. Converting each cohort to total credits puts all four thresholds on
+    the one axis the decision is made on.
+    """
+    g = screening_budget(run)
     fig = go.Figure()
     for threshold, sub in g.groupby("screening_min_reliability"):
-        sub = sub.sort_values("recruited")
+        sub = sub.sort_values("credits")
         fig.add_trace(go.Scatter(
-            x=sub["recruited"], y=sub["mean"], mode="lines+markers",
+            x=sub["credits"], y=sub["mean"], mode="lines+markers",
             name=SCREEN_LABEL[threshold], line=dict(color=SCREEN_COLOUR[threshold], width=2),
-            marker=dict(size=8),
+            marker=dict(size=8), customdata=sub["num_subjects"],
+            hovertemplate="N=%{customdata}<br>%{x:.0f} credits<br>ρ=%{y:.3f}<extra></extra>",
             error_y=dict(type="data", array=sub["std"], visible=True, thickness=1)))
-    fig.update_xaxes(title_text="participants <b>recruited and paid</b> (N ÷ pass rate)", type="log")
+    fig.update_xaxes(title_text=f"total study cost (credits: {CREDITS_RETAINED:g} per retained, "
+                                f"{CREDITS_SCREENED_OUT:g} per screened out)", type="log")
     fig.update_yaxes(title_text="Spearman ρ between cohorts")
-    return _style(fig, "Charged against recruitment, the four thresholds nearly coincide",
+    return _style(fig, "Per credit spent, screening still wins, and not screening is worst",
                   height=420)
 
 
@@ -840,7 +861,8 @@ FIGURES: Dict[str, Fig] = {
         "and remaining swept setting."),
     "screening_per_recruit": Fig(
         screening_per_recruit,
-        "The same four thresholds, with each cohort's x moved from N to N ÷ pass rate: the number "
-        "of people who had to be recruited and paid to retain it. Error bars are ±1 SD across every "
-        "cohort and swept setting. Both axes are logarithmic."),
+        f"The same four thresholds, with each cohort's x converted from N to what it costs: "
+        f"{CREDITS_RETAINED:g} credits per retained participant plus {CREDITS_SCREENED_OUT:g} per "
+        f"candidate rejected on the way. The four markers on each line are N = 30, 50, 75, 500. "
+        f"Error bars are ±1 SD across every cohort and swept setting; x is logarithmic."),
 }

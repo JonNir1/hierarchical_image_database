@@ -218,18 +218,21 @@ Averaged over the grid; cost from `out/tr24/coverage.csv`:
 Screening at 0.4 nearly halves M² but needs ~52x the recruitment. **0.2 gets most of the gain at
 about one seventh the cost of 0.4** and looks like the sensible operating point.
 
-> **Superseded by v5 on the operating point, not on the effect.** The gain is real and is confirmed
-> at v5 (N=50, cohort Spearman 0.393 → 0.616 from no screening to ρ>0.2). What this table does not
-> do is divide by the cost it records alongside. Plotting stability against `N / pass_rate` instead
-> of `N` collapses the thresholds onto one curve: at a budget of 200 recruited participants, v5 gets
-> 0.645 unscreened, 0.647 at ρ>0, 0.640 at ρ>0.1 and 0.596 at ρ>0.2. Screening buys quality at
-> almost exactly the price it charges, and the strictest threshold is a net loss. **The v5
-> recommendation is ρ>0.1**, chosen for where the budget-normalised curve flattens rather than for
-> the size of the raw gain. See `sim_results/v5/report/`, "Screening and Recruitment".
+> **Confirmed at v5, and it survives being costed properly.** The gain reproduces (N=50, cohort
+> Spearman 0.393 → 0.616 from no screening to ρ>0.2). The "candidates screened" column above is the
+> right cost to track but the wrong unit: candidates are not all paid the same. A completion costs
+> **6.67 credits**, a participant screened out after the screening block costs **2**, so ρ>0.2's
+> 4.36 candidates per retained subject is only **2.01×** the unscreened budget, not 4.36×.
 >
-> Caveat in the other direction: no simulation here models non-participation (bots, immediate
-> quitters), which is what screening catches most cheaply, so the real benefit is higher than either
-> analysis shows.
+> Charged in credits, screening still wins and not screening is worst at every budget (v5 cohort
+> Spearman): at 500 credits 0.470 / 0.519 / 0.559 / 0.548 for none / ρ>0 / ρ>0.1 / ρ>0.2; at 1,200
+> credits 0.626 / 0.666 / 0.700 / 0.714. The two strict thresholds stay within 0.015 and cross over
+> around 600 credits, so the data do not separate them. **The v5 recommendation is ρ>0.1**, taken as
+> the less fragile of the two. See `sim_results/v5/report/`, "Screening and Recruitment".
+>
+> Caveat in the same direction: no simulation here models non-participation (bots, immediate
+> quitters), which is what screening catches most cheaply, so the real pass rate is lower and the
+> real benefit higher than either analysis shows.
 
 Between-cohort Spearman at the pilot-realistic target (tr24, ndim=8, dispersion=0.3):
 

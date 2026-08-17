@@ -548,46 +548,75 @@ sweep, several times the size of the allocation-arm difference.</p>
 <i>&rho; &gt; 0</i> (0.542). Participant quality substitutes for participant quantity, and generously.</p>
 
 <h3>But Charged Against What It Costs</h3>
-<p>The table above counts per <em>retained</em> participant. Every rejected candidate still consumed a recruitment
-slot and still had to be paid, so the comparison that decides anything is per participant <em>recruited</em>. Dividing
-each cohort's <i>N</i> by its pass rate puts all four thresholds on that single budget axis.</p>
+<p>The table above counts per <em>retained</em> participant, and every rejected candidate is paid too, so the
+comparison that decides anything is per credit spent. The two rates are not equal, and the gap between them is what
+makes this affordable: a completed session costs <b>6.67 credits</b>, while a participant screened out after the
+8-trial screening block costs <b>2 credits</b>, under a third as much.</p>
+
+<p>That discount changes the arithmetic sharply. Screening at <i>&rho; &gt; 0.2</i> needs 4.36 candidates per retained
+participant, but because 3.36 of them are cheap rejects it costs <b>2.01&times;</b> the unscreened budget, not
+4.36&times;.</p>
+
+<table class="datatable">
+<thead><tr><th>Threshold</th><th>Pass rate</th><th>Candidates per retained</th><th>Credits per retained</th>
+<th>vs. no screening</th></tr></thead>
+<tr><td>None</td><td>100%</td><td>1.00&times;</td><td>6.67</td><td>1.00&times;</td></tr>
+<tr><td><i>&rho; &gt; 0</i></td><td>71.4%</td><td>1.40&times;</td><td>7.47</td><td>1.12&times;</td></tr>
+<tr><td><i>&rho; &gt; 0.1</i></td><td>42.0%</td><td>2.38&times;</td><td>9.43</td><td>1.41&times;</td></tr>
+<tr><td><i>&rho; &gt; 0.2</i></td><td>22.9%</td><td>4.36&times;</td><td>13.39</td><td>2.01&times;</td></tr>
+</table>
 
 <!-- figure: screening_per_recruit -->
 
-<p><b>The four curves nearly collapse onto one.</b> At a budget of 200 recruited participants the achieved cohort
-agreement is 0.645 with no screening, 0.647 at <i>&rho; &gt; 0</i>, 0.640 at <i>&rho; &gt; 0.1</i> and 0.596 at
-<i>&rho; &gt; 0.2</i>. Screening buys quality at almost exactly the price it charges in extra recruitment, and the
-strictest threshold is a net <em>loss</em>: rejecting 77% of candidates costs more than the surviving cohort's extra
-reliability returns.</p>
+<p><b>Screening wins on budget too, and not screening is the worst option at every budget.</b> Reading cohort
+agreement off at a fixed spend:</p>
 
-<p>Both readings are true and they are not in tension. <b>If the constraint is how many people you can run, screen
-hard.</b> Fifty good participants really are worth far more than fifty arbitrary ones. <b>If the constraint is
-money</b>, which for a Prolific study it is, the choice barely matters, and past <i>&rho; &gt; 0.1</i> it starts to
-hurt. Earlier simulations (<code>FINDINGS.md</code>, "Screening works, and is expensive") reported the first reading
-and recorded the recruitment cost beside it without normalising by it; the figure above is that normalisation, and it
-is what changes the recommendation from "screen as hard as you can afford" to "screen only enough to remove
-non-participation".</p>
+<table class="datatable">
+<thead><tr><th>Budget</th><th>None</th><th><i>&rho; &gt; 0</i></th><th><i>&rho; &gt; 0.1</i></th>
+<th><i>&rho; &gt; 0.2</i></th></tr></thead>
+<tr><td>500 credits</td><td>0.470</td><td>0.519</td><td><b>0.559</b></td><td>0.548</td></tr>
+<tr><td>800 credits</td><td>0.553</td><td>0.600</td><td>0.642</td><td><b>0.650</b></td></tr>
+<tr><td>1,200 credits</td><td>0.626</td><td>0.666</td><td>0.700</td><td><b>0.714</b></td></tr>
+<tr><td>2,000 credits</td><td>0.717</td><td>0.750</td><td>0.773</td><td><b>0.776</b></td></tr>
+</table>
+
+<p>The gap between no screening and <i>&rho; &gt; 0.1</i> is 0.07&ndash;0.09 of Spearman &rho; at every budget, which
+is roughly <em>four times</em> the entire allocation-arm effect. The two strict thresholds stay within 0.015 of each
+other and cross over around 600 credits, so these data do not separate them.</p>
+
+<p><b><i>&rho; &gt; 0.1</i> remains the recommendation</b>, now on firmer ground than before. It is at or within 0.015
+of the best option across the whole budget range; it is ahead at the budget we are actually likely to spend (retaining
+<i>N</i>=50 costs 471 credits at <i>&rho; &gt; 0.1</i> against 670 at <i>&rho; &gt; 0.2</i>); and it is the less
+fragile bet, since the strict threshold's credit advantage rests entirely on a pass rate this simulation probably
+overestimates.</p>
+
 
 <h3>What This Means for <i>N<sub>total</sub></i></h3>
-<p>Retaining <i>N</i>=50 costs about <b>119 recruited participants</b> at <i>&rho; &gt; 0.1</i>, or 70 at
-<i>&rho; &gt; 0</i>, or 219 at <i>&rho; &gt; 0.2</i>. Since <a href="#stability">stability</a> and
-<a href="#closest">recovery</a> both improve steeply with the threshold but only in step with what it costs to
-recruit, <i>&rho; &gt; 0.1</i> is the defensible middle: it is on the flat part of the budget-normalised curve, it
-removes the participants who are not doing the task, and it leaves the recruitment bill payable. Going further to
-<i>&rho; &gt; 0.2</i> nearly doubles the bill again and returns less per pound than not screening at all.</p>
+<p>Retaining <i>N</i>=50 means recruiting about <b>119 participants</b> at <i>&rho; &gt; 0.1</i>, or 70 at
+<i>&rho; &gt; 0</i>, or 219 at <i>&rho; &gt; 0.2</i>. In credits that is 471, 373 and 670 respectively, against 334
+with no screening at all. The headcount and the bill tell different stories, and the bill is the one that matters:
+219 recruits sounds like four times the study, but costs twice it.</p>
+
+<p><i>&rho; &gt; 0.1</i> is the operating point. It sits at 471 credits for <i>N</i>=50, buys 0.55 of cohort
+agreement where the same money spent without screening buys about 0.47, and unlike <i>&rho; &gt; 0.2</i> it does not
+stake the whole plan on a pass rate we have not yet observed in a real sample.</p>
 
 <h3>Verdict</h3>
-<p>Screening is the strongest lever in the sweep and also the most expensive, and the two cancel almost exactly.
-Per retained participant it dominates everything else here, including the allocation arm by a wide margin; per
-participant recruited it is close to free and close to worthless, until <i>&rho; &gt; 0.2</i> where it turns
-negative. The practical conclusion is <i>&rho; &gt; 0.1</i>, chosen not because the quality gain is small but because
-that is where the gain stops outrunning its price.</p>
+<p><b>Screening is the strongest lever in this simulation, and it survives being charged for.</b> Per retained
+participant it dominates everything else here, the allocation arm included, by a factor of about four. Per credit
+spent it still wins, because a screened-out participant is paid 2 credits rather than 6.67: the strictest threshold
+rejects 77% of candidates yet only doubles the bill. Not screening is the worst use of the money at every budget we
+examined.</p>
 
-<p>One caveat cuts against being too clever here. This simulation models participants as noisy, never as absent: it
-has no bots, no one who drags two images and quits, no one who mistakes the task entirely. Those are the cases
-screening exists to catch and the ones it removes most cheaply, and none of them appear in the pass rates above. The
-real pass rate will be lower than the simulated one and the real benefit higher, both in the same direction, which is
-another reason not to push the threshold past the point this analysis can vouch for.</p>
+<p>What the data do not settle is <i>&rho; &gt; 0.1</i> against <i>&rho; &gt; 0.2</i>, which stay within 0.015 of
+each other and swap places depending on budget. We take the lenient one, on the grounds that its advantage does not
+depend on the pass rate holding up.</p>
+
+<p>One caveat runs through all of it. This simulation models participants as noisy, never as absent: no bots, no one
+who drags two images and quits, no one who mistakes the task entirely. Those are exactly the cases screening exists
+to catch and the ones the screening block removes most cheaply, and none of them appear in the pass rates above. So
+the real pass rate will be lower than the simulated one, and the real benefit higher. Both errors point the same way,
+which is why the case for screening should be read as a floor rather than an estimate.</p>
 </section>
 
 
@@ -846,11 +875,11 @@ more reproducible embeddings at every <i>N</i> on both Spearman &rho; and Procru
 truth better on every measure, and the constraint that makes it deployable costs 0.61% of coverage.</li>
 <li><b>Do not build the analysis on cluster membership.</b> Use a distance threshold. No granularity finer than
 <i>k</i>=2 survives resampling, and two independent methods agree.</li>
-<li><b>Screen at <i>&rho; &gt; 0.1</i>, and no harder.</b> Participant quality is the largest single lever in the
-sweep: at <i>N</i>=50, screening at <i>&rho; &gt; 0.2</i> raises cohort agreement 57% and closest-pair agreement 73%,
-dwarfing the allocation effect. But it costs recruitment in almost exactly the same proportion, so per participant
-<em>paid</em> the thresholds are nearly indistinguishable and <i>&rho; &gt; 0.2</i> is a net loss. Retaining
-<i>N</i>=50 at <i>&rho; &gt; 0.1</i> means recruiting about 119 people.</li>
+<li><b>Screen, at <i>&rho; &gt; 0.1</i> or stricter.</b> Participant quality is the largest single lever in the sweep:
+at <i>N</i>=50, screening at <i>&rho; &gt; 0.2</i> raises cohort agreement 57% and closest-pair agreement 73%,
+about four times the allocation effect. It survives being charged for, because a screened-out participant costs 2
+credits against 6.67 for a completion, so rejecting 77% of candidates only doubles the bill. Retaining <i>N</i>=50 at
+<i>&rho; &gt; 0.1</i> means recruiting about 119 people for 471 credits.</li>
 <li><b>The simulated participants are adequate but conservative.</b> They are 28% noisier than real ones within
 subject, so recommendations err toward too many participants rather than too few.</li>
 </ol>
