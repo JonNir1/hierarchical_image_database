@@ -577,7 +577,6 @@ Turning a finished run into something readable.
 
 | Module | Responsibility |
 |---|---|
-| `build_report.py`, `report_sections.py`, `report_clusters.py` | Build the self-contained HTML results report. Every number is read from the run's CSVs at build time, so the page cannot drift from the tables. `build_report` also exposes a CLI: `python -m SpAM_Simulations.reporting.build_report`. |
 | `eval_helpers.py` | Read-only loading/plotting helpers for `notebooks/evaluate_simulation.ipynb`. No simulation, no MDS, no R. |
 
 ### `cli/`
@@ -596,7 +595,7 @@ Entry points. `python -m SpAM_Simulations.cli.<name> --help` for each.
 
 | Path | Responsibility |
 |---|---|
-| `notebooks/report_v5.ipynb` | Notebook companion to the report: same tables, same figures, for checking or re-cutting any of it. |
+| `sim_results/v5/report/` | The v5 report: `report_v5.src.html` (hand-written prose, tracked), `figures.py` (every figure, computed from the run's CSVs) and `assemble.py` (builds the shareable HTML, which is gitignored). |
 | `notebooks/evaluate_simulation.ipynb` | Overview/drill-down figures for a completed run, via `reporting/eval_helpers.py`. |
 | `notebooks/evaluation_v0_1.ipynb`, `notebooks/evaluation_task_v2_3.ipynb`, `notebooks/evaluation_task_v2_4.ipynb` | Per-task-version plotting notebooks for the older simulations. |
 | `ec2/` | Provisioning + staging helpers (`prepare_machine.sh`) and the sweep entrypoints, including the current two-stage programme (`run_gt_construction.sh`, `run_design_comparison.sh`). See [Cookbook.md](Cookbook.md#running-on-ec2). |

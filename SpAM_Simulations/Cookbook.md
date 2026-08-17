@@ -690,11 +690,17 @@ against the current grouping. ~3 hours on 8 cores; `--only <name>` for a subset.
 #### J. The report (local, PowerShell)
 
 ```powershell
-.venv\Scripts\python.exe -m SpAM_Simulations.reporting.build_report --run SpAM_Simulations\sim_results\design-comparison-v5
+.venv\Scripts\python.exe SpAM_Simulations\sim_results\v5\report\assemble.py
 ```
 
-Writes a self-contained `report_v5.html` (~5 MB, plotly inlined, opens anywhere). `report_v5.ipynb`
-reproduces it cell by cell.
+The report is prose plus computed figures, kept apart on purpose. `report_v5.src.html` holds the
+hand-written text and is tracked in git; `figures.py` builds every figure from the run's CSVs, so a
+figure cannot drift from its table even when the surrounding text is edited freely. The build fails
+if the source names a figure that does not exist, or if a registered figure is never placed.
+
+It writes a self-contained `report_v5.html` (~5 MB, plotly inlined, opens anywhere) beside the
+source. That file is gitignored: it is output, and git cannot delta-compress inlined plotly. Pass
+`--run` if the run data lives in a different checkout from the report.
 
 #### Full-run checklist
 

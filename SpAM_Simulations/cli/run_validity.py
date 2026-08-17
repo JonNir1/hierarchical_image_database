@@ -41,19 +41,24 @@ DEFAULT_TRIALS_PER_SUBJECT = 4
 
 
 def _resolve_gt(run: Path, calibration: dict, override: Optional[Path]) -> Path:
+    """Find the ground-truth coordinates, looking in ``gt/`` as well as the run root.
+
+    Stage 1 writes the coordinates into ``<run>/gt/``, which is where they belong; earlier ad-hoc
+    downloads dropped a copy at the run root. Both are searched so neither layout breaks this.
+    """
     if override is not None:
         return override
-    named = run / str(calibration.get("gt_file", ""))
-    if named.is_file():
-        return named
-    candidates = sorted(run.glob("*.npy"))
-    if len(candidates) == 1:
-        return candidates[0]
+    name = str(calibration.get("gt_file", ""))
+    for candidate in (run / name, run / "gt" / name):
+        if name and candidate.is_file():
+            return candidate
+    found = sorted(run.glob("*.npy")) + sorted((run / "gt").glob("*.npy"))
+    if len(found) == 1:
+        return found[0]
     raise SystemExit(
-        f"cannot locate the ground truth. calibration.json names "
-        f"{calibration.get('gt_file')!r}, which is not at {named}. Download it next to the run:\n"
-        f"  aws s3 cp <gt-prefix>/gt/{calibration.get('gt_file')} {run}/\n"
-        f"or pass --gt explicitly."
+        f"cannot locate the ground truth. calibration.json names {name!r}, which is at neither "
+        f"{run / name} nor {run / 'gt' / name}, and globbing found {len(found)} .npy files.\n"
+        f"  Sync stage 1's gt/ prefix beside the run, or pass --gt explicitly."
     )
 
 

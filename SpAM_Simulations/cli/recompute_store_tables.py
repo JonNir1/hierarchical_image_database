@@ -39,17 +39,27 @@ TABLES = {
 
 
 def _resolve_gt(run: Path, override: Optional[Path]) -> Path:
+    """Find the ground-truth coordinates, looking in ``gt/`` as well as the run root.
+
+    Stage 1 writes the coordinates into ``<run>/gt/``, which is where they belong; earlier ad-hoc
+    downloads dropped a copy at the run root. Both are searched so neither layout breaks this.
+    """
     if override is not None:
         return override
+    named = ""
     cal = run / "calibration" / "calibration.json"
     if cal.is_file():
-        named = run / str(json.loads(cal.read_text()).get("gt_file", ""))
-        if named.is_file():
-            return named
-    candidates = sorted(run.glob("*.npy"))
-    if len(candidates) == 1:
-        return candidates[0]
-    raise SystemExit(f"cannot locate the ground truth under {run}; pass --gt explicitly")
+        named = str(json.loads(cal.read_text()).get("gt_file", ""))
+        for candidate in (run / named, run / "gt" / named):
+            if named and candidate.is_file():
+                return candidate
+    found = sorted(run.glob("*.npy")) + sorted((run / "gt").glob("*.npy"))
+    if len(found) == 1:
+        return found[0]
+    raise SystemExit(
+        f"cannot locate the ground truth under {run}. calibration.json names {named!r}, which is "
+        f"at neither {run / named} nor {run / 'gt' / named}, and globbing found "
+        f"{len(found)} .npy files. Pass --gt explicitly.")
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
