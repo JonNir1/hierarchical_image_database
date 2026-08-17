@@ -9,6 +9,13 @@
 that comment is replaced by the rendered figure. The build fails if the source names a figure that
 does not exist, or if a registered figure is never used, so the two cannot drift apart silently.
 
+A second placeholder inlines a static image from the repository:
+
+    <!-- image: SpAM_Task/assets/examples/before1.png | a trial as it opens -->
+
+The path is resolved against the repository root and the file is embedded as a base64 data URI, so
+the built page stays a single shareable file with no external references.
+
 The run's data (``out/``, ``mds_store/``, ``gt/``, ``gt_diagnostics/``) is gitignored and may live in
 a different checkout from this file, which is why ``--run`` exists. The built page is written next to
 the source and is itself gitignored, being ~5 MB with plotly inlined.
@@ -16,12 +23,14 @@ the source and is itself gitignored, being ~5 MB with plotly inlined.
 from __future__ import annotations
 
 import argparse
+import base64
 import re
 import sys
 from pathlib import Path
 from typing import List, Optional, Sequence
 
 HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parents[3]
 sys.path.insert(0, str(HERE))
 
 import plotly.io as pio  # noqa: E402
@@ -30,6 +39,10 @@ from plotly.offline import get_plotlyjs  # noqa: E402
 from figures import FIGURES, Run  # noqa: E402
 
 PLACEHOLDER = re.compile(r"[ \t]*<!--\s*figure:\s*([a-z0-9_]+)\s*-->[ \t]*\n?")
+IMAGE = re.compile(r"<!--\s*image:\s*([^|>]+?)\s*(?:\|\s*(.*?)\s*)?-->")
+
+MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp"}
 
 CSS = """
 :root { color-scheme: light dark; }
@@ -61,12 +74,41 @@ nav { background: rgba(128,128,128,.08); padding: .9rem 1.2rem; border-radius: 6
       margin: 1.2rem 0 2rem; font-size: .92rem; }
 nav ol { margin: .3rem 0; }
 a { color: #1f77b4; }
+.example-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem 1rem;
+                margin: 1.2rem 0 .2rem; align-items: start; }
+.example-grid .colhead { margin: 0; font-size: .82rem; font-weight: 600; color: #666;
+                         text-transform: uppercase; letter-spacing: .04em; }
+img.example { width: 100%; height: auto; display: block; border-radius: 4px;
+              border: 1px solid rgba(128,128,128,.35); }
 @media (prefers-color-scheme: dark) {
   body { color: #e8e8e8; background: #14161a; }
-  .sub, h3, .figcaption { color: #9aa0a6; }
+  .sub, h3, .figcaption, .example-grid .colhead { color: #9aa0a6; }
   a { color: #6db3f2; }
 }
 """
+
+
+def embed_images(source: str) -> str:
+    """Inline every ``<!-- image: path | alt -->`` as a self-contained data URI."""
+    count = 0
+
+    def swap(match: re.Match) -> str:
+        nonlocal count
+        rel, alt = match.group(1), (match.group(2) or "")
+        path = REPO_ROOT / rel
+        if not path.is_file():
+            raise SystemExit(f"[assemble] ABORT: the source references a missing image {rel!r} "
+                             f"(looked under {REPO_ROOT}).")
+        mime = MIME.get(path.suffix.lower())
+        if mime is None:
+            raise SystemExit(f"[assemble] ABORT: unsupported image type {path.suffix!r} for {rel!r}.")
+        uri = base64.b64encode(path.read_bytes()).decode("ascii")
+        count += 1
+        return f'<img class="example" alt="{alt}" src="data:{mime};base64,{uri}">'
+
+    out = IMAGE.sub(swap, source)
+    print(f"[assemble] inlined {count} static images")
+    return out
 
 
 def render(source: str, run: Run) -> str:
@@ -138,7 +180,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             f"  The run data is gitignored and may sit in another checkout; pass it explicitly:\n"
             f"    --run <repo>/SpAM_Simulations/sim_results/v5")
 
-    page = build_page(render(args.src.read_text(encoding="utf-8"), Run(args.run)), args.title)
+    source = embed_images(args.src.read_text(encoding="utf-8"))
+    page = build_page(render(source, Run(args.run)), args.title)
     args.out.write_text(page, encoding="utf-8")
     print(f"[assemble] wrote {args.out} ({args.out.stat().st_size / 1e6:.1f} MB)")
     return 0
