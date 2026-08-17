@@ -1,0 +1,568 @@
+<!-- ===========================================================================
+     SOURCE for the v5 report. Hand-edited prose; figures are injected by
+     assemble.py wherever a figure-placeholder comment appears (see figures.py
+     for the registered names). Build with:
+       python SpAM_Simulations/sim_results/v5/report/assemble.py --run <v5 dir>
+     Nested comments are illegal in HTML, so this header cannot show the
+     placeholder syntax literally without the builder matching it.
+     =========================================================================== -->
+
+<section id="background"><h2>Background</h2>
+
+<h3>The Project</h3>
+<p>We have 725 photographs of objects. We want to generate a similarity map over the image, to determine which images
+are <em>too similar</em> to be presented together in a visual search task. To create the map, we use <i>Prolific</i> to
+collect similarity ratings from online raters.<br>
+As a secondary goal, we want to check if the image preprocessing pipeline that is commonly applied on EEG/MRI
+experiments using the <i>SHINE</i> toolkit affects the perceptual similarity scores of the processed images.</p>
+
+<h3>The SpAM Task</h3>
+<p>The dataset consists of 725 images, which make <em>262,450 possible pairs</em>. No single subject can rate that many
+pairs. Instead, we use the Spatial Arrangement Method: participants are presented with a subset of <i>k</i> images,
+and they are asked to place each image within a 2D canvas based on their similarity &ndash; similar images should be
+closer together, and dissimilar images are placed far apart. This way, perceptual similarity is inferred from the
+Euclidean distance between pairs of images, which can be collected much faster than the classical pairwise ratings
+using a Likert scale. A recent study (<a href="https://doi.org/10.3758/s13428-025-02732-0">Robbins et al., 2025</a>,
+experiment 2) reported correlations between the two methods ranging from r = 0.04 to 0.40 depending on category.</p>
+
+<h3>Image-to-Trial Allocation</h3>
+<p>With <i>t=18</i> trials and <i>k=20</i> unique images per trial, each (retained) participant covers 360 of the 725
+images, and produces <i>&frac12;t&middot;k(k-1) = 3420</i> distinct ratings (not including the repeated trials),
+which are <i>1.3%</i> of all possible ratings. Importantly, the images are allocated randomly across subjects, which
+could lead to some images being over sampled while others are rarely seen, and many image-pairs never being judged at
+all. An alternative allocation method, introduced by <a href="https://doi.org/10.3758/s13428-019-01326-x">MacDonald et
+al. (2020)</a>, guarantees an almost-optimally balanced allocation. However, it does not use strictly disjoint subsets
+of images across trials for the same participant &ndash; a criterion we require due to our repeatability analysis
+(repeated trials). Therefore, we created a constrained version of the MacDonald allocation algorithm, which forfeits
+some of the allocation-balance in order to guarantee a participant only sees images within a single context (i.e., no
+image appears in more than a single trial, except for repeated trials where the whole context is repeated).<br>
+While it is expected that the MacDonald algorithm (and our constrained version) would outperform the random assignment
+in pair-coverage and allocation balance, it is unclear whether the wider coverage translates to a worthwhile
+improvement in embedding stability, generalizability, or granularity.</p>
+
+<h3>Our Experiment</h3>
+<p>We collected data from <i>N<sub>total</sub></i> participants using <i>Prolific</i>. Each participant performed
+<i>t=18</i> SpAM trials, each with <i>k=20</i> unique images. Four repeat-trials &ndash; where participants needed to
+re-arrange a set of images they had already seen &ndash; were interleaved throughout the experiment. Those repeated
+measurements are used to assess participants' repeatability. Additionally, three catch-trials were presented randomly,
+requiring the participant to perform a slight variation of the task (e.g. "move all images to the bottom-right
+corner").<br>
+The first 8 trials (6 original, 2 repeats) were used to screen out subjects who do not perform the task: they move
+too-few items, their arrangement is too concentrated, or they fail to reproduce their own arrangements (<i>Spearman
+R &lt; 0</i>).</p>
+</section>
+
+
+<section id="mapping"><h2>Deriving the Perceptual Map</h2>
+
+<h3>Generating the Embeddings</h3>
+<p>Each participant contributes a sparse set of pairwise distances. Pooling them across participants yields a single
+<i>725&times;725</i> dissimilarity matrix in which most cells remain empty. We turn that matrix into coordinates using
+<b>Multidimensional Scaling</b> (MDS) &ndash; specifically weighted SMACOF, which assigns zero weight to unobserved
+pairs so they neither constrain the solution nor need to be imputed.<br>
+Two properties of MDS matter for everything that follows. First, <em>the dimensionality is an input, not an
+output</em>: the algorithm embeds the images in however many dimensions it is given and returns a solution for any
+choice, so <i>d</i> must be selected on separate grounds (see
+<a href="#gt-dimensionality">Choosing the Dimensionality</a>). Second, the graph of observed pairs must form a
+<em>single connected component</em> &ndash; if the images split into two subsets with no judged pair bridging them,
+their relative position is unconstrained and no unique solution exists. Connectivity is necessary but far from
+sufficient: a barely-connected graph still converges, but to an unstable solution that a second sample would not
+reproduce. Quantifying that gap is the purpose of <a href="#gt-quality">Is the Map Any Good?</a>.</p>
+
+<h3>Clustering the Embeddings</h3>
+<p>Grouping the images is the point of the exercise, so we cluster the recovered coordinates two ways, chosen because
+they fail differently. <b>Agglomerative clustering</b> merges the closest pairs of clusters upward into a dendrogram
+(we use average, ward and complete linkage), which is then cut at a chosen <i>k</i>. It assigns <em>every</em> image
+to some cluster, and the resulting partitions support Variation of Information, a true metric on partitions, so two
+cohorts' groupings can be compared on a scale that obeys the triangle inequality. Its weakness is exactly that
+completeness: an image resembling nothing else is still forced into a group. <b>HDBSCAN</b> is density-based and
+governed by <code>min_cluster_size</code> rather than by <i>k</i>; it discovers how many clusters there are and may
+leave an image unassigned, labelling it noise. That answers the question agglomerative clustering structurally cannot
+&ndash; "does this image belong to any group at all?" &ndash; which for stimulus construction is the useful answer,
+since an image resembling nothing else is the safest one to use. Its noise label breaks the metric properties, so it
+is run descriptively and never enters the VI chain.</p>
+</section>
+
+
+<section id="why"><h2>Why Run These Simulations?</h2>
+<p>Three questions, none of which can be answered from the pilot alone, and all of which have to be settled before
+committing to a full data collection.</p>
+<ol>
+<li><b>Required <i>N<sub>total</sub></i>.</b> How many participants must be recruited in order to retain <i>N</i> who
+pass screening and yield sufficiently stable embeddings.</li>
+<li><b>Sensitivity analysis at <i>N</i> = 50 and 75.</b> Failing a definitive answer to (1), whether those specific
+sample sizes give embeddings stable and generalizable enough for the downstream claims we intend to make.</li>
+<li><b>Allocation-arm comparison.</b> Random versus constrained-MacDonald, judged both on pair coverage and balance,
+and on the same stability and generalizability criteria as (2). Wider coverage is expected; whether it buys better
+embeddings is not.</li>
+</ol>
+</section>
+
+
+<section id="participants"><h2>Simulating Participants</h2>
+<p>The simulation is only worth as much as its model of a participant. This section describes where that model comes
+from: which empirical data feeds it, and which of its parameters are estimated rather than chosen.</p>
+
+<h3>Empirical Data</h3>
+<p>Forty-seven pilot participants were collected across four task versions and two stimulus variants.</p>
+
+<table class="datatable">
+<thead><tr><th>Task version</th><th>pre-SHINE</th><th>post-SHINE</th><th>Total</th><th>Repeat trials</th></tr></thead>
+<tr><td><i>v1.0</i></td><td>15</td><td>0</td><td>15</td><td>&ndash;</td></tr>
+<tr><td><i>v2.0</i></td><td>10</td><td>0</td><td>10</td><td>&ndash;</td></tr>
+<tr><td><i>v3.0</i></td><td>11</td><td>0</td><td>11</td><td>3</td></tr>
+<tr><td><i>v3.06</i></td><td>5</td><td>6</td><td>11</td><td>3</td></tr>
+<tr><td><b>Total</b></td><td><b>41</b></td><td><b>6</b></td><td><b>47</b></td><td></td></tr>
+</table>
+
+<p>The decisive difference is that <i>v1</i> and <i>v2</i> had <em>no repeat-trial scheme</em>; it was introduced in
+<i>v3</i>. Without repeats there is no within-subject measurement, so those 25 participants can tell us how people
+differ from <em>one another</em> but nothing about how a person differs from <em>themselves</em>. The SHINE variant
+cuts the data the other way: post-SHINE participants judged a <em>different stimulus set</em>, so they cannot
+contribute to a geometry over the pre-SHINE images, although they remain perfectly good evidence about human
+behaviour.<br>
+These two constraints are orthogonal, which is why three different subsets are used and why the <i>N</i> quoted
+depends on which quantity is being estimated:</p>
+
+<table class="datatable">
+<thead><tr><th>Estimated quantity</th><th><i>N</i></th><th>Which participants</th><th>Why</th></tr></thead>
+<tr><td>Across-subject noise</td><td><b>47</b></td><td>all</td>
+    <td>Needs only that two participants judged some pairs in common; the stimulus set is irrelevant.</td></tr>
+<tr><td>Within-subject noise</td><td><b>22</b></td><td><i>v3.0</i> + <i>v3.06</i></td>
+    <td>Requires repeat trials, which only exist from <i>v3</i> onwards.</td></tr>
+<tr><td>Ground-truth embedding</td><td><b>41</b></td><td>pre-SHINE only</td>
+    <td>An embedding is a geometry over a <em>specific</em> stimulus set; mixing variants would conflate two.</td></tr>
+</table>
+
+<h3>From Embedding to Arrangement</h3>
+<p>A simulated participant is generated in three steps:</p>
+<ol>
+<li><b>Perspective</b> &ndash; the <i>d</i>-dimensional ground-truth coordinates are re-weighted per subject, so
+different people effectively attend to different dimensions. The weights are drawn once per subject and stay fixed
+for their whole session.</li>
+<li><b>Projection</b> &ndash; for each trial, the <i>k=20</i> selected images are projected onto the two leading
+principal axes <em>of the re-weighted cloud</em>. This is the same lossy step a real participant performs when forced
+to express a high-dimensional judgement on a flat screen.<br>
+Note what the re-weighting in step 1 buys here. Inflating a dimension inflates its variance, which promotes it into
+the top two: a subject weighting dimension 5 heavily sees a plane dominated by dimension 5, while another subject sees
+a different plane entirely. <b>This is how the population samples all <i>d</i> dimensions</b> rather than everyone
+viewing the two globally-largest ones. The projection itself involves no randomness &ndash; it is fully determined by
+the subject's weights and by which images share the trial.</li>
+<li><b>Placement</b> &ndash; the projected points are fitted into a bounded rectangle and perturbed by placement
+noise. Distances are then read off the final arrangement exactly as the task records them.</li>
+</ol>
+<p>The rectangle matters. Real arrangements are constrained by the canvas edges, and an unbounded model produced
+per-trial maximum distances of <i>1.39</i> on a scale whose ceiling is <i>1.0</i> &ndash; arrangements no participant
+could have made.</p>
+
+<h3>Noise Estimation</h3>
+<p>Variability enters the model at each of the three steps above, and the sources are distinct. Two are estimated from
+the pilot; the other two are structural, and would be present however the model were parameterised. Taking them in
+step order:</p>
+<ul>
+<li><b>Across-subject noise</b> (step i, <em>estimated</em>) &ndash; systematic differences in <em>which</em>
+dimensions a person weighs. This is not random error: each subject is internally consistent, they simply disagree
+about what matters. It is what makes two careful participants produce different arrangements, and it is estimated
+from between-subject agreement over the pairs they both judged (mean <i>r=0.142</i>, <i>n=47</i>).</li>
+<li><b>Projection variability</b> (step ii, <em>not estimated</em>) &ndash; the 2D plane is not fixed. It depends on
+the subject's weights, so different people view the space along different planes; and it is recomputed per trial from
+that trial's 20 images, so the same pair placed in two different trials is projected differently. Nothing is fitted
+here &ndash; both fall out of step 1 and the allocation &ndash; and the second mirrors a real effect: a participant's
+placement genuinely depends on which other images sit on screen beside it.</li>
+<li><b>Within-subject noise</b> (step iii, <em>estimated</em>) &ndash; motor variability in dragging, and genuine
+confusion about ambiguous pairs. It is what makes a participant fail to reproduce their <em>own</em> arrangement, and
+it is estimated from the repeat trials: median Spearman <i>&rho;=0.243</i> between a participant's two attempts
+(10th&ndash;90th percentile: <i>0.084&ndash;0.511</i>, <i>n=22</i>).</li>
+<li><b>Canvas compression</b> (step iii, <em>not estimated</em>) &ndash; the rectangle is a hard boundary, so two
+images already at opposite corners cannot be pushed further apart no matter how dissimilar they are. This is a
+genuine constraint of the task rather than a modelling choice: it applies identically to real participants and to
+simulated ones, and it is not something we could estimate away. Its main consequence is that distances at the top of
+the range are compressed relative to the underlying dissimilarity, which shows up as a distinctive signature in the
+noise-versus-distance curve.</li>
+</ul>
+
+<p>Each estimated term is inverted separately: we sweep the corresponding model parameter until the simulated cohort
+reproduces the empirical observable. Per-subject noise magnitudes are drawn from a lognormal population
+(<i>&sigma;=0.35</i>, median scale <i>0.30</i> of canvas width) rather than held constant, because real participants
+differ substantially in how careful they are. Whether the inversion succeeded is assessed in
+<a href="#realism">Are the Simulated Participants Realistic?</a>.</p>
+
+<h3>What the Model Does Not Capture</h3>
+<p>Stated so the results are read with the right scepticism. The model has no fatigue, practice or order effects: its
+final trial is drawn from the same distribution as its first. It has no image-specific difficulty &ndash; noise
+magnitude varies by participant, not by stimulus, so an intrinsically confusing image is no harder for it than any
+other. Catch-trials are not simulated, since they test compliance rather than perception. And the perspective
+re-weighting assumes participants differ in <em>emphasis</em> across a shared set of dimensions, not that they use
+genuinely different dimensions from one another.</p>
+</section>
+
+
+<section id="groundtruth"><h2>The Ground Truth</h2>
+<p>Every simulated participant is a noisy view of one fixed embedding, and every recovered embedding is scored against
+it. Its quality therefore bounds what any downstream result can mean, which is why it gets its own section.</p>
+
+<h3>Building It From the Pilot</h3>
+<p>The 41 pre-SHINE participants are pooled into one dissimilarity matrix &ndash; about a third of the 262,450 pairs
+are observed by someone &ndash; and embedded with weighted SMACOF as described in
+<a href="#mapping">Generating the Embeddings</a>. Unobserved pairs carry zero weight, so they are neither imputed nor
+allowed to constrain the solution; their coordinates are whatever the observed pairs imply.</p>
+
+<h3 id="gt-dimensionality">Choosing the Dimensionality</h3>
+<p>MDS cannot choose <i>d</i> for us, so we measure it: split the pilot in half, embed each half separately, and ask
+how well the two agree. Agreement that rises with <i>d</i> means the data supports the extra dimensions; agreement
+that falls means we are fitting noise. The one-SE rule then takes the smallest <i>d</i> not clearly worse than the
+best.</p>
+
+<!-- figure: gt_dimensionality_scan -->
+
+<p>The rule selects <b><i>d</i> = 3</b>, at a peak split-half Spearman of <b>&rho; = 0.233</b>. That is low: two
+independent halves of the pilot share roughly 5% of their rank variance, and the curve is flat across <i>d</i> = 3, 4
+and 5, so the data cannot really distinguish them. The second measure disagrees with the first, which is itself
+diagnostic.</p>
+
+<!-- figure: gt_topk_by_ndim -->
+
+<p>Agreement about <em>which pairs are closest</em> keeps improving out to <i>d</i> = 20 while overall agreement is
+falling. Two measures pointing in opposite directions means the pilot is too small to settle the question.</p>
+
+<p><b>We therefore built the ground truth at <i>d</i> = 8, not 3.</b> A low-dimensional embedding is easier to recover
+than a high-dimensional one, so planning the full study against <i>d</i> = 3 would flatter the simulation and lead to
+recruiting too few participants. Using <i>d</i> = 8 makes the recovery problem deliberately harder, so the sample
+sizes that follow err toward being too large rather than too small.</p>
+
+<h3 id="gt-quality">Is the Map Any Good?</h3>
+<p>The embedding is fitted on the pilot, so it cannot legitimately agree with the pilot better than the pilot agrees
+with itself. We compare two quantities per semantic level: the embedding's agreement with the pooled ratings, and the
+half-split reliability of those ratings, which is the ceiling.</p>
+
+<!-- figure: gt_vs_noise_ceiling -->
+
+<p>The embedding exceeds its own ceiling by roughly 4&times; to 20&times; at the coarse levels. That is the signature
+of a 725&times;8 configuration with more freedom than a 31%-observed matrix can constrain: it is reproducing variance
+the data cannot reproduce in itself.</p>
+
+<p class="warn"><b>What this does and does not undermine.</b> Fine-grained conclusions, especially about clusters of
+very similar images, are partly a statement about having 41 pilot participants rather than about perception. The
+allocation comparison is unaffected: it asks which arm covers the pair space better, and both arms are scored against
+the identical ground truth.</p>
+
+<h3>Semantic Structure</h3>
+<p>The images carry an independent semantic hierarchy that was never given to the algorithm, so it serves as an
+external check: if the embedding is meaningful, semantically closer images should sit closer together.</p>
+
+<!-- figure: gt_semantic_gradient -->
+
+<p>The gradient is monotone for five of six levels, which is reassuring. <b>The deepest level inverts</b>: images
+sharing a depth-5 leaf sit further apart than same-leaf pairs generally. That cell holds 348 pairs (0.13% of the
+matrix) and only 100 of them were judged by anyone in the 41-subject set, so its position is largely interpolated. We
+report it rather than trimming it, and note the consequence: the inversion is inherited by <em>every</em> simulated
+cohort drawn from this ground truth, so it is never evidence about a particular simulation setting.</p>
+</section>
+
+
+<section id="trials"><h2>Simulating Trials</h2>
+
+<h3>Swept and Calibrated Variables</h3>
+<p>Two kinds of parameter. <b>Calibrated</b> ones are fixed at a value estimated from the pilot or dictated by the
+deployed task; varying them would mean simulating a study we are not running. <b>Swept</b> ones are varied because
+either the answer depends on them (<i>N</i>, allocation arm) or because we cannot estimate them confidently and want
+to show the conclusions hold across a plausible range (dispersion, canvas softness).</p>
+
+<table class="kv">
+<tr><th>Calibrated and fixed</th><td><code>trials_per_subject=14</code>, <code>images_per_trial=20</code>,
+<code>screening_trials=8</code>, <code>screening_repeats=2</code>, <code>frac_trials_repeated=1/7</code>,
+<code>subjects_noise_scale=0.30</code>, <code>subjects_noise_lognormal_sigma=0.35</code></td></tr>
+</table>
+
+<h3>The Sweep Grid</h3>
+<table class="datatable">
+<thead><tr><th>Swept variable</th><th>Values</th><th>n</th></tr></thead>
+<tr><td><code>num_subjects</code></td><td>30, 50, 75, 500</td><td>4</td></tr>
+<tr><td><code>perspective_dispersion</code></td><td>0.10, 0.25, 0.40</td><td>3</td></tr>
+<tr><td><code>screening_min_reliability</code></td><td>&minus;1 (no exclusion), 0, 0.1, 0.2</td><td>4</td></tr>
+<tr><td><code>allocation_mode</code></td><td>random, constrained-MacDonald</td><td>2</td></tr>
+<tr><td><code>canvas_softness</code></td><td>3, 4, 8</td><td>3</td></tr>
+<tr><td><code>ndim</code> (MDS fit)</td><td>5, 7, 8, 10, 13, 18</td><td>6</td></tr>
+<tr><td>repetitions</td><td>independent cohorts per cell</td><td>10</td></tr>
+</table>
+
+<p>4 &times; 3 &times; 4 &times; 2 &times; 3 &times; 6 &times; 10 = <b>17,280 MDS fits</b>, run on a
+<code>c7i.4xlarge</code> (16 vCPU) in <b>[TODO: wall-clock time]</b>. <i>N</i> = 500 is a ceiling probe rather than a
+recruitment proposal: it exists to find where the curves stop improving.</p>
+
+<h3>How We Evaluate</h3>
+<p>Five questions, each with its own section, in the order a sceptic would ask them:</p>
+<ol>
+<li><a href="#realism">Are the simulated participants realistic?</a> Nothing downstream matters if not.</li>
+<li><a href="#coverage">Coverage and convergence.</a> Does the allocation arm change what gets seen, does the
+session-disjointness constraint cost anything, and does SMACOF converge.</li>
+<li><a href="#stability">Stability between cohorts.</a> Would a second run of the study produce the same ratings, and
+the same embedding.</li>
+<li><a href="#closest">Closest-pair recovery.</a> Do cohorts agree on which pairs are closest, and are those the
+pairs that are genuinely closest in the ground truth.</li>
+<li><a href="#clusters">Cluster structure.</a> At what granularity, if any, do groupings reproduce.</li>
+</ol>
+</section>
+
+
+<section id="realism"><h2>Are the Simulated Participants Realistic?</h2>
+<p class="bottom-line"><b>Bottom line.</b> The model reproduces between-subject disagreement almost exactly and
+reproduces the shape of within-subject noise without having been fitted to it, but it is 28% too noisy within subject
+and under-separates fine semantic distinctions.</p>
+
+<h3>Calibration Targets (mean pairwise Spearman &rho;, test-retest Spearman &rho;)</h3>
+<p>The two observables the noise model was inverted against: agreement between two participants over the pairs both
+judged, and agreement between one participant's two arrangements of the same 20 images.</p>
+
+<!-- figure: realism_calibration -->
+
+<p>Between-subject agreement is reproduced to within 2% (0.142 against 0.145). Within-subject test-retest is
+<b>under-reproduced by 28%</b> (0.243 against 0.176) because the inversion ran on a coarse search grid and stopped
+short. That biases in the safe direction, since a noisier virtual participant makes recovery harder than reality, but
+it is a defect rather than a design choice.</p>
+
+<h3>Reliability Against Distance (binned RMSE)</h3>
+<p>For every pair a participant judged twice, the RMSE between the two placements, binned by how far apart they placed
+it. This was <em>not</em> fitted, which is what gives it force.</p>
+
+<!-- figure: realism_noise_vs_distance -->
+
+<p>Both curves rise off a floor and then fall. The falling right flank requires a bounded canvas, since two images
+already at opposite corners cannot be pushed further apart. The model reproduces it (drop from peak <b>0.27</b>
+against the pilot's <b>0.37</b>). The mismatch is on the left: the model never becomes as quiet as real participants
+on obviously-similar pairs.</p>
+
+<h3>Semantic Gradient Against the Pilot</h3>
+<p>Mean simulated distance per semantic level, relative to unrelated pairs, compared with the same quantity in the
+pilot.</p>
+
+<!-- figure: realism_semantic_gradient -->
+
+<p>The ordering is correct but compressed: same-leaf pairs sit at ~0.71 of the unrelated distance in simulation
+against ~0.28 in the pilot. Part is inherited from the ground truth (<a href="#gt-quality">Is the Map Any Good?</a>)
+and part from the noise model. This check was scored on one configuration per arm, so it establishes that the gradient
+reproduces somewhere in the parameter space rather than throughout it.</p>
+
+<h3>Verdict</h3>
+<p>Good enough to proceed, with one known bias and one known limitation. The virtual participants disagree with each
+other exactly as much as real ones do, and their noise has the right <em>shape</em>. They are too noisy within
+subject, which makes every sample-size recommendation conservative, and they under-separate fine semantic
+distinctions, which means results at the finest granularity understate what real data would give.</p>
+</section>
+
+
+<section id="coverage"><h2>Coverage and Convergence</h2>
+<p class="bottom-line"><b>Bottom line.</b> Constrained-MacDonald covers 18&ndash;30% more image pairs than random for
+identical participant effort, the session-disjointness constraint costs under 1% of coverage, and SMACOF converged in
+99.9% of fits.</p>
+
+<h3>Pair Coverage</h3>
+<p>The share of the 262,450 possible pairs judged by at least one participant.</p>
+
+<!-- figure: coverage_by_n -->
+<!-- figure: coverage_gain -->
+
+<p>Coverage rises from 32.5% to 38.4% at <i>N</i>=30, 48.1% to 60.3% at <i>N</i>=50, and 62.6% to 81.3% at
+<i>N</i>=75. The advantage peaks at <i>N</i>=75 and vanishes by <i>N</i>=500, where random already reaches 99.9% and
+there is nothing left to win. Note the scale of the problem at small <i>N</i>: at 30 participants the average pair is
+judged <b>0.48</b> times, so the binding constraint is touching each pair at all rather than measuring it well.</p>
+
+<h3>Allocation Balance and the Cost of the Constraint</h3>
+<p>The SD of how often each image appears, and the coverage difference between constrained and unconstrained
+MacDonald. This is pure combinatorics, with no simulated participants and no MDS.</p>
+
+<!-- figure: allocation_balance -->
+<!-- figure: constraint_cost -->
+
+<p>Random allocation is roughly five times less balanced (SD 2.74 against 0.51 at <i>N</i>=30) and wastes far more
+effort on already-covered pairs (35.9% against 16.8% at <i>N</i>=75). <b>The disjointness constraint costs 0.61% of
+coverage relative</b> at <i>N</i>=50 (60.31% against 60.68%), which is the result that makes the deployable variant
+usable.</p>
+
+<h3>SMACOF Convergence</h3>
+<p>Whether the optimiser reached a solution rather than exhausting its iteration budget, and the stress it reached.
+Recall from <a href="#mapping">Generating the Embeddings</a> that convergence requires a single connected component;
+that held for every cohort.</p>
+
+<!-- figure: mds_convergence -->
+
+<p><b>17,709 of 17,729 fits converged</b>; 20 (0.11%) hit the 1000-iteration cap, spread across the grid rather than
+concentrated in one cell. (The store holds 17,729 rows against a designed grid of 17,280: a resumed run appended
+449 duplicate fits, which are de-duplicated before any metric is computed.) Stress runs 0.163&ndash;0.432 (mean 0.332), which is high in absolute terms and consistent
+with embedding a sparse, noisy matrix in 5&ndash;18 dimensions.</p>
+
+<h3>Verdict</h3>
+<p>The allocation arm does what it was designed to do, and the constraint that makes it deployable is close to free.
+Convergence is not a concern. Whether the extra coverage buys anything is the subject of the next three sections.</p>
+</section>
+
+
+<section id="stability"><h2>Stability Between Cohorts</h2>
+<p class="bottom-line"><b>Bottom line.</b> Constrained-MacDonald produces <em>noisier raw ratings</em> but
+<em>more reproducible embeddings</em> than random, at every sample size. The reversal is the central result of the
+allocation comparison.</p>
+
+<h3>Raw Ratings (Spearman &rho;)</h3>
+<p>The Spearman correlation between two independent cohorts' pooled distance matrices, before any embedding is
+fitted.</p>
+
+<!-- figure: stability_raw -->
+
+<p>Random wins at every <i>N</i> below 500 (0.143 against 0.126 at <i>N</i>=50). Both arms make the same number of
+judgements; spreading them over more distinct pairs means fewer observations each, so per-pair means are noisier. This
+is the same fact as the coverage gain, seen from the other side.</p>
+
+<h3>Recovered Embeddings (Spearman &rho;)</h3>
+<p>The Spearman correlation between the distance matrices of two embeddings, each fitted to an independent cohort.</p>
+
+<!-- figure: stability_embedding -->
+
+<p>The ordering reverses: <b>0.514 against 0.495</b> at <i>N</i>=50, and constrained-MacDonald leads at every <i>N</i>.
+Weighted SMACOF uses the observation counts, so a pair measured once still constrains the solution, just more gently.
+Constraining more of the space beats constraining less of it more precisely.</p>
+
+<h3>Recovered Embeddings (Procrustes m&sup2;)</h3>
+<p>The residual sum of squares after optimally translating, rotating and scaling one cohort's configuration onto the
+other's. Lower is better. It asks whether the two recovered <em>spaces</em> are the same shape, which the Spearman
+does not.</p>
+
+<!-- figure: stability_procrustes -->
+
+<p>Same direction: <b>0.752 against 0.766</b> at <i>N</i>=50. Both measures agreeing matters, because they can
+disagree.</p>
+
+<h3>Verdict</h3>
+<p>The pre-MDS correlation is the input to the method, not its output, and the design decision should not rest on it.
+On the quantity that matters, the allocation arm wins throughout. At <i>N</i>=50, paired within every sensitivity
+setting, the embedding-level advantage holds in 96&ndash;99% of settings with Cohen's <i>d<sub>z</sub></i> between 1.4
+and 2.2.</p>
+</section>
+
+
+<section id="closest"><h2>Closest-Pair Recovery</h2>
+<p class="bottom-line"><b>Bottom line.</b> Constrained-MacDonald wins at every sample size on every measure, but
+absolute recovery of the closest pairs remains poor: only half of the ground truth's closest pairs are found even at
+<i>N</i>=500.</p>
+
+<h3>Agreement Between Cohorts (top-k Jaccard)</h3>
+<p>The overlap between the sets of closest pairs identified by two independent cohorts. It asks for reproducibility
+without reference to truth.</p>
+
+<!-- figure: topk_between_cohorts -->
+
+<p><b>0.179 against 0.172</b> at <i>N</i>=50, rising to 0.452 against 0.437 at <i>N</i>=500. Two cohorts agree on
+under a fifth of their closest pairs in the deployable range.</p>
+
+<h3>Recall Against the Ground Truth (recall@k)</h3>
+<p>The share of the ground truth's genuinely closest pairs that a recovered embedding also ranks closest.</p>
+
+<!-- figure: recovery_recall -->
+
+<p><b>0.237 against 0.229</b> at <i>N</i>=50, reaching only <b>0.497</b> at <i>N</i>=500. This curve is still climbing
+at the top of the grid.</p>
+
+<h3>Discrimination Against the Ground Truth (AUC and d&prime;)</h3>
+<p>AUC is the probability that a truly-close pair is ranked closer than a truly-far one; d&prime; is the standardised
+separation between the two distributions. Both ask whether the embedding separates close from far, rather than whether
+it identifies the exact closest pairs.</p>
+
+<!-- figure: recovery_auc -->
+<!-- figure: recovery_dprime -->
+
+<p>AUC is high and rises with <i>N</i> (<b>0.839 against 0.831</b> at <i>N</i>=50; 0.958 at <i>N</i>=500), and
+d&prime; roughly doubles from 1.08 to 2.05 across that range. The contrast with recall is the point: the embedding
+reliably separates close pairs from far ones while still failing to pin down <em>which</em> pairs are closest.</p>
+
+<h3>Verdict</h3>
+<p>Coarse discrimination is solved; fine identification is not. Since the downstream use is excluding confusable
+pairs, and that decision needs the closest pairs specifically, this is the result that most constrains what the
+dataset can support. It is also why <b>required <i>N</i> remains unanswered</b>: no curve here has plateaued at
+<i>N</i>=500.</p>
+</section>
+
+
+<section id="clusters"><h2>Cluster Structure</h2>
+<p class="bottom-line"><b>Bottom line.</b> No granularity finer than <i>k</i>=2 reproduces across cohorts. Two
+independent methods agree, so the practical rule should be a distance threshold rather than cluster membership.</p>
+
+<h3>Partition Agreement (normalised VI and ARI)</h3>
+<p>Variation of Information measures the information lost moving between two partitions, normalised to [0,1] and
+lower-is-better; the adjusted Rand index measures pair-wise co-assignment agreement, chance-corrected and
+higher-is-better. Both compare two cohorts clustered independently at the same <i>k</i>.</p>
+
+<!-- figure: cluster_vi_by_k -->
+<!-- figure: cluster_ari_by_k -->
+
+<p>Agreement is high at <i>k</i>=2 (VI 0.074 for average linkage) and decays monotonically: 0.257 at <i>k</i>=5,
+0.500 at <i>k</i>=20. ARI tells the same story on a chance-corrected scale. Average linkage outperforms ward and
+complete throughout, as expected from it assuming least about cluster shape.</p>
+
+<h3>Separation and Granularity (cross-cohort silhouette, <i>k</i>*)</h3>
+<p>The cross-cohort silhouette applies one cohort's cluster labels to another cohort's geometry and asks whether the
+clusters are still separated there. Above zero they are; below zero, points sit closer to a neighbouring cluster than
+their own. <i>k</i>* is the granularity selected by the one-SE rule.</p>
+
+<!-- figure: cluster_silhouette_by_k -->
+
+<p>The curve <b>crosses zero at about <i>k</i>=12</b> and is negative beyond it. Across all <b>5,184
+configurations</b> the selected granularity was <b><i>k</i>* = 2</b>, on both the VI and silhouette criteria, without
+a single exception. The two criteria are constructed to disagree where real structure exists, so their unanimity is
+informative rather than redundant.</p>
+
+<h3>Whole-Tree Agreement (Baker's &gamma;, cophenetic correlation)</h3>
+<p>Baker's &gamma; correlates the merge order of two dendrograms, independent of any cut. The cophenetic correlation
+measures how faithfully a tree represents its own distance matrix, and qualifies the first: trees that poorly describe
+their own data agreeing with each other means little.</p>
+
+<!-- figure: cluster_dendrogram_agreement -->
+
+<p>Baker's &gamma; reaches 0.611 for average linkage (0.579 ward, 0.471 complete), with cophenetic correlations of
+0.542, 0.529 and 0.498. Moderate agreement on gross merge order, consistent with structure existing at the coarsest
+scale only.</p>
+
+<h3>Density-Based Structure (HDBSCAN noise fraction, Cohen's &kappa;)</h3>
+<p>HDBSCAN may leave an image unassigned. The noise fraction is the share it declines to cluster; Cohen's &kappa; is
+the chance-corrected agreement between two cohorts about <em>which</em> images those are.</p>
+
+<!-- figure: cluster_density -->
+
+<p>At <code>min_cluster_size=5</code>, <b>61% of images are left unclustered</b> and cohorts agree on which at
+<b>&kappa; = 0.20</b>. At <code>min_cluster_size=2</code> it finds 171 clusters that two cohorts agree on at ARI 0.05.
+No setting both covers the image set and reproduces.</p>
+
+<h3>Verdict</h3>
+<p>The perceptual space behaves as a continuum, not a set of clumps. Agglomerative clustering says fine partitions do
+not reproduce; HDBSCAN says most images were never in a group to begin with. Part of this is the ground truth's
+sparsity (<a href="#gt-quality">Is the Map Any Good?</a>) rather than the images, so it should be revisited once the
+full study supplies a better map.</p>
+</section>
+
+
+<section id="conclusions"><h2>Conclusions</h2>
+
+<h3>What the Simulation Settles</h3>
+<ol>
+<li><b>Adopt constrained-MacDonald allocation.</b> It covers 18&ndash;30% more pairs for identical effort, produces
+more reproducible embeddings at every <i>N</i> on both Spearman &rho; and Procrustes m&sup2;, recovers the ground
+truth better on every measure, and the constraint that makes it deployable costs 0.61% of coverage.</li>
+<li><b>Do not build the analysis on cluster membership.</b> Use a distance threshold. No granularity finer than
+<i>k</i>=2 survives resampling, and two independent methods agree.</li>
+<li><b>The simulated participants are adequate but conservative.</b> They are 28% noisier than real ones within
+subject, so recommendations err toward too many participants rather than too few.</li>
+</ol>
+
+<h3>What Remains Open</h3>
+<ol>
+<li><b>Required <i>N<sub>total</sub></i>.</b> Unanswered. Recall@k and AUC are still climbing at <i>N</i>=500, so the
+grid never reached a plateau. What the run does establish is where the allocation advantage lives (<i>N</i>=50&ndash;75)
+and that <i>N</i>=50&ndash;75 yields embeddings that reproduce moderately (&rho; &asymp; 0.51&ndash;0.59) while
+identifying under a quarter of the closest pairs.</li>
+<li><b>How much of the clustering result is the ground truth rather than the images.</b> The <i>d</i>=8 embedding
+exceeds its own data's reliability ceiling by 4&ndash;20&times;, so its fine structure is partly fitted noise.
+Distinguishing "these images form a continuum" from "41 participants cannot resolve the groups" requires the full
+study.</li>
+<li><b>Whether real participants would cluster better.</b> The model under-separates fine semantic distinctions
+relative to the pilot, so the true granularity ceiling may sit above <i>k</i>=2. The direction of that bias is known;
+its magnitude is not.</li>
+</ol>
+</section>

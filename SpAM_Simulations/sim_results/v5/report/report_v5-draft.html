@@ -1,0 +1,45 @@
+<!-- ============================================================================
+     DRAFT / PARKED SECTIONS - not part of report_v5.html
+     ============================================================================ -->
+
+<h2>Parked: Screening and Recruitment</h2>
+<p><em>Moved out of "Simulating Realistic Participants" because that is a methods section and this
+reports results. Belongs wherever the recruitment recommendation ends up.</em></p>
+
+<p><strong>Screening and Recruitment</strong><br>
+The screening block is simulated too, because it is what separates <i>N<sub>total</sub></i> (recruited) from <i>N</i>
+(retained). Candidates who fail are discarded and replaced, so the retained cohort is always the requested size &ndash;
+what changes is the recruitment cost and the quality of who remains:</p>
+
+<table class="datatable">
+<thead><tr><th>Screening threshold</th><th>Pass rate</th><th>Candidates per retained subject</th><th>Median test-retest of retained</th></tr></thead>
+<tr><td>None (control)</td><td>100%</td><td>1.00</td><td>0.154</td></tr>
+<tr><td><i>&rho; &gt; 0</i></td><td>71.4%</td><td>1.40</td><td>0.204</td></tr>
+<tr><td><i>&rho; &gt; 0.1</i></td><td>42.0%</td><td>2.38</td><td>0.271</td></tr>
+<tr><td><i>&rho; &gt; 0.2</i></td><td>22.9%</td><td>4.37</td><td>0.340</td></tr>
+</table>
+
+<p>The trade is steep and non-linear. Screening at <i>&rho; &gt; 0.1</i> raises the retained cohort's median
+reliability by 76% over no screening, but requires recruiting <i>2.4&times;</i> as many people; at
+<i>&rho; &gt; 0.2</i> the cost rises to <i>4.4&times;</i> for a further 25% gain. Retaining <i>N=50</i> at
+<i>&rho; &gt; 0.1</i> therefore means recruiting <i>N<sub>total</sub>&asymp;119</i>.</p>
+
+
+<hr>
+
+<h2>TODO: Validating the Simulated Participants</h2>
+<p><em>Pinned, not written. A methods section needs to say how we check the virtual participants are
+any good, not just how they are built.</em></p>
+<ul>
+<li>The <b>inverted-U</b>: RMSE between a participant's two attempts at the same pair, plotted against
+how far apart they placed it. Real data rises off a floor and then falls; the fall requires the canvas
+bound. The model reproduces it (drop from peak <i>0.27</i> against the pilot's <i>0.37</i>) and was
+never fitted to it - which is the whole reason this check carries weight.</li>
+<li>The residual mismatch is at the <em>low</em> end: the model never gets as quiet on obviously
+similar pairs as real people do.</li>
+<li>The <b>semantic gradient</b> check probably belongs here too, or a pointer to it - though note it
+was scored on a single configuration per arm, so it says the gradient reproduces <em>somewhere</em> in
+the parameter space rather than throughout it.</li>
+<li>Decide whether this sits before or after "What the Model Does Not Capture". Arguably validation
+first, then the honest list of what validation cannot cover.</li>
+</ul>

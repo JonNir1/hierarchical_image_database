@@ -47,8 +47,17 @@ data/
 mds_store/
 
 # SpAM_Simulations local copies of completed runs, downloaded from S3 (out/*.csv +
-# mds_store/, per sim_results/<run-name>/) -- reproducible from S3, not tracked
-SpAM_Simulations/sim_results/
+# mds_store/, per sim_results/<run-name>/) -- reproducible from S3, not tracked.
+#
+# The `/*` form rather than a trailing slash: git does not descend into an excluded directory, so a
+# later `!` on a nested path would never be reached. Each level has to be re-included in turn.
+SpAM_Simulations/sim_results/*
+!SpAM_Simulations/sim_results/v5/
+SpAM_Simulations/sim_results/v5/*
+# The v5 report is prose and figure code, so it IS tracked - unlike everything else under a run.
+!SpAM_Simulations/sim_results/v5/report/
+# ... except the built page, which inlines plotly.js and so runs to ~5 MB.
+SpAM_Simulations/sim_results/v5/report/report_v5.html
 
 # analysis outputs (RDMs, intermediate results) -- reproducible, not tracked
 analysis/results/
