@@ -218,6 +218,19 @@ Averaged over the grid; cost from `out/tr24/coverage.csv`:
 Screening at 0.4 nearly halves M² but needs ~52x the recruitment. **0.2 gets most of the gain at
 about one seventh the cost of 0.4** and looks like the sensible operating point.
 
+> **Superseded by v5 on the operating point, not on the effect.** The gain is real and is confirmed
+> at v5 (N=50, cohort Spearman 0.393 → 0.616 from no screening to ρ>0.2). What this table does not
+> do is divide by the cost it records alongside. Plotting stability against `N / pass_rate` instead
+> of `N` collapses the thresholds onto one curve: at a budget of 200 recruited participants, v5 gets
+> 0.645 unscreened, 0.647 at ρ>0, 0.640 at ρ>0.1 and 0.596 at ρ>0.2. Screening buys quality at
+> almost exactly the price it charges, and the strictest threshold is a net loss. **The v5
+> recommendation is ρ>0.1**, chosen for where the budget-normalised curve flattens rather than for
+> the size of the raw gain. See `sim_results/v5/report/`, "Screening and Recruitment".
+>
+> Caveat in the other direction: no simulation here models non-participation (bots, immediate
+> quitters), which is what screening catches most cheaply, so the real benefit is higher than either
+> analysis shows.
+
 Between-cohort Spearman at the pilot-realistic target (tr24, ndim=8, dispersion=0.3):
 
 | N | none | 0.0 | 0.2 | 0.4 |

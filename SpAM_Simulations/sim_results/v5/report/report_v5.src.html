@@ -530,29 +530,64 @@ not the same as the map being better, and the screening threshold is the one swe
 
 <!-- figure: screening_pays_off -->
 
-<p><b>Almost nothing.</b> Doubling the retained cohort's test-retest reliability, from 0.154 to 0.340, moves cohort
-agreement, ground-truth recovery and closest-pair agreement hardly at all, and the movement is small next to the
-spread across the remaining swept settings. Fifty screened participants are not worth appreciably more than fifty
-unscreened ones.</p>
+<p><b>A great deal.</b> Doubling the retained cohort's test-retest reliability, from 0.154 to 0.340, lifts every
+measure by far more than the spread across the remaining swept settings. This is the largest effect anywhere in the
+sweep, several times the size of the allocation-arm difference.</p>
 
-<p>This is the most decision-relevant result in the section, and it points the opposite way from the intuition that
-motivated screening. Averaging over many participants already suppresses individual noise, so removing the noisiest
-of them recovers little that pooling had not already recovered. The case for screening therefore rests on the things
-this simulation does not model &ndash; bots, participants who never engage, data that is not merely noisy but
-absent &ndash; rather than on a measurable gain in map quality. That is a real case, but it is an argument for a
-threshold that removes non-participation, which is the lenient one, not the strict one.</p>
+<table class="datatable">
+<thead><tr><th>Measure at <i>N</i>=50</th><th>No screening</th><th><i>&rho; &gt; 0.2</i></th><th>Change</th></tr></thead>
+<tr><td>Cohort agreement (Spearman &rho;)</td><td>0.393</td><td>0.616</td><td>+57%</td></tr>
+<tr><td>Generalizability (Procrustes m&sup2;, lower better)</td><td>0.840</td><td>0.667</td><td>&minus;21%</td></tr>
+<tr><td>Ground-truth recovery (AUC)</td><td>0.787</td><td>0.876</td><td>+11%</td></tr>
+<tr><td>Recall@k (top 5%)</td><td>0.201</td><td>0.308</td><td>+53%</td></tr>
+<tr><td>Closest-pair agreement (Jaccard, top 5%)</td><td>0.064</td><td>0.111</td><td>+73%</td></tr>
+</table>
+
+<p>Screening at <i>&rho; &gt; 0.2</i> with 50 retained participants produces a more stable embedding
+(&rho; = 0.616) than 75 <em>unscreened</em> participants (0.470), and beats 75 participants screened at
+<i>&rho; &gt; 0</i> (0.542). Participant quality substitutes for participant quantity, and generously.</p>
+
+<h3>But Charged Against What It Costs</h3>
+<p>The table above counts per <em>retained</em> participant. Every rejected candidate still consumed a recruitment
+slot and still had to be paid, so the comparison that decides anything is per participant <em>recruited</em>. Dividing
+each cohort's <i>N</i> by its pass rate puts all four thresholds on that single budget axis.</p>
+
+<!-- figure: screening_per_recruit -->
+
+<p><b>The four curves nearly collapse onto one.</b> At a budget of 200 recruited participants the achieved cohort
+agreement is 0.645 with no screening, 0.647 at <i>&rho; &gt; 0</i>, 0.640 at <i>&rho; &gt; 0.1</i> and 0.596 at
+<i>&rho; &gt; 0.2</i>. Screening buys quality at almost exactly the price it charges in extra recruitment, and the
+strictest threshold is a net <em>loss</em>: rejecting 77% of candidates costs more than the surviving cohort's extra
+reliability returns.</p>
+
+<p>Both readings are true and they are not in tension. <b>If the constraint is how many people you can run, screen
+hard.</b> Fifty good participants really are worth far more than fifty arbitrary ones. <b>If the constraint is
+money</b>, which for a Prolific study it is, the choice barely matters, and past <i>&rho; &gt; 0.1</i> it starts to
+hurt. Earlier simulations (<code>FINDINGS.md</code>, "Screening works, and is expensive") reported the first reading
+and recorded the recruitment cost beside it without normalising by it; the figure above is that normalisation, and it
+is what changes the recommendation from "screen as hard as you can afford" to "screen only enough to remove
+non-participation".</p>
 
 <h3>What This Means for <i>N<sub>total</sub></i></h3>
 <p>Retaining <i>N</i>=50 costs about <b>119 recruited participants</b> at <i>&rho; &gt; 0.1</i>, or 70 at
 <i>&rho; &gt; 0</i>, or 219 at <i>&rho; &gt; 0.2</i>. Since <a href="#stability">stability</a> and
-<a href="#closest">recovery</a> were both swept across these thresholds and neither showed a threshold effect large
-enough to justify the steepest option, <i>&rho; &gt; 0.1</i> is the defensible middle: it removes the participants
-who are not doing the task while leaving the recruitment bill payable.</p>
+<a href="#closest">recovery</a> both improve steeply with the threshold but only in step with what it costs to
+recruit, <i>&rho; &gt; 0.1</i> is the defensible middle: it is on the flat part of the budget-normalised curve, it
+removes the participants who are not doing the task, and it leaves the recruitment bill payable. Going further to
+<i>&rho; &gt; 0.2</i> nearly doubles the bill again and returns less per pound than not screening at all.</p>
 
 <h3>Verdict</h3>
-<p>Screening works, in the sense that it does what it claims: retained cohorts are markedly more self-consistent than
-unscreened ones. Its cost is the more useful finding, because it converts directly into the recruitment budget, and
-it is the only part of this report that speaks to <i>N<sub>total</sub></i> rather than <i>N</i>.</p>
+<p>Screening is the strongest lever in the sweep and also the most expensive, and the two cancel almost exactly.
+Per retained participant it dominates everything else here, including the allocation arm by a wide margin; per
+participant recruited it is close to free and close to worthless, until <i>&rho; &gt; 0.2</i> where it turns
+negative. The practical conclusion is <i>&rho; &gt; 0.1</i>, chosen not because the quality gain is small but because
+that is where the gain stops outrunning its price.</p>
+
+<p>One caveat cuts against being too clever here. This simulation models participants as noisy, never as absent: it
+has no bots, no one who drags two images and quits, no one who mistakes the task entirely. Those are the cases
+screening exists to catch and the ones it removes most cheaply, and none of them appear in the pass rates above. The
+real pass rate will be lower than the simulated one and the real benefit higher, both in the same direction, which is
+another reason not to push the threshold past the point this analysis can vouch for.</p>
 </section>
 
 
@@ -811,6 +846,11 @@ more reproducible embeddings at every <i>N</i> on both Spearman &rho; and Procru
 truth better on every measure, and the constraint that makes it deployable costs 0.61% of coverage.</li>
 <li><b>Do not build the analysis on cluster membership.</b> Use a distance threshold. No granularity finer than
 <i>k</i>=2 survives resampling, and two independent methods agree.</li>
+<li><b>Screen at <i>&rho; &gt; 0.1</i>, and no harder.</b> Participant quality is the largest single lever in the
+sweep: at <i>N</i>=50, screening at <i>&rho; &gt; 0.2</i> raises cohort agreement 57% and closest-pair agreement 73%,
+dwarfing the allocation effect. But it costs recruitment in almost exactly the same proportion, so per participant
+<em>paid</em> the thresholds are nearly indistinguishable and <i>&rho; &gt; 0.2</i> is a net loss. Retaining
+<i>N</i>=50 at <i>&rho; &gt; 0.1</i> means recruiting about 119 people.</li>
 <li><b>The simulated participants are adequate but conservative.</b> They are 28% noisier than real ones within
 subject, so recommendations err toward too many participants rather than too few.</li>
 </ol>
