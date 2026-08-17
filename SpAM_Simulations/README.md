@@ -509,8 +509,8 @@ rules out.
 SpAM_Simulations/
   models/     the generative task models        core/       orchestration, storage, MDS
   measures/   everything that measures          empirical/  pilot, ground truth, calibration
-  reporting/  report + notebook helpers         cli/        entry points
-  notebooks/  *.ipynb                           ec2/        provisioning + sweep entrypoints
+  cli/        entry points                      ec2/        provisioning + sweep entrypoints
+  notebooks/  *.ipynb + their helpers           sim_results/v5/report/  the v5 report
   __tests__/  the suite                         sim_results/  downloaded runs (gitignored)
 ```
 
@@ -571,14 +571,6 @@ The pilot data, the ground truth built from it, and the calibration that ties th
 | `calibrate_v5.py` | The three fitted constants (noise population, dispersion, test-retest noise) with a **fingerprint-checked cache**. Lifted out of the EC2 heredoc so it is testable and re-runnable locally. The fingerprint hashes the GT *coordinates*, not its filename. |
 | `gt_diagnostics.py` | Is a fitted GT worth trusting: per-level observed coverage, its own semantic gradient, its in-sample agreement with the raw aggregate, and the **half-split noise ceiling** that makes that agreement interpretable. Cheap screen, no R, no MDS. |
 
-### `reporting/`
-
-Turning a finished run into something readable.
-
-| Module | Responsibility |
-|---|---|
-| `eval_helpers.py` | Read-only loading/plotting helpers for `notebooks/evaluate_simulation.ipynb`. No simulation, no MDS, no R. |
-
 ### `cli/`
 
 Entry points. `python -m SpAM_Simulations.cli.<name> --help` for each.
@@ -596,7 +588,7 @@ Entry points. `python -m SpAM_Simulations.cli.<name> --help` for each.
 | Path | Responsibility |
 |---|---|
 | `sim_results/v5/report/` | The v5 report: `report_v5.src.html` (hand-written prose, tracked), `figures.py` (every figure, computed from the run's CSVs) and `assemble.py` (builds the shareable HTML, which is gitignored). |
-| `notebooks/evaluate_simulation.ipynb` | Overview/drill-down figures for a completed run, via `reporting/eval_helpers.py`. |
+| `notebooks/evaluate_simulation.ipynb` | Overview/drill-down figures for a completed run, via `notebooks/eval_helpers.py`. |
 | `notebooks/evaluation_v0_1.ipynb`, `notebooks/evaluation_task_v2_3.ipynb`, `notebooks/evaluation_task_v2_4.ipynb` | Per-task-version plotting notebooks for the older simulations. |
 | `ec2/` | Provisioning + staging helpers (`prepare_machine.sh`) and the sweep entrypoints, including the current two-stage programme (`run_gt_construction.sh`, `run_design_comparison.sh`). See [Cookbook.md](Cookbook.md#running-on-ec2). |
 | `sim_results/<run-name>/` | Local copy of a completed run's small files, downloaded from S3. Gitignored. |

@@ -118,10 +118,9 @@ def load_run(run_results_dir: str | Path) -> RunData:
     """Resolve `run_results_dir` under the package root (`SpAM_Simulations/`), not the notebook
     kernel's cwd, and load a run's small result files.
 
-    ``parents[1]`` because this module lives in ``SpAM_Simulations/reporting/`` while
-    ``sim_results/`` sits beside it at ``SpAM_Simulations/``. Resolving relative to
-    ``__file__.parent`` would look inside ``reporting/`` and raise a FileNotFoundError naming a
-    path that never existed.
+    ``parents[1]`` because this module sits one level down, in ``SpAM_Simulations/notebooks/``,
+    while ``sim_results/`` is at ``SpAM_Simulations/``. Resolving against ``__file__.parent`` would
+    look inside ``notebooks/`` and raise a FileNotFoundError naming a path that never existed.
 
     Four files are required; the rest load as ``None`` when absent. Splitting them this way is what
     makes the newer tables reachable at all: this loader used to hard-require exactly the four, so
