@@ -348,9 +348,18 @@ def noise_vs_distance(d_orig: np.ndarray, d_repeat: np.ndarray, n_bins: int = 10
     Equal-count bins also stabilise the RMSE estimate at the sparse extremes, which is exactly where
     the shape is being read.
 
-    ``rescale="median"`` divides both arrays by the pooled median first, so the RMSE axis is in
-    median-distance units and comparable between simulation and pilot. The SEM uses the pilot
-    figure's delta method: ``SEM(sqrt(X)) ~= SEM(X) / (2 * sqrt(mean(X)))``.
+    ``rescale="median"`` divides both arrays by the pooled median first, putting the axes in
+    median-distance units. **Under task-v5 this is no longer needed for comparability**: the canvas
+    simulator divides every simulated distance by the canvas diagonal
+    (:func:`SpAM_Simulations.models.canvas.canvas_distances`), exactly as the deployed task does, so
+    both sources already live on the same [0, 1] scale. It is kept as the default only so the
+    v3/v4 callers and their bit-exactness tests are unaffected; pass ``rescale="none"`` to read the
+    curve in native canvas-diagonal units, which is what the v5 report does.
+
+    The SEM uses the pilot figure's delta method: ``SEM(sqrt(X)) ~= SEM(X) / (2 * sqrt(mean(X)))``.
+    It describes how well each bin's RMSE is pinned down by the pairs in it, which is a different
+    question from how much the curve varies between cohorts; :func:`noise_vs_distance_draws`
+    answers that one.
     """
     o = np.asarray(d_orig, dtype=np.float64)
     r = np.asarray(d_repeat, dtype=np.float64)
@@ -446,6 +455,59 @@ def noise_curve_shape(table: pd.DataFrame, tolerance: float = TURNOVER_TOLERANCE
                               and rise > tolerance and drop > tolerance),
         "n_bins": int(len(rmse)),
     }
+
+
+def null_distances(num_dots: int = 20, num_trials: int = 2000, seed: int = 42) -> np.ndarray:
+    """Pairwise distances for ``num_dots`` points dropped uniformly on the unit square.
+
+    Delegates to ``analysis/pilot/simulate_null_distances.py`` rather than restating it, so the
+    report's null and the pilot analysis's null cannot drift apart. Distances come back divided by
+    the unit-square diagonal, which is the same normalisation the deployed task and the v5 canvas
+    simulator apply, so the three sources are directly comparable with no rescaling.
+    """
+    from analysis.pilot.simulate_null_distances import simulate
+    return simulate(num_dots, num_trials, seed=seed)
+
+
+def null_distance_summary(sim_distances: np.ndarray, pilot_distances: np.ndarray,
+                          num_dots: int = 20, num_trials: int = 2000,
+                          seed: int = 42) -> pd.DataFrame:
+    """Mean, SD and quartiles of the three distance distributions, on one common axis.
+
+    Random placement is the floor this task has to clear: if participants were dropping images
+    without regard to similarity, their distances would look like the null. The gap between the null
+    and the two participant rows is therefore a crude but assumption-free check that the arrangement
+    carries structure at all, independent of any ground truth.
+    """
+    null = null_distances(num_dots=num_dots, num_trials=num_trials, seed=seed)
+    rows = []
+    for name, values in (("random placement (null)", null),
+                         ("simulated participants", np.asarray(sim_distances, dtype=np.float64)),
+                         ("pilot participants", np.asarray(pilot_distances, dtype=np.float64))):
+        v = values[np.isfinite(values)]
+        rows.append({"source": name, "n": int(v.size), "mean": float(v.mean()),
+                     "sd": float(v.std(ddof=1)), "median": float(np.median(v)),
+                     "q25": float(np.quantile(v, 0.25)), "q75": float(np.quantile(v, 0.75))})
+    return pd.DataFrame(rows)
+
+
+def noise_vs_distance_draws(simulate_pairs, n_draws: int = 20, base_seed: int = 0,
+                            **kwargs) -> pd.DataFrame:
+    """The binned RMSE curve over ``n_draws`` independent simulated cohorts.
+
+    ``simulate_pairs(seed)`` returns one cohort's ``(d_orig, d_repeat)``. Returns the per-bin mean
+    and **SD across cohorts**, which is the spread the rest of the report shows. The within-bin SEM
+    that :func:`noise_vs_distance` reports is a precision, not a spread, and with millions of pairs
+    per bin it is invisible.
+    """
+    frames = [noise_vs_distance(*simulate_pairs(base_seed + i), **kwargs).assign(draw=i)
+              for i in range(n_draws)]
+    stacked = pd.concat(frames, ignore_index=True)
+    agg = stacked.groupby("bin").agg(
+        bin_center=("bin_center", "mean"), mean_pair_distance=("mean_pair_distance", "mean"),
+        n_pairs=("n_pairs", "mean"), rmse=("rmse", "mean"), sd_rmse=("rmse", "std"),
+        n_draws=("rmse", "size")).reset_index()
+    return agg
 
 
 def compare_noise_vs_distance(sim_pairs: Tuple[np.ndarray, np.ndarray],

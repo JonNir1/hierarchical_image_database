@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 import numpy as np
+import pandas as pd
 
 from SpAM_Simulations.models import canvas as cv
 from SpAM_Simulations.measures import validity
@@ -38,6 +39,8 @@ DEFAULT_IMAGES_PER_TRIAL = 20
 DEFAULT_SEED = 42
 DEFAULT_N_SUBJECTS = 60
 DEFAULT_TRIALS_PER_SUBJECT = 4
+DEFAULT_CURVE_DRAWS = 20
+DEFAULT_NULL_TRIALS = 2000
 
 
 def _resolve_gt(run: Path, calibration: dict, override: Optional[Path]) -> Path:
@@ -79,6 +82,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--trials-per-subject", type=int, default=DEFAULT_TRIALS_PER_SUBJECT)
     p.add_argument("--images-per-trial", type=int, default=DEFAULT_IMAGES_PER_TRIAL)
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    p.add_argument("--curve-draws", type=int, default=DEFAULT_CURVE_DRAWS,
+                   help="independent simulated cohorts behind the binned-RMSE curve. Their SD is "
+                        "the spread the report plots; the per-bin SEM is a precision, not a spread")
+    p.add_argument("--null-trials", type=int, default=DEFAULT_NULL_TRIALS,
+                   help="trials of uniformly-random placement behind the null distance summary")
     args = p.parse_args(argv)
 
     from SpAM_Simulations.empirical.pilot import load_pilot_subjects
@@ -103,11 +111,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # the pilot's measured marginals, at the softness the noise scale was fitted at. Passing it is
     # the entire point - the turnover is caused by the canvas bound.
     simulator = cv.make_canvas_trial_simulator(sample_per_trial=True, softness=softness)
-    sim_pairs = validity.simulate_repeat_pairs(
-        coords, subjects_noise_scale=noise, n_subjects=args.n_subjects,
-        trials_per_subject=args.trials_per_subject, images_per_trial=args.images_per_trial,
-        perspective_dispersion=dispersion, noise_df=noise_df,
-        lognormal_sigma=lognormal_sigma, seed=args.seed, trial_simulator=simulator)
+
+    def draw_pairs(seed: int):
+        return validity.simulate_repeat_pairs(
+            coords, subjects_noise_scale=noise, n_subjects=args.n_subjects,
+            trials_per_subject=args.trials_per_subject, images_per_trial=args.images_per_trial,
+            perspective_dispersion=dispersion, noise_df=noise_df,
+            lognormal_sigma=lognormal_sigma, seed=seed, trial_simulator=simulator)
+
+    sim_pairs = draw_pairs(args.seed)
 
     subjects = load_pilot_subjects(args.pilot_dir, str(args.manifest))
     print(f"pilot subjects: {len(subjects)} (calibration recorded {cal.get('n_pilot_sessions')})")
@@ -125,6 +137,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     report["curves"].to_csv(out / "noise_vs_distance.csv", index=False)
     report["shape"].to_csv(out / "noise_curve_shape.csv", index=False)
 
+    # Under task-v5 both sources are already canvas-diagonal normalised, so the curve can also be
+    # read in native units, with a spread that is a spread (SD across cohorts) rather than a
+    # within-bin precision. The median-rescaled table above is kept for the shape verdicts.
+    print(f"\n{args.curve_draws} cohorts for the native-unit curve ...", flush=True)
+    native_sim = validity.noise_vs_distance_draws(
+        draw_pairs, n_draws=args.curve_draws, base_seed=args.seed, rescale="none")
+    native_pilot = validity.noise_vs_distance(*pilot_pairs, rescale="none")
+    native = pd.concat([native_sim.assign(source="sim"),
+                        native_pilot.assign(source="pilot", n_draws=1, sd_rmse=np.nan)],
+                       ignore_index=True)
+    native.to_csv(out / "noise_vs_distance_native.csv", index=False)
+
+    nulls = validity.null_distance_summary(
+        np.concatenate(sim_pairs), np.concatenate(pilot_pairs),
+        num_dots=args.images_per_trial, num_trials=args.null_trials, seed=args.seed)
+    nulls.to_csv(out / "null_distances.csv", index=False)
+    print("\n--- distances vs random placement ---")
+    print(nulls.round(4).to_string(index=False))
+
     print("\n--- shape summary ---")
     print(report["shape"].to_string(index=False))
     print(f"\nturnover_matches={report['turnover_matches']} "
@@ -135,7 +166,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not report["low_end_matches"]:
         print("[noise] WARNING: the LOW end does not match either. That one is near-forced for any "
               "additive-noise model, so a mismatch there points at a real problem.", flush=True)
-    print(f"\nwrote noise_vs_distance.csv and noise_curve_shape.csv to {out}")
+    print(f"\nwrote noise_vs_distance.csv, noise_vs_distance_native.csv, noise_curve_shape.csv "
+          f"and null_distances.csv to {out}")
     return 0
 
 
