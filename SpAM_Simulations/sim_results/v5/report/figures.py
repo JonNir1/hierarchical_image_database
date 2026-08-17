@@ -222,8 +222,12 @@ def gt_variance_spectrum(run: Run) -> go.Figure:
     fig.add_hline(y=1 / len(share), line=dict(dash="dot", color="rgba(128,128,128,0.8)"),
                   annotation_text="equal split across 8 axes", annotation_position="top right")
     fig.update_xaxes(title_text="principal axis of the ground-truth embedding", tickvals=axes)
-    fig.update_layout(yaxis=dict(title="share of variance", range=[0, share.max() * 1.35]),
-                      yaxis2=dict(title="cumulative", overlaying="y", side="right", range=[0, 1.05]))
+    # Five ticks on each side over ranges in a 1:2.5 ratio, so the two axes share gridlines and the
+    # cumulative line can be read against the bars instead of floating over its own scale.
+    fig.update_layout(
+        yaxis=dict(title="share of variance", range=[0, 0.4], dtick=0.1, tickformat=".0%"),
+        yaxis2=dict(title="cumulative", overlaying="y", side="right", range=[0, 1.0], dtick=0.25,
+                    tickformat=".0%", showgrid=False))
     return _style(fig, "One dominant axis, then a near-flat tail: no elbow here either", height=400)
 
 
