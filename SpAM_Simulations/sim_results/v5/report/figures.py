@@ -1,20 +1,30 @@
-"""Every figure in the v5 report, one function per named placeholder.
+"""Every figure in the v5 report, one entry per named placeholder.
 
 The prose in ``report_v5.src.html`` is hand-written; the figures are not. Each function here reads
 the run's CSVs and returns a plotly Figure, so a figure cannot drift from the tables behind it even
 though the surrounding text can.
 
-Register a figure by adding it to :data:`FIGURES`. ``assemble.py`` fails if the source references a
-name that is not registered, or if a registered name is never used.
+Every figure carries a caption, rendered beneath it by ``assemble.py``. Captions state what the
+error bars are, because a reader cannot otherwise tell whether a small bar means "precise" or
+"we divided by a large n".
+
+**Error bars are SD, not SEM.** The question these figures answer is "how much do our simulations
+vary", not "how precisely do we know their mean". With hundreds of cells per point the SEM is
+invisible and would imply a precision that is not the claim being made.
+
+Register a figure in :data:`FIGURES`. ``assemble.py`` fails if the source references a name that is
+not registered, or if a registered name is never used.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, NamedTuple, Optional
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from scipy import stats
 
 ARMS = {0.0: "random", 1.0: "constrained-MacDonald"}
 COLOUR = {"random": "#888888", "constrained-MacDonald": "#1f77b4",
@@ -22,6 +32,13 @@ COLOUR = {"random": "#888888", "constrained-MacDonald": "#1f77b4",
 LINKAGE_COLOUR = {"average": "#1f77b4", "ward": "#2ca02c", "complete": "#ff7f0e"}
 PLOT_BG = "rgba(0,0,0,0)"
 HIGH_K = 150
+
+SD_NOTE = "Error bars are ±1 SD across every simulated cohort and swept setting at that N."
+
+
+class Fig(NamedTuple):
+    fn: Callable[["Run"], go.Figure]
+    caption: str
 
 
 # --------------------------------------------------------------------------- loading
@@ -49,6 +66,9 @@ class Run:
     def stage1(self, name: str) -> pd.DataFrame:
         return self.table(name, subdir="gt")
 
+    def calibration(self) -> dict:
+        return json.loads((self.dir / "calibration" / "calibration.json").read_text())
+
     def meta(self) -> pd.DataFrame:
         if "_meta" not in self._cache:
             self._cache["_meta"] = pd.read_csv(self.dir / "mds_store" / "meta.csv",
@@ -70,24 +90,45 @@ def _style(fig: go.Figure, title: str, height: int = 380) -> go.Figure:
 
 def _by_arm(frame: pd.DataFrame, value: str, title: str, ylab: str,
             hline: Optional[float] = None, height: int = 380) -> go.Figure:
-    """Mean +/- SEM against N, one trace per allocation arm. The workhorse of the report."""
+    """Mean ±1 SD against N, one trace per allocation arm. The workhorse of the report."""
     fig = go.Figure()
     for arm in ("random", "constrained-MacDonald"):
         sub = frame[frame["arm"] == arm]
         if sub.empty:
             continue
-        agg = sub.groupby("num_subjects")[value].agg(["mean", "std", "count"]).reset_index()
+        agg = sub.groupby("num_subjects")[value].agg(["mean", "std"]).reset_index()
         fig.add_trace(go.Scatter(
             x=agg["num_subjects"], y=agg["mean"], mode="lines+markers", name=arm,
             line=dict(color=COLOUR[arm], width=2), marker=dict(size=8),
-            error_y=dict(type="data", visible=True, thickness=1,
-                         array=agg["std"] / np.sqrt(agg["count"].clip(lower=1)))))
+            error_y=dict(type="data", array=agg["std"], visible=True, thickness=1)))
     if hline is not None:
         fig.add_hline(y=hline, line=dict(dash="dot", color="rgba(128,128,128,0.7)"))
     fig.update_xaxes(title_text="participants (N)", type="log",
                      tickvals=sorted(frame["num_subjects"].unique()))
     fig.update_yaxes(title_text=ylab)
     return _style(fig, title, height)
+
+
+def _by_arm_and_k(frame: pd.DataFrame, value: str, title: str, ylab: str,
+                  hline: Optional[float] = None) -> go.Figure:
+    """Mean ±1 SD against k, split by allocation arm. Average linkage only, for legibility."""
+    sub = frame[frame["linkage"] == "average"]
+    fig = go.Figure()
+    for arm in ("random", "constrained-MacDonald"):
+        cell = sub[sub["arm"] == arm]
+        agg = cell.groupby("k")[value].agg(["mean", "std"]).reset_index()
+        fig.add_trace(go.Scatter(
+            x=agg["k"], y=agg["mean"], mode="lines+markers", name=arm,
+            line=dict(color=COLOUR[arm], width=2), marker=dict(size=7),
+            error_y=dict(type="data", array=agg["std"], visible=True, thickness=1)))
+    if hline is not None:
+        fig.add_hline(y=hline, line=dict(dash="dash", color="rgba(128,128,128,0.8)"))
+    ks = sorted(sub["k"].unique())
+    fig.add_vrect(x0=HIGH_K, x1=max(ks), fillcolor="rgba(214,39,40,0.10)", line_width=0)
+    fig.update_xaxes(title_text="clusters requested (k)", type="log", tickvals=ks,
+                     range=[np.log10(min(ks) * 0.9), np.log10(max(ks) * 1.1)])
+    fig.update_yaxes(title_text=ylab)
+    return _style(fig, title)
 
 
 # --------------------------------------------------------------------------- ground truth
@@ -102,9 +143,11 @@ def gt_dimensionality_scan(run: Run) -> go.Figure:
         x=cv["ndim"], y=cv["spearman_mean"], mode="lines+markers", name="leave-k-out",
         line=dict(color="#2ca02c", width=2, dash="dot"), marker=dict(size=7),
         error_y=dict(type="data", array=cv["spearman_sem"], visible=True, thickness=1)))
-    fig.update_xaxes(title_text="ground-truth dimensionality")
+    fig.add_vline(x=8, line=dict(dash="dot", color="#d62728"),
+                  annotation_text="d=8 used", annotation_position="top right")
+    fig.update_xaxes(title_text="ground-truth dimensionality (d)")
     fig.update_yaxes(title_text="Spearman ρ between independent halves")
-    return _style(fig, "Split-half agreement peaks at D=3 and is flat across 3-5")
+    return _style(fig, "Split-half agreement peaks at d=3 and is flat across 3-5")
 
 
 def gt_topk_by_ndim(run: Run) -> go.Figure:
@@ -113,23 +156,23 @@ def gt_topk_by_ndim(run: Run) -> go.Figure:
                                line=dict(color="#ff7f0e", width=2), marker=dict(size=8),
                                error_y=dict(type="data", array=scan["topk_jaccard_sem"],
                                             visible=True, thickness=1)))
-    fig.update_xaxes(title_text="ground-truth dimensionality")
+    fig.add_vline(x=8, line=dict(dash="dot", color="#d62728"),
+                  annotation_text="d=8 used", annotation_position="top left")
+    fig.update_xaxes(title_text="ground-truth dimensionality (d)")
     fig.update_yaxes(title_text="top-k Jaccard between halves")
-    return _style(fig, "Closest-pair agreement keeps rising to D=20, unlike overall agreement")
+    return _style(fig, "Closest-pair agreement keeps rising to d=20, with no elbow to pick")
 
 
 def gt_vs_noise_ceiling(run: Run) -> go.Figure:
-    # gt_vs_raw already carries ceiling_full: `gt_diagnostics.diagnose` joins it in so that
-    # frac_of_ceiling can be derived. Re-joining would only produce suffixed duplicates.
-    merged = run.gt("gt_vs_raw")
+    m = run.gt("gt_vs_raw")
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=merged["level_name"], y=merged["spearman"], marker_color="#1f77b4",
-                         name="ground truth vs pooled ratings (in-sample)"))
-    fig.add_trace(go.Bar(x=merged["level_name"], y=merged["ceiling_full"], marker_color="#d62728",
-                         name="noise ceiling (ratings vs themselves)"))
+    fig.add_trace(go.Bar(x=m["level_name"], y=m["spearman"], marker_color="#1f77b4",
+                         name="the embedding vs the ratings it was fitted on"))
+    fig.add_trace(go.Bar(x=m["level_name"], y=m["ceiling_full"], marker_color="#d62728",
+                         name="those ratings vs a second half of the same participants"))
     fig.update_xaxes(title_text="semantic relation, coarse to fine")
     fig.update_yaxes(title_text="Spearman ρ")
-    return _style(fig, "The embedding exceeds the ceiling its own data sets")
+    return _style(fig, "Blue should not exceed red, and does")
 
 
 def gt_semantic_gradient(run: Run) -> go.Figure:
@@ -146,12 +189,7 @@ def gt_semantic_gradient(run: Run) -> go.Figure:
 
 # --------------------------------------------------------------------------- realism
 def realism_calibration(run: Run) -> go.Figure:
-    """Target vs achieved for the two observables the noise model was inverted against.
-
-    Read from calibration.json rather than retyped, so the figure cannot drift from the fit.
-    """
-    import json
-    cal = json.loads((run.dir / "calibration" / "calibration.json").read_text())
+    cal = run.calibration()
     labels = ["between-subject agreement<br>(mean pairwise Spearman ρ)",
               "within-subject test-retest<br>(Spearman ρ on repeats)"]
     empirical = [cal["empirical_agreement"], cal["target_test_retest"]]
@@ -161,7 +199,7 @@ def realism_calibration(run: Run) -> go.Figure:
                          text=[f"{v:.3f}" for v in empirical], textposition="outside"))
     fig.add_trace(go.Bar(x=labels, y=achieved, name="achieved (simulated)", marker_color="#1f77b4",
                          text=[f"{v:.3f}" for v in achieved], textposition="outside"))
-    fig.update_yaxes(title_text="Spearman ρ", range=[0, max(empirical + achieved) * 1.25])
+    fig.update_yaxes(title_text="Spearman ρ", range=[0, max(empirical + achieved) * 1.3])
     return _style(fig, "One target is hit; the other is undershot")
 
 
@@ -174,60 +212,65 @@ def realism_noise_vs_distance(run: Run) -> go.Figure:
                                  name=label, line=dict(color=COLOUR[src], width=2),
                                  error_y=dict(type="data", array=sub["sem_rmse"], visible=True,
                                               thickness=1)))
-    fig.update_xaxes(title_text="mean placed distance of the pair")
-    fig.update_yaxes(title_text="RMSE between the two placements")
+    fig.add_vline(x=1.0, line=dict(dash="dot", color="rgba(128,128,128,0.7)"),
+                  annotation_text="median pair", annotation_position="top")
+    fig.update_xaxes(title_text="mean of the two placements, in units of the median distance")
+    fig.update_yaxes(title_text="RMSE between the two placements (same units)")
     return _style(fig, "Both curves rise then fall: the inverted U the model was not fitted to")
 
 
 def realism_semantic_gradient(run: Run) -> go.Figure:
     g = run.table("validity_gradient")
-    g = g[g["arm"] == "random"] if "arm" in g.columns else g
     fig = go.Figure()
-    for src, label in (("pilot", "pilot participants"), ("sim", "simulated participants")):
-        col = f"mean_distance_{src}"
-        if col in g.columns:
-            fig.add_trace(go.Scatter(x=g["level_name"], y=g[col] / g[col].iloc[0],
-                                     mode="lines+markers", name=label,
-                                     line=dict(color=COLOUR[src], width=2), marker=dict(size=8)))
+    pilot = g[g["arm"] == "random"]
+    fig.add_trace(go.Scatter(
+        x=pilot["level_name"], y=pilot["mean_distance_pilot"] / pilot["mean_distance_pilot"].iloc[0],
+        mode="lines+markers", name="pilot participants",
+        line=dict(color=COLOUR["pilot"], width=2), marker=dict(size=8)))
+    for arm, dash in (("random", "dot"), ("designed", "solid")):
+        sub = g[g["arm"] == arm]
+        if sub.empty:
+            continue
+        label = "simulated, " + ("random" if arm == "random" else "constrained-MacDonald")
+        colour = COLOUR["random"] if arm == "random" else COLOUR["constrained-MacDonald"]
+        fig.add_trace(go.Scatter(
+            x=sub["level_name"], y=sub["mean_distance_sim"] / sub["mean_distance_sim"].iloc[0],
+            mode="lines+markers", name=label, line=dict(color=colour, width=2, dash=dash),
+            marker=dict(size=7)))
     fig.update_xaxes(title_text="semantic relation, coarse to fine")
     fig.update_yaxes(title_text="mean distance / unrelated-pair distance")
-    return _style(fig, "The model orders the levels correctly but under-separates the fine end")
+    return _style(fig, "Both arms order the levels correctly and both under-separate the fine end")
 
 
 # --------------------------------------------------------------------------- coverage
 def coverage_by_n(run: Run) -> go.Figure:
-    fig = _by_arm(run.table("coverage"), "pair_coverage",
+    cov = run.table("coverage")
+    fig = _by_arm(cov, "pair_coverage",
                   "Share of the 262,450 image pairs judged by anyone", "pairs covered (%)")
     fig.add_hline(y=100, line=dict(dash="dot", color="rgba(128,128,128,0.6)"))
+    means = cov.groupby(["num_subjects", "arm"])["pair_coverage"].mean().unstack()
+    for n in means.index:
+        rand, des = means.loc[n, "random"], means.loc[n, "constrained-MacDonald"]
+        fig.add_annotation(x=np.log10(n), y=des, text=f"<b>{100 * (des - rand) / rand:+.1f}%</b>",
+                           showarrow=False, yshift=26, font=dict(size=11, color="#1f77b4"))
     return fig
 
 
-def coverage_gain(run: Run) -> go.Figure:
-    cov = run.table("coverage").groupby(["num_subjects", "arm"])["pair_coverage"].mean().unstack()
-    gain = 100 * (cov["constrained-MacDonald"] - cov["random"]) / cov["random"]
-    fig = go.Figure(go.Bar(x=[str(int(n)) for n in gain.index], y=gain.values,
-                           marker_color="#1f77b4",
-                           text=[f"{v:+.1f}%" for v in gain.values], textposition="outside"))
-    fig.update_xaxes(title_text="participants (N)")
-    fig.update_yaxes(title_text="extra pairs covered vs random (%)")
-    return _style(fig, "The advantage peaks at N=75 and vanishes once random saturates")
-
-
 def allocation_balance(run: Run) -> go.Figure:
-    """Constrained vs unconstrained MacDonald vs random: the price of session-disjointness."""
     d = run.table("design_only")
-    g = d.groupby(["num_subjects", "arm"])[["frac_pairs_covered", "reps_per_image_sd"]].mean()
+    g = d.groupby(["num_subjects", "arm"])["reps_per_image_sd"].agg(["mean", "std"])
     fig = go.Figure()
-    for arm, label in (("random", "random"),
-                       ("designed", "constrained MacDonald"),
-                       ("designed_unconstrained", "unconstrained MacDonald")):
+    for arm, label, colour in (("random", "random", COLOUR["random"]),
+                               ("designed", "constrained MacDonald",
+                                COLOUR["constrained-MacDonald"]),
+                               ("designed_unconstrained", "unconstrained MacDonald", "#9467bd")):
         if arm not in d["arm"].unique():
             continue
         sub = g.xs(arm, level="arm")
-        fig.add_trace(go.Bar(x=[str(int(n)) for n in sub.index], y=sub["reps_per_image_sd"],
-                             name=label,
-                             marker_color=COLOUR.get("constrained-MacDonald" if arm == "designed"
-                                                     else arm, "#9467bd")))
+        fig.add_trace(go.Bar(x=[str(int(n)) for n in sub.index], y=sub["mean"], name=label,
+                             marker_color=colour,
+                             error_y=dict(type="data", array=sub["std"], visible=True,
+                                          thickness=1)))
     fig.update_xaxes(title_text="participants (N)")
     fig.update_yaxes(title_text="SD of appearances per image")
     return _style(fig, "How evenly the 725 images are used (lower is more balanced)")
@@ -235,31 +278,31 @@ def allocation_balance(run: Run) -> go.Figure:
 
 def constraint_cost(run: Run) -> go.Figure:
     d = run.table("design_only")
-    g = d.groupby(["num_subjects", "arm"])["frac_pairs_covered"].mean().unstack()
     fig = go.Figure()
-    for arm, label, dash in (("random", "random", "solid"),
-                             ("designed", "constrained MacDonald", "solid"),
-                             ("designed_unconstrained", "unconstrained MacDonald", "dot")):
-        if arm not in g.columns:
+    for arm, label, dash, colour in (
+            ("random", "random", "solid", COLOUR["random"]),
+            ("designed", "constrained MacDonald", "solid", COLOUR["constrained-MacDonald"]),
+            ("designed_unconstrained", "unconstrained MacDonald", "dot", "#9467bd")):
+        if arm not in d["arm"].unique():
             continue
-        fig.add_trace(go.Scatter(x=g.index, y=100 * g[arm], mode="lines+markers", name=label,
-                                 line=dict(width=2, dash=dash,
-                                           color=COLOUR.get("constrained-MacDonald"
-                                                            if arm == "designed" else arm,
-                                                            "#9467bd"))))
-    fig.update_xaxes(title_text="participants (N)", type="log", tickvals=sorted(g.index))
+        agg = d[d["arm"] == arm].groupby("num_subjects")["frac_pairs_covered"].agg(
+            ["mean", "std"]).reset_index()
+        fig.add_trace(go.Scatter(x=agg["num_subjects"], y=100 * agg["mean"], mode="lines+markers",
+                                 name=label, line=dict(width=2, dash=dash, color=colour),
+                                 error_y=dict(type="data", array=100 * agg["std"], visible=True,
+                                              thickness=1)))
+    fig.update_xaxes(title_text="participants (N)", type="log",
+                     tickvals=sorted(d["num_subjects"].unique()))
     fig.update_yaxes(title_text="pairs covered (%)")
     return _style(fig, "Session-disjointness costs almost nothing in coverage")
 
 
 def mds_convergence(run: Run) -> go.Figure:
-    """SMACOF outcome: how many fits converged, and the stress they converged to."""
     m = run.meta()
-    ok = m[m["status"] == "success"]
+    ok, hit = m[m["status"] == "success"], m[m["status"] == "max_iters"]
     fig = go.Figure()
     fig.add_trace(go.Histogram(x=ok["stress"], nbinsx=60, marker_color="#1f77b4",
                                name=f"converged (n={len(ok):,})"))
-    hit = m[m["status"] == "max_iters"]
     if len(hit):
         fig.add_trace(go.Histogram(x=hit["stress"], nbinsx=60, marker_color="#d62728",
                                    name=f"hit iteration cap (n={len(hit)})"))
@@ -272,8 +315,7 @@ def mds_convergence(run: Run) -> go.Figure:
 # --------------------------------------------------------------------------- stability
 def stability_raw(run: Run) -> go.Figure:
     return _by_arm(run.table("stability"), "spearman",
-                   "Agreement between two cohorts' pooled ratings, before MDS",
-                   "Spearman ρ")
+                   "Agreement between two cohorts' pooled ratings, before MDS", "Spearman ρ")
 
 
 def stability_embedding(run: Run) -> go.Figure:
@@ -286,6 +328,63 @@ def stability_procrustes(run: Run) -> go.Figure:
     return _by_arm(run.table("embedding_generalizability"), "mean_procrustes_m2",
                    "Procrustes m² between two cohorts' embeddings (lower is better)",
                    "Procrustes m²")
+
+
+# --------------------------------------------------------------------------- the paired test
+AXES = ["canvas_softness", "screening_min_reliability", "perspective_dispersion"]
+_TESTS = [("stability", "spearman", "raw ratings (Spearman ρ)", True),
+          ("embedding_stability", "mean_spearman", "embeddings (Spearman ρ)", True),
+          ("embedding_generalizability", "mean_procrustes_m2", "embeddings (Procrustes m²)", False),
+          ("topk_jaccard", "mean_jaccard", "closest pairs (top-k Jaccard)", True),
+          ("recovery_vs_gt", "mean_auc", "recovery (AUC)", True),
+          ("recovery_vs_gt", "mean_recall", "recovery (recall@k)", True)]
+
+
+def _paired_at_n(run: Run, n: int = 50) -> pd.DataFrame:
+    """Paired comparison of the two arms at N, matched within every swept setting.
+
+    Pairing matters: both arms are evaluated at identical settings, so the between-setting variance
+    is removed rather than being counted as noise. Differences are oriented so positive favours the
+    designed arm.
+    """
+    rows = []
+    for table, col, label, higher_better in _TESTS:
+        df = run.table(table)
+        df = df[df["num_subjects"] == n]
+        keys = [c for c in AXES + ["ndim", "top_frac", "rep", "rep_i", "rep_j"] if c in df.columns]
+        wide = df.groupby(keys + ["arm"])[col].mean().unstack("arm").dropna()
+        diff = (wide["constrained-MacDonald"] - wide["random"]).to_numpy()
+        if not higher_better:
+            diff = -diff
+        t, p = stats.ttest_1samp(diff, 0.0)
+        rows.append({
+            "measure": label, "settings": diff.size,
+            "random": wide["random"].mean(), "designed": wide["constrained-MacDonald"].mean(),
+            "difference": diff.mean(),
+            "dz": diff.mean() / diff.std(ddof=1) if diff.std(ddof=1) else np.nan,
+            "p": p, "favours designed": f"{100 * (diff > 0).mean():.0f}%"})
+    return pd.DataFrame(rows)
+
+
+def stability_significance(run: Run) -> go.Figure:
+    d = _paired_at_n(run, 50)
+
+    def fmt_p(p):
+        return "&lt; 1e-15" if p < 1e-15 else f"{p:.1e}"
+
+    header = ["measure", "random", "designed", "difference", "Cohen's d<sub>z</sub>", "p",
+              "settings favouring<br>the designed arm"]
+    fig = go.Figure(go.Table(
+        header=dict(values=header, fill_color="rgba(31,119,180,0.15)", align="left",
+                    font=dict(size=12)),
+        cells=dict(align="left", height=26, font=dict(size=12), values=[
+            d["measure"], d["random"].round(4), d["designed"].round(4),
+            d["difference"].map(lambda v: f"{v:+.4f}"), d["dz"].round(2),
+            d["p"].map(fmt_p), d["favours designed"]])))
+    fig.update_layout(height=290, margin=dict(l=0, r=0, t=44, b=0), paper_bgcolor=PLOT_BG,
+                      title=dict(text="Paired comparison at N=50, matched within every setting",
+                                 font=dict(size=14)))
+    return fig
 
 
 # --------------------------------------------------------------------------- closest pairs
@@ -311,97 +410,171 @@ def recovery_dprime(run: Run) -> go.Figure:
 
 # --------------------------------------------------------------------------- clusters
 def cluster_vi_by_k(run: Run) -> go.Figure:
-    curve = run.table("cluster_agreement").groupby(["linkage", "k"])[
-        ["mean_vi_norm", "mean_ari"]].mean().reset_index()
-    fig = go.Figure()
-    for linkage, sub in curve.groupby("linkage"):
-        fig.add_trace(go.Scatter(x=sub["k"], y=sub["mean_vi_norm"], mode="lines+markers",
-                                 name=f"{linkage} (VI)",
-                                 line=dict(color=LINKAGE_COLOUR[linkage], width=2)))
-    fig.update_xaxes(title_text="clusters requested (k)", type="log",
-                     tickvals=sorted(curve["k"].unique()))
-    fig.update_yaxes(title_text="normalised VI (lower is more agreement)")
-    fig.add_vrect(x0=HIGH_K, x1=curve["k"].max(), fillcolor="rgba(214,39,40,0.08)", line_width=0)
-    return _style(fig, "Partition agreement degrades steadily as the cut gets finer")
+    return _by_arm_and_k(run.table("cluster_agreement"), "mean_vi_norm",
+                         "Partition agreement against granularity, by allocation arm",
+                         "normalised VI (lower is more agreement)")
 
 
 def cluster_ari_by_k(run: Run) -> go.Figure:
-    curve = run.table("cluster_agreement").groupby(["linkage", "k"])["mean_ari"].mean().reset_index()
-    fig = go.Figure()
-    for linkage, sub in curve.groupby("linkage"):
-        fig.add_trace(go.Scatter(x=sub["k"], y=sub["mean_ari"], mode="lines+markers", name=linkage,
-                                 line=dict(color=LINKAGE_COLOUR[linkage], width=2)))
-    fig.update_xaxes(title_text="clusters requested (k)", type="log",
-                     tickvals=sorted(curve["k"].unique()))
-    fig.update_yaxes(title_text="adjusted Rand index")
-    return _style(fig, "ARI tells the same story as VI on a chance-corrected scale")
+    return _by_arm_and_k(run.table("cluster_agreement"), "mean_ari",
+                         "Adjusted Rand index against granularity, by allocation arm",
+                         "ARI (higher is more agreement)")
 
 
 def cluster_silhouette_by_k(run: Run) -> go.Figure:
-    curve = run.table("cluster_agreement").groupby(["linkage", "k"])[
-        "mean_sil_cross"].mean().reset_index()
-    fig = go.Figure()
-    for linkage, sub in curve.groupby("linkage"):
-        fig.add_trace(go.Scatter(x=sub["k"], y=sub["mean_sil_cross"], mode="lines+markers",
-                                 name=linkage, line=dict(color=LINKAGE_COLOUR[linkage], width=2)))
-    fig.add_hline(y=0, line=dict(dash="dash", color="rgba(128,128,128,0.8)"))
-    fig.add_vrect(x0=HIGH_K, x1=curve["k"].max(), fillcolor="rgba(214,39,40,0.08)", line_width=0,
-                  annotation_text="least supported", annotation_position="top left")
-    fig.update_xaxes(title_text="clusters requested (k)", type="log",
-                     tickvals=sorted(curve["k"].unique()))
-    fig.update_yaxes(title_text="cross-cohort silhouette")
-    return _style(fig, "Above k≈12 the clusters no longer separate in another cohort's geometry")
+    return _by_arm_and_k(run.table("cluster_agreement"), "mean_sil_cross",
+                         "Do the clusters still separate in another cohort's geometry?",
+                         "cross-cohort silhouette", hline=0.0)
 
 
 def cluster_dendrogram_agreement(run: Run) -> go.Figure:
-    d = run.table("dendrogram_agreement").groupby("linkage")[
-        ["mean_baker_gamma", "mean_cophenetic_fidelity"]].mean().reset_index()
+    d = run.table("dendrogram_agreement")
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=d["linkage"], y=d["mean_baker_gamma"], name="Baker's γ",
-                         marker_color="#1f77b4"))
-    fig.add_trace(go.Bar(x=d["linkage"], y=d["mean_cophenetic_fidelity"],
-                         name="cophenetic correlation", marker_color="#2ca02c"))
+    for value, label, colour in (("mean_baker_gamma", "Baker's γ", "#1f77b4"),
+                                 ("mean_cophenetic_fidelity", "cophenetic correlation", "#2ca02c")):
+        agg = d.groupby("linkage")[value].agg(["mean", "std"]).reset_index()
+        fig.add_trace(go.Bar(x=agg["linkage"], y=agg["mean"], name=label, marker_color=colour,
+                             error_y=dict(type="data", array=agg["std"], visible=True,
+                                          thickness=1)))
     fig.update_xaxes(title_text="linkage")
     fig.update_yaxes(title_text="correlation")
     return _style(fig, "Whole-tree agreement, independent of any cut")
 
 
 def cluster_density(run: Run) -> go.Figure:
-    g = run.table("density_agreement").groupby("min_cluster_size")[
-        ["mean_frac_noise", "mean_noise_kappa"]].mean().reset_index()
+    """Noise fraction and cohort agreement on it, split by arm and sample size."""
+    d = run.table("density_agreement")
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=g["min_cluster_size"], y=g["mean_frac_noise"], mode="lines+markers",
-                             name="share left unclustered", line=dict(color="#d62728", width=2)))
-    fig.add_trace(go.Scatter(x=g["min_cluster_size"], y=g["mean_noise_kappa"], mode="lines+markers",
-                             name="Cohen's κ on which images", line=dict(color="#1f77b4", width=2)))
+    for arm in ("random", "constrained-MacDonald"):
+        for value, dash, label in (("mean_frac_noise", "solid", "left unclustered"),
+                                   ("mean_noise_kappa", "dot", "Cohen's κ on which")):
+            sub = d[d["arm"] == arm]
+            agg = sub.groupby("min_cluster_size")[value].agg(["mean", "std"]).reset_index()
+            fig.add_trace(go.Scatter(
+                x=agg["min_cluster_size"], y=agg["mean"], mode="lines+markers",
+                name=f"{label}, {arm}",
+                line=dict(color=COLOUR[arm], width=2, dash=dash), marker=dict(size=7),
+                error_y=dict(type="data", array=agg["std"], visible=True, thickness=1)))
     fig.update_xaxes(title_text="HDBSCAN min_cluster_size")
     fig.update_yaxes(title_text="proportion")
-    return _style(fig, "Most images belong to no cluster, and cohorts barely agree on which")
+    return _style(fig, "Most images belong to no cluster, and the two arms behave alike", height=420)
 
 
-FIGURES: Dict[str, Callable[[Run], go.Figure]] = {
-    "gt_dimensionality_scan": gt_dimensionality_scan,
-    "gt_topk_by_ndim": gt_topk_by_ndim,
-    "gt_vs_noise_ceiling": gt_vs_noise_ceiling,
-    "gt_semantic_gradient": gt_semantic_gradient,
-    "realism_calibration": realism_calibration,
-    "realism_noise_vs_distance": realism_noise_vs_distance,
-    "realism_semantic_gradient": realism_semantic_gradient,
-    "coverage_by_n": coverage_by_n,
-    "coverage_gain": coverage_gain,
-    "allocation_balance": allocation_balance,
-    "constraint_cost": constraint_cost,
-    "mds_convergence": mds_convergence,
-    "stability_raw": stability_raw,
-    "stability_embedding": stability_embedding,
-    "stability_procrustes": stability_procrustes,
-    "topk_between_cohorts": topk_between_cohorts,
-    "recovery_recall": recovery_recall,
-    "recovery_auc": recovery_auc,
-    "recovery_dprime": recovery_dprime,
-    "cluster_vi_by_k": cluster_vi_by_k,
-    "cluster_ari_by_k": cluster_ari_by_k,
-    "cluster_silhouette_by_k": cluster_silhouette_by_k,
-    "cluster_dendrogram_agreement": cluster_dendrogram_agreement,
-    "cluster_density": cluster_density,
+def cluster_density_by_n(run: Run) -> go.Figure:
+    d = run.table("density_agreement")
+    d = d[d["min_cluster_size"] == 5]
+    fig = _by_arm(d, "mean_frac_noise",
+                  "Images left unclustered at min_cluster_size=5, against sample size",
+                  "share left unclustered")
+    return fig
+
+
+# --------------------------------------------------------------------------- screening
+def screening_cost(run: Run) -> go.Figure:
+    cov = run.table("coverage")
+    g = cov.groupby("screening_min_reliability").agg(
+        pass_rate=("screening_pass_rate", "mean"),
+        pass_sd=("screening_pass_rate", "std"),
+        retained_reliability=("median_test_retest", "mean"),
+        retained_sd=("median_test_retest", "std")).reset_index()
+    g["candidates"] = 1 / g["pass_rate"]
+    labels = ["none" if t < 0 else f"ρ > {t:g}" for t in g["screening_min_reliability"]]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=labels, y=g["candidates"], name="candidates per retained subject",
+                         marker_color="#d62728", yaxis="y",
+                         text=[f"{v:.2f}×" for v in g["candidates"]], textposition="outside"))
+    fig.add_trace(go.Scatter(x=labels, y=g["retained_reliability"], name="test-retest ρ of retained",
+                             mode="lines+markers", line=dict(color="#1f77b4", width=2),
+                             marker=dict(size=9), yaxis="y2",
+                             error_y=dict(type="data", array=g["retained_sd"], visible=True,
+                                          thickness=1)))
+    fig.update_layout(
+        yaxis=dict(title="candidates per retained subject", range=[0, g["candidates"].max() * 1.3]),
+        yaxis2=dict(title="test-retest ρ of retained", overlaying="y", side="right",
+                    range=[0, g["retained_reliability"].max() * 1.3]))
+    fig.update_xaxes(title_text="screening threshold")
+    return _style(fig, "Recruitment cost rises far faster than the quality it buys", height=400)
+
+
+FIGURES: Dict[str, Fig] = {
+    "gt_dimensionality_scan": Fig(
+        gt_dimensionality_scan,
+        "Error bars are ±1 SEM across 50 random half-splits of the pilot. This is stage-1 empirical "
+        "data, not simulation output, so the SEM is the meaningful spread here."),
+    "gt_topk_by_ndim": Fig(
+        gt_topk_by_ndim,
+        "Error bars are ±1 SEM across 50 random half-splits of the pilot."),
+    "gt_vs_noise_ceiling": Fig(
+        gt_vs_noise_ceiling,
+        "Both bars are computed on the 41 pre-SHINE pilot participants. No simulation is involved, "
+        "so there is no cohort-to-cohort spread to show."),
+    "gt_semantic_gradient": Fig(
+        gt_semantic_gradient,
+        "Computed once on the fixed ground truth, so there is no spread to show."),
+    "realism_calibration": Fig(
+        realism_calibration,
+        "Point estimates from the calibration fit; the empirical bars are medians over the pilot "
+        "participants who contribute to each observable (n=47 and n=22 respectively)."),
+    "realism_noise_vs_distance": Fig(
+        realism_noise_vs_distance,
+        "Both axes are divided by the median distance of their own source, because simulated "
+        "distances are in ground-truth units while pilot distances are canvas-diagonal normalised. "
+        "A value of 1.0 is the median pair; the axis therefore exceeds 1.0. Error bars are ±1 SEM "
+        "within each quantile bin."),
+    "realism_semantic_gradient": Fig(
+        realism_semantic_gradient,
+        "One simulated cohort per arm at N=500, so there is no spread to show. See the caveat in "
+        "the text: this check was scored on a single configuration per arm."),
+    "coverage_by_n": Fig(
+        coverage_by_n,
+        "Error bars are ±1 SD across the 360 simulated cohorts at each point (10 repetitions × 36 "
+        "swept settings). Blue labels give the relative gain over random."),
+    "allocation_balance": Fig(
+        allocation_balance,
+        "Error bars are ±1 SD across 20 independently generated designs per point. Pure "
+        "combinatorics: no simulated participants are involved."),
+    "constraint_cost": Fig(
+        constraint_cost,
+        "Error bars are ±1 SD across 20 independently generated designs per point."),
+    "mds_convergence": Fig(
+        mds_convergence,
+        "All 17,729 fits in the store, including the 449 duplicates a resumed run appended."),
+    "stability_raw": Fig(stability_raw, SD_NOTE),
+    "stability_embedding": Fig(stability_embedding, SD_NOTE),
+    "stability_procrustes": Fig(stability_procrustes, SD_NOTE),
+    "stability_significance": Fig(
+        stability_significance,
+        "Paired t-test on the difference between arms, matched within each of the swept settings "
+        "at N=50. p-values are descriptive: the settings form a designed grid rather than a random "
+        "sample, so the effect size and the proportion of settings favouring one arm carry more "
+        "weight than the p-value."),
+    "topk_between_cohorts": Fig(topk_between_cohorts, SD_NOTE),
+    "recovery_recall": Fig(recovery_recall, SD_NOTE),
+    "recovery_auc": Fig(recovery_auc, SD_NOTE),
+    "recovery_dprime": Fig(recovery_dprime, SD_NOTE),
+    "cluster_vi_by_k": Fig(
+        cluster_vi_by_k,
+        "Average linkage only, for legibility; ward and complete behave the same way at a lower "
+        "level. Error bars are ±1 SD across every cohort pair and swept setting. The shaded band "
+        "marks k ≥ 150, discussed in the text."),
+    "cluster_ari_by_k": Fig(
+        cluster_ari_by_k,
+        "Average linkage only. Error bars are ±1 SD across every cohort pair and swept setting."),
+    "cluster_silhouette_by_k": Fig(
+        cluster_silhouette_by_k,
+        "Average linkage only. Error bars are ±1 SD across every cohort pair and swept setting."),
+    "cluster_dendrogram_agreement": Fig(
+        cluster_dendrogram_agreement,
+        "Error bars are ±1 SD across every cohort pair and swept setting."),
+    "cluster_density": Fig(
+        cluster_density,
+        "Error bars are ±1 SD across every cohort pair and swept setting, pooled over sample "
+        "sizes."),
+    "cluster_density_by_n": Fig(
+        cluster_density_by_n,
+        "At min_cluster_size=5. " + SD_NOTE),
+    "screening_cost": Fig(
+        screening_cost,
+        "Bars are means over every configuration at that threshold; error bars on the line are ±1 "
+        "SD of the retained cohorts' median test-retest reliability."),
 }

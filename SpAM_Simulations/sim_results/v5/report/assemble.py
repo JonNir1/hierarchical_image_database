@@ -47,6 +47,8 @@ li { margin: .35rem 0; }
 code { background: rgba(128,128,128,.14); padding: .1em .35em; border-radius: 3px; font-size: .9em; }
 .bottom-line { border-left: 3px solid #1f77b4; background: rgba(31,119,180,.07);
                padding: .7rem 1rem; margin: 1rem 0; border-radius: 0 4px 4px 0; font-size: .97rem; }
+.figcaption { font-size: .8rem; color: #666; margin: -.4rem 0 1.6rem; padding: 0 .3rem;
+              line-height: 1.45; }
 .warn { border-left: 3px solid #d62728; background: rgba(214,39,40,.07);
         padding: .7rem 1rem; margin: 1rem 0; border-radius: 0 4px 4px 0; }
 table { border-collapse: collapse; margin: 1rem 0; font-size: .86rem; width: 100%;
@@ -61,7 +63,7 @@ nav ol { margin: .3rem 0; }
 a { color: #1f77b4; }
 @media (prefers-color-scheme: dark) {
   body { color: #e8e8e8; background: #14161a; }
-  .sub, h3 { color: #9aa0a6; }
+  .sub, h3, .figcaption { color: #9aa0a6; }
   a { color: #6db3f2; }
 }
 """
@@ -78,8 +80,13 @@ def render(source: str, run: Run) -> str:
             unknown.append(name)
             return match.group(0)
         used.append(name)
-        return pio.to_html(FIGURES[name](run), include_plotlyjs=False, full_html=False,
+        spec = FIGURES[name]
+        html = pio.to_html(spec.fn(run), include_plotlyjs=False, full_html=False,
                            config={"displayModeBar": False})
+        # The caption travels with the figure rather than the prose, so a figure can never appear
+        # without the reader being told what its error bars are.
+        caption = f'<p class="figcaption"><em>{spec.caption}</em></p>'
+        return f"{html}\n{caption}\n"
 
     out = PLACEHOLDER.sub(swap, source)
     if unknown:
