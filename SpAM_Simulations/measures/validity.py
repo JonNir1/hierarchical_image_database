@@ -469,21 +469,32 @@ def null_distances(num_dots: int = 20, num_trials: int = 2000, seed: int = 42) -
     return simulate(num_dots, num_trials, seed=seed)
 
 
+NULL_LABEL = "random placement (null)"
+DEFAULT_NULL_LABELS = ("simulated participants", "pilot participants")
+
+
 def null_distance_summary(sim_distances: np.ndarray, pilot_distances: np.ndarray,
                           num_dots: int = 20, num_trials: int = 2000,
-                          seed: int = 42) -> pd.DataFrame:
+                          seed: int = 42,
+                          labels: Sequence[str] = DEFAULT_NULL_LABELS) -> pd.DataFrame:
     """Mean, SD and quartiles of the three distance distributions, on one common axis.
 
     Random placement is the floor this task has to clear: if participants were dropping images
     without regard to similarity, their distances would look like the null. The gap between the null
     and the two participant rows is therefore a crude but assumption-free check that the arrangement
     carries structure at all, independent of any ground truth.
+
+    ``labels`` names the two supplied distributions. It defaults to the simulated/pilot pair this
+    was written for, but nothing here is specific to those: any two cohorts can be compared against
+    the same null, which is how the production cohorts are scored.
     """
+    if len(labels) != 2:
+        raise ValueError(f"labels must name exactly the two supplied distributions, got {labels!r}")
     null = null_distances(num_dots=num_dots, num_trials=num_trials, seed=seed)
     rows = []
-    for name, values in (("random placement (null)", null),
-                         ("simulated participants", np.asarray(sim_distances, dtype=np.float64)),
-                         ("pilot participants", np.asarray(pilot_distances, dtype=np.float64))):
+    for name, values in ((NULL_LABEL, null),
+                         (labels[0], np.asarray(sim_distances, dtype=np.float64)),
+                         (labels[1], np.asarray(pilot_distances, dtype=np.float64))):
         v = values[np.isfinite(values)]
         rows.append({"source": name, "n": int(v.size), "mean": float(v.mean()),
                      "sd": float(v.std(ddof=1)), "median": float(np.median(v)),
