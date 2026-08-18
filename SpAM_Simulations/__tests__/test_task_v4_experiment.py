@@ -147,6 +147,47 @@ class TestScreeningEffect:
         assert res.screening_pass_rate == pytest.approx(20 / res.n_candidates_screened)
 
 
+class TestScreeningFalsePositives:
+    """Subjects the gate let through whose main stage fails the same rule.
+
+    The deployed task evaluates once and never revisits, so it cannot see these. They are the
+    simulated counterpart of a real participant who clears the screening block, is paid in full,
+    and then stops trying - and the only part of prod's false-positive rate the model can match at
+    all, since simulated subjects arrange every image and so can never fail the move-ratio check.
+    """
+
+    def test_rate_is_a_proportion_of_the_retained_cohort(self):
+        res = _run(screening_min_reliability=0.0)
+        assert 0.0 <= res.screening_false_positive_rate <= 1.0
+
+    def test_nobody_is_removed_for_being_a_false_positive(self):
+        """Diagnostic only: the deployed task does not drop them, so neither may the model."""
+        res = _run(screening_min_reliability=0.3)
+        assert res.subject_noises.size == 20
+        assert res.screening_false_positive_rate > 0  # and yet the cohort is still full
+
+    def test_a_stricter_gate_leaves_MORE_false_positives(self):
+        """Regression to the mean, and it runs against intuition.
+
+        The gate selects on one noisy estimate of reliability. The higher the bar, the more of the
+        subjects who clear it did so partly by luck, and the more of them fall back below it when
+        re-measured on the main stage. So tightening the threshold buys a better cohort *and* a
+        larger share of survivors who do not hold up - which is exactly the quantity the deployed
+        task is blind to.
+        """
+        lenient = np.mean([_run(seed=s, screening_min_reliability=0.0)
+                           .screening_false_positive_rate for s in range(4)])
+        strict = np.mean([_run(seed=s, screening_min_reliability=0.5)
+                          .screening_false_positive_rate for s in range(4)])
+        assert strict > lenient
+
+    def test_no_gate_means_no_false_positives_by_definition(self):
+        """A false positive is defined against the gate's own rule, and -1.0 excludes nobody."""
+        res = _run(screening_min_reliability=-1.0)
+        assert res.screening_pass_rate == 1.0
+        assert res.screening_false_positive_rate == 0.0
+
+
 class TestScreeningDataIsAnalysed:
     def test_screening_trials_add_observations(self):
         """A retained subject's screening trials are data, so they must reach the aggregate."""

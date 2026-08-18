@@ -104,6 +104,8 @@ TaskV4ExperimentResults = NamedTuple("TaskV4ExperimentResults", [
     ("subject_test_retest_procrustes", np.ndarray),      # Procrustes M^2 of the 2-D arrangements; LOWER=better
     ("n_candidates_screened", int),                      # candidates simulated to retain num_subjects
     ("screening_pass_rate", float),                      # num_subjects / n_candidates_screened
+    ("screening_false_positive_rate", float),            # retained, but their MAIN-stage repeats
+                                                         # fail the same rule the gate applied
 ])
 
 
@@ -123,6 +125,16 @@ def simulate_task_v4_experiment(
     completes the main stage. Returns aggregate condensed mean distances (unmeasured pairs NaN),
     per-pair observation counts, and per-retained-subject noise/test-retest diagnostics, plus the
     recruitment cost (``n_candidates_screened``, ``screening_pass_rate``).
+
+    ``screening_false_positive_rate`` is the share of RETAINED subjects whose main-stage repeats
+    fail the same rule the gate applied to their screening block. The deployed task cannot see
+    this - it evaluates once and never revisits - so it is the simulated counterpart of a real
+    participant who passes the gate, is paid in full, and then stops trying. It is reported, never
+    acted on: removing those subjects here would model a gate the study does not run.
+
+    It matches prod on the reliability criterion only. Simulated subjects arrange every image in
+    every trial, so the deployed gate's move-ratio and arrangement-spread criteria have no
+    counterpart here at all (see ``empirical.screening_audit.SIMULABLE``).
 
     ``subject_noises`` and the two test-retest arrays describe the **retained** cohort only -
     that is the population the study actually analyses, and the shift in their distribution
@@ -161,6 +173,7 @@ def simulate_task_v4_experiment(
     all_observations = np.zeros(n_pairs, dtype=np.float64)
     all_n_obs = np.zeros(n_pairs, dtype=np.float64)
     subject_noises = np.empty(params.num_subjects, dtype=np.float64)
+    n_false_positives = 0
     subject_test_retest = np.empty(params.num_subjects, dtype=np.float64)
     subject_test_retest_procrustes = np.empty(params.num_subjects, dtype=np.float64)
     per_subject = np.empty((params.num_subjects, n_pairs), dtype=np.float32) if return_per_subject else None
@@ -241,6 +254,14 @@ def simulate_task_v4_experiment(
                 corrs += list(screening.repeat_correlations)
                 m2s += list(screening.repeat_procrustes)
 
+            # The gate saw only the screening block. Scoring the SAME rule against the main
+            # stage asks how many of the survivors would have failed had it been evaluated later -
+            # the simulated counterpart of prod's "false positives". Diagnostic only: nobody is
+            # removed here, because the deployed task does not remove them either.
+            if not _passes_screening(list(main.repeat_correlations),
+                                     params.screening_min_reliability):
+                n_false_positives += 1
+
             all_observations += observations
             all_n_obs += n_obs
             subject_noises[retained] = noise
@@ -256,6 +277,7 @@ def simulate_task_v4_experiment(
         datetime.now(), all_observations, all_n_obs.astype(np.int16), subject_noises,
         subject_test_retest, subject_test_retest_procrustes,
         n_candidates, params.num_subjects / n_candidates,
+        n_false_positives / params.num_subjects if params.num_subjects else float("nan"),
     )
     if return_per_subject:
         return params, results, per_subject
