@@ -349,8 +349,8 @@ signal. Exceeding the ceiling is the signature of exactly that.</p>
     <td><b>Weakest.</b> Partly a statement about having 41 pilot participants.</td></tr>
 </table>
 
-<p>So the headline recommendation, which allocation to use, rests on the tier that does not depend on the ground truth
-at all, plus a contrast in which the ground truth cancels. The results that should be treated as provisional are the
+<p>So the allocation comparison, which is the question the sweep was built to answer, rests on the tier that does not
+depend on the ground truth at all, plus a contrast in which the ground truth cancels. The results that should be treated as provisional are the
 absolute levels, and above all the finding that no fine-grained clustering reproduces.</p>
 
 <h3>Semantic Structure</h3>
@@ -997,9 +997,13 @@ moderate reproducibility that keeps improving, not a plateau. The same cohorts r
 0.19. Going from 50 to 75 participants helps everywhere and settles nothing: it is a shift along a smooth curve, not
 a threshold being crossed.</li>
 
-<li><b>Adopt constrained-MacDonald allocation.</b> It covers 18&ndash;30% more pairs for identical effort, produces
-more reproducible embeddings at every <i>N</i> on both Spearman &rho; and Procrustes m&sup2;, recovers the ground
-truth better on every measure, and the constraint that makes it deployable costs 0.61% of coverage.</li>
+<li><b>Constrained-MacDonald allocation is better, but not by enough to adopt mid-study.</b> It covers
+18&ndash;30% more pairs for identical effort, produces more reproducible embeddings at every <i>N</i> on both
+Spearman &rho; and Procrustes m&sup2;, and recovers the ground truth better on every measure, with the constraint
+that makes it deployable costing 0.61% of coverage. The direction is consistent and statistically reliable. The
+<em>size</em> is what decides it: +0.019 Spearman &rho; at <i>N</i>=50, against +0.223 from the screening gate. For a
+study starting fresh it is the right choice; for this one, halfway through and already covering its pairs, it is not
+worth a pre-registration deviation and a split sample. See <a href="#conclusions">what we are changing</a>.</li>
 
 <li><b>Do not build the analysis on cluster membership.</b> Use a distance threshold. No granularity finer than
 <i>k</i>=2 survives resampling, and two independent methods agree. <b>Caveat:</b> this may be a statement about the
@@ -1024,41 +1028,51 @@ relative to the pilot, so the true granularity ceiling may sit above <i>k</i>=2.
 its magnitude is not.</li>
 </ol>
 
-<h3>What We Are Changing Mid-Collection</h3>
-<p>These simulations were run to decide how to collect the remaining half of the study, so the
-decisions belong here rather than in a follow-up. Each row states what changes, where the boundary
-is recoverable in the data, and why it cannot bias the registered analyses.</p>
-
-<p>The general argument for all of them: <b>SHINE variant is assigned by a hash of the Prolific ID,
-so it is independent of when a participant is run.</b> Any change applied at a point in time
-therefore lands on both cohorts equally and enters the analysis as a block factor, not a confound.
-The <code>task_version</code> column on every row marks the boundary.</p>
+<h3>What We Are Changing Mid-Collection: Nothing</h3>
+<p>These simulations were run to decide how to collect the remaining half of the study. Three
+choices were on the table, and the answer in all three cases is to carry on unchanged. That is a
+result of the exercise rather than an absence of one: the sweep was run precisely so this decision
+would be made on evidence, and the evidence does not support disturbing a study that is halfway
+through.</p>
 
 <table class="datatable">
-<thead><tr><th>Decision</th><th>Change</th><th>Why it is safe</th></tr></thead>
-<tr><td><b>Allocation</b></td>
-<td>Switch the remaining participants from random assignment to the constrained-MacDonald design,
-conditioned on the pairs already covered so that the remaining trials fill the gaps the random half
-left.</td>
-<td>Affects only <em>which</em> pairs get judged, never what anyone says about them. Both cohorts
-are already connected, so this improves precision rather than rescuing the analysis.
-<b>This is a deviation from the pre-registration</b>, which specifies images "randomly assigned per
-subject", and needs an OSF amendment.</td></tr>
+<thead><tr><th>Choice</th><th>Decision</th><th>Why</th></tr></thead>
+<tr><td><b>Image-to-trial allocation</b></td>
+<td><b>Keep random assignment.</b> Do not switch to constrained-MacDonald.</td>
+<td>The gain is real, reliable and small. At <i>N</i>=50 the designed arm covers 25% more pairs but
+moves cohort agreement by <b>+0.019</b> Spearman &rho; and recall@k by <b>+0.008</b>. Set against
+<b>+0.223</b> from tightening the screening gate and <b>+0.077</b> from going to <i>N</i>=75, the
+allocation is the smallest lever the sweep found. Wider coverage buys breadth that no downstream
+measure converts into much.</td></tr>
 <tr><td><b>Screening threshold</b></td>
-<td>Leave the in-task gate at <i>&rho; &gt; 0</i>.</td>
+<td><b>Keep the in-task gate at <i>&rho; &gt; 0</i>.</b></td>
 <td>The gate only decides who is paid in full; the analysis-time exclusion is a separate,
-pre-registered rule and can still be set later. Raising the gate now would forfeit the option to
-include those participants without buying much: the observed rejection rate is already only 7%, and
-more people fail <em>after</em> screening than during it.</td></tr>
+pre-registered rule that can still be set later. The observed rejection rate is already only 7%, and
+more participants fail <em>after</em> screening than during it, so raising the gate would forfeit
+the option to include those people without buying much.</td></tr>
 <tr><td><b>Sample size</b></td>
-<td>Hold to the pre-registered N=75 retained per cohort.</td>
-<td>Fixed in advance and not conditioned on anything observed. Split-half &rho; is a reported
+<td><b>Keep <i>N</i>=75 retained per cohort.</b></td>
+<td>Fixed in advance and not conditioned on anything observed. Split-half &rho; stays a reported
 diagnostic that does not affect stopping, which is what keeps the stopping rule from biasing the
 estimate it stops on.</td></tr>
 </table>
 
-<p>One interaction is worth recording. The pre-registration excludes the lowest reliability decile
-<em>of each cohort</em>, which is a relative rule: it removes 10% whatever the absolute quality, and
-the pool it is computed over is whoever cleared the in-task gate. Raising the gate would therefore
-change what the decile rule means, which is a second reason to leave the gate alone.</p>
+<p>Two consequences are worth stating explicitly, because they are the reason "change nothing" is
+the cheap answer as well as the defensible one.</p>
+
+<p><b>There is now no deviation from the pre-registration.</b> Switching allocation would have been
+one &ndash; the registration specifies images "randomly assigned per subject" &ndash; and would have
+needed an OSF amendment. Keeping random assignment means the study proceeds exactly as registered,
+and no amendment is required.</p>
+
+<p><b>And the sample stays homogeneous.</b> A mid-study switch would have produced a dataset that is
+half one design and half another, with neither arm's properties cleanly. Worse, the version worth
+switching to would have been constrained-MacDonald <em>conditioned on the pairs already covered</em>,
+to fill the gaps the random half left &ndash; and that is a third design, which the sweep never
+simulated. Trading a homogeneous registered sample for an unsimulated hybrid, in exchange for
++0.019 of Spearman &rho;, is not a good trade.</p>
+
+<p>The one thing that would change this reading is a coverage problem, and there is not one: both
+cohorts already have connected observed-pair graphs at 39 participants, well before the <i>N</i>=75
+the stopping rule requires.</p>
 </section>
