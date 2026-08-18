@@ -483,11 +483,10 @@ by more than the pilot suggested.</b></p>
 <h3>Reliability Against Distance (binned RMSE)</h3>
 <p>For every pair a participant judged twice, the RMSE between the two placements, binned by how far apart they placed
 it. This was <em>not</em> fitted, which is what gives it force.<br>
-Both axes are divided by the median distance of their own source, because simulated distances are in ground-truth
-units while pilot distances are canvas-diagonal normalised, and the two are not otherwise comparable. That is why the
-axis runs past 1.0: a value of 2.0 is a pair placed twice as far apart as the median pair, not a distance exceeding
-the canvas. This curve is a property of the calibrated noise model rather than of any sweep cell, so unlike the
-gradient above it does not split by allocation arm.</p>
+Both axes are in canvas-diagonal units, so no rescaling is applied and the axis cannot exceed 1.0. Under task-v5
+the simulator divides every distance by its canvas diagonal exactly as the deployed task does, so all three sources
+already share one scale. This curve is a property of the calibrated noise model rather than of any sweep cell, so
+unlike the gradient above it does not split by allocation arm.</p>
 
 <!-- figure: realism_noise_vs_distance -->
 
@@ -981,4 +980,42 @@ study.</li>
 relative to the pilot, so the true granularity ceiling may sit above <i>k</i>=2. The direction of that bias is known;
 its magnitude is not.</li>
 </ol>
+
+<h3>What We Are Changing Mid-Collection</h3>
+<p>These simulations were run to decide how to collect the remaining half of the study, so the
+decisions belong here rather than in a follow-up. Each row states what changes, where the boundary
+is recoverable in the data, and why it cannot bias the registered analyses.</p>
+
+<p>The general argument for all of them: <b>SHINE variant is assigned by a hash of the Prolific ID,
+so it is independent of when a participant is run.</b> Any change applied at a point in time
+therefore lands on both cohorts equally and enters the analysis as a block factor, not a confound.
+The <code>task_version</code> column on every row marks the boundary.</p>
+
+<table class="datatable">
+<thead><tr><th>Decision</th><th>Change</th><th>Why it is safe</th></tr></thead>
+<tr><td><b>Allocation</b></td>
+<td>Switch the remaining participants from random assignment to the constrained-MacDonald design,
+conditioned on the pairs already covered so that the remaining trials fill the gaps the random half
+left.</td>
+<td>Affects only <em>which</em> pairs get judged, never what anyone says about them. Both cohorts
+are already connected, so this improves precision rather than rescuing the analysis.
+<b>This is a deviation from the pre-registration</b>, which specifies images "randomly assigned per
+subject", and needs an OSF amendment.</td></tr>
+<tr><td><b>Screening threshold</b></td>
+<td>Leave the in-task gate at <i>&rho; &gt; 0</i>.</td>
+<td>The gate only decides who is paid in full; the analysis-time exclusion is a separate,
+pre-registered rule and can still be set later. Raising the gate now would forfeit the option to
+include those participants without buying much: the observed rejection rate is already only 7%, and
+more people fail <em>after</em> screening than during it.</td></tr>
+<tr><td><b>Sample size</b></td>
+<td>Hold to the pre-registered N=75 retained per cohort.</td>
+<td>Fixed in advance and not conditioned on anything observed. Split-half &rho; is a reported
+diagnostic that does not affect stopping, which is what keeps the stopping rule from biasing the
+estimate it stops on.</td></tr>
+</table>
+
+<p>One interaction is worth recording. The pre-registration excludes the lowest reliability decile
+<em>of each cohort</em>, which is a relative rule: it removes 10% whatever the absolute quality, and
+the pool it is computed over is whoever cleared the in-task gate. Raising the gate would therefore
+change what the decile rule means, which is a second reason to leave the gate alone.</p>
 </section>
