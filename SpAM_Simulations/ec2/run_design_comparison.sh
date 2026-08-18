@@ -246,7 +246,7 @@ from SpAM_Simulations.models.block_design import greedy_session_design
 from SpAM_Simulations.core.config import MDSSweepConfig, TaskV5SimulationConfig
 from SpAM_Simulations.empirical.gt_construction import aggregate_subjects
 from SpAM_Simulations.empirical.calibrate_v5 import CalibrationError, calibrate
-from SpAM_Simulations.empirical.pilot import load_pilot_subjects
+from SpAM_Simulations.empirical.subjects import load_pilot_subjects
 
 OUT = pathlib.Path("out"); OUT.mkdir(exist_ok=True)
 CAL = pathlib.Path("calibration"); CAL.mkdir(exist_ok=True)

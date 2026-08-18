@@ -46,7 +46,7 @@ def build(ndim: int, pilot_dir: str = "data", manifest: str = "data/stimuli_mani
     different subject set would make this GT incomparable with the one the scan was run on.
     """
     from SpAM_Simulations.empirical.gt_construction import build_gt
-    from SpAM_Simulations.empirical.pilot import load_pilot_subjects
+    from SpAM_Simulations.empirical.subjects import load_pilot_subjects
 
     # The pilot data is deliberately NOT on the box between runs: every EC2 entrypoint's exit trap
     # does `rm -rf "$PILOT_DIR"` so human-subjects data never survives a run, let alone a

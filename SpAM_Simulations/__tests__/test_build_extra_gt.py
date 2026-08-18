@@ -29,16 +29,16 @@ def _cohort(n_subjects=6, n_images=10, seed=0):
                      np.ones(truth.size, dtype=np.int32)) for _ in range(n_subjects)]
 
 
-def _patch_loader(monkeypatch, subjects, gt_dir=None):
+def _patch_loader(monkeypatch, cohort, gt_dir=None):
     """Stub the loader, and materialise a manifest so the scrubbed-data guard does not fire.
 
     The guard is checked BEFORE the loader runs (see `build`), which is the point of it - a missing
     manifest means the exit trap scrubbed the pilot data, and that has to be reported before
     anything else is attempted.
     """
-    from SpAM_Simulations.empirical import pilot
-    monkeypatch.setattr(pilot, "load_pilot_subjects",
-                        lambda *a, **k: subjects, raising=True)
+    from SpAM_Simulations.empirical import subjects
+    monkeypatch.setattr(subjects, "load_pilot_subjects",
+                        lambda *a, **k: cohort, raising=True)
     if gt_dir is not None:
         (gt_dir / "data").mkdir(parents=True, exist_ok=True)
         (gt_dir / "data" / "stimuli_manifest.json").write_text('{"images": []}')

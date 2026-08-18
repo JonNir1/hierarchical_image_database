@@ -208,7 +208,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args(argv)
 
-    from SpAM_Simulations.empirical.pilot import load_pilot_subjects
+    from SpAM_Simulations.empirical.subjects import load_pilot_subjects
 
     variants = None if args.variants == "all" else tuple(args.variants.split(","))
     subjects = load_pilot_subjects(args.pilot_dir, str(args.manifest), variants=variants)

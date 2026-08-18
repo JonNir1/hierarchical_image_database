@@ -89,7 +89,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                    help="trials of uniformly-random placement behind the null distance summary")
     args = p.parse_args(argv)
 
-    from SpAM_Simulations.empirical.pilot import load_pilot_subjects
+    from SpAM_Simulations.empirical.subjects import load_pilot_subjects
 
     cal_path = args.run / "calibration" / "calibration.json"
     if not cal_path.is_file():

@@ -20,7 +20,7 @@ except (ImportError, IndexError, RuntimeError, OSError, AttributeError) as e:
 
 
 class _Subject:
-    """Minimal PilotSubject stand-in: the module only needs distances/n_obs/task_version."""
+    """Minimal Subject stand-in: the module only needs distances/n_obs/task_version."""
 
     def __init__(self, distances, n_obs, task_version=3.0, shine_variant="pre"):
         self.distances = np.asarray(distances, dtype=np.float32)
@@ -54,7 +54,7 @@ def test_aggregate_weights_mark_observed_pairs():
 
 
 def test_aggregate_does_not_raise_on_a_disconnected_graph():
-    """Unlike pilot_aggregate: the split search must be able to *test* subsets cheaply."""
+    """Unlike aggregate: the split search must be able to *test* subsets cheaply."""
     n_pairs = 6
     lonely = _Subject(np.full(n_pairs, np.nan), np.zeros(n_pairs))
     lonely.n_obs[0] = 1
@@ -272,19 +272,19 @@ def test_build_gt_refuses_a_disconnected_graph():
 
 
 def test_build_gt_from_pilot_delegates(monkeypatch):
-    """pilot.build_gt_from_pilot is now a thin wrapper; n_dims must be required."""
-    from SpAM_Simulations.empirical import pilot
+    """subjects.build_gt_from_pilot is now a thin wrapper; n_dims must be required."""
+    from SpAM_Simulations.empirical import subjects
     seen = {}
-    monkeypatch.setattr(pilot, "build_gt", lambda s, n, method="smacof": (seen.update(
+    monkeypatch.setattr(subjects, "build_gt", lambda s, n, method="smacof": (seen.update(
         dict(n=n, method=method)) or (np.zeros((3, n), dtype=np.float32), {"n_dims": n})))
-    pilot.build_gt_from_pilot(_cohort(n_subjects=4), 7, method="classical")
+    subjects.build_gt_from_pilot(_cohort(n_subjects=4), 7, method="classical")
     assert seen == {"n": 7, "method": "classical"}
 
 
 def test_choose_n_dims_is_gone():
     """The imputed-eigenspectrum rule must not come back: it manufactured rank on sparse data."""
-    from SpAM_Simulations.empirical import pilot
-    assert not hasattr(pilot, "_choose_n_dims")
+    from SpAM_Simulations.empirical import subjects
+    assert not hasattr(subjects, "_choose_n_dims")
 
 
 @pytest.mark.skipif(not _MDS_AVAILABLE, reason=_MDS_SKIP)
