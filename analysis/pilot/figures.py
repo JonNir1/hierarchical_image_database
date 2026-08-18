@@ -33,29 +33,42 @@ from analysis.utils.parser import parse_pairwise_distances
 # ---------------------------------------------------------------------------
 
 _VERSION_PALETTE: dict[float, dict[str, str]] = {
+    # Colorblind-safe categorical set (validated all-pairs CVD-safe + normal-vision
+    # separation with dataviz-skill's validate_palette.js; blue/orange/aqua/violet is
+    # one of the passing 4-hue combinations from the reference 8-hue theme). v4.0 was
+    # previously missing here and fell back to the same gray as the null-distribution
+    # trace, making v3 vs. v4 unreadable -- each version now gets its own validated hue.
     1.0: {
-        "main":         "#1a5296",
-        "violin":       "rgba(100,149,237,0.35)",
-        "violin_line":  "rgba(100,149,237,0.9)",
-        "subj":         "rgba(100,149,237,0.2)",
-        "dot":          "rgba(30,80,160,0.9)",
-        "dot_err":      "rgba(30,80,160,0.6)",
+        "main":         "#2a78d6",
+        "violin":       "rgba(42,120,214,0.35)",
+        "violin_line":  "rgba(42,120,214,0.9)",
+        "subj":         "rgba(42,120,214,0.2)",
+        "dot":          "rgba(42,120,214,0.9)",
+        "dot_err":      "rgba(42,120,214,0.6)",
     },
     2.0: {
-        "main":         "#922b21",
-        "violin":       "rgba(220,80,60,0.35)",
-        "violin_line":  "rgba(220,80,60,0.9)",
-        "subj":         "rgba(220,80,60,0.2)",
-        "dot":          "rgba(160,40,30,0.9)",
-        "dot_err":      "rgba(160,40,30,0.6)",
+        "main":         "#eb6834",
+        "violin":       "rgba(235,104,52,0.35)",
+        "violin_line":  "rgba(235,104,52,0.9)",
+        "subj":         "rgba(235,104,52,0.2)",
+        "dot":          "rgba(235,104,52,0.9)",
+        "dot_err":      "rgba(235,104,52,0.6)",
     },
     3.0: {
-        "main":         "#1e7a45",
-        "violin":       "rgba(46,160,90,0.35)",
-        "violin_line":  "rgba(46,160,90,0.9)",
-        "subj":         "rgba(46,160,90,0.2)",
-        "dot":          "rgba(20,110,60,0.9)",
-        "dot_err":      "rgba(20,110,60,0.6)",
+        "main":         "#1baf7a",
+        "violin":       "rgba(27,175,122,0.35)",
+        "violin_line":  "rgba(27,175,122,0.9)",
+        "subj":         "rgba(27,175,122,0.2)",
+        "dot":          "rgba(27,175,122,0.9)",
+        "dot_err":      "rgba(27,175,122,0.6)",
+    },
+    4.0: {
+        "main":         "#4a3aa7",
+        "violin":       "rgba(74,58,167,0.35)",
+        "violin_line":  "rgba(74,58,167,0.9)",
+        "subj":         "rgba(74,58,167,0.2)",
+        "dot":          "rgba(74,58,167,0.9)",
+        "dot_err":      "rgba(74,58,167,0.6)",
     },
 }
 
