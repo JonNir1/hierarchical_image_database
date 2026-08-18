@@ -48,7 +48,7 @@ CSS = """
 :root { color-scheme: light dark; }
 body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
        line-height: 1.6; color: #1a1a1a; background: #fff; }
-.wrap { max-width: 900px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 2rem 1.5rem 5rem; }
 h1 { font-size: 1.8rem; margin: 0 0 .3rem; }
 h2 { font-size: 1.3rem; margin: 2.75rem 0 .6rem; padding-top: .9rem;
      border-top: 1px solid rgba(128,128,128,.28); }
