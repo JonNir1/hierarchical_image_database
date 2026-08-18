@@ -125,12 +125,12 @@ from: which empirical data feeds it, and which of its parameters are estimated r
 <p>Forty-seven pilot participants were collected across four task versions and two stimulus variants.</p>
 
 <table class="datatable">
-<thead><tr><th>Task version</th><th>pre-SHINE</th><th>post-SHINE</th><th>Total</th><th>Repeat trials</th></tr></thead>
-<tr><td><i>v1.0</i></td><td>15</td><td>0</td><td>15</td><td>&ndash;</td></tr>
-<tr><td><i>v2.0</i></td><td>10</td><td>0</td><td>10</td><td>&ndash;</td></tr>
-<tr><td><i>v3.0</i></td><td>11</td><td>0</td><td>11</td><td>3</td></tr>
-<tr><td><i>v3.06</i></td><td>5</td><td>6</td><td>11</td><td>3</td></tr>
-<tr><td><b>Total</b></td><td><b>41</b></td><td><b>6</b></td><td><b>47</b></td><td></td></tr>
+<thead><tr><th>Threshold</th><th>Pass rate</th><th>Candidates per<br>retained subject</th>
+<th>Cost per retained subject<br>(1 completion = 1.00)</th><th>Median test-retest &rho;<br>of retained</th></tr></thead>
+<tr><td>None (control)</td><td>100%</td><td>1.00</td><td>1.00</td><td>0.154</td></tr>
+<tr><td><b><i>&rho; &gt; 0</i> (deployed)</b></td><td>71.4%</td><td>1.40</td><td><b>1.12</b></td><td>0.204</td></tr>
+<tr><td><i>&rho; &gt; 0.1</i></td><td>42.0%</td><td>2.38</td><td>1.41</td><td>0.271</td></tr>
+<tr><td><i>&rho; &gt; 0.2</i></td><td>22.9%</td><td>4.36</td><td>2.01</td><td>0.340</td></tr>
 </table>
 
 <p>The decisive difference is that <i>v1</i> and <i>v2</i> had <em>no repeat-trial scheme</em>; it was introduced in
@@ -499,9 +499,9 @@ distinctions, which means results at the finest granularity understate what real
 
 
 <section id="screening"><h2>Screening and Recruitment</h2>
-<p class="bottom-line"><b>Bottom line.</b> Screening is what separates <i>N<sub>total</sub></i> from <i>N</i>, and it
-is expensive: the recruitment cost rises far faster than the reliability it buys. Retaining <i>N</i>=50 at the
-middle threshold means recruiting about 119 people.</p>
+<p class="bottom-line"><b>Bottom line.</b> Participant quality is the largest single lever in this
+simulation, and screening is cheap to apply because a rejected candidate is paid only for the screening block. The
+deployed threshold, <i>&rho; &gt; 0</i>, captures most of the available gain for 12% extra recruitment cost.</p>
 
 <h3>What Screening Costs and Buys</h3>
 <p>The screening block is simulated along with everything else. Candidates who fail are discarded and replaced, so the
@@ -518,9 +518,11 @@ survivors are. The threshold is the minimum Spearman &rho; between a participant
 <tr><td><i>&rho; &gt; 0.2</i></td><td>22.9%</td><td>4.37</td><td>0.340</td></tr>
 </table>
 
-<p>The trade is steep and strongly non-linear. Moving from no screening to <i>&rho; &gt; 0.1</i> raises the retained
-cohort's median reliability by 76% and costs 2.4&times; the recruitment. Pushing on to <i>&rho; &gt; 0.2</i> buys a
-further 25% for 4.4&times; the recruitment: roughly a third of the quality gain for nearly twice the cost again.</p>
+<p>The two cost columns tell different stories, and the second is the one that matters. A screened-out
+participant is paid for the 8-trial screening block only, roughly <b>0.3</b> of a full session, so the candidate count
+badly overstates the bill: <i>&rho; &gt; 0.2</i> needs 4.36 candidates per retained subject but costs just
+<b>2.01&times;</b> the unscreened study. At the deployed <i>&rho; &gt; 0</i> the premium is 12%, for a third more
+reliability in the retained cohort.</p>
 
 <h3>Does a Cleaner Cohort Buy a Better Map?</h3>
 <p>The table above shows screening does what it claims: retained participants really are more self-consistent. That is
@@ -547,77 +549,20 @@ sweep, several times the size of the allocation-arm difference.</p>
 (&rho; = 0.616) than 75 <em>unscreened</em> participants (0.470), and beats 75 participants screened at
 <i>&rho; &gt; 0</i> (0.542). Participant quality substitutes for participant quantity, and generously.</p>
 
-<h3>But Charged Against What It Costs</h3>
-<p>The table above counts per <em>retained</em> participant, and every rejected candidate is paid too, so the
-comparison that decides anything is per credit spent. The two rates are not equal, and the gap between them is what
-makes this affordable: a completed session costs <b>6.67 credits</b>, while a participant screened out after the
-8-trial screening block costs <b>2 credits</b>, under a third as much.</p>
-
-<p>That discount changes the arithmetic sharply. Screening at <i>&rho; &gt; 0.2</i> needs 4.36 candidates per retained
-participant, but because 3.36 of them are cheap rejects it costs <b>2.01&times;</b> the unscreened budget, not
-4.36&times;.</p>
-
-<table class="datatable">
-<thead><tr><th>Threshold</th><th>Pass rate</th><th>Candidates per retained</th><th>Credits per retained</th>
-<th>vs. no screening</th></tr></thead>
-<tr><td>None</td><td>100%</td><td>1.00&times;</td><td>6.67</td><td>1.00&times;</td></tr>
-<tr><td><i>&rho; &gt; 0</i></td><td>71.4%</td><td>1.40&times;</td><td>7.47</td><td>1.12&times;</td></tr>
-<tr><td><i>&rho; &gt; 0.1</i></td><td>42.0%</td><td>2.38&times;</td><td>9.43</td><td>1.41&times;</td></tr>
-<tr><td><i>&rho; &gt; 0.2</i></td><td>22.9%</td><td>4.36&times;</td><td>13.39</td><td>2.01&times;</td></tr>
-</table>
-
-<!-- figure: screening_per_recruit -->
-
-<p><b>Screening wins on budget too, and not screening is the worst option at every budget.</b> Reading cohort
-agreement off at a fixed spend:</p>
-
-<table class="datatable">
-<thead><tr><th>Budget</th><th>None</th><th><i>&rho; &gt; 0</i></th><th><i>&rho; &gt; 0.1</i></th>
-<th><i>&rho; &gt; 0.2</i></th></tr></thead>
-<tr><td>500 credits</td><td>0.470</td><td>0.519</td><td><b>0.559</b></td><td>0.548</td></tr>
-<tr><td>800 credits</td><td>0.553</td><td>0.600</td><td>0.642</td><td><b>0.650</b></td></tr>
-<tr><td>1,200 credits</td><td>0.626</td><td>0.666</td><td>0.700</td><td><b>0.714</b></td></tr>
-<tr><td>2,000 credits</td><td>0.717</td><td>0.750</td><td>0.773</td><td><b>0.776</b></td></tr>
-</table>
-
-<p>The gap between no screening and <i>&rho; &gt; 0.1</i> is 0.07&ndash;0.09 of Spearman &rho; at every budget, which
-is roughly <em>four times</em> the entire allocation-arm effect. The two strict thresholds stay within 0.015 of each
-other and cross over around 600 credits, so these data do not separate them.</p>
-
-<p><b><i>&rho; &gt; 0.1</i> remains the recommendation</b>, now on firmer ground than before. It is at or within 0.015
-of the best option across the whole budget range; it is ahead at the budget we are actually likely to spend (retaining
-<i>N</i>=50 costs 471 credits at <i>&rho; &gt; 0.1</i> against 670 at <i>&rho; &gt; 0.2</i>); and it is the less
-fragile bet, since the strict threshold's credit advantage rests entirely on a pass rate this simulation probably
-overestimates.</p>
-
-
-<h3>What This Means for <i>N<sub>total</sub></i></h3>
-<p>Retaining <i>N</i>=50 means recruiting about <b>119 participants</b> at <i>&rho; &gt; 0.1</i>, or 70 at
-<i>&rho; &gt; 0</i>, or 219 at <i>&rho; &gt; 0.2</i>. In credits that is 471, 373 and 670 respectively, against 334
-with no screening at all. The headcount and the bill tell different stories, and the bill is the one that matters:
-219 recruits sounds like four times the study, but costs twice it.</p>
-
-<p><i>&rho; &gt; 0.1</i> is the operating point. It sits at 471 credits for <i>N</i>=50, buys 0.55 of cohort
-agreement where the same money spent without screening buys about 0.47, and unlike <i>&rho; &gt; 0.2</i> it does not
-stake the whole plan on a pass rate we have not yet observed in a real sample.</p>
-
 <h3>Verdict</h3>
-<p><b>Screening is the strongest lever in this simulation, and it survives being charged for.</b> Per retained
-participant it dominates everything else here, the allocation arm included, by a factor of about four. Per credit
-spent it still wins, because a screened-out participant is paid 2 credits rather than 6.67: the strictest threshold
-rejects 77% of candidates yet only doubles the bill. Not screening is the worst use of the money at every budget we
-examined.</p>
-
-<p>What the data do not settle is <i>&rho; &gt; 0.1</i> against <i>&rho; &gt; 0.2</i>, which stay within 0.015 of
-each other and swap places depending on budget. We take the lenient one, on the grounds that its advantage does not
-depend on the pass rate holding up.</p>
+<p>Screening is the strongest lever in this simulation, roughly four times the size of the allocation-arm effect, and
+the rejected-candidate discount makes it cheap enough to be worth using. The deployed <i>&rho; &gt; 0</i> takes the
+large first step for a 12% premium. Tightening to <i>&rho; &gt; 0.1</i> would buy a further 0.09 of cohort agreement
+at <i>N</i>=50 for a 41% premium and is defensible; <i>&rho; &gt; 0.2</i> doubles the bill and is not clearly better
+than <i>&rho; &gt; 0.1</i> per credit spent.</p>
 
 <p>One caveat runs through all of it. This simulation models participants as noisy, never as absent: no bots, no one
-who drags two images and quits, no one who mistakes the task entirely. Those are exactly the cases screening exists
-to catch and the ones the screening block removes most cheaply, and none of them appear in the pass rates above. So
-the real pass rate will be lower than the simulated one, and the real benefit higher. Both errors point the same way,
-which is why the case for screening should be read as a floor rather than an estimate.</p>
+who drags two images and quits, no one who mistakes the task entirely. Those are exactly the cases screening exists to
+catch and the ones the screening block removes most cheaply, so the real pass rate will be lower than the simulated
+one and the real benefit higher. Both errors point the same way, which is why these numbers should be read as a floor
+rather than an estimate.</p>
 </section>
+
 
 
 <section id="coverage"><h2>Coverage and Convergence</h2>
@@ -743,8 +688,11 @@ without reference to truth.</p>
 
 <!-- figure: topk_between_cohorts -->
 
-<p><b>0.179 against 0.172</b> at <i>N</i>=50, rising to 0.452 against 0.437 at <i>N</i>=500. Two cohorts agree on
-under a fifth of their closest pairs in the deployable range.</p>
+<p><b>Agreement depends heavily on how tight the cut is.</b> At <i>N</i>=50 two cohorts overlap on 0.088 of the
+top 5% of pairs (designed arm; 0.083 random), 0.150 of the top 10%, and 0.299 of the top 25%. Even at <i>N</i>=500 the
+tightest cut only reaches 0.324. The looser the neighbourhood, the more reproducible it is, which is the opposite of
+what the study needs: the top 5% is closest to the question we are asking, and it is the panel that reproduces
+worst.</p>
 
 <h3>Recall Against the Ground Truth (recall@k)</h3>
 <p>Take the <i>k</i> closest pairs in the ground truth, take the <i>k</i> closest pairs in a recovered embedding, and
@@ -753,8 +701,11 @@ identical here, so one number carries it.</p>
 
 <!-- figure: recovery_recall -->
 
-<p><b>0.237 against 0.229</b> at <i>N</i>=50, reaching only <b>0.497</b> at <i>N</i>=500. This curve is still climbing
-at the top of the grid.</p>
+<p><b>The same pattern, against truth rather than against another cohort.</b> At <i>N</i>=50 the designed arm
+recovers 0.093 of the ground truth's top 1% of pairs, 0.256 of the top 5% and 0.363 of the top 10% (random trails by
+0.005&ndash;0.010 throughout). At <i>N</i>=500 those become 0.302, 0.541 and 0.648. Every panel is still climbing at
+the top of the grid, so none of them locates a required <i>N</i>; and at the tightest cut, the one the stimulus
+construction actually depends on, five hundred participants still miss seven of every ten pairs.</p>
 
 <h3>Discrimination Against the Ground Truth (AUC and d&prime;)</h3>
 <p>AUC is the probability that a truly-close pair is ranked closer than a truly-far one; d&prime; is the standardised
@@ -870,19 +821,35 @@ full study supplies a better map.</p>
 
 <h3>What the Simulation Settles</h3>
 <ol>
+<li><b>The simulated participants are adequate but conservative.</b> They are 28% noisier than real ones within
+subject, so recommendations err toward too many participants rather than too few. They also over-disperse: they place
+images slightly further apart than random assignment would, where real participants cluster them closer.</li>
+
+<li><b>Screen, and the deployed <i>&rho; &gt; 0</i> is a reasonable place to do it.</b> Participant quality is the
+largest single lever in the sweep: at <i>N</i>=50, screening at <i>&rho; &gt; 0.2</i> raises cohort agreement 57% and
+closest-pair agreement 73%, about four times the allocation effect. It is affordable because a screened-out
+participant is paid only for the screening block, so rejecting 77% of candidates doubles rather than quadruples the
+bill. Tightening to <i>&rho; &gt; 0.1</i> is defensible; going beyond it is not.</li>
+
+<li><b><i>N</i> = 50&ndash;75 buys a usable coarse map and no fine structure.</b> Two independent cohorts of this size
+agree at Spearman &rho; = 0.505 (<i>N</i>=50) and 0.582 (<i>N</i>=75), with Procrustes m&sup2; of 0.759 and 0.688 &ndash;
+moderate reproducibility that keeps improving, not a plateau. The same cohorts reproduce a two-way split well
+(ARI 0.60 and 0.70 at <i>k</i>=2) and everything finer poorly: ARI falls to about 0.30 by <i>k</i>=8 and to 0.18 and
+0.24 by <i>k</i>=50. HDBSCAN leaves 64% and 60% of images unclustered, agreeing on which ones at &kappa; = 0.13 and
+0.19. Going from 50 to 75 participants helps everywhere and settles nothing: it is a shift along a smooth curve, not
+a threshold being crossed.</li>
+
 <li><b>Adopt constrained-MacDonald allocation.</b> It covers 18&ndash;30% more pairs for identical effort, produces
 more reproducible embeddings at every <i>N</i> on both Spearman &rho; and Procrustes m&sup2;, recovers the ground
 truth better on every measure, and the constraint that makes it deployable costs 0.61% of coverage.</li>
+
 <li><b>Do not build the analysis on cluster membership.</b> Use a distance threshold. No granularity finer than
-<i>k</i>=2 survives resampling, and two independent methods agree.</li>
-<li><b>Screen, at <i>&rho; &gt; 0.1</i> or stricter.</b> Participant quality is the largest single lever in the sweep:
-at <i>N</i>=50, screening at <i>&rho; &gt; 0.2</i> raises cohort agreement 57% and closest-pair agreement 73%,
-about four times the allocation effect. It survives being charged for, because a screened-out participant costs 2
-credits against 6.67 for a completion, so rejecting 77% of candidates only doubles the bill. Retaining <i>N</i>=50 at
-<i>&rho; &gt; 0.1</i> means recruiting about 119 people for 471 credits.</li>
-<li><b>The simulated participants are adequate but conservative.</b> They are 28% noisier than real ones within
-subject, so recommendations err toward too many participants rather than too few.</li>
+<i>k</i>=2 survives resampling, and two independent methods agree. <b>Caveat:</b> this may be a statement about the
+pilot rather than about the images. The ground truth is fitted to 41 participants and exceeds its own data's
+reliability ceiling, so its fine structure is partly fitted noise, and clusters that are not really there cannot
+reproduce. A continuum of images and a hierarchy too weakly measured to resolve would look identical here.</li>
 </ol>
+
 
 <h3>What Remains Open</h3>
 <ol>
