@@ -1,11 +1,11 @@
-"""Read-only ingestion of SpAM pilot data and calibration of the task-v3 simulation to it.
+"""Read-only ingestion of collected SpAM session data, and calibration of the simulation to it.
 
 The task-v3 simulation has two free internals - ``subjects_noise_scale`` (within-subject canvas
 placement noise) and ``perspective_dispersion`` (between-subject disagreement) - plus a ground-
 truth geometry. This module anchors all three to the real pilot:
 
 * **Ground truth** is the weighted-MDS embedding of *all* pooled pilot subjects (see
-  :func:`pilot_aggregate` + ``multi_dimensional_scaling.run_mds``); its spectrum and cluster
+  :func:`aggregate` + ``multi_dimensional_scaling.run_mds``); its spectrum and cluster
   structure are inherited, so the synthetic ``decay``/``n_clusters`` knobs become moot.
 * **Noise** is pinned by within-subject **test-retest** reliability (the v3.0 whole-trial repeats).
   In the canvas-placement-noise model this is *perspective-invariant* - a whole-trial repeat
@@ -78,8 +78,8 @@ def _src_to_relpath(src: str) -> str:
 
 
 @dataclass
-class PilotSubject:
-    """One completed pilot session, reduced to what calibration needs."""
+class Subject:
+    """One completed SpAM session, reduced to what calibration and the diagnostics need."""
     participant_id: str
     task_version: float
     n_images: int
@@ -110,8 +110,8 @@ def _pair_condensed_indices(pairwise_json: str, rel2idx: Dict[str, int]) -> Dict
     return {int(c): float(d) for c, d in zip(cond, dists)}
 
 
-def subject_from_trials(trials: pd.DataFrame, rel2idx: Dict[str, int]) -> PilotSubject:
-    """Build one :class:`PilotSubject` from a single participant's rows of the parser's trials frame.
+def subject_from_trials(trials: pd.DataFrame, rel2idx: Dict[str, int]) -> Subject:
+    """Build one :class:`Subject` from a single participant's rows of the parser's trials frame.
 
     ``trials`` is one participant's slice of ``analysis.utils.parser.load_data(...)["trials"]``,
     joined to ``["participants"]`` for ``task_version`` (columns ``pairwise_distances``, ``trial_id``,
@@ -157,7 +157,7 @@ def subject_from_trials(trials: pd.DataFrame, rel2idx: Dict[str, int]) -> PilotS
             retest.append((np.array([orig[c] for c in shared]), np.array([rep[c] for c in shared])))
 
     distances = np.where(count > 0, total / np.maximum(count, 1), np.nan).astype(np.float32)
-    return PilotSubject(
+    return Subject(
         participant_id=str(trials["participant_id"].iloc[0]),
         task_version=float(trials["task_version"].iloc[0]),
         n_images=N,
@@ -172,42 +172,38 @@ def subject_from_trials(trials: pd.DataFrame, rel2idx: Dict[str, int]) -> PilotS
     )
 
 
-def load_pilot_subjects(
+RETAINED_STATUSES: Tuple[str, ...] = ("full data",)
+
+
+def _load_subjects(
         data_dir: str,
         manifest_path: str,
+        *,
+        cohorts: Sequence[str],
         versions: Optional[Sequence[float]] = None,
+        variants: Optional[Sequence[str]] = None,
         apply_qc: bool = False,
         qc_max_flag_rate: float = 0.30,
-        cohorts: Sequence[str] = ("pilot",),
-        variants: Optional[Sequence[str]] = None,
-) -> List[PilotSubject]:
-    """Load completed **pilot** subjects from the flat ``data_dir`` (optionally filtered by version).
+        statuses: Sequence[str] = RETAINED_STATUSES,
+) -> List[Subject]:
+    """Load completed sessions from the flat ``data_dir`` and reduce each to a :class:`Subject`.
 
-    Delegates session/CSV handling and completion filtering to
-    ``analysis.utils.parser.load_data``, then reduces each participant's trials to a
-    :class:`PilotSubject` on the manifest index space.
+    The shared implementation behind :func:`load_pilot_subjects` and :func:`load_prod_subjects`.
+    Session/CSV handling and completion filtering are delegated to
+    ``analysis.utils.parser.load_data``; everything here is filtering plus the per-participant
+    reduction onto the manifest index space.
 
-    **Production data is excluded by default.** The parser derives ``cohort`` from each file's own
-    ``deployment_mode``, and the simulations must not be calibrated on the live study's data: doing so
-    would let the sample-size and screening conclusions be shaped by the very cohort they are meant to
-    plan, which is circular and amounts to peeking at the running experiment. Pass ``cohorts`` to
-    override deliberately (e.g. for a post-hoc check, never for a design decision).
+    ``cohorts`` matches the parser's ``cohort`` column, which it derives from each file's own
+    ``deployment_mode`` - so ``("pilot",)`` and ``("production",)`` are the two real values.
 
-    Note the practical consequence: every v4.0 session is ``production``, so the default pilot-only
-    view contains **no screening-block data at all** - reliability is measured from v3.\\* whole-trial
-    repeats, which are spread through the session rather than concentrated in a screening block.
+    ``statuses`` matters because ``load_data`` keeps trials for both ``"full data"`` and
+    ``"screened out"`` participants. A screened-out subject carries only their screening-block
+    trials, so they must not join a retained cohort; they are still wanted for the pass-rate
+    audit, which asks for them explicitly.
 
     ``versions`` compares against the float ``task_version`` (e.g. ``[3.0]``). ``apply_qc=False`` by
     default; set ``True`` to additionally drop subjects whose ``qc_flag`` rate exceeds
-    ``qc_max_flag_rate`` (a robustness check).
-
-    ``variants`` filters on ``shine_variant`` (e.g. ``("pre",)``); ``None`` keeps every variant.
-    **Cohort is not a proxy for variant.** The task is documented as serving pilot sessions the
-    pre-SHINE images unconditionally, but the data disagrees: of the 47 loadable pilot subjects,
-    41 are ``pre`` and 6 are ``post`` (all v3.06). Ground-truth construction must therefore pass
-    ``variants=("pre",)`` explicitly - pooling the two variants into one geometry is only masked by
-    :func:`_src_to_relpath` collapsing them onto the same manifest index. Noise-model fitting is
-    exempt: it estimates a property of subjects rather than of the stimulus set, so it may use both.
+    ``qc_max_flag_rate`` (a robustness check). ``variants`` filters on ``shine_variant``.
     """
     _, rel2idx = load_manifest(manifest_path)
     data = load_data(data_dir)
@@ -215,13 +211,15 @@ def load_pilot_subjects(
     if trials.empty:
         return []
     keep = participants[participants["cohort"].isin(list(cohorts))]
+    if statuses is not None and "status" in keep.columns:
+        keep = keep[keep["status"].isin(list(statuses))]
     if keep.empty:
         return []
     merge_cols = ["participant_id", "task_version"]
     if "shine_variant" in keep.columns:
         merge_cols.append("shine_variant")
     trials = trials.merge(keep[merge_cols], on="participant_id", how="inner")
-    subjects: List[PilotSubject] = []
+    subjects: List[Subject] = []
     for _, group in trials.groupby("participant_id", sort=False):
         subj = subject_from_trials(group, rel2idx)
         if versions is not None and subj.task_version not in versions:
@@ -234,8 +232,72 @@ def load_pilot_subjects(
     return subjects
 
 
+def load_pilot_subjects(
+        data_dir: str,
+        manifest_path: str,
+        versions: Optional[Sequence[float]] = None,
+        apply_qc: bool = False,
+        qc_max_flag_rate: float = 0.30,
+        cohorts: Sequence[str] = ("pilot",),
+        variants: Optional[Sequence[str]] = None,
+) -> List[Subject]:
+    """Load completed **pilot** subjects from the flat ``data_dir`` (optionally filtered by version).
+
+    **Production data is excluded by default.** The parser derives ``cohort`` from each file's own
+    ``deployment_mode``, and the simulations must not be calibrated on the live study's data: doing so
+    would let the sample-size and screening conclusions be shaped by the very cohort they are meant to
+    plan, which is circular and amounts to peeking at the running experiment. Pass ``cohorts`` to
+    override deliberately (e.g. for a post-hoc check, never for a design decision).
+
+    Note the practical consequence: every v4.0 session is ``production``, so the default pilot-only
+    view contains **no screening-block data at all** - reliability is measured from v3.\\* whole-trial
+    repeats, which are spread through the session rather than concentrated in a screening block.
+
+    ``variants`` filters on ``shine_variant`` (e.g. ``("pre",)``); ``None`` keeps every variant.
+    **Cohort is not a proxy for variant.** The task is documented as serving pilot sessions the
+    pre-SHINE images unconditionally, but the data disagrees: of the 47 loadable pilot subjects,
+    41 are ``pre`` and 6 are ``post`` (all v3.06). Ground-truth construction must therefore pass
+    ``variants=("pre",)`` explicitly - pooling the two variants into one geometry is only masked by
+    :func:`_src_to_relpath` collapsing them onto the same manifest index. Noise-model fitting is
+    exempt: it estimates a property of subjects rather than of the stimulus set, so it may use both.
+
+    See :func:`_load_subjects` for the remaining arguments.
+    """
+    return _load_subjects(data_dir, manifest_path, cohorts=cohorts, versions=versions,
+                          variants=variants, apply_qc=apply_qc,
+                          qc_max_flag_rate=qc_max_flag_rate)
+
+
+def load_prod_subjects(
+        data_dir: str,
+        manifest_path: str,
+        versions: Optional[Sequence[float]] = None,
+        apply_qc: bool = False,
+        qc_max_flag_rate: float = 0.30,
+        variants: Optional[Sequence[str]] = None,
+        statuses: Sequence[str] = RETAINED_STATUSES,
+) -> List[Subject]:
+    """Load **production** subjects, i.e. the live study's retained cohort.
+
+    Separate from :func:`load_pilot_subjects` so that reaching for the live study is always a
+    deliberate act with its own call site, never a default that could be arrived at by accident.
+
+    **Both blocks are pooled.** A retained subject's screening-block trials are data in exactly the
+    same sense as their experimental-block trials: the same stimuli, the same task, the same
+    canvas. Nothing here filters on ``block_type``, and a test pins that, because restricting to the
+    experimental block would silently discard 8 of every retained subject's 22 trials.
+
+    ``statuses`` defaults to the retained cohort alone. Pass ``("full data", "screened out")`` to
+    include candidates who failed the in-task gate - they carry only their screening block, so they
+    belong in a pass-rate audit and nowhere else.
+    """
+    return _load_subjects(data_dir, manifest_path, cohorts=("production",), versions=versions,
+                          variants=variants, apply_qc=apply_qc,
+                          qc_max_flag_rate=qc_max_flag_rate, statuses=statuses)
+
+
 # --------------------------------------------------------------------------- observables
-def within_subject_test_retest(subject: PilotSubject) -> float:
+def within_subject_test_retest(subject: Subject) -> float:
     """Mean Spearman correlation between this subject's repeat trials and their originals.
 
     NaN if the subject has no (non-degenerate) repeats. This is exactly the statistic the task-v3
@@ -246,7 +308,7 @@ def within_subject_test_retest(subject: PilotSubject) -> float:
     return float(np.nanmean(corrs)) if corrs else np.nan
 
 
-def _cohort_test_retest(subjects: Sequence[PilotSubject]) -> float:
+def _cohort_test_retest(subjects: Sequence[Subject]) -> float:
     """Median within-subject test-retest across a cohort (NaN-subjects ignored)."""
     vals = [within_subject_test_retest(s) for s in subjects]
     vals = [v for v in vals if not np.isnan(v)]
@@ -286,13 +348,13 @@ def between_subject_agreement(distances: np.ndarray, min_overlap: int = 20) -> d
     }
 
 
-def stack_distances(subjects: Sequence[PilotSubject]) -> np.ndarray:
+def stack_distances(subjects: Sequence[Subject]) -> np.ndarray:
     """``(num_subjects, n_pairs)`` matrix of per-subject mean distances (NaN = unobserved)."""
     return np.vstack([s.distances for s in subjects])
 
 
 # --------------------------------------------------------------------------- aggregate / GT
-def pilot_aggregate(subjects: Sequence[PilotSubject]) -> Tuple[np.ndarray, np.ndarray]:
+def aggregate(subjects: Sequence[Subject]) -> Tuple[np.ndarray, np.ndarray]:
     """Pool subjects into ``(mean_distances, weights)`` ready for ``run_mds``.
 
     ``mean_distances`` is the per-pair mean over all subjects' observations (0 where unobserved);
@@ -315,7 +377,7 @@ def pilot_aggregate(subjects: Sequence[PilotSubject]) -> Tuple[np.ndarray, np.nd
 
 # --------------------------------------------------------------------------- GT embedding
 def build_gt_from_pilot(
-        subjects: Sequence[PilotSubject], n_dims: int, method: str = "smacof",
+        subjects: Sequence[Subject], n_dims: int, method: str = "smacof",
 ) -> Tuple[np.ndarray, dict]:
     """Pooled-pilot ground-truth coordinates. Thin delegate to :func:`gt_construction.build_gt`.
 
@@ -571,7 +633,7 @@ def calibrate_params_from_pilot(
 
 
 # --------------------------------------------------------------------------- noise-population fit
-def subject_reliability_sample(subjects: Sequence[PilotSubject]) -> np.ndarray:
+def subject_reliability_sample(subjects: Sequence[Subject]) -> np.ndarray:
     """Each subject's mean whole-trial test-retest Spearman, as a 1-D sample (NaN subjects dropped).
 
     This is the empirical quantity the simulated noise population has to reproduce - not just its

@@ -1,7 +1,7 @@
-"""Tests for pilot ingestion + calibration.
+"""Tests for session ingestion + calibration.
 
 Session/CSV loading is delegated to ``analysis.utils.parser`` (tested there); these tests exercise
-this module's own logic - reducing a tidy ``trials`` frame to a ``PilotSubject``, the
+this module's own logic - reducing a tidy ``trials`` frame to a ``Subject``, the
 observables, and the calibration fit - on hand-built DataFrames, with no real data dependency.
 """
 import json
@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from SpAM_Simulations.empirical import pilot
+from SpAM_Simulations.empirical import subjects
 from SpAM_Simulations.models.experiment import _condensed_pair_indices
 from SpAM_Simulations.core.simulation import build_ground_truth_embeddings
 from SpAM_Simulations.models.task_v3_experiment import (
@@ -65,8 +65,8 @@ def _loaded(trials_df, participants_df=None):
 
 def test_shine_variant_is_carried_through_when_present(tmp_path):
     df = _trials_df([{"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .2, (0, 2): .4, (1, 2): .6}}])
-    _, rel2idx = pilot.load_manifest(_write_manifest(tmp_path))
-    assert pilot.subject_from_trials(df.assign(shine_variant="post"), rel2idx).shine_variant == "post"
+    _, rel2idx = subjects.load_manifest(_write_manifest(tmp_path))
+    assert subjects.subject_from_trials(df.assign(shine_variant="post"), rel2idx).shine_variant == "post"
 
 
 def test_shine_variant_defaults_to_empty_without_the_column(tmp_path):
@@ -77,8 +77,8 @@ def test_shine_variant_defaults_to_empty_without_the_column(tmp_path):
 
 
 def _subject(tmp_path, trials, **kw):
-    _, rel2idx = pilot.load_manifest(_write_manifest(tmp_path))
-    return pilot.subject_from_trials(_trials_df(trials, **kw), rel2idx)
+    _, rel2idx = subjects.load_manifest(_write_manifest(tmp_path))
+    return subjects.subject_from_trials(_trials_df(trials, **kw), rel2idx)
 
 
 def _cond(i, j, n=5):
@@ -87,9 +87,9 @@ def _cond(i, j, n=5):
 
 # --------------------------------------------------------------------- manifest / parsing
 def test_load_manifest_and_src_mapping(tmp_path):
-    images, rel2idx = pilot.load_manifest(_write_manifest(tmp_path))
+    images, rel2idx = subjects.load_manifest(_write_manifest(tmp_path))
     assert images == MANIFEST_IMAGES and rel2idx["c.png"] == 2
-    assert pilot._src_to_relpath("./images/post_shine/c.png") == "c.png"
+    assert subjects._src_to_relpath("./images/post_shine/c.png") == "c.png"
 
 
 def test_subject_distances_and_counts(tmp_path):
@@ -122,7 +122,7 @@ def test_within_subject_test_retest_value(tmp_path):
         {"images": ["a.png", "b.png", "c.png"], "dists": same},
         {"images": ["a.png", "b.png", "c.png"], "dists": same, "repeat_of": 1},
     ])
-    assert pilot.within_subject_test_retest(subj) == pytest.approx(1.0)  # identical -> Spearman 1
+    assert subjects.within_subject_test_retest(subj) == pytest.approx(1.0)  # identical -> Spearman 1
 
 
 def test_between_subject_agreement(tmp_path):
@@ -130,7 +130,7 @@ def test_between_subject_agreement(tmp_path):
     d2 = {(0, 1): 0.2, (0, 2): 0.5, (1, 2): 0.9}  # same rank order -> agreement 1.0
     s1 = _subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"], "dists": d1}], participant="A")
     s2 = _subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"], "dists": d2}], participant="B")
-    out = pilot.between_subject_agreement(pilot.stack_distances([s1, s2]), min_overlap=2)
+    out = subjects.between_subject_agreement(subjects.stack_distances([s1, s2]), min_overlap=2)
     assert out["mean_agreement"] == pytest.approx(1.0)
     assert out["n_dyads"] == 1 and out["median_overlap"] == 3
 
@@ -146,15 +146,15 @@ def test_load_subjects_filters_version_and_qc(tmp_path, monkeypatch):
         _trials_df([flagged], participant="C", version=3.0),  # 100% flagged
     ], ignore_index=True)
     # stub the parser loader: this module must NOT re-read CSVs, only reduce the tidy trials frame
-    monkeypatch.setattr(pilot, "load_data", lambda d: _loaded(trials))
-    assert len(pilot.load_pilot_subjects("ignored", man)) == 3
-    assert len(pilot.load_pilot_subjects("ignored", man, versions=[3.0])) == 2
-    assert len(pilot.load_pilot_subjects("ignored", man, apply_qc=True)) == 2  # drops the flagged one
+    monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials))
+    assert len(subjects.load_pilot_subjects("ignored", man)) == 3
+    assert len(subjects.load_pilot_subjects("ignored", man, versions=[3.0])) == 2
+    assert len(subjects.load_pilot_subjects("ignored", man, apply_qc=True)) == 2  # drops the flagged one
 
 
 def test_load_subjects_empty(tmp_path, monkeypatch):
-    monkeypatch.setattr(pilot, "load_data", lambda d: {"participants": pd.DataFrame(), "trials": pd.DataFrame()})
-    assert pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path)) == []
+    monkeypatch.setattr(subjects, "load_data", lambda d: {"participants": pd.DataFrame(), "trials": pd.DataFrame()})
+    assert subjects.load_pilot_subjects("ignored", _write_manifest(tmp_path)) == []
 
 
 def test_aggregate_raises_on_disconnected_graph(tmp_path):
@@ -162,7 +162,7 @@ def test_aggregate_raises_on_disconnected_graph(tmp_path):
     s = _subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"],
                              "dists": {(0, 1): 0.1, (0, 2): 0.4, (1, 2): 0.7}}])
     with pytest.raises(RuntimeError, match="connected components"):
-        pilot.pilot_aggregate([s])
+        subjects.aggregate([s])
 
 
 # --------------------------------------------------------------------- simulation hook + calibration
@@ -172,7 +172,7 @@ def test_simulate_returns_per_subject_matching_nan_pattern():
     _, res, per_subject = simulate_task_v3_experiment(params, emb, np.random.default_rng(0),
                                                       verbose=False, return_per_subject=True)
     assert per_subject.shape == (6, res.distances.shape[0])
-    out = pilot.between_subject_agreement(per_subject, min_overlap=5)
+    out = subjects.between_subject_agreement(per_subject, min_overlap=5)
     assert -1.0 <= out["mean_agreement"] <= 1.0 and out["n_dyads"] > 0
 
 
@@ -181,11 +181,11 @@ def test_simulated_targets_are_monotone():
     emb = build_ground_truth_embeddings(120, 5, seed=2)
     kw = dict(num_subjects=10, trials_per_subject=8, images_per_trial=10,
               frac_trials_repeated=0.25, reps=3, seed=0, min_overlap=5)
-    tr_lo, _ = pilot._simulated_targets(emb, noise_scale=0.2, dispersion=0.0, **kw)
-    tr_hi, _ = pilot._simulated_targets(emb, noise_scale=1.5, dispersion=0.0, **kw)
+    tr_lo, _ = subjects._simulated_targets(emb, noise_scale=0.2, dispersion=0.0, **kw)
+    tr_hi, _ = subjects._simulated_targets(emb, noise_scale=1.5, dispersion=0.0, **kw)
     assert tr_lo > tr_hi  # noise lowers test-retest
-    _, agr_lo = pilot._simulated_targets(emb, noise_scale=0.5, dispersion=0.0, **kw)
-    _, agr_hi = pilot._simulated_targets(emb, noise_scale=0.5, dispersion=0.8, **kw)
+    _, agr_lo = subjects._simulated_targets(emb, noise_scale=0.5, dispersion=0.0, **kw)
+    _, agr_hi = subjects._simulated_targets(emb, noise_scale=0.5, dispersion=0.8, **kw)
     assert agr_lo > agr_hi  # dispersion lowers between-subject agreement
 
 
@@ -203,7 +203,7 @@ def _fake_subjects(tmp_path):
 
 def _stub_gt_and_fit(monkeypatch, captured):
     """Patch build_gt_from_pilot + _calibrate (no R / no heavy sim); capture the fit inputs."""
-    monkeypatch.setattr(pilot, "build_gt_from_pilot",
+    monkeypatch.setattr(subjects, "build_gt_from_pilot",
                         lambda subs, n_dims=None, method="smacof":
                         (np.zeros((5, 3), np.float32), {"n_dims": 3, "method": method, "observed_frac": 1.0}))
 
@@ -212,14 +212,14 @@ def _stub_gt_and_fit(monkeypatch, captured):
         return {"subjects_noise_scale": 1.0, "perspective_dispersion": 0.2, "subjects_noise_df": 1,
                 "pilot_test_retest": target_tr, "pilot_between_agreement": target_agr,
                 "simulated_test_retest": 0.3, "simulated_between_agreement": 0.2, "num_subjects": num_subjects}
-    monkeypatch.setattr(pilot, "_calibrate", _fake_calibrate)
+    monkeypatch.setattr(subjects, "_calibrate", _fake_calibrate)
 
 
 def test_calibrate_params_from_pilot_uses_v3_for_retest_and_all_for_agreement(tmp_path, monkeypatch):
     """test-retest target from v3 only; between-subject agreement pooled over ALL subjects."""
     v3, other = _fake_subjects(tmp_path)
     captured = {}
-    monkeypatch.setattr(pilot, "load_pilot_subjects", lambda d, m: v3 + other)
+    monkeypatch.setattr(subjects, "load_pilot_subjects", lambda d, m: v3 + other)
     _stub_gt_and_fit(monkeypatch, captured)
     # spy on the agreement call to confirm it receives all 3 subjects, not just the 2 v3 ones
     seen = {}
@@ -227,9 +227,9 @@ def test_calibrate_params_from_pilot_uses_v3_for_retest_and_all_for_agreement(tm
     def _spy_agr(dists, min_overlap=30):
         seen["n_rows"] = dists.shape[0]
         return {"mean_agreement": 0.2, "sem_agreement": 0.0, "n_dyads": 3, "median_overlap": 3}
-    monkeypatch.setattr(pilot, "between_subject_agreement", _spy_agr)
+    monkeypatch.setattr(subjects, "between_subject_agreement", _spy_agr)
 
-    coords, fit, info = pilot.calibrate_params_from_pilot("d", "m", gt_method="classical", reps=3,
+    coords, fit, info = subjects.calibrate_params_from_pilot("d", "m", gt_method="classical", reps=3,
                                                           n_dims=3, verbose=False)
     assert coords.shape == (5, 3) and info["n_dims"] == 3
     assert seen["n_rows"] == 3            # agreement over all subjects (2 v3 + 1 v2)
@@ -240,19 +240,19 @@ def test_calibrate_params_from_pilot_uses_v3_for_retest_and_all_for_agreement(tm
 def test_calibrate_params_from_pilot_requires_n_dims(tmp_path, monkeypatch):
     """The old default read an imputed eigenspectrum and returned its cap; silence is not an option."""
     v3, other = _fake_subjects(tmp_path)
-    monkeypatch.setattr(pilot, "load_pilot_subjects", lambda d, m: v3 + other)
+    monkeypatch.setattr(subjects, "load_pilot_subjects", lambda d, m: v3 + other)
     _stub_gt_and_fit(monkeypatch, {})
     with pytest.raises(ValueError, match="`n_dims` is required"):
-        pilot.calibrate_params_from_pilot("d", "m", gt_method="classical", verbose=False)
+        subjects.calibrate_params_from_pilot("d", "m", gt_method="classical", verbose=False)
 
 
 def test_calibrate_params_from_pilot_saves_artifacts(tmp_path, monkeypatch):
     import json
     v3, other = _fake_subjects(tmp_path)
-    monkeypatch.setattr(pilot, "load_pilot_subjects", lambda d, m: v3 + other)
+    monkeypatch.setattr(subjects, "load_pilot_subjects", lambda d, m: v3 + other)
     _stub_gt_and_fit(monkeypatch, {})
     gt_path = tmp_path / "gt.npy"; params_path = tmp_path / "params.json"
-    pilot.calibrate_params_from_pilot("d", "m", gt_method="classical", n_dims=3,
+    subjects.calibrate_params_from_pilot("d", "m", gt_method="classical", n_dims=3,
                                       save_gt=str(gt_path), save_params=str(params_path), verbose=False)
     assert np.load(gt_path).shape == (5, 3)
     saved = json.loads(params_path.read_text())
@@ -262,9 +262,9 @@ def test_calibrate_params_from_pilot_saves_artifacts(tmp_path, monkeypatch):
 def test_calibrate_params_from_pilot_raises_without_v3(tmp_path, monkeypatch):
     only_v2 = [_subject(tmp_path, [{"images": ["a.png", "b.png", "c.png"],
                                     "dists": {(0, 1): 0.1, (0, 2): 0.4, (1, 2): 0.7}}], version=2.0)]
-    monkeypatch.setattr(pilot, "load_pilot_subjects", lambda d, m: only_v2)
+    monkeypatch.setattr(subjects, "load_pilot_subjects", lambda d, m: only_v2)
     with pytest.raises(SystemExit, match="no v3.0 subjects"):
-        pilot.calibrate_params_from_pilot("d", "m", verbose=False)
+        subjects.calibrate_params_from_pilot("d", "m", verbose=False)
 
 
 def test_calibrate_recovers_known_parameters():
@@ -273,13 +273,13 @@ def test_calibrate_recovers_known_parameters():
     true_noise, true_disp = 0.6, 0.4
     kw = dict(num_subjects=11, trials_per_subject=20, images_per_trial=20,
               frac_trials_repeated=0.15, reps=6, seed=11, min_overlap=10)
-    target_tr, target_agr = pilot._simulated_targets(emb, true_noise, true_disp, **kw)
+    target_tr, target_agr = subjects._simulated_targets(emb, true_noise, true_disp, **kw)
 
-    fit_noise = pilot._fit_1d(target_tr,
-                              lambda x: pilot._simulated_targets(emb, x, 0.0, **kw)[0],
+    fit_noise = subjects._fit_1d(target_tr,
+                              lambda x: subjects._simulated_targets(emb, x, 0.0, **kw)[0],
                               np.round(np.arange(0.2, 1.21, 0.2), 2))
-    fit_disp = pilot._fit_1d(target_agr,
-                             lambda x: pilot._simulated_targets(emb, fit_noise, x, **kw)[1],
+    fit_disp = subjects._fit_1d(target_agr,
+                             lambda x: subjects._simulated_targets(emb, fit_noise, x, **kw)[1],
                              np.round(np.arange(0.0, 0.81, 0.2), 2))
     assert abs(fit_noise - true_noise) <= 0.25  # within ~1 grid step
     assert abs(fit_disp - true_disp) <= 0.25
@@ -302,7 +302,7 @@ class TestDispersionRefit:
         Same mean noise, same dispersion, different noise SHAPE -> different between-subject
         agreement. If this were not so, dispersion could be calibrated once and reused.
         """
-        from SpAM_Simulations.empirical.pilot import _simulated_targets
+        from SpAM_Simulations.empirical.subjects import _simulated_targets
         common = dict(gt_embeddings=self._gt(), noise_scale=0.8, dispersion=0.3, num_subjects=25,
                       trials_per_subject=8, images_per_trial=8, frac_trials_repeated=0.25,
                       reps=2, seed=0, min_overlap=3)
@@ -312,7 +312,7 @@ class TestDispersionRefit:
 
     def test_sigma_zero_keeps_the_historical_t_family_path(self):
         """Back-compat: the default routes through |t(df)|, so old calibrations still reproduce."""
-        from SpAM_Simulations.empirical.pilot import _simulated_targets
+        from SpAM_Simulations.empirical.subjects import _simulated_targets
         common = dict(gt_embeddings=self._gt(), noise_scale=0.8, dispersion=0.3, num_subjects=20,
                       trials_per_subject=8, images_per_trial=8, frac_trials_repeated=0.25,
                       reps=1, seed=0, min_overlap=3, noise_df=5)
@@ -321,7 +321,7 @@ class TestDispersionRefit:
         assert a == b
 
     def test_fit_returns_a_grid_value_and_its_achieved_agreement(self):
-        from SpAM_Simulations.empirical.pilot import fit_dispersion_for_agreement
+        from SpAM_Simulations.empirical.subjects import fit_dispersion_for_agreement
         grid = (0.0, 0.2, 0.4)
         disp, ach = fit_dispersion_for_agreement(
             self._gt(), 0.5, noise_scale=0.8, noise_df=5, dispersion_grid=grid,
@@ -337,7 +337,7 @@ def test_noise_inversion_respects_the_noise_family():
     lognormal, so cells labelled R=0.24/0.35/0.50 actually realised 0.09/0.16/0.29. The mean scale
     is preserved across families, but the realised reliability is not, so the two fits must agree.
     """
-    from SpAM_Simulations.empirical.pilot import fit_noise_for_test_retest
+    from SpAM_Simulations.empirical.subjects import fit_noise_for_test_retest
     from SpAM_Simulations.core.simulation import build_ground_truth_embeddings
     gt = build_ground_truth_embeddings(90, 4, seed=3)
     kw = dict(noise_df=5, images_per_trial=8, trials_per_subject=8,
@@ -371,14 +371,14 @@ class TestCohortIsolation:
 
     def test_production_excluded_by_default(self, tmp_path, monkeypatch):
         trials, participants = self._mixed(tmp_path)
-        monkeypatch.setattr(pilot, "load_data", lambda d: _loaded(trials, participants))
-        subs = pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path))
+        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        subs = subjects.load_pilot_subjects("ignored", _write_manifest(tmp_path))
         assert [s.participant_id for s in subs] == ["PILOT_1"]
 
     def test_production_included_only_on_explicit_override(self, tmp_path, monkeypatch):
         trials, participants = self._mixed(tmp_path)
-        monkeypatch.setattr(pilot, "load_data", lambda d: _loaded(trials, participants))
-        subs = pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path),
+        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        subs = subjects.load_pilot_subjects("ignored", _write_manifest(tmp_path),
                                          cohorts=("pilot", "production"))
         assert sorted(s.participant_id for s in subs) == ["PILOT_1", "PROD_1"]
 
@@ -386,12 +386,12 @@ class TestCohortIsolation:
         """`cohorts` does not imply a SHINE variant, so both filters must apply independently."""
         trials, participants = self._mixed(tmp_path)
         participants = participants.assign(shine_variant=["post", "pre"])  # PILOT_1 post, PROD_1 pre
-        monkeypatch.setattr(pilot, "load_data", lambda d: _loaded(trials, participants))
+        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
         # pilot cohort alone keeps the post-SHINE pilot subject...
         assert [s.participant_id for s in
-                pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path))] == ["PILOT_1"]
+                subjects.load_pilot_subjects("ignored", _write_manifest(tmp_path))] == ["PILOT_1"]
         # ...and adding the variant filter drops it, without pulling in the pre-SHINE production one.
-        assert pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path),
+        assert subjects.load_pilot_subjects("ignored", _write_manifest(tmp_path),
                                          variants=("pre",)) == []
 
     def test_catch_trials_are_dropped(self, tmp_path):
@@ -420,10 +420,10 @@ def test_noise_population_fit_reports_a_scale_pinned_to_the_grid_edge():
     A two-value grid makes the assertion deterministic: whichever wins IS a boundary.
     """
     import numpy as np
-    from SpAM_Simulations.empirical import pilot
+    from SpAM_Simulations.empirical import subjects
 
     gt = np.random.default_rng(0).normal(size=(40, 3)).astype(np.float32)
-    out = pilot.fit_noise_population(
+    out = subjects.fit_noise_population(
         gt, np.full(12, 0.25), families=("t",), t_shapes=(5,), noise_grid=(4.0, 8.0),
         n_subjects=4, n_repeats=2, images_per_trial=8, reps=1, verbose=False)
     best = out["best"]
@@ -437,13 +437,93 @@ def test_noise_population_fit_reports_a_scale_pinned_to_the_grid_edge():
 def test_the_boundary_flag_matches_where_the_optimum_actually_landed():
     """An invariant rather than a guessed outcome: the flag must agree with the chosen scale."""
     import numpy as np
-    from SpAM_Simulations.empirical import pilot
+    from SpAM_Simulations.empirical import subjects
 
     grid = (0.05, 0.2, 0.5, 1.0, 2.0, 4.0)
     gt = np.random.default_rng(1).normal(size=(40, 3)).astype(np.float32)
-    out = pilot.fit_noise_population(
+    out = subjects.fit_noise_population(
         gt, np.full(12, 0.25), families=("t",), t_shapes=(5,), noise_grid=grid,
         n_subjects=4, n_repeats=2, images_per_trial=8, reps=1, verbose=False)
     best = out["best"]
     assert set(out["grid"]["noise_scale"]) == set(grid)
     assert best["at_noise_boundary"] == (best["noise_scale"] in (min(grid), max(grid)))
+
+
+class TestProdLoader:
+    """`load_prod_subjects` is the one sanctioned door to the live study's data.
+
+    It exists as its own entry point rather than a `cohorts=` argument so that reaching for
+    production is always a deliberate act with its own call site.
+    """
+
+    def _mixed(self):
+        """One pilot subject, one retained production subject, one screened-out candidate."""
+        frames = [
+            _trials_df([{"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .2, (0, 2): .4, (1, 2): .6}}],
+                       participant="PILOT_1", version=3.0),
+            _trials_df([{"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .9, (0, 2): .9, (1, 2): .9}}],
+                       participant="PROD_OK", version=4.0),
+            _trials_df([{"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .5, (0, 2): .5, (1, 2): .5}}],
+                       participant="PROD_OUT", version=4.0),
+        ]
+        participants = pd.DataFrame([
+            {"participant_id": "PILOT_1", "cohort": "pilot", "task_version": 3.0,
+             "status": "full data"},
+            {"participant_id": "PROD_OK", "cohort": "production", "task_version": 4.0,
+             "status": "full data"},
+            {"participant_id": "PROD_OUT", "cohort": "production", "task_version": 4.0,
+             "status": "screened out"},
+        ])
+        return pd.concat(frames, ignore_index=True), participants
+
+    def test_returns_production_only(self, tmp_path, monkeypatch):
+        trials, participants = self._mixed()
+        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        subs = subjects.load_prod_subjects("ignored", _write_manifest(tmp_path))
+        assert [s.participant_id for s in subs] == ["PROD_OK"]
+
+    def test_screened_out_candidates_are_excluded_by_default(self, tmp_path, monkeypatch):
+        """They carry only their screening block, so they would dilute any retained-cohort statistic."""
+        trials, participants = self._mixed()
+        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        subs = subjects.load_prod_subjects("ignored", _write_manifest(tmp_path))
+        assert "PROD_OUT" not in [s.participant_id for s in subs]
+
+    def test_screened_out_candidates_are_available_on_request(self, tmp_path, monkeypatch):
+        """The pass-rate audit needs them, and nothing else does."""
+        trials, participants = self._mixed()
+        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        subs = subjects.load_prod_subjects("ignored", _write_manifest(tmp_path),
+                                           statuses=("full data", "screened out"))
+        assert sorted(s.participant_id for s in subs) == ["PROD_OK", "PROD_OUT"]
+
+    def test_pilot_loader_is_unaffected_by_the_status_filter(self, tmp_path, monkeypatch):
+        """Pre-v4 sessions have no screening block, so every loadable one is 'full data'."""
+        trials, participants = self._mixed()
+        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        subs = subjects.load_pilot_subjects("ignored", _write_manifest(tmp_path))
+        assert [s.participant_id for s in subs] == ["PILOT_1"]
+
+    def test_both_blocks_are_pooled_for_a_retained_subject(self, tmp_path, monkeypatch):
+        """A retained subject's screening trials are data, and must not be dropped.
+
+        Pinned deliberately: no loader filters on `block_type` today, and restricting to the
+        experimental block would silently discard 8 of every retained subject's 22 trials. The
+        screening block uses the same stimuli, task and canvas; the only thing that makes it
+        special is that it is the block the gate is evaluated on.
+        """
+        screening = _trials_df(
+            [{"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .2, (0, 2): .4, (1, 2): .6}}],
+            participant="PROD_OK", version=4.0).assign(block_type="screening")
+        experimental = _trials_df(
+            [{"images": MANIFEST_IMAGES[2:5], "dists": {(0, 1): .3, (0, 2): .5, (1, 2): .7}}],
+            participant="PROD_OK", version=4.0).assign(block_type="experimental", trial_id=2)
+        trials = pd.concat([screening, experimental], ignore_index=True)
+        participants = pd.DataFrame([{"participant_id": "PROD_OK", "cohort": "production",
+                                      "task_version": 4.0, "status": "full data"}])
+        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        subs = subjects.load_prod_subjects("ignored", _write_manifest(tmp_path))
+        assert len(subs) == 1
+        # Screening covers a-b, a-c, b-c; the experimental block covers c-d, c-e, d-e. Six
+        # distinct pairs only if both blocks are kept; three if either is dropped.
+        assert subs[0].num_observed_pairs() == 6

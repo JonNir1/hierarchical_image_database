@@ -163,7 +163,7 @@ import pandas as pd
 from SpAM_Simulations.core.config import TaskV3SimulationConfig, MDSSweepConfig
 from SpAM_Simulations.core import pipeline
 from SpAM_Simulations.notebooks import eval_helpers
-from SpAM_Simulations.empirical.pilot import (
+from SpAM_Simulations.empirical.subjects import (
     load_pilot_subjects, build_gt_from_pilot, fit_noise_for_test_retest, _simulated_targets,
 )
 

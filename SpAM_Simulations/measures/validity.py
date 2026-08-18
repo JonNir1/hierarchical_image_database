@@ -258,7 +258,7 @@ TURNOVER_TOLERANCE = 0.10   # a rise or drop counts only above this fraction of 
 def repeat_pairs(subjects: Sequence) -> Tuple[np.ndarray, np.ndarray]:
     """Pool every subject's ``(original, repeat)`` trial distance vectors into two flat arrays.
 
-    Reads ``PilotSubject.retest_pairs``, which the loader already populates, so this needs neither
+    Reads ``Subject.retest_pairs``, which the loader already populates, so this needs neither
     the trial-level parser nor a second pass over the raw CSVs.
     """
     orig: List[np.ndarray] = []

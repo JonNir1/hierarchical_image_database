@@ -347,7 +347,7 @@ parameters that could plausibly drive them.
 ### Step a: calibrate to the pilot
 
 Without calibration the simulation's internals are guessed, so the absolute required-N is only as
-meaningful as the guesses. `empirical/pilot.py` anchors them to real data, turning the estimate from "as a
+meaningful as the guesses. `empirical/subjects.py` anchors them to real data, turning the estimate from "as a
 function of guessed internals" into a calibrated number.
 
 Three observables do the work. **Ground-truth geometry** comes from pooling the pre-SHINE pilot
@@ -566,7 +566,7 @@ The pilot data, the ground truth built from it, and the calibration that ties th
 
 | Module | Responsibility |
 |---|---|
-| `pilot.py` | **Read-only** pilot ingestion + calibration: load the flat `data/` dir, filter by cohort / version / **SHINE variant**, the test-retest and between-subject-agreement observables, and `calibrate_params_from_pilot`. |
+| `subjects.py` | **Read-only** session ingestion + calibration: load the flat `data/` dir, filter by cohort / status / version / **SHINE variant**, the test-retest and between-subject-agreement observables, and `calibrate_params_from_pilot`. Serves both the pilot and the production cohorts. |
 | `gt_construction.py` | **Task-agnostic** GT construction: `dimensionality_scan`, `select_ndim` (one-SE), `cross_validate_ndim`, `build_gt`, plus the joblib payload path (`split_aggregates`, `scan_ndim_parallel`, `cross_validate_ndim_parallel`) the EC2 stage needs. Replaces the retired imputed-eigenspectrum rule. |
 | `calibrate_v5.py` | The three fitted constants (noise population, dispersion, test-retest noise) with a **fingerprint-checked cache**. Lifted out of the EC2 heredoc so it is testable and re-runnable locally. The fingerprint hashes the GT *coordinates*, not its filename. |
 | `gt_diagnostics.py` | Is a fitted GT worth trusting: per-level observed coverage, its own semantic gradient, its in-sample agreement with the raw aggregate, and the **half-split noise ceiling** that makes that agreement interpretable. Cheap screen, no R, no MDS. |

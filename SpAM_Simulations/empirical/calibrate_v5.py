@@ -27,7 +27,7 @@ from typing import Dict, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from SpAM_Simulations.empirical.pilot import (
+from SpAM_Simulations.empirical.subjects import (
     between_subject_agreement, fit_dispersion_for_agreement, fit_noise_for_test_retest,
     fit_noise_population, subject_reliability_sample,
 )

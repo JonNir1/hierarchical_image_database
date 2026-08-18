@@ -58,7 +58,7 @@ def aggregate_subjects(subjects: Sequence) -> Tuple[np.ndarray, np.ndarray]:
 
     ``mean_distances`` is the observation-count-weighted per-pair mean (0 where unobserved) and
     ``weights`` the matching 0/1 mask, which is exactly ``run_mds``'s input contract. Callers that
-    require a connected graph should use :func:`is_connected` or ``pilot.pilot_aggregate``; this
+    require a connected graph should use :func:`is_connected` or ``subjects.aggregate``; this
     function stays silent so the split search can *test* candidate subsets cheaply.
     """
     if not subjects:
