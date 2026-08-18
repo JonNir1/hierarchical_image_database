@@ -285,6 +285,7 @@ def fig_completion_status(df_participants: pd.DataFrame) -> go.Figure:
         _add_status_bar(unknown_df, n_panels)
 
     fig.update_layout(
+        template="plotly_white",
         title="Participant status by version",
         height=280,
         width=max(700, 260 * n_panels),
@@ -418,6 +419,7 @@ def fig_trial_duration(df_trials: pd.DataFrame) -> go.Figure:
     fig.add_vline(x=60, line={"color": "rgba(120,120,120,0.55)", "width": 1.5, "dash": "dash"}, row=1, col=1)
 
     fig.update_layout(
+        template="plotly_white",
         title="Trial duration",
         height=620,
         margin={"l": 60, "r": 40, "t": 70, "b": 60},
@@ -452,6 +454,7 @@ def fig_moves(df_trials: pd.DataFrame) -> go.Figure:
     _add_progression_panel(fig, df, "num_moves", versions, row=2, yaxis_title="Moves per trial")
 
     fig.update_layout(
+        template="plotly_white",
         title="Number of moves",
         height=620,
         margin={"l": 60, "r": 40, "t": 70, "b": 60},
@@ -625,6 +628,7 @@ def fig_reliability(df_trials: pd.DataFrame) -> go.Figure:
     fig.update_yaxes(title_text="Spearman r (repeat vs. original)", row=2, col=1)
 
     fig.update_layout(
+        template="plotly_white",
         title="Test-retest reliability (Spearman r)",
         height=620,
         margin={"l": 60, "r": 40, "t": 70, "b": 60},
@@ -673,6 +677,7 @@ def fig_duration_vs_moves(df_trials: pd.DataFrame) -> go.Figure:
         ))
 
     fig.update_layout(
+        template="plotly_white",
         title="Trial duration vs. number of moves (per subject, mean ± SD)",
         xaxis_title="Moves per trial",
         yaxis_title="Trial duration (s)",
@@ -843,6 +848,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
     fig.update_yaxes(title_text="Subject", row=1, col=1)
     fig.update_yaxes(title_text="Spearman r", row=1, col=2)
     fig.update_layout(
+        template="plotly_white",
         title={
             "text": (
                 "Within-subject variability and reliability"
@@ -908,6 +914,7 @@ def fig_demographics(df_participants: pd.DataFrame) -> go.Figure:
     fig.update_xaxes(title_text="Count", row=2, col=2)
 
     fig.update_layout(
+        template="plotly_white",
         title="Participant demographics (full data + screened out)",
         height=600,
         margin={"l": 120, "r": 40, "t": 80, "b": 60},
@@ -1103,6 +1110,7 @@ def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
     fig.update_xaxes(title_text="Time from trial start (s)", range=[0, max_ms / 1000], row=2, col=2)
     fig.update_yaxes(title_text="Moves / s (avg. over trials)", row=2, col=2)
     fig.update_layout(
+        template="plotly_white",
         title="Temporal engagement profile during trials",
         height=620,
         margin={"l": 70, "r": 40, "t": 80, "b": 60},
@@ -1257,6 +1265,7 @@ def fig_pairwise_distance_distribution(
         fig.update_yaxes(range=y_range, visible=False, row=2, col=2)
 
     fig.update_layout(
+        template="plotly_white",
         height=680,
         margin={"l": 80, "r": 40, "t": 60, "b": 60},
         showlegend=True,
@@ -1458,6 +1467,7 @@ def fig_reliability_vs_distance(df_trials: pd.DataFrame) -> go.Figure:
     fig.update_yaxes(title_text="Test-retest RMSE", row=2, col=1)
 
     fig.update_layout(
+        template="plotly_white",
         title="Reliability vs. distance (v3+)",
         height=680,
         margin={"l": 70, "r": 40, "t": 80, "b": 60},
