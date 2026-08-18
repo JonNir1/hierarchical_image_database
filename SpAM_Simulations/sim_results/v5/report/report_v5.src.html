@@ -152,6 +152,40 @@ depends on which quantity is being estimated:</p>
     <td>An embedding is a geometry over a <em>specific</em> stimulus set; mixing variants would conflate two.</td></tr>
 </table>
 
+<h4>The Production Data, and What This Report May Do With It</h4>
+<p>Since the simulation was run, the study itself has been collecting. There are now <b>78 retained
+participants, 39 per SHINE cohort</b>, against a pre-registered target of 75 per cohort. That is
+enough to check the generative model against the task it was written to plan, rather than only
+against the 41-subject pilot which ran task versions 1.0&ndash;3.06 and had no screening block.</p>
+
+<p>Collection is still running, so what this report reads from it is deliberately restricted. The
+line is that <b>counts and reliabilities are safe; the ratings themselves, broken down by semantic
+level, are not</b>, because that second group is the registered analysis rather than a design
+diagnostic.</p>
+
+<table class="datatable">
+<thead><tr><th>Tier</th><th>What it covers</th><th>Status here</th></tr></thead>
+<tr><td>Participant behaviour</td><td>test-retest reliability, between-subject agreement, canvas
+usage against a random null, screening outcomes</td>
+<td><b>Read.</b> Properties of people, not of the images. None is a test statistic for any
+registered hypothesis.</td></tr>
+<tr><td>Measurement coverage</td><td>pair coverage, graph connectivity, per-level pair
+<em>counts</em>, allocation balance, the overall noise ceiling</td>
+<td><b>Read, per cohort.</b> Connectivity is already the pre-registration's own stopping
+criterion.</td></tr>
+<tr><td>The registered analysis</td><td>the pooled RDM, any embedding, clusters, closest-pair sets,
+mean rating per semantic level, &delta;-hyperbolicity, the Kiani-Mur correlation,
+&rho;(pre, post), the &alpha;/&beta; decomposition</td>
+<td><b>Not computed.</b> Nothing in this report touches it.</td></tr>
+</table>
+
+<p>Cohorts are pooled or split on the same principle. Anything describing <em>participants</em> is
+pooled across SHINE variants, with the split shown beside it as a declared manipulation check, since
+pooling doubles the precision and <code>WORKFLOW.md</code> already sets that rule for noise-model
+fitting. Anything describing <em>the measurement of the image set</em> is per cohort, because each
+cohort is embedded separately: a pooled coverage figure would describe a matrix the analysis plan
+never builds.</p>
+
 <h3>From Embedding to Arrangement</h3>
 <p>A simulated participant is generated in three steps:</p>
 <ol>
@@ -406,6 +440,18 @@ pairs that are genuinely closest in the ground truth.</li>
 reproduces the shape of within-subject noise without having been fitted to it, but it is 28% too noisy within subject
 and under-separates fine semantic distinctions.</p>
 
+<p>Every check below now has a third column. The pilot was the only empirical anchor available
+when the model was built; the deployed study is the thing the model was built to predict, so it is
+the sterner test. Where the two empirical sources disagree, that is a task-version effect rather
+than noise: the pilot spread its repeat trials through the session, the deployed task concentrates
+them in a screening block.</p>
+
+<!-- figure: prod_vs_sim_summary -->
+
+<p>The model is <b>the noisiest of the three on every axis</b>, which is the direction that makes
+its sample-size recommendations conservative rather than optimistic. The one place it does not
+merely undershoot but points the wrong way is the last row, discussed below.</p>
+
 <h3>Calibration Targets (mean pairwise Spearman &rho;, test-retest Spearman &rho;)</h3>
 <p>The two observables the noise model was inverted against: agreement between two participants over the pairs both
 judged, and agreement between one participant's two arrangements of the same 20 images.</p>
@@ -423,19 +469,24 @@ chosen correctly and still be applied wrongly downstream.</p>
 consequence is one-directional and worth stating plainly: simulated participants are noisier than real ones, so every
 sample size this report derives is, if anything, too large rather than too small.</p>
 
-<p>Between-subject agreement is reproduced to within 2% (0.142 against 0.145). Within-subject test-retest is
-<b>under-reproduced by 28%</b> (0.243 against 0.176) because the inversion ran on a coarse search grid and stopped
-short. That biases in the safe direction, since a noisier virtual participant makes recovery harder than reality, but
-it is a defect rather than a design choice.</p>
+<p>Against the pilot, between-subject agreement is reproduced to within 2% (0.142 against 0.145) and
+within-subject test-retest is under-reproduced by 28% (0.243 against 0.176), because the inversion ran on a coarse
+search grid and stopped short.</p>
+
+<p><b>Against the deployed study both gaps are larger, and both run the same way.</b> Real participants reach a median
+test-retest of <b>0.268</b> and a between-subject agreement of <b>0.166</b>, so the model undershoots reliability by
+34% and agreement by 13%. Part of the reliability gap is selection: the production figure is measured on people who
+already cleared the <i>&rho; &gt; 0</i> gate, and the pilot had no gate. The comparison is still the right way round
+for planning, though, and it is now better evidenced &ndash; <b>every sample size in this report is conservative, and
+by more than the pilot suggested.</b></p>
 
 <h3>Reliability Against Distance (binned RMSE)</h3>
 <p>For every pair a participant judged twice, the RMSE between the two placements, binned by how far apart they placed
 it. This was <em>not</em> fitted, which is what gives it force.<br>
-Both axes are divided by the median distance of their own source, because simulated distances are in ground-truth
-units while pilot distances are canvas-diagonal normalised, and the two are not otherwise comparable. That is why the
-axis runs past 1.0: a value of 2.0 is a pair placed twice as far apart as the median pair, not a distance exceeding
-the canvas. This curve is a property of the calibrated noise model rather than of any sweep cell, so unlike the
-gradient above it does not split by allocation arm.</p>
+Both axes are in canvas-diagonal units, so no rescaling is applied and the axis cannot exceed 1.0. Under task-v5
+the simulator divides every distance by its canvas diagonal exactly as the deployed task does, so all three sources
+already share one scale. This curve is a property of the calibrated noise model rather than of any sweep cell, so
+unlike the gradient above it does not split by allocation arm.</p>
 
 <!-- figure: realism_noise_vs_distance -->
 
@@ -463,9 +514,23 @@ added, so the items spread out to the edges by construction, and the resulting m
 uniform scattering would give. Real participants leave the canvas unevenly filled: they cluster what belongs together
 and leave empty space elsewhere.</p>
 
-<p>This is a genuine defect in the generative model and it was not visible in any of the checks above, all of which
-are computed on <em>rank</em> correlations or on distances rescaled by their own median, and are therefore blind to
-the overall spread. What it affects is anything sensitive to the absolute scale or to the shape of the distance
+<p>The deployed cohorts settle where the model does not.</p>
+
+<!-- figure: prod_null_distance -->
+
+<p><b>Both production cohorts sit within 1.5% of chance</b> (pre-SHINE 0.364, post-SHINE 0.363, against a null of
+0.368), where the pilot sat 8% below it and the simulation sits 10% above. Two things follow, and they pull in
+opposite directions. The model's error against the study it is meant to predict is <em>smaller</em> than it looked
+against the pilot, which is mildly reassuring. But the check itself turns out to be a weak discriminator: real
+participants whose test-retest is 0.268 and whose between-subject agreement is 0.166 &ndash; both better than the
+pilot's &ndash; nonetheless produce a mean pair distance indistinguishable from scattering images at random. Mean
+distance is a univariate marginal, and this is what its weakness looks like in practice. It says the deployed
+participants fill the canvas more evenly than the pilot did, and nothing at all about whether they place similar
+images together, which the reliability figures answer and answer well.</p>
+
+<p>This remains a genuine defect in the generative model and it was not visible in any of the checks above, all of
+which are computed on <em>rank</em> correlations or on distances rescaled by their own median, and are therefore
+blind to the overall spread. What it affects is anything sensitive to the absolute scale or to the shape of the distance
 distribution &ndash; density-based clustering most of all, since <a href="#clusters">HDBSCAN</a> works directly on
 distances rather than on their ranks. It leaves the rank-based results (Spearman, AUC, Jaccard, Procrustes after
 scaling) alone. We record it here rather than fixing it, since fixing it means re-deriving the canvas step and
@@ -523,6 +588,46 @@ participant is paid for the 8-trial screening block only, roughly <b>0.3</b> of 
 badly overstates the bill: <i>&rho; &gt; 0.2</i> needs 4.36 candidates per retained subject but costs just
 <b>2.01&times;</b> the unscreened study. At the deployed <i>&rho; &gt; 0</i> the premium is 12%, for a third more
 reliability in the retained cohort.</p>
+
+<h3>What the Deployed Gate Actually Does</h3>
+<p>The rates above are simulated. The study has now run 84 candidates through the real gate, and the deployed task
+turns out to have <b>two</b> failure modes where the simulation models only one. A candidate can fail the gate
+in-task, on the screening block, and be paid the reduced rate. Or they can clear the gate, be paid in full, and then
+fail the <em>same</em> rule on their experimental block &ndash; a case the deployed task cannot see, because it
+evaluates once and never revisits.</p>
+
+<!-- figure: prod_screening_outcomes -->
+
+<p>Three things stand out, and none of them is what the simulation predicted.</p>
+<ul>
+<li><b>The real gate rejects far fewer than modelled.</b> 6 of 84 candidates failed in-task, a
+<b>7% rejection rate against the simulated 29%</b> at the same threshold. The model treats
+participants as noisy but always engaged, and it is calibrated on the pilot's reliability, which we
+now know understates the deployed cohort's. Both push the simulated rejection rate up.</li>
+<li><b>False positives are the larger group.</b> 11 of the 78 who cleared the gate went on to fail
+it later, so <b>more people degraded after screening than were caught by it</b>. The simulated
+counterpart of this quantity is about 10% at the same threshold, so the model gets the order of
+magnitude right here even though it misses the rejection rate badly.</li>
+<li><b>Half the failures are for a reason the simulation cannot represent at all.</b> Of the
+17 failures, 10 tripped the reliability criterion, 6 the move-ratio criterion and 1 the
+arrangement-spread criterion. Every simulated subject arranges every image in every trial, so a
+move-ratio failure is not something the model can produce. That share of the real failure rate is
+invisible to every screening number elsewhere in this report.</li>
+</ul>
+
+<p>The cohorts differ, too: 5 of the 6 early fails were post-SHINE, and post-SHINE participants
+agree with each other less (0.149 against pre-SHINE's 0.177) while being just as self-consistent
+(median test-retest 0.269 against 0.268). That is a manipulation check rather than a result, and it
+is <b>reported but not used</b> to choose anything. If it holds up it argues for recruiting slightly
+more of the post-SHINE cohort, not for changing the design.</p>
+
+<!-- figure: prod_reliability_by_variant -->
+
+<p>The distribution explains the low rejection rate: almost the entire retained cohort sits well
+clear of <i>&rho; = 0</i>. It also shows what the pre-registration's analysis-time rule will
+actually do, which is a different thing from the in-task gate. That rule drops the lowest decile
+<em>of each cohort</em>, so it is relative: it removes 10% whatever the absolute quality, and it
+will bite at roughly the marked percentiles rather than at zero.</p>
 
 <h3>Does a Cleaner Cohort Buy a Better Map?</h3>
 <p>The table above shows screening does what it claims: retained participants really are more self-consistent. That is
@@ -582,6 +687,16 @@ nothing left to win.</p>
 between them, so <b>the average pair is judged 0.48 times</b>: most pairs are judged by nobody, and those that are
 judged are judged once. At these sample sizes the difficulty is getting each pair judged at all, and only later
 becomes a question of measuring it precisely. That is the regime in which planning the allocation helps most.</p>
+
+<p>The study can now be placed on that curve directly.</p>
+
+<!-- figure: prod_connectivity -->
+
+<p>Both cohorts sit on the simulated random arm at their current size, covering <b>40.1%</b> of the
+262,450 pairs from 39 participants each, and <b>both observed-pair graphs are already connected</b>
+&ndash; which is half of the pre-registration's stopping rule, satisfied well before the N=75 the
+other half requires. Coverage is reported per cohort and never pooled, because each cohort is
+embedded separately and a pooled figure would describe a matrix the analysis plan never builds.</p>
 
 <h3>Allocation Balance and the Cost of the Constraint</h3>
 <p>The SD of how often each image appears, and the coverage difference between constrained and unconstrained
@@ -865,4 +980,42 @@ study.</li>
 relative to the pilot, so the true granularity ceiling may sit above <i>k</i>=2. The direction of that bias is known;
 its magnitude is not.</li>
 </ol>
+
+<h3>What We Are Changing Mid-Collection</h3>
+<p>These simulations were run to decide how to collect the remaining half of the study, so the
+decisions belong here rather than in a follow-up. Each row states what changes, where the boundary
+is recoverable in the data, and why it cannot bias the registered analyses.</p>
+
+<p>The general argument for all of them: <b>SHINE variant is assigned by a hash of the Prolific ID,
+so it is independent of when a participant is run.</b> Any change applied at a point in time
+therefore lands on both cohorts equally and enters the analysis as a block factor, not a confound.
+The <code>task_version</code> column on every row marks the boundary.</p>
+
+<table class="datatable">
+<thead><tr><th>Decision</th><th>Change</th><th>Why it is safe</th></tr></thead>
+<tr><td><b>Allocation</b></td>
+<td>Switch the remaining participants from random assignment to the constrained-MacDonald design,
+conditioned on the pairs already covered so that the remaining trials fill the gaps the random half
+left.</td>
+<td>Affects only <em>which</em> pairs get judged, never what anyone says about them. Both cohorts
+are already connected, so this improves precision rather than rescuing the analysis.
+<b>This is a deviation from the pre-registration</b>, which specifies images "randomly assigned per
+subject", and needs an OSF amendment.</td></tr>
+<tr><td><b>Screening threshold</b></td>
+<td>Leave the in-task gate at <i>&rho; &gt; 0</i>.</td>
+<td>The gate only decides who is paid in full; the analysis-time exclusion is a separate,
+pre-registered rule and can still be set later. Raising the gate now would forfeit the option to
+include those participants without buying much: the observed rejection rate is already only 7%, and
+more people fail <em>after</em> screening than during it.</td></tr>
+<tr><td><b>Sample size</b></td>
+<td>Hold to the pre-registered N=75 retained per cohort.</td>
+<td>Fixed in advance and not conditioned on anything observed. Split-half &rho; is a reported
+diagnostic that does not affect stopping, which is what keeps the stopping rule from biasing the
+estimate it stops on.</td></tr>
+</table>
+
+<p>One interaction is worth recording. The pre-registration excludes the lowest reliability decile
+<em>of each cohort</em>, which is a relative rule: it removes 10% whatever the absolute quality, and
+the pool it is computed over is whoever cleared the in-task gate. Raising the gate would therefore
+change what the decile rule means, which is a second reason to leave the gate alone.</p>
 </section>
