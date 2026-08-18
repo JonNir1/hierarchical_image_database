@@ -421,17 +421,87 @@ recruitment proposal: it exists to find where the curves stop improving.</p>
 <h3>How We Evaluate</h3>
 <p>Six questions, each with its own section, in the order a sceptic would ask them:</p>
 <ol>
-<li><a href="#realism">Are the simulated participants realistic?</a> Nothing downstream matters if not.</li>
+<li><a href="#coverage">Coverage and convergence.</a> Does the allocation arm change what gets seen, does the
+session-disjointness constraint cost anything, and does SMACOF converge. First because it is the only one that is
+pure combinatorics: it holds whether or not the participant model is any good.</li>
+<li><a href="#realism">Are the simulated participants realistic?</a> Nothing downstream of here matters if not.</li>
 <li><a href="#screening">Screening and recruitment.</a> What screening costs in recruited participants, what it
 buys in retained quality, and whether that quality reaches the map.</li>
-<li><a href="#coverage">Coverage and convergence.</a> Does the allocation arm change what gets seen, does the
-session-disjointness constraint cost anything, and does SMACOF converge.</li>
 <li><a href="#stability">Stability between cohorts.</a> Would a second run of the study produce the same ratings, and
 the same embedding.</li>
 <li><a href="#closest">Closest-pair recovery.</a> Do cohorts agree on which pairs are closest, and are those the
 pairs that are genuinely closest in the ground truth.</li>
 <li><a href="#clusters">Cluster structure.</a> At what granularity, if any, do groupings reproduce.</li>
 </ol>
+</section>
+
+
+<section id="coverage"><h2>Coverage and Convergence</h2>
+<p class="bottom-line"><b>Bottom line.</b> Constrained-MacDonald covers 18&ndash;30% more image pairs than random for
+identical participant effort, the session-disjointness constraint costs under 1% of coverage, and SMACOF converged in
+99.9% of fits.</p>
+
+<h3>Pair Coverage</h3>
+<p>The share of the 262,450 possible pairs judged by at least one participant.</p>
+
+<!-- figure: coverage_by_n -->
+
+<p>The advantage peaks at <i>N</i>=75 and vanishes by <i>N</i>=500, where random already reaches 99.9% and there is
+nothing left to win.</p>
+
+<p>The absolute level matters as much as the gap. At <i>N</i>=30 the 262,450 pairs receive about 126,000 judgements
+between them, so <b>the average pair is judged 0.48 times</b>: most pairs are judged by nobody, and those that are
+judged are judged once. At these sample sizes the difficulty is getting each pair judged at all, and only later
+becomes a question of measuring it precisely. That is the regime in which planning the allocation helps most.</p>
+
+<h3>Allocation Balance and the Cost of the Constraint</h3>
+<p>The SD of how often each image appears, and the coverage difference between constrained and unconstrained
+MacDonald. This is pure combinatorics, with no simulated participants and no MDS. The second figure also carries the
+live study, so the design comparison and the question of where collection has actually reached can be read off one
+set of axes.</p>
+
+<!-- figure: allocation_balance -->
+<!-- figure: constraint_cost -->
+
+<p>Random allocation is roughly five times less balanced: the SD of how many times each image is shown is 2.74
+against 0.51 at <i>N</i>=30. It is also more redundant. Counting every judgement collected and asking what share of
+them landed on a pair some earlier participant had already judged, <b>35.9% of random judgements are repeats at
+<i>N</i>=75, against 16.8% under the planned allocation</b>. A repeat is not worthless, since it improves the estimate
+for that pair, but in this regime a first observation of an unseen pair is worth far more.</p>
+
+<p><b>The disjointness constraint costs 0.61% of coverage relative</b> at <i>N</i>=50 (60.31% against 60.68%
+unconstrained), which is the result that makes the deployable variant usable.</p>
+
+<h3>SMACOF Convergence</h3>
+<p>Whether the optimiser reached a solution rather than exhausting its iteration budget, and the stress it reached.
+Recall from <a href="#mapping">Generating the Embeddings</a> that convergence requires a single connected component;
+that held for every cohort.</p>
+
+<!-- figure: mds_convergence -->
+
+<p><b>17,709 of 17,729 fits converged</b>; 20 (0.11%) hit the 1000-iteration cap, spread across the grid rather than
+concentrated in one cell. (The store holds 17,729 rows against a designed grid of 17,280: a resumed run appended
+449 duplicate fits, which are de-duplicated before any metric is computed.) Stress runs 0.163&ndash;0.432 (mean 0.332), which is high in absolute terms and consistent
+with embedding a sparse, noisy matrix in 5&ndash;18 dimensions.</p>
+
+<h3>The Study As Deployed</h3>
+<p>Everything above averages over the marginalised axes, which answers whether a finding holds across a plausible range but never what <em>our</em> study will get. Pinning every swept variable to the deployed value answers the second question.</p>
+
+<!-- figure: deployed_coverage -->
+
+<p>At <i>N</i>=50 the deployed configuration reaches <b>48.1% of pairs</b>, and at <i>N</i>=75
+<b>62.6%</b>. Note where that sits in the last column: 48.1 is the <em>bottom</em> of the range the
+sweep spans at this <i>N</i>, because the range includes the designed arm. The deployed random
+allocation is the least efficient option on the only axis this section measures.</p>
+
+<p>The other three rows are reassuring in a duller way. Every image is seen by somebody at every
+sample size, the observed-pair graph is a single component in every draw, and the average pair is
+judged 0.80 times at <i>N</i>=50 &ndash; below one, which is the plain statement that at this scale
+most pairs are still judged by nobody.</p>
+
+<h3>Verdict</h3>
+<p>The allocation arm does what it was designed to do, and the constraint that makes it deployable is close to free.
+Convergence is not a concern. Whether the extra coverage buys anything is the subject of the next three sections.</p>
 </section>
 
 
@@ -514,28 +584,6 @@ added, so the items spread out to the edges by construction, and the resulting m
 uniform scattering would give. Real participants leave the canvas unevenly filled: they cluster what belongs together
 and leave empty space elsewhere.</p>
 
-<p>The deployed cohorts settle where the model does not.</p>
-
-<!-- figure: prod_null_distance -->
-
-<p><b>Both production cohorts sit within 1.5% of chance</b> (pre-SHINE 0.364, post-SHINE 0.363, against a null of
-0.368), where the pilot sat 8% below it and the simulation sits 10% above. Two things follow, and they pull in
-opposite directions. The model's error against the study it is meant to predict is <em>smaller</em> than it looked
-against the pilot, which is mildly reassuring. But the check itself turns out to be a weak discriminator: real
-participants whose test-retest is 0.268 and whose between-subject agreement is 0.166 &ndash; both better than the
-pilot's &ndash; nonetheless produce a mean pair distance indistinguishable from scattering images at random. Mean
-distance is a univariate marginal, and this is what its weakness looks like in practice. It says the deployed
-participants fill the canvas more evenly than the pilot did, and nothing at all about whether they place similar
-images together, which the reliability figures answer and answer well.</p>
-
-<p>This remains a genuine defect in the generative model and it was not visible in any of the checks above, all of
-which are computed on <em>rank</em> correlations or on distances rescaled by their own median, and are therefore
-blind to the overall spread. What it affects is anything sensitive to the absolute scale or to the shape of the distance
-distribution &ndash; density-based clustering most of all, since <a href="#clusters">HDBSCAN</a> works directly on
-distances rather than on their ranks. It leaves the rank-based results (Spearman, AUC, Jaccard, Procrustes after
-scaling) alone. We record it here rather than fixing it, since fixing it means re-deriving the canvas step and
-re-running stage 2.</p>
-
 <h3>Semantic Gradient Against the Pilot</h3>
 <p>Mean simulated distance per semantic level, relative to unrelated pairs, compared with the same quantity in the
 pilot.</p>
@@ -554,6 +602,21 @@ pilot, though: same-leaf pairs sit at ~0.71 of the unrelated distance in simulat
 is inherited from the ground truth (<a href="#gt-quality">Is the Map Any Good?</a>) and part from the noise model.
 This check was scored on one configuration per arm, so it establishes that the gradient reproduces somewhere in the
 parameter space rather than throughout it.</p>
+
+<h3>The Study As Deployed</h3>
+<p>Everything above averages over the marginalised axes, which answers whether a finding holds across a plausible range but never what <em>our</em> study will get. Pinning every swept variable to the deployed value answers the second question.</p>
+
+<!-- figure: deployed_realism -->
+
+<p>These are the participants the deployed configuration would recruit, after the gate has removed
+the worst of them. The retained median test-retest is <b>0.195 at <i>N</i>=50</b>, essentially flat
+across sample size because the gate is a per-subject filter and does not care how many subjects
+there are.</p>
+
+<p>Set against the <b>0.268</b> the live study is actually producing, the simulated cohort is the
+noisier of the two by a wide margin. That is the direction that makes every sample size below
+conservative, and it is worth carrying into the sections that follow: they describe a study run
+with worse participants than the one being run.</p>
 
 <h3>Verdict</h3>
 <p>Good enough to proceed, with one known bias and one known limitation. The virtual participants disagree with each
@@ -615,20 +678,6 @@ move-ratio failure is not something the model can produce. That share of the rea
 invisible to every screening number elsewhere in this report.</li>
 </ul>
 
-<p>The cohorts differ, too: 5 of the 6 early fails were post-SHINE, and post-SHINE participants
-agree with each other less (0.149 against pre-SHINE's 0.177) while being just as self-consistent
-(median test-retest 0.269 against 0.268). That is a manipulation check rather than a result, and it
-is <b>reported but not used</b> to choose anything. If it holds up it argues for recruiting slightly
-more of the post-SHINE cohort, not for changing the design.</p>
-
-<!-- figure: prod_reliability_by_variant -->
-
-<p>The distribution explains the low rejection rate: almost the entire retained cohort sits well
-clear of <i>&rho; = 0</i>. It also shows what the pre-registration's analysis-time rule will
-actually do, which is a different thing from the in-task gate. That rule drops the lowest decile
-<em>of each cohort</em>, so it is relative: it removes 10% whatever the absolute quality, and it
-will bite at roughly the marked percentiles rather than at zero.</p>
-
 <h3>Does a Cleaner Cohort Buy a Better Map?</h3>
 <p>The table above shows screening does what it claims: retained participants really are more self-consistent. That is
 not the same as the map being better, and the screening threshold is the one swept axis that varies participant
@@ -654,6 +703,16 @@ sweep, several times the size of the allocation-arm difference.</p>
 (&rho; = 0.616) than 75 <em>unscreened</em> participants (0.470), and beats 75 participants screened at
 <i>&rho; &gt; 0</i> (0.542). Participant quality substitutes for participant quantity, and generously.</p>
 
+<h3>The Study As Deployed</h3>
+<p>Everything above averages over the marginalised axes, which answers whether a finding holds across a plausible range but never what <em>our</em> study will get. Pinning every swept variable to the deployed value answers the second question.</p>
+
+<!-- figure: deployed_screening -->
+
+<p>Retaining <i>N</i>=50 at the deployed gate costs <b>68 recruited candidates</b>, and
+<i>N</i>=75 costs <b>104</b>. Both figures are the simulation's, and both are pessimistic: the real
+gate has rejected 7% of candidates against the 27% modelled here, so the true recruitment bill is
+closer to the retained count than this table suggests.</p>
+
 <h3>Verdict</h3>
 <p>Screening is the strongest lever in this simulation, roughly four times the size of the allocation-arm effect, and
 the rejected-candidate discount makes it cheap enough to be worth using. The deployed <i>&rho; &gt; 0</i> takes the
@@ -668,68 +727,6 @@ one and the real benefit higher. Both errors point the same way, which is why th
 rather than an estimate.</p>
 </section>
 
-
-
-<section id="coverage"><h2>Coverage and Convergence</h2>
-<p class="bottom-line"><b>Bottom line.</b> Constrained-MacDonald covers 18&ndash;30% more image pairs than random for
-identical participant effort, the session-disjointness constraint costs under 1% of coverage, and SMACOF converged in
-99.9% of fits.</p>
-
-<h3>Pair Coverage</h3>
-<p>The share of the 262,450 possible pairs judged by at least one participant.</p>
-
-<!-- figure: coverage_by_n -->
-
-<p>The advantage peaks at <i>N</i>=75 and vanishes by <i>N</i>=500, where random already reaches 99.9% and there is
-nothing left to win.</p>
-
-<p>The absolute level matters as much as the gap. At <i>N</i>=30 the 262,450 pairs receive about 126,000 judgements
-between them, so <b>the average pair is judged 0.48 times</b>: most pairs are judged by nobody, and those that are
-judged are judged once. At these sample sizes the difficulty is getting each pair judged at all, and only later
-becomes a question of measuring it precisely. That is the regime in which planning the allocation helps most.</p>
-
-<p>The study can now be placed on that curve directly.</p>
-
-<!-- figure: prod_connectivity -->
-
-<p>Both cohorts sit on the simulated random arm at their current size, covering <b>40.1%</b> of the
-262,450 pairs from 39 participants each, and <b>both observed-pair graphs are already connected</b>
-&ndash; which is half of the pre-registration's stopping rule, satisfied well before the N=75 the
-other half requires. Coverage is reported per cohort and never pooled, because each cohort is
-embedded separately and a pooled figure would describe a matrix the analysis plan never builds.</p>
-
-<h3>Allocation Balance and the Cost of the Constraint</h3>
-<p>The SD of how often each image appears, and the coverage difference between constrained and unconstrained
-MacDonald. This is pure combinatorics, with no simulated participants and no MDS.</p>
-
-<!-- figure: allocation_balance -->
-<!-- figure: constraint_cost -->
-
-<p>Random allocation is roughly five times less balanced: the SD of how many times each image is shown is 2.74
-against 0.51 at <i>N</i>=30. It is also more redundant. Counting every judgement collected and asking what share of
-them landed on a pair some earlier participant had already judged, <b>35.9% of random judgements are repeats at
-<i>N</i>=75, against 16.8% under the planned allocation</b>. A repeat is not worthless, since it improves the estimate
-for that pair, but in this regime a first observation of an unseen pair is worth far more.</p>
-
-<p><b>The disjointness constraint costs 0.61% of coverage relative</b> at <i>N</i>=50 (60.31% against 60.68%
-unconstrained), which is the result that makes the deployable variant usable.</p>
-
-<h3>SMACOF Convergence</h3>
-<p>Whether the optimiser reached a solution rather than exhausting its iteration budget, and the stress it reached.
-Recall from <a href="#mapping">Generating the Embeddings</a> that convergence requires a single connected component;
-that held for every cohort.</p>
-
-<!-- figure: mds_convergence -->
-
-<p><b>17,709 of 17,729 fits converged</b>; 20 (0.11%) hit the 1000-iteration cap, spread across the grid rather than
-concentrated in one cell. (The store holds 17,729 rows against a designed grid of 17,280: a resumed run appended
-449 duplicate fits, which are de-duplicated before any metric is computed.) Stress runs 0.163&ndash;0.432 (mean 0.332), which is high in absolute terms and consistent
-with embedding a sparse, noisy matrix in 5&ndash;18 dimensions.</p>
-
-<h3>Verdict</h3>
-<p>The allocation arm does what it was designed to do, and the constraint that makes it deployable is close to free.
-Convergence is not a concern. Whether the extra coverage buys anything is the subject of the next three sections.</p>
-</section>
 
 
 <section id="stability"><h2>Stability Between Cohorts</h2>
@@ -778,6 +775,21 @@ what is being asked about.</p>
 Cohen's <i>d<sub>z</sub></i> between 1.4 and 2.2. The one exception is the raw ratings, where random wins just as
 consistently. Note that the differences are <em>small but extremely reliable</em>: the effect sizes are large because
 the paired differences barely vary, not because the gaps themselves are large.</p>
+
+<h3>The Study As Deployed</h3>
+<p>Everything above averages over the marginalised axes, which answers whether a finding holds across a plausible range but never what <em>our</em> study will get. Pinning every swept variable to the deployed value answers the second question.</p>
+
+<!-- figure: deployed_stability -->
+
+<p>Two independent cohorts of the deployed configuration agree at <b>Spearman &rho; = 0.44 at
+<i>N</i>=50</b> and <b>0.52 at <i>N</i>=75</b>, with Procrustes m&sup2; of 0.80 and 0.74. Both sit
+below this section's headline averages, for the reason the ranges make visible: the deployed cell
+combines the random arm with the lenient gate, and both of those are on the weaker side of their
+axes.</p>
+
+<p>The spread in the last column is the more important number. Cohort agreement ranges from 0.27 to
+0.75 across the sweep at a fixed <i>N</i>=50, so <b>the configuration matters more than the sample
+size does</b> over the range we could plausibly run.</p>
 
 <h3>Verdict</h3>
 <p>The pre-MDS correlation is the input to the method, not its output, and the design decision should not rest on it.
@@ -840,6 +852,22 @@ obviously unrelated. Recall@<i>k</i> is a <em>hard cut at the very top</em> of t
 all near-identical images and their order is decided by noise. An embedding can therefore rank close-versus-far
 correctly 96% of the time and still get the top-<i>k</i> membership half wrong, because being roughly right about
 everything does not mean being exactly right about the extreme.</p>
+
+<h3>The Study As Deployed</h3>
+<p>Everything above averages over the marginalised axes, which answers whether a finding holds across a plausible range but never what <em>our</em> study will get. Pinning every swept variable to the deployed value answers the second question.</p>
+
+<!-- figure: deployed_closest -->
+
+<p>This is the table to read if the study's purpose is choosing which images are too similar to
+pair. At <i>N</i>=50 the deployed configuration recovers <b>22.9% of the ground truth's closest 5%
+of pairs</b>, rising to 26.6% at <i>N</i>=75, and two independent cohorts of that size agree on only
+<b>7.3%</b> of their own closest pairs, or 9.0% at <i>N</i>=75.</p>
+
+<p>Discrimination is much healthier than overlap: AUC of 0.82 and d&prime; of 1.00 mean the
+recovered space does separate close pairs from far ones perfectly respectably. The gap between those
+two readings is the whole finding of this section, and the deployed configuration does not escape
+it: the space knows which pairs are closer, but not reliably enough to name the same top 5%
+twice.</p>
 
 <h3>Verdict</h3>
 <p>Coarse discrimination is solved; fine identification is not. Since the downstream use is excluding confusable
@@ -923,6 +951,21 @@ No setting both covers the image set and reproduces. The two arms are again indi
 <p>Nor does the picture improve with sample size: the share of unclustered images is essentially flat from
 <i>N</i>=30 to <i>N</i>=500. Whatever is preventing these images from grouping is not a shortage of participants in
 the simulated study.</p>
+
+<h3>The Study As Deployed</h3>
+<p>Everything above averages over the marginalised axes, which answers whether a finding holds across a plausible range but never what <em>our</em> study will get. Pinning every swept variable to the deployed value answers the second question.</p>
+
+<!-- figure: deployed_clusters -->
+
+<p>A two-way split reproduces moderately at the deployed configuration (ARI 0.55 at <i>N</i>=50,
+0.65 at <i>N</i>=75). Eight clusters do not: ARI falls to 0.24, and normalised VI of 2.99 is close
+to the value two unrelated partitions would give. HDBSCAN leaves <b>65% of images unclustered</b>
+at <i>N</i>=50 and the two cohorts agree on which ones at &kappa; = 0.09, which is barely above
+chance.</p>
+
+<p>The ranges show this is not an artefact of the deployed choice. Even the best cell in the sweep
+reaches only ARI 0.44 at <i>k</i>=8, so no configuration available to us recovers fine-grained
+groupings.</p>
 
 <h3>Verdict</h3>
 <p>The perceptual space behaves as a continuum, not a set of clumps. Agglomerative clustering says fine partitions do
