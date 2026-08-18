@@ -447,3 +447,83 @@ def test_the_boundary_flag_matches_where_the_optimum_actually_landed():
     best = out["best"]
     assert set(out["grid"]["noise_scale"]) == set(grid)
     assert best["at_noise_boundary"] == (best["noise_scale"] in (min(grid), max(grid)))
+
+
+class TestProdLoader:
+    """`load_prod_subjects` is the one sanctioned door to the live study's data.
+
+    It exists as its own entry point rather than a `cohorts=` argument so that reaching for
+    production is always a deliberate act with its own call site.
+    """
+
+    def _mixed(self):
+        """One pilot subject, one retained production subject, one screened-out candidate."""
+        frames = [
+            _trials_df([{"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .2, (0, 2): .4, (1, 2): .6}}],
+                       participant="PILOT_1", version=3.0),
+            _trials_df([{"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .9, (0, 2): .9, (1, 2): .9}}],
+                       participant="PROD_OK", version=4.0),
+            _trials_df([{"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .5, (0, 2): .5, (1, 2): .5}}],
+                       participant="PROD_OUT", version=4.0),
+        ]
+        participants = pd.DataFrame([
+            {"participant_id": "PILOT_1", "cohort": "pilot", "task_version": 3.0,
+             "status": "full data"},
+            {"participant_id": "PROD_OK", "cohort": "production", "task_version": 4.0,
+             "status": "full data"},
+            {"participant_id": "PROD_OUT", "cohort": "production", "task_version": 4.0,
+             "status": "screened out"},
+        ])
+        return pd.concat(frames, ignore_index=True), participants
+
+    def test_returns_production_only(self, tmp_path, monkeypatch):
+        trials, participants = self._mixed()
+        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        subs = subjects.load_prod_subjects("ignored", _write_manifest(tmp_path))
+        assert [s.participant_id for s in subs] == ["PROD_OK"]
+
+    def test_screened_out_candidates_are_excluded_by_default(self, tmp_path, monkeypatch):
+        """They carry only their screening block, so they would dilute any retained-cohort statistic."""
+        trials, participants = self._mixed()
+        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        subs = subjects.load_prod_subjects("ignored", _write_manifest(tmp_path))
+        assert "PROD_OUT" not in [s.participant_id for s in subs]
+
+    def test_screened_out_candidates_are_available_on_request(self, tmp_path, monkeypatch):
+        """The pass-rate audit needs them, and nothing else does."""
+        trials, participants = self._mixed()
+        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        subs = subjects.load_prod_subjects("ignored", _write_manifest(tmp_path),
+                                           statuses=("full data", "screened out"))
+        assert sorted(s.participant_id for s in subs) == ["PROD_OK", "PROD_OUT"]
+
+    def test_pilot_loader_is_unaffected_by_the_status_filter(self, tmp_path, monkeypatch):
+        """Pre-v4 sessions have no screening block, so every loadable one is 'full data'."""
+        trials, participants = self._mixed()
+        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        subs = subjects.load_pilot_subjects("ignored", _write_manifest(tmp_path))
+        assert [s.participant_id for s in subs] == ["PILOT_1"]
+
+    def test_both_blocks_are_pooled_for_a_retained_subject(self, tmp_path, monkeypatch):
+        """A retained subject's screening trials are data, and must not be dropped.
+
+        Pinned deliberately: no loader filters on `block_type` today, and restricting to the
+        experimental block would silently discard 8 of every retained subject's 22 trials. The
+        screening block uses the same stimuli, task and canvas; the only thing that makes it
+        special is that it is the block the gate is evaluated on.
+        """
+        screening = _trials_df(
+            [{"images": MANIFEST_IMAGES[:3], "dists": {(0, 1): .2, (0, 2): .4, (1, 2): .6}}],
+            participant="PROD_OK", version=4.0).assign(block_type="screening")
+        experimental = _trials_df(
+            [{"images": MANIFEST_IMAGES[2:5], "dists": {(0, 1): .3, (0, 2): .5, (1, 2): .7}}],
+            participant="PROD_OK", version=4.0).assign(block_type="experimental", trial_id=2)
+        trials = pd.concat([screening, experimental], ignore_index=True)
+        participants = pd.DataFrame([{"participant_id": "PROD_OK", "cohort": "production",
+                                      "task_version": 4.0, "status": "full data"}])
+        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        subs = subjects.load_prod_subjects("ignored", _write_manifest(tmp_path))
+        assert len(subs) == 1
+        # Screening covers a-b, a-c, b-c; the experimental block covers c-d, c-e, d-e. Six
+        # distinct pairs only if both blocks are kept; three if either is dropped.
+        assert subs[0].num_observed_pairs() == 6

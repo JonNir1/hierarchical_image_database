@@ -172,42 +172,38 @@ def subject_from_trials(trials: pd.DataFrame, rel2idx: Dict[str, int]) -> Subjec
     )
 
 
-def load_pilot_subjects(
+RETAINED_STATUSES: Tuple[str, ...] = ("full data",)
+
+
+def _load_subjects(
         data_dir: str,
         manifest_path: str,
+        *,
+        cohorts: Sequence[str],
         versions: Optional[Sequence[float]] = None,
+        variants: Optional[Sequence[str]] = None,
         apply_qc: bool = False,
         qc_max_flag_rate: float = 0.30,
-        cohorts: Sequence[str] = ("pilot",),
-        variants: Optional[Sequence[str]] = None,
+        statuses: Sequence[str] = RETAINED_STATUSES,
 ) -> List[Subject]:
-    """Load completed **pilot** subjects from the flat ``data_dir`` (optionally filtered by version).
+    """Load completed sessions from the flat ``data_dir`` and reduce each to a :class:`Subject`.
 
-    Delegates session/CSV handling and completion filtering to
-    ``analysis.utils.parser.load_data``, then reduces each participant's trials to a
-    :class:`Subject` on the manifest index space.
+    The shared implementation behind :func:`load_pilot_subjects` and :func:`load_prod_subjects`.
+    Session/CSV handling and completion filtering are delegated to
+    ``analysis.utils.parser.load_data``; everything here is filtering plus the per-participant
+    reduction onto the manifest index space.
 
-    **Production data is excluded by default.** The parser derives ``cohort`` from each file's own
-    ``deployment_mode``, and the simulations must not be calibrated on the live study's data: doing so
-    would let the sample-size and screening conclusions be shaped by the very cohort they are meant to
-    plan, which is circular and amounts to peeking at the running experiment. Pass ``cohorts`` to
-    override deliberately (e.g. for a post-hoc check, never for a design decision).
+    ``cohorts`` matches the parser's ``cohort`` column, which it derives from each file's own
+    ``deployment_mode`` - so ``("pilot",)`` and ``("production",)`` are the two real values.
 
-    Note the practical consequence: every v4.0 session is ``production``, so the default pilot-only
-    view contains **no screening-block data at all** - reliability is measured from v3.\\* whole-trial
-    repeats, which are spread through the session rather than concentrated in a screening block.
+    ``statuses`` matters because ``load_data`` keeps trials for both ``"full data"`` and
+    ``"screened out"`` participants. A screened-out subject carries only their screening-block
+    trials, so they must not join a retained cohort; they are still wanted for the pass-rate
+    audit, which asks for them explicitly.
 
     ``versions`` compares against the float ``task_version`` (e.g. ``[3.0]``). ``apply_qc=False`` by
     default; set ``True`` to additionally drop subjects whose ``qc_flag`` rate exceeds
-    ``qc_max_flag_rate`` (a robustness check).
-
-    ``variants`` filters on ``shine_variant`` (e.g. ``("pre",)``); ``None`` keeps every variant.
-    **Cohort is not a proxy for variant.** The task is documented as serving pilot sessions the
-    pre-SHINE images unconditionally, but the data disagrees: of the 47 loadable pilot subjects,
-    41 are ``pre`` and 6 are ``post`` (all v3.06). Ground-truth construction must therefore pass
-    ``variants=("pre",)`` explicitly - pooling the two variants into one geometry is only masked by
-    :func:`_src_to_relpath` collapsing them onto the same manifest index. Noise-model fitting is
-    exempt: it estimates a property of subjects rather than of the stimulus set, so it may use both.
+    ``qc_max_flag_rate`` (a robustness check). ``variants`` filters on ``shine_variant``.
     """
     _, rel2idx = load_manifest(manifest_path)
     data = load_data(data_dir)
@@ -215,6 +211,8 @@ def load_pilot_subjects(
     if trials.empty:
         return []
     keep = participants[participants["cohort"].isin(list(cohorts))]
+    if statuses is not None and "status" in keep.columns:
+        keep = keep[keep["status"].isin(list(statuses))]
     if keep.empty:
         return []
     merge_cols = ["participant_id", "task_version"]
@@ -232,6 +230,70 @@ def load_pilot_subjects(
             continue
         subjects.append(subj)
     return subjects
+
+
+def load_pilot_subjects(
+        data_dir: str,
+        manifest_path: str,
+        versions: Optional[Sequence[float]] = None,
+        apply_qc: bool = False,
+        qc_max_flag_rate: float = 0.30,
+        cohorts: Sequence[str] = ("pilot",),
+        variants: Optional[Sequence[str]] = None,
+) -> List[Subject]:
+    """Load completed **pilot** subjects from the flat ``data_dir`` (optionally filtered by version).
+
+    **Production data is excluded by default.** The parser derives ``cohort`` from each file's own
+    ``deployment_mode``, and the simulations must not be calibrated on the live study's data: doing so
+    would let the sample-size and screening conclusions be shaped by the very cohort they are meant to
+    plan, which is circular and amounts to peeking at the running experiment. Pass ``cohorts`` to
+    override deliberately (e.g. for a post-hoc check, never for a design decision).
+
+    Note the practical consequence: every v4.0 session is ``production``, so the default pilot-only
+    view contains **no screening-block data at all** - reliability is measured from v3.\\* whole-trial
+    repeats, which are spread through the session rather than concentrated in a screening block.
+
+    ``variants`` filters on ``shine_variant`` (e.g. ``("pre",)``); ``None`` keeps every variant.
+    **Cohort is not a proxy for variant.** The task is documented as serving pilot sessions the
+    pre-SHINE images unconditionally, but the data disagrees: of the 47 loadable pilot subjects,
+    41 are ``pre`` and 6 are ``post`` (all v3.06). Ground-truth construction must therefore pass
+    ``variants=("pre",)`` explicitly - pooling the two variants into one geometry is only masked by
+    :func:`_src_to_relpath` collapsing them onto the same manifest index. Noise-model fitting is
+    exempt: it estimates a property of subjects rather than of the stimulus set, so it may use both.
+
+    See :func:`_load_subjects` for the remaining arguments.
+    """
+    return _load_subjects(data_dir, manifest_path, cohorts=cohorts, versions=versions,
+                          variants=variants, apply_qc=apply_qc,
+                          qc_max_flag_rate=qc_max_flag_rate)
+
+
+def load_prod_subjects(
+        data_dir: str,
+        manifest_path: str,
+        versions: Optional[Sequence[float]] = None,
+        apply_qc: bool = False,
+        qc_max_flag_rate: float = 0.30,
+        variants: Optional[Sequence[str]] = None,
+        statuses: Sequence[str] = RETAINED_STATUSES,
+) -> List[Subject]:
+    """Load **production** subjects, i.e. the live study's retained cohort.
+
+    Separate from :func:`load_pilot_subjects` so that reaching for the live study is always a
+    deliberate act with its own call site, never a default that could be arrived at by accident.
+
+    **Both blocks are pooled.** A retained subject's screening-block trials are data in exactly the
+    same sense as their experimental-block trials: the same stimuli, the same task, the same
+    canvas. Nothing here filters on ``block_type``, and a test pins that, because restricting to the
+    experimental block would silently discard 8 of every retained subject's 22 trials.
+
+    ``statuses`` defaults to the retained cohort alone. Pass ``("full data", "screened out")`` to
+    include candidates who failed the in-task gate - they carry only their screening block, so they
+    belong in a pass-rate audit and nowhere else.
+    """
+    return _load_subjects(data_dir, manifest_path, cohorts=("production",), versions=versions,
+                          variants=variants, apply_qc=apply_qc,
+                          qc_max_flag_rate=qc_max_flag_rate, statuses=statuses)
 
 
 # --------------------------------------------------------------------------- observables
