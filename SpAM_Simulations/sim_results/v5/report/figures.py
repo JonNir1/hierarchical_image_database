@@ -50,6 +50,9 @@ SCREEN_LABEL = {-1.0: "none", 0.0: "ρ > 0", 0.1: "ρ > 0.1", 0.2: "ρ > 0.2"}
 
 SD_NOTE = "Error bars are ±1 SD across every simulated cohort and swept setting at that N."
 
+PROD_NOTE = ("The production snapshot is a point in time and ages as collection continues; its date "
+             "and cohort sizes are stated where the section introduces it.")
+
 
 class Fig(NamedTuple):
     fn: Callable[["Run"], go.Figure]
@@ -77,6 +80,27 @@ class Run:
 
     def gt(self, name: str) -> pd.DataFrame:
         return self.table(name, subdir="gt_diagnostics")
+
+    def prod(self, name: str) -> Optional[pd.DataFrame]:
+        """A production-tracking table, or ``None`` if no snapshot has been taken.
+
+        Returns rather than raises because ``prod/`` holds participant data and is gitignored: the
+        report must still build from a checkout that has never seen it. Figures that use it draw a
+        placeholder in that case.
+        """
+        try:
+            return self.table(name, subdir="prod")
+        except FileNotFoundError:
+            return None
+
+    def prod_stamp(self) -> str:
+        """When the production snapshot was taken and how big it was."""
+        table = self.prod("prod_agreement")
+        if table is None or table.empty:
+            return ""
+        row = table.iloc[0]
+        return (f"production snapshot of {row['generated_utc'][:10]}, "
+                f"{row['snapshot_n_subjects']} retained ({row['snapshot_n_per_variant']})")
 
     def stage1(self, name: str) -> pd.DataFrame:
         return self.table(name, subdir="gt")
@@ -118,6 +142,21 @@ def _style(fig: go.Figure, title: str, height: int = 380, legend_rows: int = 1) 
     fig.update_xaxes(gridcolor="rgba(128,128,128,0.2)", zerolinecolor="rgba(128,128,128,0.4)")
     fig.update_yaxes(gridcolor="rgba(128,128,128,0.2)", zerolinecolor="rgba(128,128,128,0.4)")
     return fig
+
+
+def _no_snapshot(title: str) -> go.Figure:
+    """Stand-in for a figure whose production snapshot is absent from this checkout."""
+    fig = go.Figure()
+    fig.add_annotation(text="No production snapshot in this checkout.<br>"
+                            "Run <b>SpAM_Simulations.cli.run_prod_tracking</b> to generate it.",
+                       showarrow=False, font=dict(size=13, color="#888"),
+                       xref="paper", yref="paper", x=0.5, y=0.5)
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False)
+    return _style(fig, title, height=200)
+
+
+PROD_COLOUR = {"both cohorts": "#2ca02c", "pre": "#1f77b4", "post": "#ff7f0e"}
 
 
 def _by_arm(frame: pd.DataFrame, value: str, title: str, ylab: str,
@@ -264,12 +303,36 @@ def realism_calibration(run: Run) -> go.Figure:
     empirical = [cal["empirical_agreement"], cal["target_test_retest"]]
     achieved = [cal["dispersion_achieved"], cal["achieved_tr_unscreened"]]
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=labels, y=empirical, name="empirical (pilot)", marker_color="#d62728",
+    fig.add_trace(go.Bar(x=labels, y=empirical, name="empirical (pilot, v1-v3)",
+                         marker_color="#d62728",
                          text=[f"{v:.3f}" for v in empirical], textposition="outside"))
     fig.add_trace(go.Bar(x=labels, y=achieved, name="achieved (simulated)", marker_color="#1f77b4",
                          text=[f"{v:.3f}" for v in achieved], textposition="outside"))
-    fig.update_yaxes(title_text="Spearman ρ", range=[0, max(empirical + achieved) * 1.3])
-    return _style(fig, "One target is hit; the other is undershot")
+    heights = empirical + achieved
+    prod = _prod_calibration_targets(run)
+    if prod is not None:
+        fig.add_trace(go.Bar(x=labels, y=prod, name="empirical (production, v4.0)",
+                             marker_color="#2ca02c",
+                             text=[f"{v:.3f}" for v in prod], textposition="outside"))
+        heights = heights + prod
+    fig.update_yaxes(title_text="Spearman ρ", range=[0, max(heights) * 1.3])
+    return _style(fig, "The deployed cohort beats both the pilot and the model", legend_rows=2)
+
+
+def _prod_calibration_targets(run: Run):
+    """``[between-subject agreement, within-subject test-retest]`` from the live cohort, pooled.
+
+    Pooled across SHINE variants deliberately: these describe participants rather than images, and
+    ``docs/WORKFLOW.md`` already sets that rule for noise-model estimation.
+    """
+    agreement, reliability = run.prod("prod_agreement"), run.prod("prod_reliability")
+    if agreement is None or reliability is None or agreement.empty or reliability.empty:
+        return None
+    pooled = agreement[agreement["group"] == "both cohorts"]
+    if pooled.empty:
+        return None
+    return [float(pooled["mean_agreement"].iloc[0]),
+            float(reliability["test_retest"].median())]
 
 
 def realism_calibration_realised(run: Run) -> go.Figure:
@@ -297,6 +360,38 @@ def realism_calibration_realised(run: Run) -> go.Figure:
     fig.update_xaxes(title_text="allocation arm")
     return _style(fig, "The cohorts realise the calibrated value, which is itself short of the "
                        "pilot", height=400)
+
+
+def realism_null_distance_prod(run: Run) -> go.Figure:
+    """The same floor test, run on the deployed cohorts.
+
+    The sharpest single check available here, because the simulation is known to fail it in a
+    specific direction: it over-disperses. Split by variant as well as pooled, since how fully
+    participants fill the canvas is exactly the kind of thing SHINE could plausibly change.
+    """
+    table = run.prod("prod_null_distance")
+    if table is None or table.empty:
+        return _no_snapshot("Deployed cohorts against random placement")
+    null_row = table[table["source"].str.contains("null")]
+    null = float(null_row["mean"].iloc[0]) if not null_row.empty else np.nan
+    order = list(table["source"])
+    colours = {s: ("#7f7f7f" if "null" in s else ("#1f77b4" if "pre" in s else "#ff7f0e"))
+               for s in order}
+    fig = go.Figure()
+    for name in order:
+        row = table[table["source"] == name].iloc[0]
+        gap = 100 * (row["mean"] - null) / null if np.isfinite(null) and null else np.nan
+        tag = "chance" if "null" in name else f"{gap:+.1f}% vs chance"
+        fig.add_trace(go.Bar(
+            x=[row["mean"]], y=[name], orientation="h", marker_color=colours[name],
+            showlegend=False,
+            error_x=dict(type="data", array=[row["sd"]], visible=True, thickness=1),
+            text=[f"  {row['mean']:.3f} ± {row['sd']:.3f}   ({tag})"], textposition="outside"))
+    if np.isfinite(null):
+        fig.add_vline(x=null, line=dict(dash="dash", color="#7f7f7f"))
+    fig.update_xaxes(title_text="mean pairwise distance, in canvas-diagonal units", range=[0, 0.78])
+    return _style(fig, "The deployed cohorts sit essentially at chance on this statistic",
+                  height=300)
 
 
 def realism_null_distance(run: Run) -> go.Figure:
@@ -336,16 +431,23 @@ def realism_noise_vs_distance(run: Run) -> go.Figure:
     """
     curves = run.table("noise_vs_distance_native")
     fig = go.Figure()
-    for src, label in (("pilot", "pilot participants (one fixed sample)"),
+    for src, label in (("pilot", "pilot participants, v1-v3 (one fixed sample)"),
                        ("sim", "simulated participants (20 cohorts)")):
         sub = curves[curves["source"] == src]
         err = (dict(type="data", array=sub["sd_rmse"], visible=True, thickness=1)
                if src == "sim" else None)
         fig.add_trace(go.Scatter(x=sub["mean_pair_distance"], y=sub["rmse"], mode="lines+markers",
                                  name=label, line=dict(color=COLOUR[src], width=2), error_y=err))
+    prod = run.prod("prod_noise_curve")
+    if prod is not None and not prod.empty:
+        pooled = prod[prod["group"] == "both cohorts"]
+        fig.add_trace(go.Scatter(x=pooled["mean_pair_distance"], y=pooled["rmse"],
+                                 mode="lines+markers", name="production participants, v4.0",
+                                 line=dict(color="#2ca02c", width=2, dash="dash")))
     fig.update_xaxes(title_text="mean of the two placements (canvas diagonals)", range=[0, 1])
     fig.update_yaxes(title_text="RMSE between the two placements (canvas diagonals)")
-    return _style(fig, "Both curves rise then fall: the inverted U the model was not fitted to")
+    return _style(fig, "All three rise then fall: the inverted U the model was not fitted to",
+                  legend_rows=2)
 
 
 def realism_semantic_gradient(run: Run) -> go.Figure:
@@ -369,6 +471,182 @@ def realism_semantic_gradient(run: Run) -> go.Figure:
     fig.update_xaxes(title_text="semantic relation, coarse to fine")
     fig.update_yaxes(title_text="mean distance / unrelated-pair distance")
     return _style(fig, "Both arms order the levels correctly and both under-separate the fine end")
+
+
+# --------------------------------------------------------------------------- production tracking
+def _drop_from_peak(curve: pd.DataFrame) -> float:
+    """Fall from the curve's maximum to its last bin, as a fraction of the peak."""
+    if curve.empty:
+        return np.nan
+    rmse = curve.sort_values("mean_pair_distance")["rmse"].to_numpy()
+    peak = rmse.max()
+    return (peak - rmse[-1]) / peak if peak else np.nan
+
+
+def prod_vs_sim_summary(run: Run) -> go.Figure:
+    """Every observable the model was scored on, against the study it was written to plan."""
+    agreement = run.prod("prod_agreement")
+    reliability = run.prod("prod_reliability")
+    nulls = run.prod("prod_null_distance")
+    shape = run.prod("prod_noise_curve_shape")
+    if agreement is None or reliability is None or agreement.empty:
+        return _no_snapshot("Simulated, pilot and deployed, side by side")
+
+    cal = run.calibration()
+    native = run.table("noise_vs_distance_native")
+    sim_shape = _drop_from_peak(native[native["source"] == "sim"])
+    pilot_shape = _drop_from_peak(native[native["source"] == "pilot"])
+    prod_shape = (float(shape[shape["group"] == "both cohorts"]["drop_from_peak"].iloc[0])
+                  if shape is not None and not shape.empty else np.nan)
+
+    sim_null = run.table("null_distances").set_index("source")
+    null_mean = float(sim_null.loc["random placement (null)", "mean"])
+    prod_null = np.nan
+    if nulls is not None and not nulls.empty:
+        participants = nulls[~nulls["source"].str.contains("null")]
+        prod_null = float(participants["mean"].mean())
+
+    def vs_chance(value):
+        return "n/a" if not np.isfinite(value) else f"{100 * (value - null_mean) / null_mean:+.1f}%"
+
+    def fmt(value):
+        return "n/a" if not np.isfinite(value) else f"{value:.3f}"
+
+    pooled_agreement = float(agreement[agreement["group"] == "both cohorts"]
+                             ["mean_agreement"].iloc[0])
+    rows = [
+        ("Between-subject agreement (Spearman rho)",
+         fmt(cal["dispersion_achieved"]), fmt(cal["empirical_agreement"]), fmt(pooled_agreement),
+         "model under-reproduces it"),
+        ("Within-subject test-retest (Spearman rho)",
+         fmt(cal["achieved_tr_unscreened"]), fmt(cal["target_test_retest"]),
+         fmt(float(reliability["test_retest"].median())),
+         "model is the noisiest of the three"),
+        ("Inverted-U, drop from peak",
+         fmt(sim_shape), fmt(pilot_shape), fmt(prod_shape),
+         "shape reproduced, depth understated"),
+        ("Mean distance vs random placement",
+         vs_chance(float(sim_null.loc["simulated participants", "mean"])),
+         vs_chance(float(sim_null.loc["pilot participants", "mean"])),
+         vs_chance(prod_null),
+         "model spreads the wrong way"),
+    ]
+    header = ["observable", "simulated", "pilot (v1-v3)", "production (v4.0)", "reading"]
+    fig = go.Figure(go.Table(
+        columnwidth=[250, 85, 100, 120, 200],
+        header=dict(values=header, fill_color="rgba(44,160,44,0.15)", align="left",
+                    height=32, font=dict(size=12)),
+        cells=dict(align="left", height=30, font=dict(size=12),
+                   values=list(map(list, zip(*rows))))))
+    fig.update_layout(height=32 + 30 * len(rows) + 60, margin=dict(l=0, r=0, t=52, b=8),
+                      paper_bgcolor=PLOT_BG,
+                      title=dict(text="What the model predicted, and what the study is producing",
+                                 font=dict(size=14)))
+    return fig
+
+
+def prod_reliability_by_variant(run: Run) -> go.Figure:
+    """Per-subject test-retest, split by cohort, with both exclusion rules marked.
+
+    A distribution rather than a mean, because the pre-registration excludes the lowest decile
+    *per cohort*, which cannot be read off a summary statistic.
+    """
+    table = run.prod("prod_reliability")
+    if table is None or table.empty:
+        return _no_snapshot("Reliability of the retained cohort")
+    fig = go.Figure()
+    for variant, label in (("pre", "pre-SHINE"), ("post", "post-SHINE")):
+        sub = table[table["shine_variant"] == variant]
+        if sub.empty:
+            continue
+        fig.add_trace(go.Histogram(x=sub["test_retest"], name=f"{label} (n={len(sub)})",
+                                   marker_color=PROD_COLOUR[variant], opacity=0.65,
+                                   xbins=dict(size=0.05)))
+        decile = float(np.quantile(sub["test_retest"], 0.10))
+        fig.add_vline(x=decile, line=dict(dash="dot", color=PROD_COLOUR[variant]),
+                      annotation_text=f"{label} 10th pct = {decile:.2f}",
+                      annotation_position="top")
+    fig.add_vline(x=0.0, line=dict(dash="dash", color="#d62728"),
+                  annotation_text="deployed gate", annotation_position="bottom left")
+    fig.update_layout(barmode="overlay")
+    fig.update_xaxes(title_text="within-subject test-retest Spearman rho")
+    fig.update_yaxes(title_text="participants")
+    return _style(fig, "Almost everyone clears the deployed gate", height=400)
+
+
+def prod_screening_outcomes(run: Run) -> go.Figure:
+    """Clean passes, early fails and false positives, observed against simulated."""
+    summary = run.prod("prod_screening_summary")
+    if summary is None or summary.empty:
+        return _no_snapshot("Screening outcomes, observed against simulated")
+    cov = run.table("coverage")
+    sim_pass = float(cov[np.isclose(cov["screening_min_reliability"], 0.0)]
+                     ["screening_pass_rate"].mean())
+    fig = make_subplots(rows=1, cols=2, horizontal_spacing=0.13,
+                        subplot_titles=("Outcome of every candidate who sat the task",
+                                        "Which criterion each failure tripped"))
+    outcomes = (("clean_pass", "cleared the gate and held up", "#2ca02c"),
+                ("false_positive", "cleared the gate, then failed it later", "#ff7f0e"),
+                ("early_fail", "failed the gate in-task", "#d62728"))
+    for key, label, colour in outcomes:
+        fig.add_trace(go.Bar(x=summary["group"], y=summary[key] / summary["n_candidates"],
+                             name=label, marker_color=colour,
+                             text=[str(v) for v in summary[key]], textposition="inside"),
+                      row=1, col=1)
+    fig.add_hline(y=1 - sim_pass, line=dict(dash="dash", color="#1f77b4"),
+                  annotation_text=f"simulated early-fail rate {1 - sim_pass:.0%}",
+                  annotation_position="top right", row=1, col=1)
+    criteria = (("failed_reliability", "reliability (the model has this)", "#1f77b4"),
+                ("failed_move_ratio", "move ratio (the model cannot)", "#9467bd"),
+                ("failed_distance_sd", "arrangement spread (the model cannot)", "#8c564b"))
+    for key, label, colour in criteria:
+        fig.add_trace(go.Bar(x=summary["group"], y=summary[key], name=label, marker_color=colour,
+                             text=[str(v) for v in summary[key]], textposition="auto"),
+                      row=1, col=2)
+    fig.update_layout(barmode="stack")
+    fig.update_yaxes(title_text="share of candidates", row=1, col=1, tickformat=".0%")
+    fig.update_yaxes(title_text="participants", row=1, col=2)
+    fig = _style(fig, "The real gate rejects far fewer than the model predicted",
+                 height=460, legend_rows=3)
+    fig.update_annotations(font_size=12)
+    return fig
+
+
+def prod_connectivity(run: Run) -> go.Figure:
+    """Observed pair coverage per cohort against the simulation's predicted curve.
+
+    Per cohort and never pooled: each SHINE cohort is embedded separately, so pooled coverage
+    describes a matrix the analysis plan never builds. The pre-registration stops on N=75 retained
+    per cohort *and* a connected observed-pair graph.
+    """
+    observed = run.prod("prod_coverage")
+    if observed is None or observed.empty:
+        return _no_snapshot("Coverage per cohort against the predicted curve")
+    cov = run.table("coverage")
+    fig = go.Figure()
+    for arm in ("random", "constrained-MacDonald"):
+        sub = cov[cov["arm"] == arm]
+        agg = sub.groupby("num_subjects")["pair_coverage"].agg(["mean", "std"]).reset_index()
+        fig.add_trace(go.Scatter(x=agg["num_subjects"], y=agg["mean"] / 100.0,
+                                 mode="lines+markers", name=f"simulated, {arm}",
+                                 line=dict(color=COLOUR[arm], width=2), marker=dict(size=7),
+                                 error_y=dict(type="data", array=agg["std"] / 100.0,
+                                              visible=True, thickness=1)))
+    for _, row in observed.iterrows():
+        connected = bool(row["connected"])
+        fig.add_trace(go.Scatter(
+            x=[row["n_subjects"]], y=[row["pair_coverage"]], mode="markers+text",
+            name=f"observed, {row['cohort']}-SHINE" + ("" if connected else " (disconnected)"),
+            marker=dict(size=15, symbol="circle" if connected else "x",
+                        color=PROD_COLOUR[row["cohort"]]),
+            text=[f"  {row['pair_coverage']:.1%}"], textposition="middle right"))
+    fig.add_vline(x=75, line=dict(dash="dot", color="rgba(128,128,128,0.8)"),
+                  annotation_text="pre-registered N=75", annotation_position="top left")
+    fig.update_xaxes(title_text="retained participants per cohort", type="log",
+                     tickvals=[30, 39, 50, 75, 500])
+    fig.update_yaxes(title_text="share of the 262,450 pairs judged", tickformat=".0%")
+    return _style(fig, "Both cohorts sit on the predicted curve, and both are already connected",
+                  height=420, legend_rows=2)
 
 
 # --------------------------------------------------------------------------- coverage
@@ -731,10 +1009,16 @@ FIGURES: Dict[str, Fig] = {
         "Computed once on the fixed ground truth, so there is no spread to show."),
     "realism_calibration": Fig(
         realism_calibration,
-        "Point estimates from the calibration fit, which is an a-priori search run before the "
-        "sweep; the empirical bars are medians over the pilot participants who contribute to each "
-        "observable (n=47 and n=22 respectively). The next figure checks the fit against the "
-        "cohorts actually simulated."),
+        "Blue is the calibration fit, an a-priori search run before the sweep. Red is the pilot "
+        "(n=47 and n=22 respectively for the two observables). Green is the deployed cohort, "
+        "pooled across SHINE variants because these describe participants rather than images. "
+        + PROD_NOTE),
+    "prod_vs_sim_summary": Fig(
+        prod_vs_sim_summary,
+        "Every observable the generative model was scored on, against the study it was written to "
+        "plan. The pilot ran task versions 1.0-3.06 with repeats spread through the session; "
+        "production runs v4.0 with a screening block, so a gap between the two empirical columns "
+        "is a task-version effect rather than noise. " + PROD_NOTE),
     "realism_calibration_realised": Fig(
         realism_calibration_realised,
         "Boxes span the quartiles of cohort-median test-retest ρ across all 2,160 unscreened "
@@ -743,8 +1027,13 @@ FIGURES: Dict[str, Fig] = {
         realism_noise_vs_distance,
         "Both axes are in canvas-diagonal units, the same normalisation the deployed task "
         "records, so no rescaling is applied. Error bars are ±1 SD across 20 independently "
-        "simulated cohorts; the pilot is one fixed sample and has none. Bins hold equal counts, so "
-        "the points are unevenly spaced along x."),
+        "simulated cohorts; the pilot and production curves are each one fixed sample and have "
+        "none. Bins hold equal counts, so the points are unevenly spaced along x."),
+    "prod_null_distance": Fig(
+        realism_null_distance_prod,
+        "Split by cohort as well as pooled, since how fully participants fill the canvas is the "
+        "kind of thing SHINE could plausibly change. The null is the same 2,000 trials of 20 "
+        "uniformly-scattered points. " + PROD_NOTE),
     "realism_null_distance": Fig(
         realism_null_distance,
         "Error bars are ±1 SD across all pairs in each source. The null is 2,000 trials of 20 "
@@ -765,6 +1054,12 @@ FIGURES: Dict[str, Fig] = {
     "constraint_cost": Fig(
         constraint_cost,
         "Error bars are ±1 SD across 20 independently generated designs per point."),
+    "prod_connectivity": Fig(
+        prod_connectivity,
+        "Per cohort and never pooled: each SHINE cohort is embedded separately, so pooled coverage "
+        "describes a matrix the analysis plan never builds. Error bars on the simulated curves are "
+        "±1 SD across every cohort and swept setting. A circle marks a connected observed-pair "
+        "graph, which is half the pre-registration's stopping rule. " + PROD_NOTE),
     "mds_convergence": Fig(
         mds_convergence,
         "All 17,729 fits in the store, including the 449 duplicates a resumed run appended."),
@@ -813,6 +1108,19 @@ FIGURES: Dict[str, Fig] = {
         "Bars are means over every configuration at that threshold; error bars are ±1 SD of the "
         "retained cohorts' median test-retest reliability. Note the shared x-axis: the two panels "
         "are the two halves of one trade."),
+    "prod_screening_outcomes": Fig(
+        prod_screening_outcomes,
+        "Left: every candidate who actually sat the task, so people who revoked consent or never "
+        "returned data are excluded rather than counted as passes. Right: the criteria those "
+        "failures tripped, and a participant can trip more than one. Two of the three criteria "
+        "have no counterpart in the simulation, whose subjects arrange every image in every trial "
+        "and so can never fail a move-ratio check. " + PROD_NOTE),
+    "prod_reliability_by_variant": Fig(
+        prod_reliability_by_variant,
+        "One bar per participant bin, split by cohort. Two exclusion rules are marked: the "
+        "deployed in-task gate at rho > 0, and the pre-registration's analysis-time rule, which "
+        "drops the lowest decile of each cohort and is therefore relative rather than absolute. "
+        + PROD_NOTE),
     "screening_pays_off": Fig(
         screening_pays_off,
         "N=50 throughout, so only participant quality varies. x is the retained cohort's measured "
