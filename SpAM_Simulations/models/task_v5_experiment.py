@@ -50,8 +50,16 @@ from SpAM_Simulations.models.task_v4_experiment import (
 # from `meta.csv` - so a numeric field survives the ResultStore round-trip and becomes a grouping
 # column in every compute_* table for free.
 #
-# `exclude_false_positives` is appended AFTER `canvas_softness`, and lives on the v5 tuple rather
-# than v4's, deliberately. v4's field order is pinned by its bit-exactness fixtures, and v5's tuple
+# `within_session_drift` exists because the model otherwise has NO mechanism for a candidate getting
+# worse as the session runs, and production says one is needed: every move-ratio failure in the live
+# data occurs in the experimental block, none in the screening block, and the false-positive rate
+# (14.1%) is roughly four times what regression to the mean alone reproduces (3.8%). One scalar,
+# multiplying the subject's noise for the second block only, is the smallest thing that can carry
+# that. It is NOT a claim about the mechanism (fatigue, disengagement, strategy change are
+# indistinguishable here) - only about its direction and rough size.
+#
+# `exclude_false_positives` and `within_session_drift` are appended AFTER `canvas_softness`, and live
+# on the v5 tuple rather than v4's, deliberately. v4's field order is pinned by its bit-exactness fixtures, and v5's tuple
 # is spliced from v4's `_fields`, so appending to v4 would silently shift `canvas_softness` by one
 # position in every v5 parameter tuple ever constructed. Adding it here instead leaves v4 alone.
 TaskV5ExperimentParameters = NamedTuple("TaskV5ExperimentParameters", [
@@ -59,8 +67,10 @@ TaskV5ExperimentParameters = NamedTuple("TaskV5ExperimentParameters", [
     ("canvas_softness", float),
     ("exclude_false_positives", float),   # 1.0 -> discard and replace a retained subject whose
                                           # MAIN-stage repeats fail the gate's own rule
+    ("within_session_drift", float),      # multiplies a subject's noise in the EXPERIMENTAL block;
+                                          # 1.0 (the default) = no drift, the historical behaviour
 ])
-TaskV5ExperimentParameters.__new__.__defaults__ = (DEFAULT_SOFTNESS, 0.0)
+TaskV5ExperimentParameters.__new__.__defaults__ = (DEFAULT_SOFTNESS, 0.0, 1.0)
 TaskV5ExperimentResults = TaskV4ExperimentResults
 
 

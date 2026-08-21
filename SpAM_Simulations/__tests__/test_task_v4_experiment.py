@@ -410,3 +410,53 @@ class TestExcludeFalsePositives:
         early_fails = res.n_candidates_screened - 20 - res.n_false_positives_discarded
         assert early_fails >= 0
         assert res.n_candidates_screened == 20 + early_fails + res.n_false_positives_discarded
+
+
+class TestWithinSessionDrift:
+    """A candidate who is worse in the experimental block than in the screening block.
+
+    Production's evidence for this is one-sided and hard to explain any other way: every move-ratio
+    failure in the live data falls in the experimental block and none in the screening block, and
+    the false-positive rate is roughly four times what regression to the mean alone produces. Like
+    `exclude_false_positives`, the field lives on the v5 tuple and v4 reads it defensively.
+    """
+
+    def _run_with_drift(self, drift, seed=0, **overrides):
+        base = _params(**overrides)
+        fields = list(base._fields) + ["within_session_drift"]
+        Extended = NamedTuple("Extended", [(f, float) for f in fields])
+        params = Extended(*[getattr(base, f) for f in base._fields], float(drift))
+        _, res = simulate_task_v4_experiment(params, GT, np.random.default_rng(seed), verbose=False)
+        return res
+
+    def test_one_is_a_no_op(self):
+        """The v4 tuple has no such field, so the getattr default must reproduce v4 exactly."""
+        plain = _run(seed=3, screening_min_reliability=0.1)
+        same = self._run_with_drift(1.0, seed=3, screening_min_reliability=0.1)
+        np.testing.assert_array_equal(same.subject_noises, plain.subject_noises)
+        np.testing.assert_allclose(same.subject_test_retest, plain.subject_test_retest)
+
+    def test_drift_lowers_retained_reliability(self):
+        """The analysed block is the drifted one, so the cohort the analysis sees is noisier."""
+        none = self._run_with_drift(1.0, seed=3, screening_min_reliability=0.1)
+        lots = self._run_with_drift(2.0, seed=3, screening_min_reliability=0.1)
+        assert np.nanmean(lots.subject_test_retest) < np.nanmean(none.subject_test_retest)
+
+    def test_drift_raises_the_false_positive_rate(self):
+        """This is what the parameter exists to reproduce: the gate reads a cleaner person than
+        the analysis gets, so more survivors fail the same rule on the experimental block."""
+        none = self._run_with_drift(1.0, seed=3, screening_min_reliability=0.1)
+        lots = self._run_with_drift(2.0, seed=3, screening_min_reliability=0.1)
+        assert lots.screening_false_positive_rate > none.screening_false_positive_rate
+
+    def test_drift_leaves_the_screening_pass_rate_alone(self):
+        """It scales the experimental block only, so the gate itself must be unaffected. Without
+        this the parameter would be a second, confounded way of changing the noise scale."""
+        none = self._run_with_drift(1.0, seed=3, screening_min_reliability=0.1)
+        lots = self._run_with_drift(2.0, seed=3, screening_min_reliability=0.1)
+        assert lots.n_candidates_screened - lots.n_false_positives_discarded == \
+               none.n_candidates_screened - none.n_false_positives_discarded
+
+    def test_non_positive_drift_rejected(self):
+        with pytest.raises(AssertionError, match="within_session_drift"):
+            self._run_with_drift(0.0, seed=3)
