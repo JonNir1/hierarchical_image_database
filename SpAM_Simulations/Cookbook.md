@@ -794,19 +794,26 @@ The test is one-sided on purpose: the augmented set has larger halves and is fav
 so a small gain proves nothing while a loss is real evidence. On rejection it writes a pilot-only GT
 and says so; `gt/gt_v6_decision.json` carries `accepted`.
 
-#### K3. Re-gate, then sweep (EC2, same box)
+**It then re-gates itself against the rebuilt GT and stops if that fails**, because the ground truth
+is a fingerprinted input to the calibration and the earlier pass does not transfer. Watch for
+`[gate] PASSED` before moving on; a failure exits non-zero and prints which rows moved. This is the
+last point at which stopping costs nothing.
 
-The rebuilt GT invalidates the cached calibration **by design**, so the gate's earlier pass does not
-transfer:
+#### K3. The decision sweep (EC2, same box)
 
-```bash
-python -m SpAM_Simulations.cli.run_v6_calibration_gate --gt gt/gt_pre_shine_v6_d8.npy --manifest SpAM_Task/stimuli_manifest.json --no-reuse
-```
+`run_gt_v6.sh` has **already re-gated** the rebuilt ground truth and refused to continue if it
+failed, so there is no separate gate command here. That is deliberate: the gate needs the venv,
+`PYTHONPATH` and working directory that `prepare_machine.sh` exports *inside* the script's own
+process, plus a `data/` that its exit trap deletes on the way out. Running it by hand in a fresh
+shell fails on all three.
 
-Only if it still passes 6/6:
+If K2 printed `[gate] PASSED`, go straight to the sweep:
 
 ```bash
 tmux new -s v6
+```
+
+```bash
 GT_FILE=gt_pre_shine_v6_d8.npy bash run_decision_v6.sh 2>&1 | tee run_decision_v6.log
 ```
 
@@ -816,6 +823,14 @@ and every retained subject more expensive, which pushes the answer toward the op
 more. Sweeping both is what stops that assumption from tilting a spending decision.
 
 Detach with `Ctrl-b d`; reattach with `tmux attach -t v6`.
+
+> **To re-gate by hand anyway** (say, against the pilot-only GT for comparison), do it *locally* -
+> the gate needs no R, no MDS and no store, only numpy, and your `data/` is already on disk.
+> Download the GT first, then:
+>
+> ```powershell
+> .venv\Scripts\python.exe -m SpAM_Simulations.cli.run_v6_calibration_gate --gt SpAM_Simulations\sim_results\v6\gt\gt_pre_shine_pilot_only_d8.npy --manifest SpAM_Task\stimuli_manifest.json --out SpAM_Simulations\sim_results\v6\calibration --no-reuse
+> ```
 
 #### K4. Build the report (local, PowerShell)
 
@@ -836,7 +851,7 @@ can be reviewed while the run is still going.
 [ ] K1 gate passes 6/6 BEFORE any instance is launched
 [ ] K2: 41 pilot + 8 discarded pre-SHINE production subjects asserted
 [ ] K2: gt_v6_decision.json read, and `accepted` acted on either way
-[ ] K3: gate re-run against the REBUILT GT, and still 6/6
+[ ] K2: the in-script gate printed PASSED against the REBUILT GT
 [ ] K3: noise_shape_fit at_shape_boundary is false
 [ ] K3: dispersion_swept has 3 values (2 = clamped, report as one-sided)
 [ ] K3: no cell hit MAX_RECRUIT_PER_SUBJECT
