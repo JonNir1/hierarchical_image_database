@@ -118,16 +118,30 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
               cal_dir: Path, trial_simulator, softness: float, gt_file: str = "",
               n_dims: Optional[int] = None, scan_selected_n_dims: Optional[int] = None,
               noise_grid: Sequence[float] = CANVAS_NOISE_GRID, reuse: bool = True,
-              write: bool = True, verbose: bool = True) -> Dict[str, object]:
+              write: bool = True, verbose: bool = True,
+              reliability: Optional[np.ndarray] = None,
+              fit_n_repeats: int = 4) -> Dict[str, object]:
     """Fit (or reuse) the three constants. Returns the dict written to ``calibration.json``.
 
-    ``subjects`` should be ALL pilot subjects, both SHINE variants: reliability and between-subject
-    agreement are properties of people, not of the stimulus set, so the post-SHINE half is perfectly
-    good evidence about them even though it is unusable for a ground truth over the pre-SHINE set.
+    ``subjects`` should be ALL subjects of the cohort being calibrated on, both SHINE variants:
+    reliability and between-subject agreement are properties of people, not of the stimulus set,
+    so the post-SHINE half is perfectly good evidence about them even though it is unusable for a
+    ground truth over the pre-SHINE set.
 
     ``trial_simulator`` is fitted at ONE softness deliberately. Re-fitting the noise population per
     softness value would confound the sensitivity arm with three different noise scales; the arm
     then varies softness around this one calibrated level.
+
+    ``reliability`` overrides the per-subject sample derived from ``subjects``. Pass it when the
+    subjects' own reliabilities are not homogeneously estimated: the production cohort's completers
+    have four repeats while its screened-out candidates have only the screening block's two, and
+    feeding a mixture of two- and four-repeat estimates into a Wasserstein *distribution* fit biases
+    the fitted spread. The screening block's own ``median_reliability`` is two repeats for every
+    candidate, which is the homogeneous choice.
+
+    ``fit_n_repeats`` must then match how that sample was measured, because it sets how many repeats
+    each *simulated* subject contributes. Leaving it at 4 against a two-repeat empirical sample makes
+    the simulated distribution artificially tight and the fitted population artificially narrow.
 
     Raises :class:`CalibrationError` when the noise scale pins to an edge of ``noise_grid``, because
     a grid that could not reach the data mis-calibrates everything downstream - worth aborting a
@@ -138,11 +152,16 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
     coords = np.asarray(coords)
 
     # Both cheap, and both needed to fingerprint the expensive fits that follow.
-    reliability = subject_reliability_sample(subjects)
+    reliability = (subject_reliability_sample(subjects) if reliability is None
+                   else np.asarray(reliability, dtype=float))
+    reliability = reliability[np.isfinite(reliability)]
     agreement = between_subject_agreement(
         np.vstack([s.distances for s in subjects]), min_overlap=20)["mean_agreement"]
     prints = fingerprint(coords, reliability, agreement, images_per_trial, reps, noise_grid,
                          softness)
+    # Part of the cache key: the same reliability sample fitted at a different repeat count is a
+    # different fit, and a filename-blind cache would happily serve the wrong one.
+    prints["fit_n_repeats"] = int(fit_n_repeats)
 
     if reuse:
         cached = load_cached(cal_dir, prints, verbose=verbose)
@@ -150,7 +169,7 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
             return cached
 
     if verbose:
-        print(f"\n[calibrate] {len(subjects)} pilot sessions (both SHINE variants) for the noise fit",
+        print(f"\n[calibrate] {len(subjects)} sessions (both SHINE variants) for the agreement target",
               flush=True)
         print(f"[shape] empirical reliability: n={len(reliability)} "
               f"median={np.median(reliability):.3f} q10={np.quantile(reliability, .1):.3f} "
@@ -158,6 +177,7 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
 
     fit = fit_noise_population(coords, reliability, images_per_trial=images_per_trial,
                                perspective_dispersion=0.2, n_subjects=80, reps=3, verbose=verbose,
+                               n_repeats=fit_n_repeats,
                                noise_grid=tuple(noise_grid), trial_simulator=trial_simulator)
     best = fit["best"]
     if write:
