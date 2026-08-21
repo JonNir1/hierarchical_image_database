@@ -108,12 +108,29 @@ trap _on_exit EXIT
 # shellcheck disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/prepare_machine.sh"
 
-# --------------------------------------------------------------------------- session loader
-git sparse-checkout add analysis/utils || true
-if [ ! -f analysis/utils/parser.py ]; then
-  git checkout "$GIT_REF" -- analysis/utils 2>/dev/null || git checkout HEAD -- analysis/utils || true
-fi
-[ -f analysis/utils/parser.py ] || { echo "!! analysis/utils/parser.py missing"; exit 1; }
+# ------------------------------------------------------------------- session loader + config
+# TWO paths outside the sparse checkout (SpAM_Simulations only), and both are needed before any
+# participant data can be read: analysis/utils/parser.py loads the sessions, and
+# SpAM_Task/task_config.json supplies the screening thresholds. The thresholds are read from the
+# DEPLOYED config rather than from constants precisely so an audit cannot drift from the gate
+# participants actually faced - which means the file has to be on the box.
+#
+# Checking both in one loop, because checking only the first is exactly the bug this had: the
+# run reached the calibration, spent 58s pulling stores, and died on a missing task_config.json.
+git sparse-checkout add analysis/utils SpAM_Task || true
+for f in analysis/utils/parser.py SpAM_Task/task_config.json; do
+  if [ ! -f "$f" ]; then
+    echo ">> [setup] sparse add did not materialise $f; forcing a path checkout ..."
+    git checkout "$GIT_REF" -- "$(dirname "$f")" 2>/dev/null \
+      || git checkout HEAD -- "$(dirname "$f")" 2>/dev/null || true
+  fi
+  if [ ! -f "$f" ]; then
+    echo "!! [setup] $f still missing (checked out ref: $GIT_REF)."
+    git sparse-checkout list || true
+    exit 1
+  fi
+done
+echo ">> [setup] parser and task_config present"
 
 PROD_DIR="data"
 echo ">> [data] fetching participant data from $S3_URI/data ..."
