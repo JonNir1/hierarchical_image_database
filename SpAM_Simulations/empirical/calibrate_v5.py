@@ -120,7 +120,7 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
               noise_grid: Sequence[float] = CANVAS_NOISE_GRID, reuse: bool = True,
               write: bool = True, verbose: bool = True,
               reliability: Optional[np.ndarray] = None,
-              fit_n_repeats: int = 4) -> Dict[str, object]:
+              fit_n_repeats: int = 4, fit_statistic: str = "mean") -> Dict[str, object]:
     """Fit (or reuse) the three constants. Returns the dict written to ``calibration.json``.
 
     ``subjects`` should be ALL subjects of the cohort being calibrated on, both SHINE variants:
@@ -143,6 +143,11 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
     each *simulated* subject contributes. Leaving it at 4 against a two-repeat empirical sample makes
     the simulated distribution artificially tight and the fitted population artificially narrow.
 
+    ``fit_statistic`` must likewise match how each subject's repeats were collapsed. The deployed
+    gate thresholds the MINIMUM of a candidate's repeat correlations, so a screening sample should be
+    fitted with ``"min"``; the mean of two repeats and their minimum are different distributions, and
+    they diverge exactly in the lower tail that a non-zero threshold cuts.
+
     Raises :class:`CalibrationError` when the noise scale pins to an edge of ``noise_grid``, because
     a grid that could not reach the data mis-calibrates everything downstream - worth aborting a
     fifteen-hour run for.
@@ -162,6 +167,7 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
     # Part of the cache key: the same reliability sample fitted at a different repeat count is a
     # different fit, and a filename-blind cache would happily serve the wrong one.
     prints["fit_n_repeats"] = int(fit_n_repeats)
+    prints["fit_statistic"] = str(fit_statistic)
 
     if reuse:
         cached = load_cached(cal_dir, prints, verbose=verbose)
@@ -177,7 +183,7 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
 
     fit = fit_noise_population(coords, reliability, images_per_trial=images_per_trial,
                                perspective_dispersion=0.2, n_subjects=80, reps=3, verbose=verbose,
-                               n_repeats=fit_n_repeats,
+                               n_repeats=fit_n_repeats, statistic=fit_statistic,
                                noise_grid=tuple(noise_grid), trial_simulator=trial_simulator)
     best = fit["best"]
     if write:

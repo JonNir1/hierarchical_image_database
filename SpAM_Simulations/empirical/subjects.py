@@ -643,10 +643,18 @@ def subject_reliability_sample(subjects: Sequence[Subject]) -> np.ndarray:
     return vals[~np.isnan(vals)]
 
 
+# How a subject's several repeat correlations are collapsed into the one number that stands for
+# their reliability. The choice is not cosmetic: `_passes_screening` gates on the MINIMUM, so a
+# population fitted to the mean is fitted to a distribution the gate never reads. The two differ
+# most exactly where a non-zero threshold sits.
+_RELIABILITY_STATISTICS = {"mean": np.mean, "min": np.min, "median": np.median}
+
+
 def simulate_reliability_sample(
         gt_embeddings: np.ndarray, noise_scale: float, *, family: str = "t", shape: float = 5.0,
         n_subjects: int = 60, n_repeats: int = 4, images_per_trial: int = 20,
         perspective_dispersion: float = 0.2, reps: int = 3, seed: int = 0, trial_simulator=None,
+        statistic: str = "mean",
 ) -> np.ndarray:
     """The simulated counterpart of :func:`subject_reliability_sample`.
 
@@ -654,7 +662,16 @@ def simulate_reliability_sample(
     ``n_repeats`` distinct trials plus ``n_repeats`` repeats rather than a full session - the
     reliability distribution is identical and it is an order of magnitude cheaper, which is what
     makes a 2-D grid search affordable.
+
+    ``statistic`` selects how one subject's repeat correlations collapse to a single value, and it
+    must match how the empirical sample being fitted was measured. ``"mean"`` is the default because
+    that is what :func:`subject_reliability_sample` returns. Pass ``"min"`` when fitting against a
+    screening-block sample, since the deployed gate thresholds the minimum of the repeats.
     """
+    if statistic not in _RELIABILITY_STATISTICS:
+        raise ValueError(f"statistic must be one of {sorted(_RELIABILITY_STATISTICS)}, "
+                         f"got {statistic!r}")
+    reduce = _RELIABILITY_STATISTICS[statistic]
     from SpAM_Simulations.models.task_v4_experiment import simulate_task_v4_single_subject
     from SpAM_Simulations.models.noise_population import draw_subject_noises
     out = []
@@ -669,7 +686,7 @@ def simulate_reliability_sample(
                 n_repeats=n_repeats, gt_embeddings=gt_embeddings, rng=rng)
             good = [c for c in run.repeat_correlations if not np.isnan(c)]
             if good:
-                out.append(float(np.mean(good)))
+                out.append(float(reduce(good)))
     return np.asarray(out)
 
 
@@ -681,7 +698,7 @@ def fit_noise_population(
         noise_grid: Sequence[float] = tuple(np.round(np.arange(0.4, 2.61, 0.2), 2)),
         n_subjects: int = 60, n_repeats: int = 4, images_per_trial: int = 20,
         perspective_dispersion: float = 0.2, reps: int = 3, seed: int = 0, verbose: bool = True,
-        trial_simulator=None,
+        trial_simulator=None, statistic: str = "mean",
 ) -> dict:
     """Jointly fit the noise population's **scale and shape** to an empirical reliability sample.
 
@@ -697,6 +714,10 @@ def fit_noise_population(
     distributions". Both families are scanned unless ``families`` restricts it - ``"t"`` cannot
     express a cohort more concentrated than a half-normal (CV floor ~0.756), so a fit that lands on
     the largest ``t_shapes`` value is a signal the family is the binding constraint, not the data.
+
+    ``statistic`` must match how ``empirical`` was collapsed per subject - see
+    :func:`simulate_reliability_sample`. Fitting the mean against a sample of minima (or the reverse)
+    misplaces the whole lower tail, which is precisely the region a screening threshold reads.
 
     Returns the best ``{family, shape, noise_scale, distance, cv, simulated_median, ...}`` plus the
     full scanned ``grid`` as a DataFrame, so the fit's sharpness can be inspected rather than
@@ -716,7 +737,7 @@ def fit_noise_population(
                     gt_embeddings, float(scale), family=family, shape=float(shape),
                     n_subjects=n_subjects, n_repeats=n_repeats, images_per_trial=images_per_trial,
                     perspective_dispersion=perspective_dispersion, reps=reps, seed=seed,
-                    trial_simulator=trial_simulator)
+                    trial_simulator=trial_simulator, statistic=statistic)
                 rows.append(dict(family=family, shape=float(shape), noise_scale=float(scale),
                                  distance=float(wasserstein_distance(sim, empirical)),
                                  sim_median=float(np.median(sim)), sim_mean=float(np.mean(sim)),
@@ -731,6 +752,7 @@ def fit_noise_population(
     best = grid.loc[grid["distance"].idxmin()].to_dict()
     from SpAM_Simulations.models.noise_population import population_cv
     best["cv"] = population_cv(best["family"], best["shape"])
+    best["statistic"] = statistic
     best["empirical_median"] = float(np.median(empirical))
     best["empirical_n"] = int(empirical.size)
     best["at_shape_boundary"] = bool(
