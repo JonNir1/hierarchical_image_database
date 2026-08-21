@@ -193,7 +193,8 @@ print(f"[prod] {n_attempted} candidates, {len(kept)} retained at rho>0 (false al
 cal = calibrate(coords, kept, images_per_trial=IMAGES_PER_TRIAL, reps=6, cal_dir=CAL,
                 trial_simulator=simulator, softness=cv.DEFAULT_SOFTNESS, gt_file=GT_FILE,
                 n_dims=int(coords.shape[1]), reliability=reliability,   # screening-block MINIMA
-                fit_n_repeats=SCREEN_REPEATS, fit_statistic="min", reuse=REUSE)
+                fit_n_repeats=SCREEN_REPEATS, fit_statistic="min",
+                scale_from="distribution", reuse=REUSE)
 print(f"[calibrated] noise_scale={cal['subjects_noise_scale']} family={cal['noise_family']} "
       f"shape={cal['noise_shape']} dispersion={cal['dispersion']} drift={DRIFT}", flush=True)
 

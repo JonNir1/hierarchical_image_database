@@ -218,6 +218,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     trial_simulator=simulator, softness=cv.DEFAULT_SOFTNESS,
                     gt_file=args.gt.name, n_dims=int(coords.shape[1]),
                     reliability=reliability, fit_n_repeats=SCREEN_REPEATS, fit_statistic="min",
+                    scale_from="distribution",
                     reuse=not args.no_reuse)
     print(f"\n[calibrated] noise_scale={cal['subjects_noise_scale']} "
           f"family={cal['noise_family']} shape={cal['noise_shape']} "
