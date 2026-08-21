@@ -159,3 +159,82 @@ def criteria_of(reasons: Sequence[str]) -> List[str]:
             if reason.startswith(prefix) and name not in out:
                 out.append(name)
     return out
+
+
+# --------------------------------------------------------------------------- candidate partition
+CandidatePartition = Dict[str, List[str]]
+
+
+def partition_candidates(participants: pd.DataFrame, trials: pd.DataFrame,
+                         thresholds: Dict[str, object], *,
+                         threshold: float = 0.0,
+                         cohort: str = "production") -> CandidatePartition:
+    """Split everyone who sat the task into ``retained`` / ``early_fail`` / ``false_alarm`` ids.
+
+    One implementation, because two of them drift. The v6 calibration gate and the v6 ground-truth
+    rebuild both need this partition and disagreeing by a single subject changes what each reports;
+    an earlier copy that checked only reliability on the experimental block, and not move-ratio,
+    counted 73 retained where every other analysis counted 67.
+
+    The rule, in the order the study applies it:
+
+    * **early fail** - fails the gate on the SCREENING block, in-task, and is paid the reduced rate;
+    * **false alarm** - clears the screening block, is paid in full, and then fails the *same* rule
+      on the experimental block. Invisible to the deployed task, which reads a candidate once;
+    * **retained** - clears both, and is the only group the analysis keeps.
+
+    ``threshold`` overrides the config's ``min_reliability`` so a counterfactual gate can be scored
+    against the same data - that is the whole point of the exercise for the decision run. Both
+    non-reliability criteria are applied at every threshold, since they do not depend on it.
+
+    Only participants whose status is ``"full data"`` or ``"screened out"`` are considered:
+    everyone else (revoked consent, abandoned) never produced a gate decision, and counting them as
+    clean passes silently inflates the pass rate.
+    """
+    attempted = participants[(participants["cohort"] == cohort)
+                             & (participants["status"].isin(["full data", "screened out"]))]
+    out: CandidatePartition = {"retained": [], "early_fail": [], "false_alarm": []}
+    for row in attempted.itertuples():
+        pid = row.participant_id
+        # The screening block's own decision, as recorded by the task.
+        screen_other = (_exceeds(getattr(row, "move_ratio_fail_rate", None),
+                                 thresholds["move_ratio_max_fail_rate"])
+                        or _exceeds(getattr(row, "distance_sd_fail_rate", None),
+                                    thresholds["distance_sd_max_fail_rate"]))
+        screen_min = getattr(row, "min_reliability", None)
+        if screen_other or (screen_min is not None and pd.notna(screen_min)
+                            and float(screen_min) < threshold):
+            out["early_fail"].append(pid)
+            continue
+        # Cleared the gate. Now score the SAME rule against the experimental block.
+        mine = trials[(trials["participant_id"] == pid) & (~trials["is_catch"].astype(bool))]
+        if "block_type" in mine.columns:
+            mine = mine[mine["block_type"] == "experimental"]
+        if mine.empty:
+            # Screened out mid-task, so there is no experimental block to score. Their gate
+            # decision was the screening one, which they passed only because `threshold` is lower
+            # than the deployed gate; they still never contributed experimental data.
+            out["early_fail"].append(pid)
+            continue
+        audit = evaluate_screening(mine, thresholds)
+        n = max(int(audit["n_trials"]), 1)
+        exp_other = (_exceeds(audit["move_ratio_fails"] / n, thresholds["move_ratio_max_fail_rate"])
+                     or _exceeds(audit["distance_sd_fails"] / n,
+                                 thresholds["distance_sd_max_fail_rate"]))
+        exp_min = audit["min_reliability"]
+        if exp_other or (exp_min is not None and float(exp_min) < threshold):
+            out["false_alarm"].append(pid)
+            continue
+        out["retained"].append(pid)
+    return out
+
+
+def _exceeds(value, threshold) -> bool:
+    """``value > threshold``, treating a null threshold as "criterion disabled" and NaN as pass."""
+    if threshold is None or value is None:
+        return False
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return False
+    return bool(np.isfinite(v) and v > float(threshold))

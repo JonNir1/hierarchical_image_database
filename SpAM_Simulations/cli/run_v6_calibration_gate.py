@@ -69,47 +69,19 @@ def _observed(data_dir: str, manifest: str, config: str, statistic: str = "min")
     data = load_data(data_dir)
     participants, trials = data["participants"], data["trials"]
     attempted = participants[(participants["cohort"] == "production")
-                             & (participants["status"].isin(["full data", "screened out"]))].copy()
-    other = ((attempted["move_ratio_fail_rate"] > thr["move_ratio_max_fail_rate"])
-             | (attempted["distance_sd_fail_rate"] > thr["distance_sd_max_fail_rate"])).fillna(False)
+                             & (participants["status"].isin(["full data", "screened out"]))]
 
     # Homogeneous across all 84: two screening repeats each, collapsed by the same statistic the
     # gate reads. See the module docstring.
     reliability = attempted[f"{statistic}_reliability"].astype(float).dropna().to_numpy()
 
     subjects = {s.participant_id: s for s in load_prod_subjects(data_dir, manifest)}
-    screen_min = dict(zip(attempted["participant_id"], attempted["min_reliability"]))
-    other_fail = dict(zip(attempted["participant_id"], other))
-    experimental = {}
-    for pid in subjects:
-        mine = trials[(trials["participant_id"] == pid) & (~trials["is_catch"].astype(bool))]
-        if "block_type" in mine.columns:
-            mine = mine[mine["block_type"] == "experimental"]
-        audit = sa.evaluate_screening(mine, thr)
-        # BOTH criteria, not just reliability. Six production subjects fail the experimental block
-        # on move-ratio alone, and omitting that check here would call them retained while every
-        # other analysis calls them false alarms - a 73-vs-67 disagreement in the retained count.
-        experimental[pid] = (
-            audit["min_reliability"],
-            audit["move_ratio_fails"] / max(audit["n_trials"], 1) > thr["move_ratio_max_fail_rate"]
-            or audit["distance_sd_fails"] / max(audit["n_trials"], 1)
-            > thr["distance_sd_max_fail_rate"])
-
-    def retained(threshold):
-        keep = []
-        for pid in attempted["participant_id"]:
-            if other_fail.get(pid, False) or (screen_min[pid] is not None
-                                              and screen_min[pid] < threshold):
-                continue
-            if pid not in subjects:
-                continue
-            m, exp_other_fail = experimental[pid]
-            if exp_other_fail or (m is not None and m < threshold):
-                continue
-            keep.append(subjects[pid])
-        return keep
-
-    kept = retained(0.0)
+    # ONE implementation of the retained/early-fail/false-alarm rule, shared with the GT rebuild.
+    # BOTH criteria are applied to the experimental block, not just reliability: six production
+    # subjects fail move-ratio there, and omitting that check calls them retained when every other
+    # analysis calls them false alarms - a 73-vs-67 disagreement in the retained count.
+    part = sa.partition_candidates(participants, trials, thr, threshold=0.0)
+    kept = [subjects[pid] for pid in part["retained"] if pid in subjects]
     agreement = between_subject_agreement(stack_distances(kept), min_overlap=20)["mean_agreement"]
     return reliability, float(agreement), len(attempted), kept
 

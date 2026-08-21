@@ -1,0 +1,113 @@
+<h1>sim-v6: choosing how to finish the study</h1>
+<p class="sub">A decision run. Three options, one recommendation, and the RQ2 power estimate that
+v5 could not provide.</p>
+
+<h2>1. Why this run exists</h2>
+
+<p>Collection paused at roughly 80 retained subjects, 39 and 39 across the two SHINE cohorts, on a
+three-way choice about how to spend the remaining budget. All three keep the random allocation arm,
+which is what is deployed and is not being revisited.</p>
+
+<table>
+  <thead><tr><th>Option</th><th>Per-cohort target</th><th>Screening gate</th>
+    <th>Credits to finish</th></tr></thead>
+  <tbody>
+    <tr><td><b>A</b></td><td>N = 50</td><td>ρ &gt; 0 <i>(deployed now)</i></td><td>286</td></tr>
+    <tr><td><b>B</b></td><td>N = 50</td><td>ρ &gt; 0.1</td><td>636</td></tr>
+    <tr><td><b>C</b></td><td>N = 75</td><td>ρ &gt; 0</td><td>683</td></tr>
+  </tbody>
+</table>
+
+<p>Everything decided so far rests on the v5 sweep, and v5 has four problems for this particular
+purpose. It never simulated these three cells directly. Its participants were calibrated on 41 pilot
+subjects running task versions 1.0&ndash;3.06, whose fitted noise scale is substantially too high for
+the deployed cohort. Its ground truth exceeds its own data's reliability ceiling, so part of its fine
+structure is fitted noise. And it has no RQ2 power estimate at all &mdash; the numbers produced
+earlier were an analytic approximation resting on a variance-scaling exponent that could not be
+justified.</p>
+
+<p>This run is deliberately small: roughly 3,600 MDS fits against v5's 17,280. It is not a survey and
+should not be read as one.</p>
+
+<h2>2. What differs from v5</h2>
+
+<ol>
+  <li><b>Participants are recalibrated on production</b> &mdash; all 84 candidates who sat the
+    deployed task, not the 41 pilot subjects. The fitted noise scale falls from 0.30 to 0.22 and the
+    population's spread from σ = 0.35 to 0.25: the deployed cohort is materially cleaner than the
+    pilot was.</li>
+  <li><b>The ground truth is rebuilt</b> from the pilot plus the eight pre-SHINE production subjects
+    the analysis discards anyway. Not circular: every one of them is excluded by a rule fixed before
+    this analysis, so no subject who appears in the study's results contributes to the ground truth
+    its design was chosen against.</li>
+  <li><b>Retained cohorts exclude false alarms</b>, matching the analysis that would actually be
+    run rather than the task's own one-shot gate.</li>
+  <li><b>RQ2 power is measured</b> rather than approximated, by simulating cohorts on deliberately
+    perturbed ground truths.</li>
+  <li><b>Within-session drift is swept</b>, not assumed. See section 4.</li>
+</ol>
+
+<p>Everything else is v5 and is cited rather than repeated.</p>
+
+<h2>3. Does the model match what we can already see?</h2>
+
+<p>The recalibrated model has to reproduce the quantities production already shows before its
+predictions about the cells we cannot measure are worth anything. Six checks, all measured on the
+same 84 candidates, all passed.</p>
+
+<!-- figure: validation_gate -->
+
+<p>Two of the six deserve a caveat rather than credit. The pass rates are the quantities the
+calibration was fitted against, so they are close to circular; the informative rows are retained
+test-retest, the false-positive rate and between-subject agreement, none of which the fit targeted
+directly.</p>
+
+<h2>4. On within-session drift</h2>
+
+<p>Production shows something v5's model cannot produce: every move-ratio failure in the live data
+falls in the <i>experimental</i> block and none in the screening block. Participants get worse after
+the gate has read them, and the deployed design is structurally blind to it. A single scalar
+multiplying a subject's noise in the second block is the smallest thing that can carry that.</p>
+
+<p>The gate passes at both drift = 1.0 (none) and drift = 1.1 (the value fitted to production's
+14.1% false-alarm rate), so the data does not settle the question. It is swept rather than chosen
+because the choice is <b>not neutral for the decision</b>: drift lowers retained reliability and
+raises the false-alarm rate, making every recovery metric worse and every retained subject more
+expensive, which pushes the answer toward the options that cost more. Picking one value by hand
+would tilt a spending decision on an assumption the data cannot support.</p>
+
+<h2>5. The three-way comparison</h2>
+
+<!-- figure: coverage_by_cell -->
+<!-- figure: stability_by_cell -->
+<!-- figure: recovery_by_cell -->
+<!-- figure: jaccard_by_cell -->
+
+<h2>6. RQ2 power</h2>
+
+<p>RQ2a(ii) asks whether ρ(pre, post) sits below the within-condition ceiling. The null is free: two
+cohorts drawn from the same ground truth is exactly what the main sweep already produces. The
+alternative needs cohorts on a ground truth a known distance away, which is what the perturbation
+arm supplies. Power is then the share of alternative draws below the null's 5th percentile &mdash; no
+normal approximation, no attenuation formula.</p>
+
+<!-- figure: rq2_power -->
+
+<h2>7. Recommendation</h2>
+
+<!-- figure: cost_per_quality -->
+
+<h2>8. What this run still cannot settle</h2>
+
+<ul>
+  <li><b>The rebuilt ground truth is still mostly the pilot</b> &mdash; 49 subjects rather than 41,
+    and the eight added are the weakest available. Coverage and replication improve; whether the
+    <i>geometry</i> is more trustworthy is checked by a one-sided gate, not guaranteed.</li>
+  <li><b>The RQ2 effect is isotropic by construction.</b> If SHINE acts selectively on sensory
+    dimensions, as RQ3 supposes, this estimate shifts depending on how much distance variance those
+    dimensions carry. A sensory-weighted variant is the natural follow-up.</li>
+  <li><b>Drift is a description, not a mechanism.</b> Fatigue, disengagement and strategy change are
+    indistinguishable here, and the scalar claims only a direction and a rough size.</li>
+  <li><b>The false-alarm rate under drift = 1.1 is a fitted target, not a prediction.</b> It must not
+    be read as corroboration of the model under that setting.</li>
+</ul>

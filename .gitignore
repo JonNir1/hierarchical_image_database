@@ -58,6 +58,12 @@ SpAM_Simulations/sim_results/v5/*
 !SpAM_Simulations/sim_results/v5/report/
 # ... except the built page, which inlines plotly.js and so runs to ~5 MB.
 SpAM_Simulations/sim_results/v5/report/report_v5.html
+# Same arrangement for the v6 decision run: its report is prose and figure code, so it is tracked;
+# its data (calibration/, gt/, out/, mds_store*/) is reproducible from S3 and is not.
+!SpAM_Simulations/sim_results/v6/
+SpAM_Simulations/sim_results/v6/*
+!SpAM_Simulations/sim_results/v6/report/
+SpAM_Simulations/sim_results/v6/report/report_v6.html
 
 # analysis outputs (RDMs, intermediate results) -- reproducible, not tracked
 analysis/results/

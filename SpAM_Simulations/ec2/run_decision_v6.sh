@@ -32,22 +32,29 @@
 #
 #   Gate state: PASSES 6/6, at noise_scale=0.22, lognormal sigma=0.25, dispersion=0.10.
 #
-# ON DRIFT, AND WHY IT HAS NO DEFAULT. The gate passes 6/6 at BOTH drift=1.0 (none) and drift=1.1
-# (the value fitted to prod's 14.1% false-positive rate). At 1.0 that row reads 0.098, inside its
-# 0.10 tolerance, so the drift is not needed to pass; it centres the row instead of leaving it near
-# an edge, and it pulls retained test-retest from 0.299 to 0.276 against an observed 0.281.
+# ON DRIFT, AND WHY IT IS SWEPT RATHER THAN CHOSEN. The gate passes 6/6 at BOTH drift=1.0 (none) and
+# drift=1.1 (the value fitted to prod's 14.1% false-positive rate), so the data cannot choose between
+# them - at 1.0 the false-positive row reads 0.098, already inside its 0.10 tolerance.
 #
-#   drift=1.0  parsimonious. The false-positive row stays EVIDENCE about the model, and the run
-#              spends no free parameter on a mechanism the data supports only qualitatively.
-#   drift=1.1  matches the point estimates more closely, at the cost of that row: after fitting, it
-#              is no longer a test the model could have failed.
+# The choice is not neutral for the decision this run exists to make, which is why it is not made by
+# hand. Drift lowers retained reliability and raises the false-alarm rate, so it makes every
+# downstream recovery metric worse and every retained subject more expensive - pushing the answer
+# toward "N=50 is not enough", i.e. toward the options that cost more. Picking a value would tilt a
+# spending decision on an assumption the data does not settle.
 #
-# Either is defensible and the choice is deliberate, so DRIFT is required rather than defaulted.
-# Whichever is used, the report must say which, and must not present the false-positive row as
-# corroboration under 1.1.
+#   drift=1.0  parsimonious; the false-positive row stays EVIDENCE rather than a fitted target.
+#   drift=1.1  matches the point estimates more closely, and is the conservative end.
 #
-# COST. ~585 cohorts and ~1,800 MDS fits, against v5's 2,880 and 17,280. Budget 3-4 h on a
-# c7i.4xlarge. On-Demand, not Spot.
+# So DRIFT_LIST sweeps both and the comparison is reported under each. If the three options separate
+# the same way at both ends, the question is moot and the report says so. If they do not, that IS
+# the finding, and no single-value run could have surfaced it.
+#
+# COST, with drift swept over two values:
+#   main    3 cells x 3 dispersion x 3 softness x 2 drift x 15 reps =   810 cohorts, x4 ndim = 3,240
+#   RQ2     3 cells x 4 rho_true x 2 drift x 15 reps                =   360 cohorts, x1 ndim =   360
+#   total                                                              1,170 cohorts and 3,600 fits
+# Against v5's 2,880 cohorts and 17,280 fits: 41% of the generation, 21% of the SMACOF. Budget
+# 6-8 h on a c7i.4xlarge - roughly double the single-drift plan. On-Demand, not Spot.
 # =============================================================================================
 set -euo pipefail
 
@@ -120,7 +127,7 @@ fi
 echo ">> [gt] pulling the v6 ground truth from $GT_S3_URI/gt/ ..."
 mkdir -p gt
 aws s3 sync "$GT_S3_URI/gt/" gt/ --only-show-errors || true
-GT_FILE="${GT_FILE:-gt_v6_d8.npy}"
+GT_FILE="${GT_FILE:-gt_pre_shine_v6_d8.npy}"   # what run_gt_v6.sh writes when the rebuild is accepted
 if [ ! -f "gt/$GT_FILE" ]; then
   echo "!! gt/$GT_FILE not found under $GT_S3_URI/gt/."
   echo "!! This run never rebuilds the ground truth - doing so here would silently change it"
@@ -148,7 +155,7 @@ N_JOBS="$N_JOBS" REPS="$REPS" S3_URI="$S3_URI" GT_FILE="$GT_FILE" SEED="${SEED:-
   SOFTNESS_LIST="${SOFTNESS_LIST:-3,4,8}" NDIMS="${NDIMS:-5,8,10,13}" \
   RHO_LIST="${RHO_LIST:-0.99,0.98,0.95,0.90}" \
   TABLES_ONLY="${TABLES_ONLY:-0}" REUSE_CALIBRATION="${REUSE_CALIBRATION:-1}" \
-  DRIFT="${DRIFT:?set DRIFT to the within_session_drift the LOCAL gate fitted (validation_gate.json). No default: it is a fitted constant, not a knob.}" \
+  DRIFT_LIST="${DRIFT_LIST:-1.0,1.1}" \
   python - <<'PY'
 import json, os, sys
 from pathlib import Path
@@ -188,7 +195,7 @@ RANDOM_ARM, EXCLUDE_FA = 0.0, 1.0
 # rate, and carried here as a CONSTANT. It is one free parameter tuned to one observed number, so
 # the gate's false-positive row below is no longer evidence about the model. The other five rows
 # are, and the drift also moves retained test-retest, so the gate can still fail.
-DRIFT = float(os.environ["DRIFT"])
+DRIFT = [float(x) for x in os.environ["DRIFT_LIST"].split(",")]
 
 
 def push(prefix, what):
@@ -212,13 +219,17 @@ cal = calibrate(coords, kept, images_per_trial=IMAGES_PER_TRIAL, reps=6, cal_dir
                 fit_n_repeats=SCREEN_REPEATS, fit_statistic="min",
                 scale_from="distribution", reuse=REUSE)
 print(f"[calibrated] noise_scale={cal['subjects_noise_scale']} family={cal['noise_family']} "
-      f"shape={cal['noise_shape']} dispersion={cal['dispersion']} drift={DRIFT}", flush=True)
+      f"shape={cal['noise_shape']} dispersion={cal['dispersion']} drift_swept={DRIFT}",
+      flush=True)
 
 gate_rows, failures = [], []
+# The gate is checked at the FIRST swept drift. It passes 6/6 at both 1.0 and 1.1, and running it
+# twice would only restate that; the sweep below is what carries the comparison.
+GATE_DRIFT = DRIFT[0]
 at0 = _simulate_cell(coords, cal, 0.0, n_subjects=50, reps=8, seed=SEED, simulator=simulator,
-                     drift=DRIFT)
+                     drift=GATE_DRIFT)
 at01 = _simulate_cell(coords, cal, 0.1, n_subjects=50, reps=8, seed=SEED, simulator=simulator,
-                      drift=DRIFT)
+                      drift=GATE_DRIFT)
 got = {"pass_rate_rho0": at0["pass_rate"], "pass_rate_rho01": at01["pass_rate"],
        "retained_tr_rho0": at0["median_tr"], "retained_tr_rho01": at01["median_tr"],
        "false_positive_rate_rho0": at0["false_positive_rate"],
@@ -247,7 +258,7 @@ COMMON = dict(
     perspective_dispersion=cal["dispersion_swept"],
     screening_trials=[SCREEN_TRIALS], screening_repeats=[SCREEN_REPEATS],
     allocation_mode=[RANDOM_ARM], canvas_softness=SOFTNESS,
-    exclude_false_positives=[EXCLUDE_FA], within_session_drift=[DRIFT], reps=REPS, seed=SEED,
+    exclude_false_positives=[EXCLUDE_FA], within_session_drift=DRIFT, reps=REPS, seed=SEED,
 )
 # TWO configs, not one grid. num_subjects and screening_min_reliability are independent axes, so a
 # single Cartesian product would also generate (N=75, rho>0.1) - a fourth cell that is out of budget
