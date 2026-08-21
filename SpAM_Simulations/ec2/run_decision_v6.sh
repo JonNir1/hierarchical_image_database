@@ -12,7 +12,7 @@
 # All on the random allocation arm, because that is what is deployed and the decision not to switch
 # has already been taken.
 #
-# FOUR DIFFERENCES FROM v5, and nothing else changes:
+# FIVE DIFFERENCES FROM v5, and nothing else changes:
 #
 #   1. Participants are recalibrated on the 84 PRODUCTION candidates rather than the 41 pilot
 #      subjects. v5's noise scale (0.30) is ~25% too high for the deployed cohort, which is why it
@@ -22,13 +22,29 @@
 #      contributes to it.
 #   3. Retained cohorts EXCLUDE false alarms, matching the analysis we would actually run.
 #   4. RQ2 power is measured, by simulating cohorts on deliberately perturbed ground truths.
-#   5. Participants DRIFT within a session: their noise is scaled up for the experimental block.
-#      Production shows the degradation (every move-ratio failure falls in that block, none in the
-#      screening block) and v5 had no mechanism for it. The scalar is fitted locally, by the gate.
+#   5. Participants may DRIFT within a session: DRIFT scales their noise for the experimental block.
+#      Production shows the degradation qualitatively (every move-ratio failure falls in that block,
+#      none in the screening block) and v5 had no mechanism for it.
 #
 # THE GATE. `cli.run_v6_calibration_gate` must pass locally BEFORE this is launched. It checks the
 # recalibrated model against six quantities production already shows. A model that cannot reproduce
 # what we can measure is not worth an instance for what we cannot.
+#
+#   Gate state: PASSES 6/6, at noise_scale=0.22, lognormal sigma=0.25, dispersion=0.10.
+#
+# ON DRIFT, AND WHY IT HAS NO DEFAULT. The gate passes 6/6 at BOTH drift=1.0 (none) and drift=1.1
+# (the value fitted to prod's 14.1% false-positive rate). At 1.0 that row reads 0.098, inside its
+# 0.10 tolerance, so the drift is not needed to pass; it centres the row instead of leaving it near
+# an edge, and it pulls retained test-retest from 0.299 to 0.276 against an observed 0.281.
+#
+#   drift=1.0  parsimonious. The false-positive row stays EVIDENCE about the model, and the run
+#              spends no free parameter on a mechanism the data supports only qualitatively.
+#   drift=1.1  matches the point estimates more closely, at the cost of that row: after fitting, it
+#              is no longer a test the model could have failed.
+#
+# Either is defensible and the choice is deliberate, so DRIFT is required rather than defaulted.
+# Whichever is used, the report must say which, and must not present the false-positive row as
+# corroboration under 1.1.
 #
 # COST. ~585 cohorts and ~1,800 MDS fits, against v5's 2,880 and 17,280. Budget 3-4 h on a
 # c7i.4xlarge. On-Demand, not Spot.
