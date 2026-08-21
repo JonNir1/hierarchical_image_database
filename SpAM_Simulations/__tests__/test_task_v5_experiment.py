@@ -134,8 +134,22 @@ def test_v5_params_survive_the_store_round_trip():
     key = _task_key(params, rep=0, ndim=3)
     assert key[params._fields.index("canvas_softness")] == 4.0
     assert key[params._fields.index("exclude_false_positives")] == 0.0
+    assert key[params._fields.index("within_session_drift")] == 1.0
     assert all(isinstance(v, float) for v in key[:-2])
     assert len(key) == len(params._fields) + 2            # + rep, ndim
+
+
+def test_the_config_rejects_a_nonpositive_or_empty_drift_grid():
+    with pytest.raises(ValueError, match="non-empty"):
+        _v5_config(within_session_drift=[])
+    with pytest.raises(ValueError, match="positive"):
+        _v5_config(within_session_drift=[0.0])
+
+
+def test_drift_is_a_grid_axis():
+    """It has to reach `param_grid`, or a swept sensitivity value would silently do nothing."""
+    grid = _v5_config(within_session_drift=[1.0, 1.4]).param_grid()
+    assert sorted({p.within_session_drift for p in grid}) == [1.0, 1.4]
 
 
 def test_the_config_rejects_a_nonpositive_or_empty_softness_grid():

@@ -527,3 +527,52 @@ class TestProdLoader:
         # Screening covers a-b, a-c, b-c; the experimental block covers c-d, c-e, d-e. Six
         # distinct pairs only if both blocks are kept; three if either is dropped.
         assert subs[0].num_observed_pairs() == 6
+
+
+class TestReliabilityStatistic:
+    """`simulate_reliability_sample` must collapse repeats the way the empirical sample was.
+
+    The deployed gate (`_passes_screening`) thresholds the MINIMUM of a candidate's repeat
+    correlations. Fitting a noise population to the MEAN and then simulating a gate that reads the
+    minimum puts the population's mass in the wrong place, and the two disagree exactly in the lower
+    tail a non-zero threshold cuts. This cost a full recalibration round to find.
+    """
+
+    @staticmethod
+    def _coords():
+        return build_ground_truth_embeddings(60, 4, seed=11)
+
+    def _sample(self, statistic):
+        from SpAM_Simulations.empirical.subjects import simulate_reliability_sample
+        return simulate_reliability_sample(
+            self._coords(), 0.3, n_subjects=25, n_repeats=2, images_per_trial=10, reps=1, seed=0,
+            statistic=statistic)
+
+    def test_min_is_never_above_mean(self):
+        lo, mid = self._sample("min"), self._sample("mean")
+        assert lo.size == mid.size
+        assert np.all(lo <= mid + 1e-12)
+
+    def test_min_shifts_the_lower_tail_down_materially(self):
+        """Not a rounding difference: this is the whole reason the parameter exists."""
+        lo, mid = self._sample("min"), self._sample("mean")
+        assert np.median(mid) - np.median(lo) > 0.02
+
+    def test_default_is_the_mean(self):
+        from SpAM_Simulations.empirical.subjects import simulate_reliability_sample
+        default = simulate_reliability_sample(
+            self._coords(), 0.3, n_subjects=25, n_repeats=2, images_per_trial=10, reps=1, seed=0)
+        np.testing.assert_array_equal(default, self._sample("mean"))
+
+    def test_an_unknown_statistic_raises(self):
+        with pytest.raises(ValueError, match="statistic"):
+            self._sample("mode")
+
+    def test_the_fit_passes_it_through(self):
+        """A `statistic` that stopped at `fit_noise_population` would silently fit the default."""
+        from SpAM_Simulations.empirical.subjects import fit_noise_population
+        out = fit_noise_population(
+            self._coords(), np.linspace(0.05, 0.5, 20), families=("lognormal",),
+            lognormal_shapes=(0.25,), noise_grid=(0.2, 0.4), n_subjects=15, n_repeats=2,
+            images_per_trial=10, reps=1, verbose=False, statistic="min")
+        assert out["best"]["statistic"] == "min"

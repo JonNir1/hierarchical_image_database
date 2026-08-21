@@ -305,9 +305,15 @@ class TaskV5SimulationConfig(TaskV4SimulationConfig):
     stops trying is paid in full and stays in the data unless the *analysis* removes them. Setting
     this to 1.0 discards and replaces such a subject, so the retained cohort matches an analysis that
     applies the same rule to the experimental block. It defaults to 0.0, which is the v5 behaviour.
+
+    ``within_session_drift`` multiplies a subject's noise in the experimental block only. It exists
+    because production shows candidates degrading after the gate has read them - every move-ratio
+    failure in the live data falls in the experimental block, none in the screening block - and the
+    model has no other mechanism for that. It defaults to 1.0, the no-drift v5 behaviour.
     """
     canvas_softness: Sequence[float] = (4.0,)
     exclude_false_positives: Sequence[float] = (0.0,)
+    within_session_drift: Sequence[float] = (1.0,)
 
     def __post_init__(self):
         super().__post_init__()
@@ -320,6 +326,11 @@ class TaskV5SimulationConfig(TaskV4SimulationConfig):
         if any(f not in (0.0, 1.0) for f in self.exclude_false_positives):
             raise ValueError("`exclude_false_positives` values must be exactly 0.0 or 1.0, got "
                              f"{self.exclude_false_positives}")
+        if len(self.within_session_drift) == 0:
+            raise ValueError("`within_session_drift` must be non-empty")
+        if any(d <= 0 for d in self.within_session_drift):
+            raise ValueError("`within_session_drift` values must be positive, got "
+                             f"{self.within_session_drift}")
 
     def param_grid(self) -> List["TaskV5ExperimentParameters"]:
         from SpAM_Simulations.models.task_v5_experiment import TaskV5ExperimentParameters
@@ -340,6 +351,7 @@ class TaskV5SimulationConfig(TaskV4SimulationConfig):
                 self.allocation_mode,
                 self.canvas_softness,
                 self.exclude_false_positives,
+                self.within_session_drift,
             )
         ]
 

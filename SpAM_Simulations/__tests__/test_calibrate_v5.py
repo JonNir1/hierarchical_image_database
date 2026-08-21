@@ -169,3 +169,46 @@ def test_a_calibration_without_a_fingerprint_is_never_reused(tmp_path, stub_fits
 def test_write_false_leaves_no_cache_behind(tmp_path, stub_fits):
     _calibrate(tmp_path, np.zeros((10, 3)), _subjects(), write=False)
     assert not (tmp_path / "calibration.json").exists()
+
+
+class TestScaleFrom:
+    """Which of the two fits that touch the noise scale actually sets it.
+
+    `calibrate` fits the scale twice: once by matching the whole reliability distribution, and again
+    by inverting for its median. The second silently overrode the first, and the dispersion fit runs
+    at the FIRST one - so under the v5 default the returned constants are not mutually consistent.
+    On production this was a 0.22-vs-0.30 gap, which is the difference between reproducing the
+    observed screening pass rate and missing it by 18 points.
+
+    The stub fitters make the two sources distinguishable: the distribution fit returns 0.22 and the
+    inversion 0.30.
+    """
+
+    def test_rejects_an_unknown_source(self, tmp_path, stub_fits):
+        with pytest.raises(ValueError, match="scale_from"):
+            _calibrate(tmp_path, np.zeros((10, 3)), _subjects(), scale_from="whatever")
+
+    def test_a_non_mean_statistic_requires_the_distribution_scale(self, tmp_path, stub_fits):
+        """The inversion targets a full session's MEAN repeat correlation. A `min`-collapsed target
+        is not a quantity it can hit, so accepting one would fit the scale to the wrong statistic."""
+        with pytest.raises(ValueError, match="scale_from='distribution'"):
+            _calibrate(tmp_path, np.zeros((10, 3)), _subjects(), fit_statistic="min")
+
+    def test_inversion_is_the_default_and_still_wins(self, tmp_path, stub_fits):
+        """v5's behaviour, pinned so the new option cannot change it by accident."""
+        out = _calibrate(tmp_path, np.zeros((10, 3)), _subjects())
+        assert out["subjects_noise_scale"] == 0.30
+        assert out["distribution_fit_noise_scale"] == 0.22
+        assert stub_fits["test_retest"] == 1
+
+    def test_the_distribution_scale_skips_the_inversion_entirely(self, tmp_path, stub_fits):
+        out = _calibrate(tmp_path, np.zeros((10, 3)), _subjects(), scale_from="distribution")
+        assert out["subjects_noise_scale"] == 0.22 == out["distribution_fit_noise_scale"]
+        assert stub_fits["test_retest"] == 0
+
+    def test_the_source_is_part_of_the_cache_key(self, tmp_path, stub_fits):
+        """Two calibrations differing only in which fit set the scale are different calibrations."""
+        a = _calibrate(tmp_path, np.zeros((10, 3)), _subjects(), scale_from="distribution")
+        b = _calibrate(tmp_path, np.zeros((10, 3)), _subjects(), scale_from="inversion")
+        assert a["fingerprint"] != b["fingerprint"]
+        assert stub_fits["noise_population"] == 2

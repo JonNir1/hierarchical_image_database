@@ -12,6 +12,7 @@ sweep on EC2. For *what* the simulations answer and *how* the pipeline is put to
   - [Calibrated flavor (fit to pilot first)](#calibrated-flavor-fit-to-pilot-first)
   - [Task-v4 flavor (screening block, pilot-calibrated)](#task-v4-flavor-screening-block-pilot-calibrated)
   - [**Task-v5 flavor: the full two-stage programme (CURRENT)**](#task-v5-flavor-the-full-two-stage-programme-current)
+  - [**K. sim-v6: the decision run (CURRENT for the collection decision)**](#k-sim-v6-the-decision-run-current-for-the-collection-decision)
 
 ## Quick start
 
@@ -720,4 +721,127 @@ source. That file is gitignored: it is output, and git cannot delta-compress inl
 [ ] local: _grouped_successful reported 0 duplicates, or the store was resumed and they were dropped
 [ ] BOTH instances terminated
 [ ] downloaded with confs.f32, without confdists.f32
+```
+
+### K. sim-v6: the decision run (CURRENT for the collection decision)
+
+The v5 recipe above answers "what does the design space look like". This one answers a single
+question the study is paused on: **which of three ways to finish is best.**
+
+| Option | Per-cohort target | Screening gate | Credits to finish |
+|---|---|---|---|
+| **A** | N = 50 | ρ > 0 *(deployed now)* | 286 |
+| **B** | N = 50 | ρ > 0.1 | 636 |
+| **C** | N = 75 | ρ > 0 | 683 |
+
+Four steps. Steps K1 and K4 run **locally** (PowerShell); K2 and K3 run on **EC2** (bash), on the
+same instance, one after the other.
+
+| | where | what | wall |
+|---|---|---|---|
+| K1 | local | stage the data; run the calibration gate | ~15 min |
+| K2 | EC2 | rebuild the ground truth, and decide whether to keep it | ~15-20 min |
+| K3 | EC2 | re-gate against the new GT, then the decision sweep | ~6-8 h |
+| K4 | local | build the report | ~2 min |
+
+> **The gate is the point.** `cli.run_v6_calibration_gate` checks the recalibrated model against six
+> quantities production *already shows*. A model that cannot reproduce what we can measure is not
+> worth an instance for what we cannot. Run it before spending anything, and again after the GT is
+> rebuilt, because the ground truth is a fingerprinted input to the calibration.
+
+#### K1. Stage the data and gate the model (local, PowerShell)
+
+```powershell
+cd C:\Users\nirjo\Documents\University\PhD\Projects\hierarchical_image_database
+$V6_URI = "s3://jon-nir/spam-simulations/decision-v6"
+
+aws s3 cp data/ "$V6_URI/data/" --recursive --exclude "*.pdf" --exclude "*prolific_receipt*"
+aws s3 cp SpAM_Task/stimuli_manifest.json "$V6_URI/data/"
+```
+
+Verify no receipts went up (this should print nothing):
+
+```powershell
+aws s3 ls "$V6_URI/data/" --recursive | Select-String -Pattern "pdf|receipt"
+```
+
+Then the gate, against v5's ground truth for now:
+
+```powershell
+.venv\Scripts\python.exe -m SpAM_Simulations.cli.run_v6_calibration_gate --gt SpAM_Simulations\sim_results\v5\gt\gt_pre_shine_d8.npy --manifest SpAM_Task\stimuli_manifest.json --out SpAM_Simulations\sim_results\v6\calibration
+```
+
+It exits non-zero if any of the six checks fails. **Do not provision on a failure.**
+
+#### K2. Rebuild the ground truth (EC2)
+
+Launch with steps **(0)-(4)** of the [allocate/run/verify/terminate
+cookbook](#cookbook-allocate---run---verify---terminate), `$INSTANCE_TYPE = "c7i.4xlarge"`,
+**On-Demand not Spot** (the run is short enough that an interruption costs more than the discount
+saves). Then, on the box:
+
+```bash
+export REPO_URL=https://github.com/<you>/hierarchical_image_database.git
+export GIT_REF=main
+export S3_URI=s3://jon-nir/spam-simulations/decision-v6
+tmux new -s gt
+bash run_gt_v6.sh 2>&1 | tee run_gt_v6.log
+```
+
+This adds the eight pre-SHINE production subjects the analysis discards to the pilot's 41, scores
+both subject sets, and keeps the rebuild **only if it does not make split-half agreement worse**.
+The test is one-sided on purpose: the augmented set has larger halves and is favoured mechanically,
+so a small gain proves nothing while a loss is real evidence. On rejection it writes a pilot-only GT
+and says so; `gt/gt_v6_decision.json` carries `accepted`.
+
+#### K3. Re-gate, then sweep (EC2, same box)
+
+The rebuilt GT invalidates the cached calibration **by design**, so the gate's earlier pass does not
+transfer:
+
+```bash
+python -m SpAM_Simulations.cli.run_v6_calibration_gate --gt gt/gt_pre_shine_v6_d8.npy --manifest SpAM_Task/stimuli_manifest.json --no-reuse
+```
+
+Only if it still passes 6/6:
+
+```bash
+tmux new -s v6
+GT_FILE=gt_pre_shine_v6_d8.npy bash run_decision_v6.sh 2>&1 | tee run_decision_v6.log
+```
+
+`DRIFT_LIST` defaults to `1.0,1.1` and **both are swept**. The gate passes at either, so the data
+cannot choose between them, and the choice is not neutral: drift makes every recovery metric worse
+and every retained subject more expensive, which pushes the answer toward the options that cost
+more. Sweeping both is what stops that assumption from tilting a spending decision.
+
+Detach with `Ctrl-b d`; reattach with `tmux attach -t v6`.
+
+#### K4. Build the report (local, PowerShell)
+
+Download the run (**with** `confs.f32`, **without** `confdists.f32` - see the download recipe in the
+v5 flavor above), then:
+
+```powershell
+.venv\Scripts\python.exe SpAM_Simulations\sim_results\v6\report\assemble.py --run SpAM_Simulations\sim_results\v6
+```
+
+Missing tables render as visible "not produced yet" placeholders rather than aborting, so the prose
+can be reviewed while the run is still going.
+
+#### sim-v6 checklist
+
+```
+[ ] data staged under the v6 prefix, no PDFs or receipts
+[ ] K1 gate passes 6/6 BEFORE any instance is launched
+[ ] K2: 41 pilot + 8 discarded pre-SHINE production subjects asserted
+[ ] K2: gt_v6_decision.json read, and `accepted` acted on either way
+[ ] K3: gate re-run against the REBUILT GT, and still 6/6
+[ ] K3: noise_shape_fit at_shape_boundary is false
+[ ] K3: dispersion_swept has 3 values (2 = clamped, report as one-sided)
+[ ] K3: no cell hit MAX_RECRUIT_PER_SUBJECT
+[ ] K3: both drift values present in out/*.csv
+[ ] the report states which drift value each conclusion holds under
+[ ] the false-alarm row is NOT presented as corroboration under drift 1.1
+[ ] instance terminated
 ```

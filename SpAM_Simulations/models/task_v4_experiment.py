@@ -181,6 +181,10 @@ def simulate_task_v4_experiment(
     # Read defensively: this lives on the v5 parameter tuple, and v4 is called directly with a v4
     # tuple by the calibration path and by every bit-exactness fixture.
     exclude_false_positives = bool(getattr(params, "exclude_false_positives", 0.0))
+    # Likewise v5-only, and 1.0 is the no-op that keeps v4's bit-exactness fixtures valid.
+    within_session_drift = float(getattr(params, "within_session_drift", 1.0))
+    assert within_session_drift > 0, (
+        f"`within_session_drift` must be positive (got {within_session_drift})")
     subject_test_retest = np.empty(params.num_subjects, dtype=np.float64)
     subject_test_retest_procrustes = np.empty(params.num_subjects, dtype=np.float64)
     per_subject = np.empty((params.num_subjects, n_pairs), dtype=np.float32) if return_per_subject else None
@@ -241,8 +245,14 @@ def simulate_task_v4_experiment(
                         allocator.rollback()
                     continue
 
+            # The experimental block is the SECOND thing a candidate does, and by production's
+            # evidence they do it worse: the gate sees a cleaner version of the person than the
+            # analysis gets. Scaling the noise here rather than in the screening call keeps the
+            # screening block the reference point, which is what the empirical calibration is
+            # measured on.
             main = simulate_task_v4_single_subject(
-                subject_noise=noise, perspective_dispersion=params.perspective_dispersion,
+                subject_noise=noise * within_session_drift,
+                perspective_dispersion=params.perspective_dispersion,
                 t_distinct=t_distinct, k=k, n_unique=n_unique, n_repeats=n_repeats,
                 gt_embeddings=gt_embeddings, rng=rng, image_indices=main_images,
                 trials=main_trials,

@@ -118,16 +118,47 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
               cal_dir: Path, trial_simulator, softness: float, gt_file: str = "",
               n_dims: Optional[int] = None, scan_selected_n_dims: Optional[int] = None,
               noise_grid: Sequence[float] = CANVAS_NOISE_GRID, reuse: bool = True,
-              write: bool = True, verbose: bool = True) -> Dict[str, object]:
+              write: bool = True, verbose: bool = True,
+              reliability: Optional[np.ndarray] = None,
+              fit_n_repeats: int = 4, fit_statistic: str = "mean",
+              scale_from: str = "inversion") -> Dict[str, object]:
     """Fit (or reuse) the three constants. Returns the dict written to ``calibration.json``.
 
-    ``subjects`` should be ALL pilot subjects, both SHINE variants: reliability and between-subject
-    agreement are properties of people, not of the stimulus set, so the post-SHINE half is perfectly
-    good evidence about them even though it is unusable for a ground truth over the pre-SHINE set.
+    ``subjects`` should be ALL subjects of the cohort being calibrated on, both SHINE variants:
+    reliability and between-subject agreement are properties of people, not of the stimulus set,
+    so the post-SHINE half is perfectly good evidence about them even though it is unusable for a
+    ground truth over the pre-SHINE set.
 
     ``trial_simulator`` is fitted at ONE softness deliberately. Re-fitting the noise population per
     softness value would confound the sensitivity arm with three different noise scales; the arm
     then varies softness around this one calibrated level.
+
+    ``reliability`` overrides the per-subject sample derived from ``subjects``. Pass it when the
+    subjects' own reliabilities are not homogeneously estimated: the production cohort's completers
+    have four repeats while its screened-out candidates have only the screening block's two, and
+    feeding a mixture of two- and four-repeat estimates into a Wasserstein *distribution* fit biases
+    the fitted spread. The screening block's own ``median_reliability`` is two repeats for every
+    candidate, which is the homogeneous choice.
+
+    ``fit_n_repeats`` must then match how that sample was measured, because it sets how many repeats
+    each *simulated* subject contributes. Leaving it at 4 against a two-repeat empirical sample makes
+    the simulated distribution artificially tight and the fitted population artificially narrow.
+
+    ``fit_statistic`` must likewise match how each subject's repeats were collapsed. The deployed
+    gate thresholds the MINIMUM of a candidate's repeat correlations, so a screening sample should be
+    fitted with ``"min"``; the mean of two repeats and their minimum are different distributions, and
+    they diverge exactly in the lower tail that a non-zero threshold cuts.
+
+    ``scale_from`` decides which of the two fits that touch the noise scale actually sets it, and
+    they disagree. ``"inversion"`` is the v5 behaviour: the distribution fit chooses the family and
+    shape, and ``fit_noise_for_test_retest`` then overrides the scale to match the sample's MEDIAN.
+    ``"distribution"`` keeps the scale the distribution fit chose. Prefer ``"distribution"`` when the
+    tail matters - screening reads the tail, not the median, and the distribution fit is the only one
+    of the two that sees it. It is also mandatory when ``fit_statistic`` is not ``"mean"``: the
+    inversion measures a full session's mean repeat correlation, so a target collapsed by ``min`` is
+    not a quantity it can hit, and feeding it one silently inflates the scale (0.22 -> 0.30 on
+    production). Note the dispersion fit already runs at the distribution fit's scale, so under
+    ``"inversion"`` the returned constants are not mutually consistent.
 
     Raises :class:`CalibrationError` when the noise scale pins to an edge of ``noise_grid``, because
     a grid that could not reach the data mis-calibrates everything downstream - worth aborting a
@@ -138,11 +169,26 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
     coords = np.asarray(coords)
 
     # Both cheap, and both needed to fingerprint the expensive fits that follow.
-    reliability = subject_reliability_sample(subjects)
+    reliability = (subject_reliability_sample(subjects) if reliability is None
+                   else np.asarray(reliability, dtype=float))
+    reliability = reliability[np.isfinite(reliability)]
     agreement = between_subject_agreement(
         np.vstack([s.distances for s in subjects]), min_overlap=20)["mean_agreement"]
     prints = fingerprint(coords, reliability, agreement, images_per_trial, reps, noise_grid,
                          softness)
+    # Part of the cache key: the same reliability sample fitted at a different repeat count is a
+    # different fit, and a filename-blind cache would happily serve the wrong one.
+    prints["fit_n_repeats"] = int(fit_n_repeats)
+    prints["fit_statistic"] = str(fit_statistic)
+    prints["scale_from"] = str(scale_from)
+    if scale_from not in ("inversion", "distribution"):
+        raise ValueError(f"scale_from must be 'inversion' or 'distribution', got {scale_from!r}")
+    if fit_statistic != "mean" and scale_from != "distribution":
+        raise ValueError(
+            f"fit_statistic={fit_statistic!r} requires scale_from='distribution'. The inversion "
+            f"targets the median of a full session's MEAN repeat correlation, which is not the "
+            f"quantity a {fit_statistic!r}-collapsed sample measures; it would override the "
+            f"distribution fit's scale with one fitted to the wrong statistic.")
 
     if reuse:
         cached = load_cached(cal_dir, prints, verbose=verbose)
@@ -150,7 +196,7 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
             return cached
 
     if verbose:
-        print(f"\n[calibrate] {len(subjects)} pilot sessions (both SHINE variants) for the noise fit",
+        print(f"\n[calibrate] {len(subjects)} sessions (both SHINE variants) for the agreement target",
               flush=True)
         print(f"[shape] empirical reliability: n={len(reliability)} "
               f"median={np.median(reliability):.3f} q10={np.quantile(reliability, .1):.3f} "
@@ -158,6 +204,7 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
 
     fit = fit_noise_population(coords, reliability, images_per_trial=images_per_trial,
                                perspective_dispersion=0.2, n_subjects=80, reps=3, verbose=verbose,
+                               n_repeats=fit_n_repeats, statistic=fit_statistic,
                                noise_grid=tuple(noise_grid), trial_simulator=trial_simulator)
     best = fit["best"]
     if write:
@@ -207,12 +254,23 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
     # task-v4-fitted and is not what this run is about: holding it fixed keeps every fit paying for
     # the arm contrast.
     target_r = float(np.median(reliability))
-    noise, achieved_r = fit_noise_for_test_retest(
-        coords, target_r, noise_df=noise_df, lognormal_sigma=lognormal_sigma,
-        images_per_trial=images_per_trial, reps=reps, trial_simulator=trial_simulator)
-    if verbose:
-        print(f"[invert] targetR={target_r:.3f} -> noise={noise:.2f} "
-              f"(achieved {achieved_r:.3f} @img{images_per_trial})", flush=True)
+    if scale_from == "distribution":
+        # The distribution fit already set the scale, by matching the whole sample rather than its
+        # median, and the dispersion above was fitted at that value. Running the inversion here as
+        # well would override both with a number fitted to one summary statistic.
+        noise = float(best["noise_scale"])
+        achieved_r = float(best["sim_median"])
+        if verbose:
+            print(f"[scale] from the distribution fit: noise={noise:.2f} "
+                  f"(simulated median {achieved_r:.3f} vs empirical {target_r:.3f}); the "
+                  f"median-matching inversion is skipped", flush=True)
+    else:
+        noise, achieved_r = fit_noise_for_test_retest(
+            coords, target_r, noise_df=noise_df, lognormal_sigma=lognormal_sigma,
+            images_per_trial=images_per_trial, reps=reps, trial_simulator=trial_simulator)
+        if verbose:
+            print(f"[invert] targetR={target_r:.3f} -> noise={noise:.2f} "
+                  f"(achieved {achieved_r:.3f} @img{images_per_trial})", flush=True)
 
     result = dict(
         n_pilot_sessions=len(subjects), empirical_agreement=float(agreement),
@@ -221,6 +279,7 @@ def calibrate(coords: np.ndarray, subjects: Sequence, *, images_per_trial: int, 
         achieved_tr_unscreened=float(achieved_r), subjects_noise_scale=float(noise),
         noise_family=best["family"], noise_shape=float(best["shape"]),
         noise_df=noise_df, noise_lognormal_sigma=lognormal_sigma,
+        scale_from=scale_from, distribution_fit_noise_scale=float(best["noise_scale"]),
         n_dims=n_dims, gt_file=gt_file, scan_selected_n_dims=scan_selected_n_dims,
         fingerprint=prints,
     )
