@@ -24,13 +24,17 @@
 #   gt/gt_v6_comparison.csv        split-half + noise-ceiling diagnostics for BOTH subject sets
 #   gt/gt_v6_decision.json         the decision, its margin, and every input count
 #
-# AFTER THIS RUNS, RE-RUN THE CALIBRATION GATE. The ground truth is a fingerprinted input to the
-# calibration, so a rebuilt GT invalidates the cached fit BY DESIGN. The gate's current 6/6 pass was
-# measured against v5's GT and does not transfer. Re-run it locally against the new file before
-# launching the decision run:
+# IT RE-GATES ITSELF, and that is why the gate is not a separate command in the recipe. The ground
+# truth is a fingerprinted input to the calibration, so a rebuilt GT invalidates the cached fit BY
+# DESIGN - the 6/6 pass measured against v5's GT does not transfer. But the gate needs the venv,
+# PYTHONPATH and working directory that prepare_machine.sh sets up inside THIS process, plus a
+# `data/` that the exit trap deletes, so a by-hand run afterwards fails on all three. It runs here
+# instead, blocking, at the last point where stopping is still free. Additional outputs:
 #
-#   python -m SpAM_Simulations.cli.run_v6_calibration_gate \
-#     --gt gt/gt_pre_shine_v6_d8.npy --manifest SpAM_Task/stimuli_manifest.json --no-reuse
+#   calibration/validation_gate.csv   the six checks against the rebuilt GT
+#   calibration/calibration.json      the re-fitted constants
+#
+# SKIP_GATE=1 bypasses it; GATE_DRIFT overrides the drift it checks at (default 1.0).
 #
 # Prerequisites (identical to the other EC2 scripts - see Cookbook.md)
 #   * The commit/branch you want is PUSHED to the remote (this clones from it).
@@ -146,12 +150,56 @@ stage_push gt
 GT_FILE=$(python -c "import json;print(json.load(open('gt/gt_v6_decision.json'))['gt_file'])")
 ACCEPTED=$(python -c "import json;print(json.load(open('gt/gt_v6_decision.json'))['accepted'])")
 echo
-echo ">> [gt-v6] DONE. accepted=$ACCEPTED  GT_FILE=$GT_FILE"
-echo ">> Next, in order:"
-echo ">>   1. Re-run the calibration gate against this GT (it invalidates the cached fit BY DESIGN):"
-echo ">>        python -m SpAM_Simulations.cli.run_v6_calibration_gate \\"
-echo ">>          --gt gt/$GT_FILE --manifest SpAM_Task/stimuli_manifest.json --no-reuse"
-echo ">>   2. Only if it still passes 6/6:  GT_FILE=$GT_FILE bash run_decision_v6.sh"
+echo ">> [gt-v6] rebuild done. accepted=$ACCEPTED  GT_FILE=$GT_FILE"
+
+# --------------------------------------------------------------------------- re-gate
+# THE GATE RUNS HERE, INSIDE THIS SCRIPT, rather than as a separate command afterwards. Three
+# things it needs exist only within this process: the venv and PYTHONPATH that prepare_machine.sh
+# exported (a `bash run_gt_v6.sh` child does not export them back to your shell), the working
+# directory it cd'd into, and `data/` - which the EXIT trap above deletes, deliberately, because
+# human-subjects data must not survive the run. A by-hand run afterwards fails on all three.
+#
+# It is BLOCKING here, unlike the advisory copy inside run_decision_v6.sh. That one runs when the
+# instance is already paid for; this is the last point where stopping is still free.
+#
+# Checked at drift=1.0, the parsimonious end of the swept range: the false-positive row is genuine
+# evidence there, whereas at 1.1 it is a fitted target and cannot corroborate anything.
+GATE_DRIFT="${GATE_DRIFT:-1.0}"
+if [ "${SKIP_GATE:-0}" = "1" ]; then
+  echo ">> [gate] SKIP_GATE=1 - skipping. You are choosing to spend on an unvalidated model."
+else
+  echo
+  echo ">> [gate] re-checking the calibration against the REBUILT ground truth."
+  echo ">> [gate] The GT is a fingerprinted input, so the cached fit is stale by design and an"
+  echo ">> [gate] earlier pass does NOT transfer. --no-reuse forces the re-fit."
+  mkdir -p calibration
+  if python -m SpAM_Simulations.cli.run_v6_calibration_gate \
+       --gt "gt/$GT_FILE" \
+       --manifest "$DATA_DIR/stimuli_manifest.json" \
+       --data-dir "$DATA_DIR" \
+       --config SpAM_Task/task_config.json \
+       --out calibration \
+       --drift "$GATE_DRIFT" \
+       --no-reuse; then
+    echo ">> [gate] PASSED against $GT_FILE."
+    stage_push calibration
+  else
+    stage_push calibration || true
+    echo
+    echo "!! [gate] FAILED against the rebuilt ground truth."
+    echo "!! Do NOT launch run_decision_v6.sh. A model that cannot reproduce what production"
+    echo "!! already shows is not worth an instance for the cells it cannot show."
+    echo "!! Options, in order of preference:"
+    echo "!!   * read calibration/validation_gate.csv to see WHICH rows moved;"
+    echo "!!   * if the rebuild was accepted, re-run with the pilot-only GT and compare;"
+    echo "!!   * SKIP_GATE=1 only if you have decided the failure is understood and acceptable."
+    exit 1
+  fi
+fi
+
+echo
+echo ">> [gt-v6] DONE. accepted=$ACCEPTED  GT_FILE=$GT_FILE  (gate passed)"
+echo ">> Next:  GT_FILE=$GT_FILE bash run_decision_v6.sh"
 echo ">> A trailing R warning about '/usr/lib/R/site-library ... contain no packages' is NOISE:"
 echo ">> it is printed as R shuts down and only says the DEFAULT library paths are empty."
 echo ">> !! TERMINATE THIS EC2 INSTANCE IF YOU ARE DONE WITH IT !!"
