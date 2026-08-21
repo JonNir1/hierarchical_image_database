@@ -153,7 +153,9 @@ if [ ! -f "gt/$GT_FILE" ]; then
   exit 1
 fi
 
-for d in mds_store out; do stage_pull "$d"; done
+# calibration/ included: REUSE_CALIBRATION only helps if the cached fit is actually on the box,
+# and a fresh clone has none. Without this a resume re-fits the noise population from scratch.
+for d in mds_store out calibration; do stage_pull "$d"; done
 for r in 099 098 095 090; do stage_pull "mds_store_post_r$r"; done
 
 PUSH_EVERY_S="${PUSH_EVERY_S:-1800}"
@@ -238,6 +240,10 @@ cal = calibrate(coords, kept, images_per_trial=IMAGES_PER_TRIAL, reps=6, cal_dir
 print(f"[calibrated] noise_scale={cal['subjects_noise_scale']} family={cal['noise_family']} "
       f"shape={cal['noise_shape']} dispersion={cal['dispersion']} drift_swept={DRIFT}",
       flush=True)
+# Pushed immediately, and not left to the end: these constants are what every number in this run
+# was generated under, so losing them makes the outputs uninterpretable. `upload_and_finish` syncs
+# only out/ and mds_store/, so nothing else would carry them off the box.
+push("calibration", "fitted constants")
 
 gate_rows, failures = [], []
 # The gate is checked at the FIRST swept drift. It passes 6/6 at both 1.0 and 1.1, and running it
