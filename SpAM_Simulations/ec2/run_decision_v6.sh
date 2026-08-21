@@ -22,6 +22,9 @@
 #      contributes to it.
 #   3. Retained cohorts EXCLUDE false alarms, matching the analysis we would actually run.
 #   4. RQ2 power is measured, by simulating cohorts on deliberately perturbed ground truths.
+#   5. Participants DRIFT within a session: their noise is scaled up for the experimental block.
+#      Production shows the degradation (every move-ratio failure falls in that block, none in the
+#      screening block) and v5 had no mechanism for it. The scalar is fitted locally, by the gate.
 #
 # THE GATE. `cli.run_v6_calibration_gate` must pass locally BEFORE this is launched. It checks the
 # recalibrated model against six quantities production already shows. A model that cannot reproduce
@@ -129,6 +132,7 @@ N_JOBS="$N_JOBS" REPS="$REPS" S3_URI="$S3_URI" GT_FILE="$GT_FILE" SEED="${SEED:-
   SOFTNESS_LIST="${SOFTNESS_LIST:-3,4,8}" NDIMS="${NDIMS:-5,8,10,13}" \
   RHO_LIST="${RHO_LIST:-0.99,0.98,0.95,0.90}" \
   TABLES_ONLY="${TABLES_ONLY:-0}" REUSE_CALIBRATION="${REUSE_CALIBRATION:-1}" \
+  DRIFT="${DRIFT:?set DRIFT to the within_session_drift the LOCAL gate fitted (validation_gate.json). No default: it is a fitted constant, not a knob.}" \
   python - <<'PY'
 import json, os, sys
 from pathlib import Path
@@ -164,6 +168,11 @@ IMAGES_PER_TRIAL, SCREEN_TRIALS, SCREEN_REPEATS = 20, 8, 2
 EXP_TRIALS, EXP_REPEATS = 14, 2
 FRAC_REPEATED = EXP_REPEATS / EXP_TRIALS
 RANDOM_ARM, EXCLUDE_FA = 0.0, 1.0
+# Fitted locally by `cli.run_v6_calibration_gate`, against production's 14.1% false-positive
+# rate, and carried here as a CONSTANT. It is one free parameter tuned to one observed number, so
+# the gate's false-positive row below is no longer evidence about the model. The other five rows
+# are, and the drift also moves retained test-retest, so the gate can still fail.
+DRIFT = float(os.environ["DRIFT"])
 
 
 def push(prefix, what):
@@ -183,14 +192,16 @@ print(f"[prod] {n_attempted} candidates, {len(kept)} retained at rho>0 (false al
       flush=True)
 cal = calibrate(coords, kept, images_per_trial=IMAGES_PER_TRIAL, reps=6, cal_dir=CAL,
                 trial_simulator=simulator, softness=cv.DEFAULT_SOFTNESS, gt_file=GT_FILE,
-                n_dims=int(coords.shape[1]), reliability=reliability,
-                fit_n_repeats=SCREEN_REPEATS, reuse=REUSE)
+                n_dims=int(coords.shape[1]), reliability=reliability,   # screening-block MINIMA
+                fit_n_repeats=SCREEN_REPEATS, fit_statistic="min", reuse=REUSE)
 print(f"[calibrated] noise_scale={cal['subjects_noise_scale']} family={cal['noise_family']} "
-      f"shape={cal['noise_shape']} dispersion={cal['dispersion']}", flush=True)
+      f"shape={cal['noise_shape']} dispersion={cal['dispersion']} drift={DRIFT}", flush=True)
 
 gate_rows, failures = [], []
-at0 = _simulate_cell(coords, cal, 0.0, n_subjects=50, reps=8, seed=SEED, simulator=simulator)
-at01 = _simulate_cell(coords, cal, 0.1, n_subjects=50, reps=8, seed=SEED, simulator=simulator)
+at0 = _simulate_cell(coords, cal, 0.0, n_subjects=50, reps=8, seed=SEED, simulator=simulator,
+                     drift=DRIFT)
+at01 = _simulate_cell(coords, cal, 0.1, n_subjects=50, reps=8, seed=SEED, simulator=simulator,
+                      drift=DRIFT)
 got = {"pass_rate_rho0": at0["pass_rate"], "pass_rate_rho01": at01["pass_rate"],
        "retained_tr_rho0": at0["median_tr"], "retained_tr_rho01": at01["median_tr"],
        "false_positive_rate_rho0": at0["false_positive_rate"],
@@ -219,7 +230,7 @@ COMMON = dict(
     perspective_dispersion=cal["dispersion_swept"],
     screening_trials=[SCREEN_TRIALS], screening_repeats=[SCREEN_REPEATS],
     allocation_mode=[RANDOM_ARM], canvas_softness=SOFTNESS,
-    exclude_false_positives=[EXCLUDE_FA], reps=REPS, seed=SEED,
+    exclude_false_positives=[EXCLUDE_FA], within_session_drift=[DRIFT], reps=REPS, seed=SEED,
 )
 # TWO configs, not one grid. num_subjects and screening_min_reliability are independent axes, so a
 # single Cartesian product would also generate (N=75, rho>0.1) - a fourth cell that is out of budget
