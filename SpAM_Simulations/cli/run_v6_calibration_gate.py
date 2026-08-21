@@ -58,7 +58,7 @@ TARGETS = {
 }
 
 
-def _observed(data_dir: str, manifest: str, config: str):
+def _observed(data_dir: str, manifest: str, config: str, statistic: str = "min"):
     """The empirical reliability sample and the agreement target, from production."""
     from analysis.utils.parser import load_data
     from SpAM_Simulations.empirical import screening_audit as sa
@@ -75,7 +75,7 @@ def _observed(data_dir: str, manifest: str, config: str):
 
     # Homogeneous across all 84: two screening repeats each, collapsed by the same statistic the
     # gate reads. See the module docstring.
-    reliability = attempted["min_reliability"].astype(float).dropna().to_numpy()
+    reliability = attempted[f"{statistic}_reliability"].astype(float).dropna().to_numpy()
 
     subjects = {s.participant_id: s for s in load_prod_subjects(data_dir, manifest)}
     screen_min = dict(zip(attempted["participant_id"], attempted["min_reliability"]))
@@ -193,6 +193,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--reps", type=int, default=8, help="cohorts per validation cell")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--no-reuse", action="store_true", help="ignore any cached calibration")
+    p.add_argument("--fit-statistic", default="min", choices=("min", "median"),
+                   help="how each candidate's two screening repeats collapse to one number. 'min' "
+                        "is what the deployed gate thresholds; 'median' (= their mean, at two "
+                        "repeats) exists to test whether that choice actually matters. Only these "
+                        "two are stored per participant by analysis/utils/parser.py.")
     p.add_argument("--drift", type=float, default=None,
                    help="within-session drift multiplier; omit to fit it to the observed "
                         "false-positive rate")
@@ -204,10 +209,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     coords = np.load(args.gt)
     reliability, agreement, n_attempted, kept = _observed(
-        args.data_dir, str(args.manifest), args.config)
+        args.data_dir, str(args.manifest), args.config, statistic=args.fit_statistic)
     print(f"production: {n_attempted} candidates who sat the task, {len(kept)} retained at rho>0 "
           f"(false alarms excluded)")
-    print(f"  screening-block min reliability: n={len(reliability)} "
+    print(f"  screening-block {args.fit_statistic} reliability: n={len(reliability)} "
           f"median={np.median(reliability):.3f} q10={np.quantile(reliability, .1):.3f} "
           f"q90={np.quantile(reliability, .9):.3f}")
     print(f"  between-subject agreement of the retained: {agreement:.3f}")
@@ -217,8 +222,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     cal = calibrate(coords, kept, images_per_trial=IMAGES_PER_TRIAL, reps=6, cal_dir=args.out,
                     trial_simulator=simulator, softness=cv.DEFAULT_SOFTNESS,
                     gt_file=args.gt.name, n_dims=int(coords.shape[1]),
-                    reliability=reliability, fit_n_repeats=SCREEN_REPEATS, fit_statistic="min",
-                    scale_from="distribution",
+                    reliability=reliability, fit_n_repeats=SCREEN_REPEATS,
+                    fit_statistic=args.fit_statistic, scale_from="distribution",
                     reuse=not args.no_reuse)
     print(f"\n[calibrated] noise_scale={cal['subjects_noise_scale']} "
           f"family={cal['noise_family']} shape={cal['noise_shape']} "
