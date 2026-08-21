@@ -1,6 +1,6 @@
 <h1>sim-v6: choosing how to finish the study</h1>
-<p class="sub">A decision run. Three options, one recommendation, and the RQ2 power estimate that
-v5 could not provide.</p>
+<p class="sub">A decision run. Three options, one recommendation, and the first real power estimate
+for RQ2.</p>
 
 <h2>1. Why this run exists</h2>
 
@@ -18,51 +18,100 @@ which is what is deployed and is not being revisited.</p>
   </tbody>
 </table>
 
-<p>Everything decided so far rests on the v5 sweep, and v5 has four problems for this particular
+<p>Everything decided so far rested on the v5 sweep, and v5 has four problems for this particular
 purpose. It never simulated these three cells directly. Its participants were calibrated on 41 pilot
-subjects running task versions 1.0&ndash;3.06, whose fitted noise scale is substantially too high for
-the deployed cohort. Its ground truth exceeds its own data's reliability ceiling, so part of its fine
-structure is fitted noise. And it has no RQ2 power estimate at all &mdash; the numbers produced
+subjects running task versions 1.0 to 3.06, whose fitted noise scale is substantially too high for
+the deployed cohort. Its ground truth exceeds its own data's reliability ceiling, so part of its
+fine structure is fitted noise. And it has no RQ2 power estimate at all: the numbers produced
 earlier were an analytic approximation resting on a variance-scaling exponent that could not be
 justified.</p>
 
-<p>This run is deliberately small: roughly 3,600 MDS fits against v5's 17,280. It is not a survey and
+<p>This run is deliberately small, about 3,600 MDS fits against v5's 17,280. It is not a survey and
 should not be read as one.</p>
 
 <h2>2. What differs from v5</h2>
 
 <ol>
-  <li><b>Participants are recalibrated on production</b> &mdash; all 84 candidates who sat the
-    deployed task, not the 41 pilot subjects. The fitted noise scale falls from 0.30 to 0.22 and the
-    population's spread from σ = 0.35 to 0.25: the deployed cohort is materially cleaner than the
-    pilot was.</li>
+  <li><b>Participants are recalibrated on production</b>, all 84 candidates who sat the deployed
+    task rather than the 41 pilot subjects. The fitted noise scale falls from 0.30 to <b>0.22</b> and
+    the population's spread from σ = 0.35 to <b>0.25</b>: the deployed cohort is materially cleaner
+    than the pilot was, which is the single largest reason v5's screening predictions missed.</li>
   <li><b>The ground truth is rebuilt</b> from the pilot plus the eight pre-SHINE production subjects
-    the analysis discards anyway. Not circular: every one of them is excluded by a rule fixed before
-    this analysis, so no subject who appears in the study's results contributes to the ground truth
-    its design was chosen against.</li>
-  <li><b>Retained cohorts exclude false alarms</b>, matching the analysis that would actually be
-    run rather than the task's own one-shot gate.</li>
-  <li><b>RQ2 power is measured</b> rather than approximated, by simulating cohorts on deliberately
-    perturbed ground truths.</li>
-  <li><b>Within-session drift is swept</b>, not assumed. See section 4.</li>
+    the analysis discards anyway. See section 4.</li>
+  <li><b>Retained cohorts exclude false alarms</b>, matching the analysis that would actually be run
+    rather than the task's own one-shot gate.</li>
+  <li><b>RQ2 power is measured</b>, by simulating cohorts on deliberately perturbed ground truths.</li>
+  <li><b>Within-session drift is swept</b> rather than assumed. See section 5.</li>
 </ol>
 
-<p>Everything else is v5 and is cited rather than repeated.</p>
+<p>Everything else is v5 and is cited rather than repeated. The fitted constants for this run are
+<code>noise_scale = 0.22</code>, <code>lognormal σ = 0.25</code>, <code>dispersion = 0.15</code>
+(swept over 0.0 / 0.15 / 0.30), recorded in <code>calibration/calibration.json</code>.</p>
 
 <h2>3. Does the model match what we can already see?</h2>
 
 <p>The recalibrated model has to reproduce the quantities production already shows before its
 predictions about the cells we cannot measure are worth anything. Six checks, all measured on the
-same 84 candidates, all passed.</p>
+same 84 candidates, all passed, against the rebuilt ground truth.</p>
+
+<table>
+  <thead><tr><th>Quantity</th><th>Observed</th><th>Simulated</th><th>Gap</th><th>Tolerance</th></tr></thead>
+  <tbody>
+    <tr><td>Screening pass rate at ρ &gt; 0</td><td>0.929</td><td>0.904</td><td>−0.025</td><td>0.10</td></tr>
+    <tr><td>Screening pass rate at ρ &gt; 0.1</td><td>0.679</td><td>0.711</td><td>+0.032</td><td>0.12</td></tr>
+    <tr><td>Retained test-retest at ρ &gt; 0</td><td>0.281</td><td>0.287</td><td>+0.006</td><td>0.06</td></tr>
+    <tr><td>Retained test-retest at ρ &gt; 0.1</td><td>0.350</td><td>0.333</td><td>−0.017</td><td>0.07</td></tr>
+    <tr><td>False-alarm rate at ρ &gt; 0</td><td>0.141</td><td>0.103</td><td>−0.039</td><td>0.10</td></tr>
+    <tr><td>Between-subject agreement, retained</td><td>0.180</td><td>0.179</td><td>−0.001</td><td>0.06</td></tr>
+  </tbody>
+</table>
 
 <!-- figure: validation_gate -->
 
-<p>Two of the six deserve a caveat rather than credit. The pass rates are the quantities the
-calibration was fitted against, so they are close to circular; the informative rows are retained
-test-retest, the false-positive rate and between-subject agreement, none of which the fit targeted
-directly.</p>
+<p>Two of the six deserve a caveat rather than credit. The two pass rates are close to what the
+calibration was fitted against, so they are partly circular. The informative rows are retained
+test-retest, the false-alarm rate and between-subject agreement, none of which the fit targeted
+directly, and all three land within a third of their tolerance.</p>
 
-<h2>4. On within-session drift</h2>
+<p>Getting here took three corrections to the calibration code, and one of them mattered more than
+either change this run was designed to test. <code>calibrate</code> fitted the noise scale twice,
+once by matching the whole reliability distribution and again by inverting for its median, and the
+second silently overwrote the first while the dispersion fit ran at the first. On production that
+was 0.22 overridden to 0.30, which alone moved the simulated screening pass rate from 0.749 against
+an observed 0.929.</p>
+
+<h2>4. The rebuilt ground truth</h2>
+
+<p>v5's ground truth is fitted on 41 pre-SHINE pilot subjects and its diagnosed weakness is that it
+exceeds its own data's reliability ceiling: it interpolates where the pair graph is thin. The cure
+for that is replication, not more dimensions. Eight pre-SHINE production subjects were sitting
+unused, the ones the deployed gate rejected in-task plus the ones who cleared it and then failed the
+same rule on their experimental block.</p>
+
+<p><b>This is not circular.</b> Every one of the eight is excluded from the analysed pool by a rule
+fixed before this analysis, so no subject who will appear in the study's results contributes to the
+ground truth its design was chosen against. They are also pre-SHINE, so they judged the same
+stimulus set the ground truth is a geometry over.</p>
+
+<table>
+  <thead><tr><th>Diagnostic at d = 8</th><th>Pilot only (41)</th><th>Augmented (49)</th></tr></thead>
+  <tbody>
+    <tr><td>Pair coverage</td><td>31.5%</td><td><b>37.8%</b></td></tr>
+    <tr><td>Split-half Spearman</td><td>0.211</td><td><b>0.239</b></td></tr>
+    <tr><td>Split-half top-k Jaccard</td><td>0.113</td><td><b>0.155</b></td></tr>
+    <tr><td>Raw noise ceiling</td><td>0.037</td><td><b>0.075</b></td></tr>
+    <tr><td>Split draws discarded as disconnected</td><td>42.3%</td><td><b>9.1%</b></td></tr>
+  </tbody>
+</table>
+
+<p>The acceptance test was <b>one-sided by design</b>: the augmented set has larger split-halves and
+is favoured mechanically, so only a worsening beyond noise would have rejected it. In the event it
+improved on every diagnostic, and the two that matter most are the last two. The noise ceiling
+doubled, which is the quantity the old ground truth was overshooting. And the disconnection rate
+collapsed from 42% to 9%, meaning the pair graph is no longer barely connected, so the split-half
+estimate is far less exposed to the selection worry that a disconnected-draw filter introduces.</p>
+
+<h2>5. On within-session drift</h2>
 
 <p>Production shows something v5's model cannot produce: every move-ratio failure in the live data
 falls in the <i>experimental</i> block and none in the screening block. Participants get worse after
@@ -70,44 +119,158 @@ the gate has read them, and the deployed design is structurally blind to it. A s
 multiplying a subject's noise in the second block is the smallest thing that can carry that.</p>
 
 <p>The gate passes at both drift = 1.0 (none) and drift = 1.1 (the value fitted to production's
-14.1% false-alarm rate), so the data does not settle the question. It is swept rather than chosen
-because the choice is <b>not neutral for the decision</b>: drift lowers retained reliability and
-raises the false-alarm rate, making every recovery metric worse and every retained subject more
-expensive, which pushes the answer toward the options that cost more. Picking one value by hand
-would tilt a spending decision on an assumption the data cannot support.</p>
+false-alarm rate), so the data does not settle the question. It was swept rather than chosen because
+the choice is <b>not neutral for the decision</b>: drift lowers retained reliability and raises the
+false-alarm rate, making every recovery metric worse and every retained subject more expensive,
+which pushes the answer toward the options that cost more. Picking one value by hand would have
+tilted a spending decision on an assumption the data cannot support.</p>
 
-<h2>5. The three-way comparison</h2>
+<p><b>It turned out not to matter.</b> Both levels shift every metric down by a similar amount and
+leave the ordering of the three options identical, which is exactly what sweeping it was meant to
+establish. Every figure below shows both.</p>
+
+<h2>6. The three-way comparison</h2>
+
+<p>Headline metrics at d = 8, scored on the closest 5% of pairs where a top-k is involved. Each pair
+of numbers is drift 1.0 / drift 1.1.</p>
+
+<table>
+  <thead><tr><th></th><th>A: N=50, ρ&gt;0</th><th>B: N=50, ρ&gt;0.1</th><th>C: N=75, ρ&gt;0</th></tr></thead>
+  <tbody>
+    <tr><td>Credits to finish</td><td>286</td><td>636</td><td>683</td></tr>
+    <tr><td>Between-cohort Spearman</td><td>0.641 / 0.614</td><td>0.688 / 0.661</td><td><b>0.719 / 0.691</b></td></tr>
+    <tr><td>Recall of the true closest 5%</td><td>0.318 / 0.298</td><td>0.348 / 0.329</td><td><b>0.382 / 0.360</b></td></tr>
+    <tr><td>Top-5% closest-pair Jaccard</td><td>0.113 / 0.104</td><td>0.129 / 0.119</td><td><b>0.149 / 0.136</b></td></tr>
+    <tr><td>Pair coverage</td><td>48.1%</td><td>48.1%</td><td><b>62.6%</b></td></tr>
+  </tbody>
+</table>
 
 <!-- figure: coverage_by_cell -->
+
+<p><b>Screening costs money, not coverage.</b> A and B have identical coverage because a rejected
+candidate is replaced rather than simply dropped, so the retained cohort is N = 50 either way and
+sees the same number of trials. The entire price of a tighter gate is paid in credits. That is worth
+stating plainly because the intuition runs the other way.</p>
+
 <!-- figure: stability_by_cell -->
 <!-- figure: recovery_by_cell -->
 <!-- figure: jaccard_by_cell -->
 
-<h2>6. RQ2 power</h2>
+<p><b>B is dominated.</b> For 47 more credits, a 7% increase on its 636, option C beats it on every
+metric here, and adds 14.5 percentage points of coverage that B cannot buy at any price. There is no
+budget at which B is the right choice: anyone who can afford B can very nearly afford C, and C is
+better on everything. This is the cleanest result in the run.</p>
+
+<p>That leaves A against C. C costs 397 more credits, 2.4 times A's remaining spend, and returns
+about 12% more between-cohort agreement, 20% more recall, 32% more top-k Jaccard and 30% more
+coverage.</p>
+
+<h2>7. A model-free check, on the real data</h2>
+
+<p>Everything in section 6 comes from a generative model, and a model that has been recalibrated
+three times deserves a check that does not depend on it. Before this simulation was planned, the
+same question was put to the production data directly: a split-half analysis comparing the two
+levers on real subjects, scored on a <b>fixed reference pair set</b> so that the two arms are
+measured on the same quantity.</p>
+
+<table>
+  <thead><tr><th>Lever</th><th>Change in split-half agreement</th><th>Cost</th></tr></thead>
+  <tbody>
+    <tr><td>Tighten the gate (ρ lever)</td><td><b>+11.9%</b></td><td>no extra subjects</td></tr>
+    <tr><td>Add subjects (N lever)</td><td>+7.9%</td><td>+65% subjects</td></tr>
+  </tbody>
+</table>
+
+<p>The ρ lever beat the N lever on every resample, P(ρ &gt; N) = 1.000. Read naively that favours
+B, and it appears to contradict section 6.</p>
+
+<p><b>It does not, and the reason is the fixed pair set.</b> Holding the reference pairs constant is
+what makes the two arms comparable, but it also holds <i>coverage</i> constant, and coverage is the
+N lever's main benefit for the embedding. The split-half test therefore measures only what each
+lever does to the quality of judgements on pairs you already observe, and on that narrow question
+the ρ lever genuinely wins. The simulation lets coverage move, and coverage is where C's advantage
+mostly comes from: 62.6% against 48.1%, on a space where 36% of pairs are currently judged by
+nobody.</p>
+
+<p>So the two analyses agree about the mechanism and differ only in scope. Taken together they say:
+per subject retained, a cleaner subject is worth more than an extra one; but the study still needs
+pairs it has never seen, and only N buys those.</p>
+
+<h2>8. RQ2 power</h2>
 
 <p>RQ2a(ii) asks whether ρ(pre, post) sits below the within-condition ceiling. The null is free: two
 cohorts drawn from the same ground truth is exactly what the main sweep already produces. The
-alternative needs cohorts on a ground truth a known distance away, which is what the perturbation
-arm supplies. Power is then the share of alternative draws below the null's 5th percentile &mdash; no
-normal approximation, no attenuation formula.</p>
+alternative needs cohorts on a ground truth a known distance away, which the perturbation arm
+supplies. Power is the share of alternative draws below the null's 5th percentile, with no normal
+approximation and no attenuation formula.</p>
 
 <!-- figure: rq2_power -->
 
-<h2>7. Recommendation</h2>
+<table>
+  <thead><tr><th>True ρ(pre, post)</th><th>A: N=50, ρ&gt;0</th><th>B: N=50, ρ&gt;0.1</th><th>C: N=75, ρ&gt;0</th></tr></thead>
+  <tbody>
+    <tr><td>0.99</td><td>0.20</td><td>0.03</td><td>0.10</td></tr>
+    <tr><td>0.98</td><td>0.13</td><td>0.23</td><td>0.33</td></tr>
+    <tr><td>0.95</td><td>0.67</td><td>0.57</td><td><b>0.87</b></td></tr>
+    <tr><td>0.90</td><td>0.93</td><td>1.00</td><td>1.00</td></tr>
+  </tbody>
+</table>
+
+<p>Three things follow, and the qualifications matter as much as the numbers.</p>
+
+<ul>
+  <li><b>A large SHINE effect is already detectable.</b> At ρ = 0.90 every option reaches at least
+    0.93. If SHINE substantially rearranges the space, RQ2 is not a reason to spend anything.</li>
+  <li><b>A small effect is out of reach for all three.</b> At ρ ≥ 0.98 no option clears 0.33. No
+    amount of money on the table here buys that.</li>
+  <li><b>C buys the middle band, on a noisy estimate.</b> The 0.87 at ρ = 0.95 rests on 30 draws, a
+    binomial SE of 0.061, so a 95% interval of roughly 0.75 to 0.99. C's margin over A there is
+    about two standard errors: suggestive, not established.</li>
+</ul>
+
+<p><b>The effect is isotropic by construction.</b> The perturbation adds noise to every coordinate
+equally and makes no claim about <i>where</i> SHINE acts. If it acts selectively on sensory
+dimensions, which is precisely what RQ3 supposes, this estimate is optimistic or pessimistic
+depending on how much of the distance variance those dimensions carry. A sensory-weighted variant is
+buildable from the <code>sens_pre</code> / <code>sens_post</code> RDMs already in
+<code>analysis/rdms/</code>, and it is the natural follow-up.</p>
+
+<h2>9. Recommendation</h2>
 
 <!-- figure: cost_per_quality -->
 
-<h2>8. What this run still cannot settle</h2>
+<p><b>Rule out B.</b> This is not a judgement call. C costs 47 more credits and is better on every
+measured quantity, including 14.5 percentage points of coverage B cannot buy at all. B should not be
+chosen at any budget that permits it.</p>
+
+<p><b>Between A and C, take C if the budget allows it.</b> 397 additional credits buy roughly 12%
+more between-cohort agreement, 20% more recall, 32% more top-k Jaccard, and 30% more coverage, plus
+the only meaningful improvement in RQ2 power available. The coverage gain is the part that cannot be
+recovered later: the gate can be tightened at any time, but pairs no one judged stay unjudged, and
+36% of the space is currently in that state.</p>
+
+<p><b>A is not a bad outcome.</b> If the budget is genuinely tight, A still detects a large SHINE
+effect with power 0.93, still yields a between-cohort agreement of 0.64, and leaves 397 credits for
+something else. The honest framing is that C is better value per credit than B, not that A is
+unusable.</p>
+
+<p><b>What would change this recommendation.</b> If the sensory-weighted RQ2 variant showed that
+SHINE acts on dimensions carrying little distance variance, the power column would shift and the
+case for C would rest on coverage alone. If a further 30 subjects were collected and the ρ-lever
+advantage of section 7 grew rather than held, the balance between the levers would need revisiting.
+Neither is expensive to check, and both are cheaper than the difference between A and C.</p>
+
+<h2>10. What this run cannot settle</h2>
 
 <ul>
-  <li><b>The rebuilt ground truth is still mostly the pilot</b> &mdash; 49 subjects rather than 41,
-    and the eight added are the weakest available. Coverage and replication improve; whether the
-    <i>geometry</i> is more trustworthy is checked by a one-sided gate, not guaranteed.</li>
-  <li><b>The RQ2 effect is isotropic by construction.</b> If SHINE acts selectively on sensory
-    dimensions, as RQ3 supposes, this estimate shifts depending on how much distance variance those
-    dimensions carry. A sensory-weighted variant is the natural follow-up.</li>
+  <li><b>The rebuilt ground truth is still mostly the pilot</b>, 49 subjects rather than 41, and the
+    eight added are the weakest available. Every diagnostic improved, but the acceptance test was
+    one-sided and a gain of this size is weak evidence rather than vindication.</li>
+  <li><b>The RQ2 effect is isotropic</b>, as set out in section 8.</li>
   <li><b>Drift is a description, not a mechanism.</b> Fatigue, disengagement and strategy change are
     indistinguishable here, and the scalar claims only a direction and a rough size.</li>
-  <li><b>The false-alarm rate under drift = 1.1 is a fitted target, not a prediction.</b> It must not
-    be read as corroboration of the model under that setting.</li>
+  <li><b>The false-alarm rate under drift 1.1 is a fitted target, not a prediction</b>, and must not
+    be read as corroboration of the model at that setting.</li>
+  <li><b>Both the model and the model-free check share one dataset.</b> They are not independent
+    evidence in the strict sense; they are two different questions asked of the same 84 people.</li>
 </ul>
