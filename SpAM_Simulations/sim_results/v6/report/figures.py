@@ -221,28 +221,94 @@ def cost_per_quality(run: Run) -> go.Figure:
 
 
 # --------------------------------------------------------------------------- RQ2
+RQ2_ALPHA = 0.05
+RQ2_TAGS = {0.99: "r099", 0.98: "r098", 0.95: "r095", 0.90: "r090"}
+
+
+def rq2_power_table(run: Run) -> Optional[pd.DataFrame]:
+    """Power per (cell, target_rho), recomputed from the saved draws.
+
+    NOT read from ``out/rq2_power.csv``, which is computed with the pipeline's default
+    ``cell_fields`` of (num_subjects, screening_min_reliability) and therefore POOLS the two drift
+    values into one null and one alternative. That biases power DOWNWARD: the two drift levels have
+    different means (at rho=0.90, a ceiling of 0.655 against 0.634), so mixing them widens the null
+    and drags its 5th percentile lower, and fewer alternative draws fall below it. At rho=0.90 the
+    pooled table reads 0.83-0.90 where the conditioned one reads 0.93-1.00.
+
+    So the critical value is taken WITHIN each drift level, and the two resulting power estimates
+    are then averaged. Drift is a simulation parameter, not a finding, and it does not appear in the
+    output - but conditioning on it before averaging is what makes the number unbiased. Averaging
+    also restores the full 30 draws per cell that the pooled version nominally had.
+    """
+    null = run.table("rq2_null_draws")
+    if null is None:
+        return None
+    # The alternative arm ran only at the calibrated setting, so the null must be restricted to it
+    # or its spread would carry sensitivity axes the alternative never varied.
+    cal = run.json("calibration", "calibration") or {}
+    dispersion = cal.get("dispersion")
+    null = null[null["ndim"] == HEADLINE_NDIM]
+    if dispersion is not None:
+        null = null[np.isclose(null["perspective_dispersion"], float(dispersion))]
+    null = null[np.isclose(null["canvas_softness"], 4.0)]
+
+    keys = ["num_subjects", "screening_min_reliability", "within_session_drift"]
+    rows = []
+    for rho, tag in RQ2_TAGS.items():
+        alt = run.table(f"rq2_alt_draws_{tag}")
+        if alt is None:
+            continue
+        for key, group in alt.groupby(keys):
+            mask = np.ones(len(null), dtype=bool)
+            for name, value in zip(keys, key):
+                mask &= np.isclose(null[name], value)
+            cell_null = null[mask]
+            if cell_null.empty or group.empty:
+                continue
+            critical = float(np.quantile(cell_null["spearman"], RQ2_ALPHA))
+            rows.append({
+                "num_subjects": int(key[0]), "screening_min_reliability": float(key[1]),
+                "within_session_drift": float(key[2]), "target_rho": rho,
+                "ceiling": float(cell_null["spearman"].mean()),
+                "observed": float(group["spearman"].mean()),
+                "critical_value": critical, "n_alt": len(group), "n_null": len(cell_null),
+                "power": float((group["spearman"] < critical).mean()),
+            })
+    if not rows:
+        return None
+    per_drift = pd.DataFrame(rows)
+    # Average over drift: it is a nuisance parameter here, and both levels passed the gate.
+    return (per_drift
+            .groupby(["num_subjects", "screening_min_reliability", "target_rho"], as_index=False)
+            .agg(power=("power", "mean"), ceiling=("ceiling", "mean"),
+                 observed=("observed", "mean"), n_alt=("n_alt", "sum"),
+                 n_null=("n_null", "sum")))
+
+
 def rq2_power(run: Run) -> go.Figure:
     """Power against the true pre/post similarity, per cell.
 
-    Power here is the share of alternative draws falling below the null's 5th percentile, where the
-    null is two cohorts drawn from the SAME ground truth. No normal approximation and no attenuation
-    formula: both distributions are simulated.
+    Power is the share of alternative draws below the null's 5th percentile, where the null is two
+    cohorts drawn from the SAME ground truth. No normal approximation and no attenuation formula:
+    both distributions are simulated.
     """
-    frame = run.table("rq2_power")
+    frame = rq2_power_table(run)
     if frame is None:
-        return _pending("out/rq2_power.csv not found - the RQ2 arm has not produced it yet")
+        return _pending("out/rq2_null_draws.csv or rq2_alt_draws_*.csv not found")
     frame = run.cells(frame)
+    if frame.empty:
+        return _pending("the RQ2 draws hold none of the three compared cells")
     fig = go.Figure()
-    # NOTE: this table carries no drift column. `power_table` groups by
-    # (num_subjects, screening_min_reliability) only, so each cell POOLS both drift values - 30
-    # alternative draws per point is 2 drift x 15 reps. Recomputable per drift from the saved
-    # rq2_null_draws.csv and rq2_alt_draws_*.csv without re-running anything.
     for cell in CELL_ORDER:
         rows = frame[frame["cell"] == cell].sort_values("target_rho", ascending=False)
         if rows.empty:
             continue
+        # Binomial SE on a proportion of n_alt draws. Shown because 30 draws is coarse and the
+        # bars are wide enough to change how a reader weighs small differences between cells.
+        se = np.sqrt(rows["power"] * (1 - rows["power"]) / rows["n_alt"].clip(lower=1))
         fig.add_trace(go.Scatter(
             x=rows["target_rho"], y=rows["power"], mode="lines+markers", name=cell,
+            error_y=dict(type="data", array=se, visible=True),
             line=dict(color=CELL_COLOUR[cell])))
     fig.add_hline(y=0.80, line_dash="dash", line_color="#d62728",
                   annotation_text="80% power", annotation_position="bottom right")
@@ -286,9 +352,9 @@ FIGURES: Dict[str, Fig] = {
     "rq2_power": Fig(
         rq2_power,
         "Power to detect that ρ(pre, post) sits below the within-condition ceiling, against the "
-        "true effect. Each point pools both drift values (30 alternative draws = 2 drift x 15 reps), "
-        "so its resolution is 1/30 and small differences between cells are not meaningful. The "
-        "perturbation is isotropic by construction, so if SHINE acts selectively on sensory "
-        "dimensions this is optimistic or pessimistic depending on how much distance variance those "
-        "carry."),
+        "true effect, at the calibrated setting only. Error bars are the binomial SE on 30 draws, "
+        "and they are wide: differences between the three cells are mostly within them. The "
+        "perturbation is ISOTROPIC by construction, so if SHINE acts selectively on sensory "
+        "dimensions - which is what RQ3 supposes - this is optimistic or pessimistic depending on "
+        "how much of the distance variance those dimensions carry."),
 }

@@ -373,9 +373,19 @@ if alt_by_rho:
         np.isclose(null_draws["canvas_softness"], cv.DEFAULT_SOFTNESS)
         & np.isclose(null_draws["perspective_dispersion"], cal["dispersion"])
         & (null_draws["ndim"] == 8)]
-    curve = rq2_power.power_curve(cal_null, alt_by_rho)
+    # cell_fields INCLUDES within_session_drift. Without it the null and the alternative each pool
+    # two drift levels with different means, which widens the null, drags its 5th percentile down
+    # and biases power DOWNWARD - at rho=0.90, 0.83-0.90 pooled against 0.93-1.00 conditioned. The
+    # report averages the two levels back together afterwards; drift is a nuisance parameter, but
+    # it has to be conditioned on BEFORE the quantile, not after.
+    curve = rq2_power.power_curve(
+        cal_null, alt_by_rho,
+        cell_fields=("num_subjects", "screening_min_reliability", "within_session_drift"))
     curve.to_csv(OUT / "rq2_power.csv", index=False)
-    rq2_power.minimum_detectable_effect(curve).to_csv(OUT / "rq2_mde.csv", index=False)
+    rq2_power.minimum_detectable_effect(
+        curve,
+        cell_fields=("num_subjects", "screening_min_reliability", "within_session_drift"),
+    ).to_csv(OUT / "rq2_mde.csv", index=False)
     print("\n--- RQ2 power ---", flush=True)
     print(curve.to_string(index=False), flush=True)
 push("out", "rq2 power")
