@@ -299,8 +299,15 @@ class TaskV5SimulationConfig(TaskV4SimulationConfig):
     **Calibration does not transfer from v4.** ``subjects_noise_scale`` is an absolute fraction of
     canvas width here, not a ratio to each trial's arrangement spread, so a v5 sweep needs its own
     calibration run before its numbers mean anything.
+
+    ``exclude_false_positives`` models the analysis rather than the task. The deployed gate reads a
+    candidate once, on the screening block, and never revisits; a participant who clears it and then
+    stops trying is paid in full and stays in the data unless the *analysis* removes them. Setting
+    this to 1.0 discards and replaces such a subject, so the retained cohort matches an analysis that
+    applies the same rule to the experimental block. It defaults to 0.0, which is the v5 behaviour.
     """
     canvas_softness: Sequence[float] = (4.0,)
+    exclude_false_positives: Sequence[float] = (0.0,)
 
     def __post_init__(self):
         super().__post_init__()
@@ -308,6 +315,11 @@ class TaskV5SimulationConfig(TaskV4SimulationConfig):
             raise ValueError("`canvas_softness` must be non-empty")
         if any(sft <= 0 for sft in self.canvas_softness):
             raise ValueError(f"`canvas_softness` values must be positive, got {self.canvas_softness}")
+        if len(self.exclude_false_positives) == 0:
+            raise ValueError("`exclude_false_positives` must be non-empty")
+        if any(f not in (0.0, 1.0) for f in self.exclude_false_positives):
+            raise ValueError("`exclude_false_positives` values must be exactly 0.0 or 1.0, got "
+                             f"{self.exclude_false_positives}")
 
     def param_grid(self) -> List["TaskV5ExperimentParameters"]:
         from SpAM_Simulations.models.task_v5_experiment import TaskV5ExperimentParameters
@@ -327,6 +339,7 @@ class TaskV5SimulationConfig(TaskV4SimulationConfig):
                 self.subjects_noise_lognormal_sigma,
                 self.allocation_mode,
                 self.canvas_softness,
+                self.exclude_false_positives,
             )
         ]
 

@@ -49,11 +49,18 @@ from SpAM_Simulations.models.task_v4_experiment import (
 # `pipeline._task_key` coerces every field with `float()` and `_completed_keys` rebuilds the tuple
 # from `meta.csv` - so a numeric field survives the ResultStore round-trip and becomes a grouping
 # column in every compute_* table for free.
+#
+# `exclude_false_positives` is appended AFTER `canvas_softness`, and lives on the v5 tuple rather
+# than v4's, deliberately. v4's field order is pinned by its bit-exactness fixtures, and v5's tuple
+# is spliced from v4's `_fields`, so appending to v4 would silently shift `canvas_softness` by one
+# position in every v5 parameter tuple ever constructed. Adding it here instead leaves v4 alone.
 TaskV5ExperimentParameters = NamedTuple("TaskV5ExperimentParameters", [
     *[(f, float) for f in TaskV4ExperimentParameters._fields],
     ("canvas_softness", float),
+    ("exclude_false_positives", float),   # 1.0 -> discard and replace a retained subject whose
+                                          # MAIN-stage repeats fail the gate's own rule
 ])
-TaskV5ExperimentParameters.__new__.__defaults__ = (DEFAULT_SOFTNESS,)
+TaskV5ExperimentParameters.__new__.__defaults__ = (DEFAULT_SOFTNESS, 0.0)
 TaskV5ExperimentResults = TaskV4ExperimentResults
 
 

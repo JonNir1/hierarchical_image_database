@@ -106,6 +106,9 @@ TaskV4ExperimentResults = NamedTuple("TaskV4ExperimentResults", [
     ("screening_pass_rate", float),                      # num_subjects / n_candidates_screened
     ("screening_false_positive_rate", float),            # retained, but their MAIN-stage repeats
                                                          # fail the same rule the gate applied
+    ("n_false_positives_discarded", int),                # dropped and replaced (0 unless
+                                                         # `exclude_false_positives`); each one was
+                                                         # paid the FULL rate, unlike an early fail
 ])
 
 
@@ -174,6 +177,10 @@ def simulate_task_v4_experiment(
     all_n_obs = np.zeros(n_pairs, dtype=np.float64)
     subject_noises = np.empty(params.num_subjects, dtype=np.float64)
     n_false_positives = 0
+    n_false_positives_discarded = 0
+    # Read defensively: this lives on the v5 parameter tuple, and v4 is called directly with a v4
+    # tuple by the calibration path and by every bit-exactness fixture.
+    exclude_false_positives = bool(getattr(params, "exclude_false_positives", 0.0))
     subject_test_retest = np.empty(params.num_subjects, dtype=np.float64)
     subject_test_retest_procrustes = np.empty(params.num_subjects, dtype=np.float64)
     per_subject = np.empty((params.num_subjects, n_pairs), dtype=np.float32) if return_per_subject else None
@@ -241,8 +248,6 @@ def simulate_task_v4_experiment(
                 trials=main_trials,
                 trial_simulator=trial_simulator,
             )
-            if allocator is not None:
-                allocator.commit()
             # A retained subject's screening trials are analysed data, so pool both stages.
             observations = main.observations
             n_obs = main.n_obs
@@ -256,11 +261,21 @@ def simulate_task_v4_experiment(
 
             # The gate saw only the screening block. Scoring the SAME rule against the main
             # stage asks how many of the survivors would have failed had it been evaluated later -
-            # the simulated counterpart of prod's "false positives". Diagnostic only: nobody is
-            # removed here, because the deployed task does not remove them either.
-            if not _passes_screening(list(main.repeat_correlations),
-                                     params.screening_min_reliability):
+            # the simulated counterpart of prod's "false positives".
+            is_false_positive = not _passes_screening(list(main.repeat_correlations),
+                                                      params.screening_min_reliability)
+            if is_false_positive:
                 n_false_positives += 1
+                if exclude_false_positives:
+                    # Modelling the ANALYSIS, not the task. The deployed gate reads a candidate
+                    # once and never revisits, so this subject would be paid in full and only then
+                    # dropped - which is why they are counted separately from the early fails the
+                    # gate catches, and why the design session is returned to the allocator exactly
+                    # as a screening rejection is.
+                    n_false_positives_discarded += 1
+                    if allocator is not None:
+                        allocator.rollback()
+                    continue
 
             all_observations += observations
             all_n_obs += n_obs
@@ -269,6 +284,10 @@ def simulate_task_v4_experiment(
             subject_test_retest_procrustes[retained] = _nanmean_or_nan(m2s)
             if per_subject is not None:
                 per_subject[retained] = mean_from_sum_and_count(observations, n_obs).astype(np.float32)
+            if allocator is not None:
+                # Committed only now: a discarded false positive must give its session back, so the
+                # design stays a plan over ANALYSED subjects rather than over everyone who sat down.
+                allocator.commit()
             retained += 1
             bar.update(1)
 
@@ -278,6 +297,7 @@ def simulate_task_v4_experiment(
         subject_test_retest, subject_test_retest_procrustes,
         n_candidates, params.num_subjects / n_candidates,
         n_false_positives / params.num_subjects if params.num_subjects else float("nan"),
+        n_false_positives_discarded,
     )
     if return_per_subject:
         return params, results, per_subject
