@@ -29,11 +29,18 @@ import plotly.graph_objects as go
 PLOT_BG = "rgba(0,0,0,0)"
 
 # The three options, in the order they are always presented: current, then the two ways to spend.
+#
+# Everything downstream keys off the STRING label, never the (N, threshold) tuple. A tuple used as a
+# pandas label is ambiguous - `frame.loc[(50, 0.0), "mean"]` is read as multi-axis indexing, one
+# selector per axis, rather than as a single key - and it fails with a bare AssertionError from deep
+# inside .loc, which says nothing about the cause.
 CELLS = [(50, 0.0), (50, 0.1), (75, 0.0)]
 CELL_LABEL = {(50, 0.0): "N=50, ρ>0", (50, 0.1): "N=50, ρ>0.1", (75, 0.0): "N=75, ρ>0"}
-CELL_COLOUR = {(50, 0.0): "#888888", (50, 0.1): "#1f77b4", (75, 0.0): "#2ca02c"}
+CELL_ORDER = [CELL_LABEL[c] for c in CELLS]
+CELL_COLOUR = {CELL_LABEL[(50, 0.0)]: "#888888", CELL_LABEL[(50, 0.1)]: "#1f77b4",
+               CELL_LABEL[(75, 0.0)]: "#2ca02c"}
 # Credits to finish from the position the study paused at (~80 retained, 39/39 per SHINE cohort).
-CELL_COST = {(50, 0.0): 286, (50, 0.1): 636, (75, 0.0): 683}
+CELL_COST = {CELL_LABEL[(50, 0.0)]: 286, CELL_LABEL[(50, 0.1)]: 636, CELL_LABEL[(75, 0.0)]: 683}
 
 DRIFT_DASH = {1.0: "solid", 1.1: "dot"}
 DRIFT_LABEL = {1.0: "no drift", 1.1: "drift 1.1"}
@@ -72,11 +79,11 @@ class Run:
         return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
 
     def cells(self, frame: pd.DataFrame) -> pd.DataFrame:
-        """Restrict to the three compared cells and attach their labels."""
-        keys = list(zip(frame["num_subjects"].astype(int),
-                        frame["screening_min_reliability"].astype(float)))
-        frame = frame.assign(cell=keys)
-        return frame[frame["cell"].isin(CELLS)]
+        """Restrict to the three compared cells, labelling each with its display string."""
+        keys = zip(frame["num_subjects"].astype(int),
+                   frame["screening_min_reliability"].astype(float))
+        frame = frame.assign(cell=[CELL_LABEL.get(k) for k in keys])
+        return frame[frame["cell"].notna()]
 
 
 def _pending(message: str) -> go.Figure:
@@ -116,72 +123,99 @@ def validation_gate(run: Run) -> go.Figure:
 
 
 # --------------------------------------------------------------------------- the comparison
-def _cell_metric(run: Run, table: str, column: str, title: str) -> go.Figure:
+# The pipeline's tables arrive PRE-AGGREGATED over reps: one row per (params, ndim) carrying
+# `mean_<x>` and `sem_<x>`, not one row per cohort. `coverage` is the exception - it is per-rep and
+# has no `ndim` column at all. Both shapes go through `_cell_metric`.
+HEADLINE_NDIM = 8          # the dimensionality the GT was built at; see gt/gt_v6_decision.json
+HEADLINE_TOP_FRAC = 0.05   # gt_construction.DEFAULT_TOP_FRAC
+
+
+def _cell_metric(run: Run, table: str, column: str, title: str, *,
+                 top_frac: Optional[float] = None) -> go.Figure:
     frame = run.table(table)
     if frame is None or column not in frame.columns:
-        return _pending(f"out/{table}.csv not found - the decision run has not produced it yet")
+        return _pending(f"out/{table}.csv has no column '{column}' - the run did not produce it")
+    # Fix ndim and top_frac rather than averaging over them. Averaging a metric across
+    # dimensionalities mixes different fits, and averaging across k answers no question anyone
+    # asked - that mistake turned an ARI of 0.549 into 0.194 earlier in this project.
+    if "ndim" in frame.columns:
+        frame = frame[frame["ndim"] == HEADLINE_NDIM]
+    if top_frac is not None and "top_frac" in frame.columns:
+        frame = frame[np.isclose(frame["top_frac"], top_frac)]
     frame = run.cells(frame)
+    if frame.empty:
+        return _pending(f"out/{table}.csv has no rows for the three compared cells")
+
     fig = go.Figure()
-    for drift in _drift_values(frame):
+    drifts = _drift_values(frame)
+    for drift in drifts:
         sub = frame if drift is None else frame[frame["within_session_drift"] == drift]
+        # SD across the swept settings (dispersion x softness), not the SEM the table carries:
+        # the question is how much the answer moves across the sensitivity arm, not how precisely
+        # each cell's mean is known.
         grouped = sub.groupby("cell")[column].agg(["mean", "std"])
-        xs = [CELL_LABEL[c] for c in CELLS if c in grouped.index]
-        ys = [grouped.loc[c, "mean"] for c in CELLS if c in grouped.index]
-        es = [grouped.loc[c, "std"] for c in CELLS if c in grouped.index]
+        present = [c for c in CELL_ORDER if c in grouped.index]
         fig.add_trace(go.Bar(
-            name=DRIFT_LABEL.get(drift, "all"), x=xs, y=ys,
-            error_y=dict(type="data", array=es, visible=True),
-            marker_color=[CELL_COLOUR[c] for c in CELLS if c in grouped.index],
+            name=DRIFT_LABEL.get(drift, "all"), x=present,
+            y=[grouped["mean"][c] for c in present],
+            error_y=dict(type="data", array=[grouped["std"][c] for c in present], visible=True),
+            marker_color=[CELL_COLOUR[c] for c in present],
             opacity=1.0 if drift in (None, 1.0) else 0.55))
     fig.update_layout(barmode="group", height=380, plot_bgcolor=PLOT_BG, paper_bgcolor=PLOT_BG,
-                      yaxis_title=title, showlegend=len(_drift_values(frame)) > 1,
+                      yaxis_title=title, showlegend=len(drifts) > 1,
                       legend=dict(orientation="h", y=1.12), margin=dict(l=60, r=20, t=40, b=50))
     return fig
 
 
 def recovery_by_cell(run: Run) -> go.Figure:
-    return _cell_metric(run, "recovery_vs_gt", "spearman", "Spearman vs the ground truth")
+    return _cell_metric(run, "recovery_vs_gt", "mean_recall",
+                        f"recall of the true closest {HEADLINE_TOP_FRAC:.0%} of pairs",
+                        top_frac=HEADLINE_TOP_FRAC)
 
 
 def stability_by_cell(run: Run) -> go.Figure:
-    return _cell_metric(run, "embedding_stability", "spearman", "between-cohort Spearman")
+    return _cell_metric(run, "embedding_stability", "mean_spearman", "between-cohort Spearman")
 
 
 def jaccard_by_cell(run: Run) -> go.Figure:
-    return _cell_metric(run, "topk_jaccard", "jaccard", "top-k closest-pair Jaccard")
+    return _cell_metric(run, "topk_jaccard", "mean_jaccard",
+                        f"top-{HEADLINE_TOP_FRAC:.0%} closest-pair Jaccard",
+                        top_frac=HEADLINE_TOP_FRAC)
 
 
 def coverage_by_cell(run: Run) -> go.Figure:
-    return _cell_metric(run, "coverage", "pair_coverage", "fraction of pairs observed")
+    # `pair_coverage` is a percentage in this table (48.1, not 0.481), so the axis says so.
+    return _cell_metric(run, "coverage", "pair_coverage", "% of image pairs observed")
 
 
 def cost_per_quality(run: Run) -> go.Figure:
-    """The decision, stated as what each option costs per unit of what it buys.
+    """The decision, stated as what each option costs against what it buys.
 
     The credits are the marginal cost of FINISHING from where collection paused, not the cost of the
-    whole study, because that is the only number that can still be spent differently.
+    whole study, because that is the only part that can still be spent differently.
     """
     frame = run.table("recovery_vs_gt")
     if frame is None:
-        return _pending("out/recovery_vs_gt.csv not found - the decision run has not produced it")
+        return _pending("out/recovery_vs_gt.csv not found")
+    frame = frame[(frame["ndim"] == HEADLINE_NDIM)
+                  & np.isclose(frame["top_frac"], HEADLINE_TOP_FRAC)]
     frame = run.cells(frame)
+    if frame.empty:
+        return _pending("out/recovery_vs_gt.csv has no rows for the three compared cells")
     fig = go.Figure()
     for drift in _drift_values(frame):
         sub = frame if drift is None else frame[frame["within_session_drift"] == drift]
-        grouped = sub.groupby("cell")["spearman"].mean()
-        present = [c for c in CELLS if c in grouped.index]
-        base = grouped.get((50, 0.0), np.nan)
+        grouped = sub.groupby("cell")["mean_recall"].mean()
+        present = [c for c in CELL_ORDER if c in grouped.index]
         fig.add_trace(go.Scatter(
-            x=[CELL_COST[c] for c in present],
-            y=[grouped[c] for c in present],
-            text=[CELL_LABEL[c] for c in present], mode="markers+text", textposition="top center",
+            x=[CELL_COST[c] for c in present], y=[grouped[c] for c in present],
+            text=present, mode="markers+text", textposition="top center",
             name=DRIFT_LABEL.get(drift, "all"),
             marker=dict(size=13, color=[CELL_COLOUR[c] for c in present]),
             line=dict(dash=DRIFT_DASH.get(drift, "solid"))))
-        del base
     fig.update_layout(height=400, plot_bgcolor=PLOT_BG, paper_bgcolor=PLOT_BG,
                       xaxis_title="credits to finish, from the paused position",
-                      yaxis_title="Spearman vs the ground truth",
+                      yaxis_title=f"recall of the true closest {HEADLINE_TOP_FRAC:.0%} of pairs",
                       legend=dict(orientation="h", y=1.12), margin=dict(l=60, r=30, t=40, b=50))
     return fig
 
@@ -199,16 +233,17 @@ def rq2_power(run: Run) -> go.Figure:
         return _pending("out/rq2_power.csv not found - the RQ2 arm has not produced it yet")
     frame = run.cells(frame)
     fig = go.Figure()
-    for drift in _drift_values(frame):
-        sub = frame if drift is None else frame[frame["within_session_drift"] == drift]
-        for cell in CELLS:
-            rows = sub[sub["cell"] == cell].sort_values("target_rho", ascending=False)
-            if rows.empty:
-                continue
-            fig.add_trace(go.Scatter(
-                x=rows["target_rho"], y=rows["power"], mode="lines+markers",
-                name=f"{CELL_LABEL[cell]} ({DRIFT_LABEL.get(drift, 'all')})",
-                line=dict(color=CELL_COLOUR[cell], dash=DRIFT_DASH.get(drift, "solid"))))
+    # NOTE: this table carries no drift column. `power_table` groups by
+    # (num_subjects, screening_min_reliability) only, so each cell POOLS both drift values - 30
+    # alternative draws per point is 2 drift x 15 reps. Recomputable per drift from the saved
+    # rq2_null_draws.csv and rq2_alt_draws_*.csv without re-running anything.
+    for cell in CELL_ORDER:
+        rows = frame[frame["cell"] == cell].sort_values("target_rho", ascending=False)
+        if rows.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=rows["target_rho"], y=rows["power"], mode="lines+markers", name=cell,
+            line=dict(color=CELL_COLOUR[cell])))
     fig.add_hline(y=0.80, line_dash="dash", line_color="#d62728",
                   annotation_text="80% power", annotation_position="bottom right")
     fig.update_layout(height=420, plot_bgcolor=PLOT_BG, paper_bgcolor=PLOT_BG,
@@ -251,7 +286,9 @@ FIGURES: Dict[str, Fig] = {
     "rq2_power": Fig(
         rq2_power,
         "Power to detect that ρ(pre, post) sits below the within-condition ceiling, against the "
-        "true effect. The perturbation is isotropic by construction, so if SHINE acts selectively "
-        "on sensory dimensions this is optimistic or pessimistic depending on how much distance "
-        "variance those carry."),
+        "true effect. Each point pools both drift values (30 alternative draws = 2 drift x 15 reps), "
+        "so its resolution is 1/30 and small differences between cells are not meaningful. The "
+        "perturbation is isotropic by construction, so if SHINE acts selectively on sensory "
+        "dimensions this is optimistic or pessimistic depending on how much distance variance those "
+        "carry."),
 }
