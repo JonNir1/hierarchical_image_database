@@ -6,6 +6,7 @@ block, the recruit-until-N loop, the pooling of screening data into the analysed
 a regression guard that v4 without screening still reproduces v3 exactly.
 """
 import numpy as np
+from typing import NamedTuple
 import pytest
 
 from SpAM_Simulations.core.simulation import build_ground_truth_embeddings
@@ -359,3 +360,53 @@ class TestNoisePopulationFamily:
         with pytest.raises(AssertionError, match="lognormal_sigma"):
             simulate_task_v4_experiment(_params(subjects_noise_lognormal_sigma=-0.1), GT,
                                         np.random.default_rng(0), verbose=False)
+
+
+class TestExcludeFalsePositives:
+    """Modelling the ANALYSIS: drop a subject the gate let through but the experimental block fails.
+
+    The flag lives on the v5 tuple, so v4 reads it defensively. These tests drive it through a
+    stand-in params object rather than the v5 tuple, to keep the v4 suite independent of v5.
+    """
+
+    def _run_with_flag(self, flag, seed=0, **overrides):
+        """v4 params carrying an `exclude_false_positives` attribute, as v5's tuple would."""
+        base = _params(**overrides)
+        fields = list(base._fields) + ["exclude_false_positives"]
+        Extended = NamedTuple("Extended", [(f, float) for f in fields])
+        params = Extended(*[getattr(base, f) for f in base._fields], float(flag))
+        _, res = simulate_task_v4_experiment(params, GT, np.random.default_rng(seed), verbose=False)
+        return res
+
+    def test_default_is_a_no_op(self):
+        """The v4 tuple has no such field at all, so the getattr default must keep v5 behaviour."""
+        plain = _run(seed=3, screening_min_reliability=0.2)
+        flagged = self._run_with_flag(0.0, seed=3, screening_min_reliability=0.2)
+        assert flagged.n_candidates_screened == plain.n_candidates_screened
+        assert flagged.n_false_positives_discarded == 0
+        np.testing.assert_array_equal(flagged.subject_noises, plain.subject_noises)
+
+    def test_excluding_them_still_returns_exactly_num_subjects(self):
+        res = self._run_with_flag(1.0, seed=3, screening_min_reliability=0.2)
+        assert res.subject_noises.size == 20
+        assert res.subject_test_retest.size == 20
+
+    def test_excluding_them_costs_extra_candidates(self):
+        """Every discarded false positive has to be replaced, so recruitment rises."""
+        keep = self._run_with_flag(0.0, seed=3, screening_min_reliability=0.2)
+        drop = self._run_with_flag(1.0, seed=3, screening_min_reliability=0.2)
+        assert drop.n_false_positives_discarded > 0
+        assert drop.n_candidates_screened > keep.n_candidates_screened
+
+    def test_the_retained_cohort_is_cleaner(self):
+        """That is the entire point of paying for the replacements."""
+        keep = self._run_with_flag(0.0, seed=3, screening_min_reliability=0.2)
+        drop = self._run_with_flag(1.0, seed=3, screening_min_reliability=0.2)
+        assert np.nanmean(drop.subject_test_retest) > np.nanmean(keep.subject_test_retest)
+
+    def test_discarded_subjects_are_counted_separately_from_early_fails(self):
+        """They are paid the FULL rate, unlike a screening rejection, so cost needs both counts."""
+        res = self._run_with_flag(1.0, seed=3, screening_min_reliability=0.2)
+        early_fails = res.n_candidates_screened - 20 - res.n_false_positives_discarded
+        assert early_fails >= 0
+        assert res.n_candidates_screened == 20 + early_fails + res.n_false_positives_discarded

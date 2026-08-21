@@ -122,12 +122,20 @@ def test_canvas_softness_is_swept_and_reaches_the_metric_tables():
 
 
 def test_v5_params_survive_the_store_round_trip():
-    """`_task_key` coerces every field with float(), so canvas_softness must be numeric."""
+    """`_task_key` coerces every field with float(), so every v5 field must be numeric.
+
+    Fields are located by NAME rather than by offset from the end: the key is
+    ``(*params, rep, ndim)``, so appending a field to the tuple shifts every negative index and a
+    positional assertion here would fail for a reason that has nothing to do with what it checks.
+    """
     from SpAM_Simulations.core.pipeline import _task_key
     from SpAM_Simulations.models.task_v5_experiment import TaskV5ExperimentParameters
-    key = _task_key(TaskV5ExperimentParameters(*[1.0] * 12, 4.0), rep=0, ndim=3)
-    assert key[-3] == 4.0                                 # the softness field, floated
+    params = TaskV5ExperimentParameters(*[1.0] * 12, 4.0)
+    key = _task_key(params, rep=0, ndim=3)
+    assert key[params._fields.index("canvas_softness")] == 4.0
+    assert key[params._fields.index("exclude_false_positives")] == 0.0
     assert all(isinstance(v, float) for v in key[:-2])
+    assert len(key) == len(params._fields) + 2            # + rep, ndim
 
 
 def test_the_config_rejects_a_nonpositive_or_empty_softness_grid():
