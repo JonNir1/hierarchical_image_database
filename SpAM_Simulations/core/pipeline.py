@@ -404,6 +404,115 @@ def compute_embedding_stability(
     return pd.DataFrame(rows)
 
 
+def compute_cross_gt_correlation(
+    store_a: ResultStore, store_b: ResultStore,
+    group_fields: Optional[Sequence[str]] = None, verbose: bool = True
+) -> pd.DataFrame:
+    """Spearman between two stores' recovered distances, matched cell for cell and rep for rep.
+
+    :func:`compute_embedding_stability` correlates reps *within* one store, which is two cohorts
+    drawn from the SAME ground truth. This correlates the same cell across two stores built from
+    two DIFFERENT ground truths, which is the RQ2 alternative: a pre-SHINE cohort against a
+    post-SHINE cohort.
+
+    Matching is on the full group key **plus ``rep``**, not just the group. Rep `i` in both stores
+    was generated from the same seed offset, so pairing rep with rep keeps the cohort-sampling
+    noise common to the two sides and isolates the ground-truth difference. Correlating every
+    A-rep against every B-rep instead would add a second, independent sampling draw to each
+    comparison and inflate the spread that the power calculation reads as its noise floor.
+
+    Both stores must span the same grid; a mismatch raises rather than silently scoring the
+    intersection, because a partial overlap would quietly change what the power estimate is over.
+    """
+    grouped_a, group_fields = _grouped_successful(store_a, group_fields)
+    grouped_b, fields_b = _grouped_successful(store_b, group_fields)
+    if list(fields_b) != list(group_fields):
+        raise ValueError(f"stores disagree on grouping columns: {group_fields} vs {fields_b}")
+
+    rows_b = {}
+    for key, grp in grouped_b:
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        rows_b[key_tuple] = dict(zip(grp["rep"].astype(int), grp["confdist_row"].astype(int)))
+
+    rows = []
+    for key, grp in tqdm(grouped_a, total=grouped_a.ngroups, desc="Cross-GT correlation",
+                         disable=not verbose):
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        partner = rows_b.get(key_tuple)
+        if partner is None:
+            raise ValueError(
+                f"cell {dict(zip(group_fields, key_tuple))} is present in the first store and "
+                f"absent from the second; the two runs must span the same grid")
+        corrs = []
+        for rep, row_a in zip(grp["rep"].astype(int), grp["confdist_row"].astype(int)):
+            row_b = partner.get(int(rep))
+            if row_b is None:
+                continue
+            corrs.append(spearmanr(store_a.confdist(int(row_a)),
+                                   store_b.confdist(int(row_b))).statistic)
+        rows.append({
+            **dict(zip(group_fields, key_tuple)),
+            "n_pairs": len(corrs),
+            "mean_spearman": float(np.mean(corrs)) if corrs else np.nan,
+            "sd_spearman": float(np.std(corrs, ddof=1)) if len(corrs) > 1 else np.nan,
+            "min_spearman": float(np.min(corrs)) if corrs else np.nan,
+            "max_spearman": float(np.max(corrs)) if corrs else np.nan,
+        })
+    return pd.DataFrame(rows)
+
+
+def cross_gt_draws(
+    store_a: ResultStore, store_b: ResultStore,
+    group_fields: Optional[Sequence[str]] = None, verbose: bool = True
+) -> pd.DataFrame:
+    """Every matched (cell, rep) correlation individually, not summarised.
+
+    The power calculation compares a *distribution* of alternative draws against a *distribution*
+    of null draws, so it needs the draws rather than their mean and SD.
+    """
+    grouped_a, group_fields = _grouped_successful(store_a, group_fields)
+    grouped_b, _ = _grouped_successful(store_b, group_fields)
+    rows_b = {}
+    for key, grp in grouped_b:
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        rows_b[key_tuple] = dict(zip(grp["rep"].astype(int), grp["confdist_row"].astype(int)))
+
+    rows = []
+    for key, grp in tqdm(grouped_a, total=grouped_a.ngroups, desc="Cross-GT draws",
+                         disable=not verbose):
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        partner = rows_b.get(key_tuple, {})
+        for rep, row_a in zip(grp["rep"].astype(int), grp["confdist_row"].astype(int)):
+            row_b = partner.get(int(rep))
+            if row_b is None:
+                continue
+            rows.append({
+                **dict(zip(group_fields, key_tuple)), "rep": int(rep),
+                "spearman": float(spearmanr(store_a.confdist(int(row_a)),
+                                            store_b.confdist(int(row_b))).statistic),
+            })
+    return pd.DataFrame(rows)
+
+
+def embedding_stability_draws(
+    store: ResultStore, group_fields: Optional[Sequence[str]] = None, verbose: bool = True
+) -> pd.DataFrame:
+    """Every within-store rep-pair correlation individually: the RQ2 null distribution.
+
+    Same quantity :func:`compute_embedding_stability` averages, kept unsummarised because the power
+    calculation needs the distribution's 5th percentile rather than its mean.
+    """
+    grouped, group_fields = _grouped_successful(store, group_fields)
+    rows = []
+    for key, grp in tqdm(grouped, total=grouped.ngroups, desc="Stability draws",
+                         disable=not verbose):
+        key_tuple = key if isinstance(key, tuple) else (key,)
+        confdists = [store.confdist(int(r)) for r in grp["confdist_row"]]
+        for (i, a), (j, b) in combinations(list(enumerate(confdists)), 2):
+            rows.append({**dict(zip(group_fields, key_tuple)), "rep_i": i, "rep_j": j,
+                         "spearman": float(spearmanr(a, b).statistic)})
+    return pd.DataFrame(rows)
+
 def _grouped_successful(store: ResultStore, group_fields: Optional[Sequence[str]]):
     """Shared grouping for the post-MDS metrics: successful, confdist-bearing records by config."""
     df = store.metadata()
