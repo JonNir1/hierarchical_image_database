@@ -150,6 +150,22 @@ _SCREENING_EVAL_DIAGNOSTIC_FIELDS = [
 ]
 
 
+def _build_participant_row(
+    pid: str, demo_fields: dict, session_files: dict[str, list[Path]]
+) -> tuple[dict, str, dict]:
+    """Build one df_participants row, its status, and its resolved session-file info.
+
+    demo_fields is the demographics row as a dict, or just {"participant_id": pid} for
+    a session with no matching demographics record -- those columns come out NaN.
+    """
+    candidates = session_files.get(pid, [])
+    resolved = _resolve_session_file(pid, candidates)
+    base = _participant_metadata(pid, resolved)
+    status = _determine_status(demo_fields.get("prolific_status"), resolved, base)
+    row = {**demo_fields, **base, "status": status}
+    return row, status, resolved
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -200,12 +216,19 @@ def load_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
 
     for _, participant in df_demo.iterrows():
         pid = participant["participant_id"]
-        candidates = session_files.get(pid, [])
-        resolved = _resolve_session_file(pid, candidates)
+        row, status, resolved = _build_participant_row(pid, participant.to_dict(), session_files)
+        participant_rows.append(row)
 
-        base = _participant_metadata(pid, resolved)
-        status = _determine_status(participant["prolific_status"], resolved, base)
-        row = {**participant.to_dict(), **base, "status": status}
+        if status in {"full data", "screened out"}:
+            trial_rows.append(_load_trials_for_participant(pid, resolved["path"]))
+
+    # Sessions with no matching demographics record (e.g. the Prolific export was pulled
+    # before the session ran, or a batch's demographics file is still pending) are still
+    # real task data -- don't drop them silently. Demographic columns come out NaN for
+    # these rows.
+    session_only_pids = sorted(set(session_files) - set(df_demo["participant_id"]))
+    for pid in session_only_pids:
+        row, status, resolved = _build_participant_row(pid, {"participant_id": pid}, session_files)
         participant_rows.append(row)
 
         if status in {"full data", "screened out"}:
