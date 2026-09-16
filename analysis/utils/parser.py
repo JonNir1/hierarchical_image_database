@@ -149,6 +149,14 @@ _SCREENING_EVAL_DIAGNOSTIC_FIELDS = [
     "min_reliability", "median_reliability",
 ]
 
+# Full-session false-positive recheck thresholds -- mirror SpAM_Task/task_config.json's
+# screening_block.thresholds / experimental_trials (identical for v4.00 and v4.01).
+_FULL_SESSION_MIN_MOVE_ITEM_RATIO = 0.65
+_FULL_SESSION_MIN_PAIRWISE_DIST_SD = 0.1
+_FULL_SESSION_MOVE_RATIO_MAX_FAIL_RATE = 0.13
+_FULL_SESSION_DISTANCE_SD_MAX_FAIL_RATE = 0.13
+_FULL_SESSION_MIN_RELIABILITY = 0.0
+
 
 def _build_participant_row(
     pid: str, demo_fields: dict, session_files: dict[str, list[Path]]
@@ -164,6 +172,63 @@ def _build_participant_row(
     status = _determine_status(demo_fields.get("prolific_status"), resolved, base)
     row = {**demo_fields, **base, "status": status}
     return row, status, resolved
+
+
+def _fails_full_session_recheck(df_trials: pd.DataFrame) -> bool:
+    """
+    Re-run the screening_eval pass/fail formula (evaluateScreening() in
+    SpAM_Task/js/utils.js) over a participant's FULL session -- screening and
+    experimental blocks pooled -- instead of just the screening block it was
+    originally evaluated against. A subject can pass the screening-block-only
+    check and still fail here once more repeat trials are pooled in (most often
+    because min_reliability turns negative).
+    """
+    main = df_trials[~df_trials["is_catch"]]
+    if main.empty:
+        return False
+
+    def _num_items(pw_json: str) -> float:
+        n_pairs = len(parse_pairwise_distances(pw_json))
+        return float("nan") if n_pairs == 0 else round((1 + (1 + 8 * n_pairs) ** 0.5) / 2)
+
+    def _trial_sd(pw_json: str) -> float:
+        dists = list(parse_pairwise_distances(pw_json).values())
+        return float("nan") if len(dists) < 2 else pd.Series(dists).std(ddof=1)
+
+    num_items = main["pairwise_distances"].apply(_num_items)
+    sd = main["pairwise_distances"].apply(_trial_sd)
+    move_fail_rate = (main["num_moves"] < _FULL_SESSION_MIN_MOVE_ITEM_RATIO * num_items).mean()
+    sd_fail_rate = (sd < _FULL_SESSION_MIN_PAIRWISE_DIST_SD).mean()
+
+    reliabilities = df_trials["reliability"].dropna()
+    min_reliability = reliabilities.min() if not reliabilities.empty else None
+
+    return (
+        move_fail_rate > _FULL_SESSION_MOVE_RATIO_MAX_FAIL_RATE
+        or sd_fail_rate > _FULL_SESSION_DISTANCE_SD_MAX_FAIL_RATE
+        or (min_reliability is not None and min_reliability < _FULL_SESSION_MIN_RELIABILITY)
+    )
+
+
+def _load_trials_and_flag_false_positive(
+    pid: str, status: str, resolved: dict, row: dict
+) -> pd.DataFrame | None:
+    """
+    Load *pid*'s trials if *status* warrants it, and -- for a "full data" participant
+    who actually reached the screening evaluation -- flip row["status"] to
+    "false_positive" in place if the full-session recheck fails. Returns None if
+    there's nothing to load.
+    """
+    if status not in {"full data", "screened out"}:
+        return None
+    trials = _load_trials_for_participant(pid, resolved["path"])
+    if (
+        status == "full data"
+        and row.get("move_ratio_fail_rate") is not None
+        and _fails_full_session_recheck(trials)
+    ):
+        row["status"] = "false_positive"
+    return trials
 
 
 # ---------------------------------------------------------------------------
@@ -219,8 +284,9 @@ def parse_raw_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
         row, status, resolved = _build_participant_row(pid, participant.to_dict(), session_files)
         participant_rows.append(row)
 
-        if status in {"full data", "screened out"}:
-            trial_rows.append(_load_trials_for_participant(pid, resolved["path"]))
+        trials = _load_trials_and_flag_false_positive(pid, status, resolved, row)
+        if trials is not None:
+            trial_rows.append(trials)
 
     # Sessions with no matching demographics record (e.g. the Prolific export was pulled
     # before the session ran, or a batch's demographics file is still pending) are still
@@ -231,8 +297,9 @@ def parse_raw_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
         row, status, resolved = _build_participant_row(pid, {"participant_id": pid}, session_files)
         participant_rows.append(row)
 
-        if status in {"full data", "screened out"}:
-            trial_rows.append(_load_trials_for_participant(pid, resolved["path"]))
+        trials = _load_trials_and_flag_false_positive(pid, status, resolved, row)
+        if trials is not None:
+            trial_rows.append(trials)
 
     df_participants = pd.DataFrame(participant_rows)
     df_participants = df_participants[[c for c in _PARTICIPANTS_COLUMNS if c in df_participants.columns]]
@@ -463,6 +530,9 @@ def _screening_eval_diagnostics(path: Path) -> dict:
 
 
 def _determine_status(prolific_status: str, resolved: dict, base: dict) -> str:
+    """Returns "revoked consent" / "missing data" / "screened out" / "full data". A
+    "full data" result may be further downgraded to "false_positive" once trials are
+    loaded -- see _load_trials_and_flag_false_positive()."""
     if prolific_status in {"RETURNED", "REJECTED"}:
         return "revoked consent"
 
