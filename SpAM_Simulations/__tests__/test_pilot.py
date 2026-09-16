@@ -1,4 +1,4 @@
-"""Tests for pilot ingestion + calibration.
+﻿"""Tests for pilot ingestion + calibration.
 
 Session/CSV loading is delegated to ``analysis.utils.parser`` (tested there); these tests exercise
 this module's own logic - reducing a tidy ``trials`` frame to a ``PilotSubject``, the
@@ -54,7 +54,7 @@ def _trials_df(trials, participant="P", version=3.0):
 
 
 def _loaded(trials_df, participants_df=None):
-    """Mimic load_data's two-table return for monkeypatching."""
+    """Mimic parse_raw_data's two-table return for monkeypatching."""
     if participants_df is None:
         participants_df = pd.DataFrame([
             {"participant_id": pid, "cohort": "pilot",
@@ -146,14 +146,14 @@ def test_load_subjects_filters_version_and_qc(tmp_path, monkeypatch):
         _trials_df([flagged], participant="C", version=3.0),  # 100% flagged
     ], ignore_index=True)
     # stub the parser loader: this module must NOT re-read CSVs, only reduce the tidy trials frame
-    monkeypatch.setattr(pilot, "load_data", lambda d: _loaded(trials))
+    monkeypatch.setattr(pilot, "parse_raw_data", lambda d: _loaded(trials))
     assert len(pilot.load_pilot_subjects("ignored", man)) == 3
     assert len(pilot.load_pilot_subjects("ignored", man, versions=[3.0])) == 2
     assert len(pilot.load_pilot_subjects("ignored", man, apply_qc=True)) == 2  # drops the flagged one
 
 
 def test_load_subjects_empty(tmp_path, monkeypatch):
-    monkeypatch.setattr(pilot, "load_data", lambda d: {"participants": pd.DataFrame(), "trials": pd.DataFrame()})
+    monkeypatch.setattr(pilot, "parse_raw_data", lambda d: {"participants": pd.DataFrame(), "trials": pd.DataFrame()})
     assert pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path)) == []
 
 
@@ -371,13 +371,13 @@ class TestCohortIsolation:
 
     def test_production_excluded_by_default(self, tmp_path, monkeypatch):
         trials, participants = self._mixed(tmp_path)
-        monkeypatch.setattr(pilot, "load_data", lambda d: _loaded(trials, participants))
+        monkeypatch.setattr(pilot, "parse_raw_data", lambda d: _loaded(trials, participants))
         subs = pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path))
         assert [s.participant_id for s in subs] == ["PILOT_1"]
 
     def test_production_included_only_on_explicit_override(self, tmp_path, monkeypatch):
         trials, participants = self._mixed(tmp_path)
-        monkeypatch.setattr(pilot, "load_data", lambda d: _loaded(trials, participants))
+        monkeypatch.setattr(pilot, "parse_raw_data", lambda d: _loaded(trials, participants))
         subs = pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path),
                                          cohorts=("pilot", "production"))
         assert sorted(s.participant_id for s in subs) == ["PILOT_1", "PROD_1"]
@@ -386,7 +386,7 @@ class TestCohortIsolation:
         """`cohorts` does not imply a SHINE variant, so both filters must apply independently."""
         trials, participants = self._mixed(tmp_path)
         participants = participants.assign(shine_variant=["post", "pre"])  # PILOT_1 post, PROD_1 pre
-        monkeypatch.setattr(pilot, "load_data", lambda d: _loaded(trials, participants))
+        monkeypatch.setattr(pilot, "parse_raw_data", lambda d: _loaded(trials, participants))
         # pilot cohort alone keeps the post-SHINE pilot subject...
         assert [s.participant_id for s in
                 pilot.load_pilot_subjects("ignored", _write_manifest(tmp_path))] == ["PILOT_1"]

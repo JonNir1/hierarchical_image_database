@@ -1,11 +1,11 @@
 """
 Pilot analysis figures for the SpAM task.
 
-All functions accept DataFrames returned by analysis.utils.parser.load_data
+All functions accept DataFrames returned by analysis.utils.parser.parse_raw_data
 ("participants" and/or "trials") and return plotly Figure objects.
 
 Usage (from repo root):
-    from analysis.utils.parser import load_data
+    from analysis.utils.parser import parse_raw_data
     from analysis.pilot.figures import (
         fig_completion_status, fig_demographics,
         fig_trial_duration, fig_moves, fig_reliability,

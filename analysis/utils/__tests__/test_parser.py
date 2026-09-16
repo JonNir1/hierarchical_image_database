@@ -1,4 +1,4 @@
-import json
+﻿import json
 import math
 
 import pandas as pd
@@ -8,7 +8,7 @@ from analysis.utils.parser import (
     _count_moves,
     _trial_image_set,
     _normalise_locations,
-    load_data,
+    parse_raw_data,
     parse_pairwise_distances,
 )
 from pilot_csv_helpers import _SESSION_COLUMNS, write_demographics_csv, write_session_csv
@@ -50,7 +50,7 @@ def _trial_row(trial_type, pairs=_IMAGES_A, **overrides) -> dict:
     return row
 
 
-class TestLoadData:
+class TestParseRawData:
     def test_practice_trials_excluded_and_trial_id_continuous(self, tmp_path):
         write_demographics_csv(tmp_path, [_demo_row()])
         write_session_csv(tmp_path, [
@@ -61,7 +61,7 @@ class TestLoadData:
             _trial_row("trial_2", block="experimental"),
         ], "session1.csv")
 
-        data = load_data(tmp_path)
+        data = parse_raw_data(tmp_path)
         df_t = data["trials"]
 
         assert len(df_t) == 3
@@ -77,7 +77,7 @@ class TestLoadData:
         df = pd.DataFrame([{c: row.get(c, "") for c in cols} for row in rows])
         df.to_csv(tmp_path / "session1.csv", index=False)
 
-        data = load_data(tmp_path)
+        data = parse_raw_data(tmp_path)
         df_t = data["trials"]
         assert (df_t["block_type"] == "experimental").all()
 
@@ -88,7 +88,7 @@ class TestLoadData:
             _trial_row("trial_2", pairs=_IMAGES_A_REPEAT, is_trial_repeat="true", repeat_of_trial_number="1"),
         ], "session1.csv")
 
-        data = load_data(tmp_path)
+        data = parse_raw_data(tmp_path)
         df_t = data["trials"]
 
         orig = df_t[df_t["trial_id"] == 1].iloc[0]
@@ -107,7 +107,7 @@ class TestLoadData:
         ], "session1.csv")
 
         with pytest.warns(UserWarning, match="do not share the same image set"):
-            data = load_data(tmp_path)
+            data = parse_raw_data(tmp_path)
 
         report = _validate_trial_repeat_image_sets_v2(data["trials"])
         assert not report.iloc[0]["images_match"]
@@ -120,7 +120,7 @@ class TestLoadData:
                        is_trial_repeat="true", repeat_of_trial_number="1"),
         ], "session1.csv")
 
-        data = load_data(tmp_path)
+        data = parse_raw_data(tmp_path)
         repeat = data["trials"][data["trials"]["trial_id"] == 2].iloc[0]
         assert pd.isna(repeat["reliability"])
 
@@ -132,7 +132,7 @@ class TestLoadData:
         ], "session1.csv")
 
         with pytest.warns(UserWarning, match="failed to parse|malformed"):
-            data = load_data(tmp_path)
+            data = parse_raw_data(tmp_path)
 
         repeat = data["trials"][data["trials"]["trial_id"] == 2].iloc[0]
         assert pd.isna(repeat["reliability"])
@@ -143,7 +143,7 @@ class TestLoadData:
             {**_trial_row("pavlovia"), "trial_type": "pavlovia"},
         ], "session1.csv")
 
-        data = load_data(tmp_path)
+        data = parse_raw_data(tmp_path)
         assert data["participants"].iloc[0]["status"] == "missing data"
         assert data["trials"].empty
 
@@ -166,7 +166,7 @@ class TestLoadData:
             },
         ], "session_p4.csv")
 
-        data = load_data(tmp_path)
+        data = parse_raw_data(tmp_path)
         status_by_pid = data["participants"].set_index("participant_id")["status"]
         assert status_by_pid["p1"] == "full data"
         assert status_by_pid["p2"] == "revoked consent"
@@ -191,7 +191,7 @@ class TestLoadData:
         write_session_csv(tmp_path, [_trial_row("trial_1", **{"participant_id": "p2"}, task_version="1.0")],
                            "session_p2.csv")
 
-        data = load_data(tmp_path)
+        data = parse_raw_data(tmp_path)
         by_pid = data["participants"].set_index("participant_id")
 
         assert by_pid.loc["p1", "reasons"] == '["move-ratio fail rate 0.5"]'
@@ -214,7 +214,7 @@ class TestLoadData:
         write_session_csv(tmp_path, [_trial_row("trial_1", **{"participant_id": "p2"},
                                                  deployment_mode="")], "prod_session_p2.csv")
 
-        data = load_data(tmp_path)
+        data = parse_raw_data(tmp_path)
         cohort_by_pid = data["participants"].set_index("participant_id")["cohort"]
         assert cohort_by_pid["p1"] == "production"
         assert cohort_by_pid["p2"] == "production"  # from prod_ filename prefix fallback
@@ -224,7 +224,7 @@ class TestLoadData:
         write_session_csv(tmp_path, [_trial_row("trial_1")], "session_a.csv")
         write_session_csv(tmp_path, [_trial_row("trial_1"), _trial_row("trial_2")], "session_b.csv")
 
-        data = load_data(tmp_path)
+        data = parse_raw_data(tmp_path)
         row = data["participants"].iloc[0]
         assert row["num_associated_files"] == 2
         assert row["file_name"] == "session_b.csv"  # more real trial rows wins
@@ -236,7 +236,7 @@ class TestLoadData:
         write_session_csv(tmp_path, [_trial_row("trial_1", pairs=_IMAGES_B)],
                            "hierarchical-image-database_PARTICIPANT_SESSION_2026-07-24_20h55.35.371.csv")
 
-        data = load_data(tmp_path)
+        data = parse_raw_data(tmp_path)
         row = data["participants"].iloc[0]
         assert "20h55.35.371" in row["file_name"]  # most recent wins the tie
 
@@ -248,7 +248,7 @@ class TestLoadData:
                            "hierarchical-image-database_PARTICIPANT_SESSION2_2026-07-24_20h11.13.978.csv")
 
         with pytest.raises(ValueError, match="cannot resolve"):
-            load_data(tmp_path)
+            parse_raw_data(tmp_path)
 
     def test_multi_file_unparseable_timestamp_raises(self, tmp_path):
         write_demographics_csv(tmp_path, [_demo_row()])
@@ -256,7 +256,7 @@ class TestLoadData:
         write_session_csv(tmp_path, [_trial_row("trial_1", pairs=_IMAGES_B)], "session_no_timestamp_b.csv")
 
         with pytest.raises(ValueError, match="Cannot parse a timestamp"):
-            load_data(tmp_path)
+            parse_raw_data(tmp_path)
 
     @pytest.mark.parametrize("field,bad_value", [
         ("deployment_mode", "production"),
@@ -273,11 +273,11 @@ class TestLoadData:
         ], "session1.csv")
 
         with pytest.raises(ValueError, match=field):
-            load_data(tmp_path)
+            parse_raw_data(tmp_path)
 
     def test_missing_dir_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
-            load_data(tmp_path / "does_not_exist")
+            parse_raw_data(tmp_path / "does_not_exist")
 
 
 # ---------------------------------------------------------------------------
