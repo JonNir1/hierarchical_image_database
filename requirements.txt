@@ -25,6 +25,7 @@ tqdm>=4.67
 opencv-python>=4.13
 joblib>=1.4          # SpAM_Simulations parallel MDS sweep (needs return_as= streaming)
 statsmodels>=0.14    # analysis/pilot multiple-comparison correction (multipletests)
+pyarrow>=19.0        # parquet read/write for cached parsed data
 
 # Notebook / interactive
 jupyter
