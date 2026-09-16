@@ -76,7 +76,7 @@ class TestScreeningOutcomesCountOnlyPeopleWhoSatTheTask:
         participants = self._participants()
         trials = pd.DataFrame(columns=["participant_id", "is_catch", "block_type",
                                        "pairwise_distances", "num_moves", "reliability"])
-        monkeypatch.setattr("analysis.utils.parser.load_data",
+        monkeypatch.setattr("analysis.utils.parser.parse_raw_data",
                             lambda d: {"participants": participants, "trials": trials})
         out = pt.screening_outcomes("ignored", "ignored")
         assert sorted(out["participant_id"]) == ["A", "B"], "C revoked consent, D is pilot"
@@ -86,7 +86,7 @@ class TestScreeningOutcomesCountOnlyPeopleWhoSatTheTask:
         participants = self._participants()
         trials = pd.DataFrame(columns=["participant_id", "is_catch", "block_type",
                                        "pairwise_distances", "num_moves", "reliability"])
-        monkeypatch.setattr("analysis.utils.parser.load_data",
+        monkeypatch.setattr("analysis.utils.parser.parse_raw_data",
                             lambda d: {"participants": participants, "trials": trials})
         out = pt.screening_outcomes("ignored", "ignored")
         assert "D" not in set(out["participant_id"])

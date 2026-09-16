@@ -1,4 +1,4 @@
-﻿"""Read-only ingestion of collected SpAM session data, and calibration of the simulation to it.
+"""Read-only ingestion of collected SpAM session data, and calibration of the simulation to it.
 
 The task-v3 simulation has two free internals - ``subjects_noise_scale`` (within-subject canvas
 placement noise) and ``perspective_dispersion`` (between-subject disagreement) - plus a ground-

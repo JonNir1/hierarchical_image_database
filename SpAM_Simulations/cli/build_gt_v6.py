@@ -58,12 +58,12 @@ def excluded_prod_subjects(data_dir: str, manifest: str, config: str, *,
     the same rule on the experimental block). Early fails carry only their screening block, which is
     real data over real pairs and is exactly what this is for.
     """
-    from analysis.utils.parser import load_data
+    from analysis.utils.parser import parse_raw_data
     from SpAM_Simulations.empirical import screening_audit as sa
     from SpAM_Simulations.empirical.subjects import load_prod_subjects
 
     thr = sa.load_thresholds(config)
-    data = load_data(data_dir)
+    data = parse_raw_data(data_dir)
     part = sa.partition_candidates(data["participants"], data["trials"], thr, threshold=0.0)
     discarded = set(part["early_fail"]) | set(part["false_alarm"])
     # statuses must include "screened out" or the early fails are dropped before we can see them.

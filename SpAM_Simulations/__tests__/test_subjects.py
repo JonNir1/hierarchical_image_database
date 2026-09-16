@@ -1,4 +1,4 @@
-﻿"""Tests for session ingestion + calibration.
+"""Tests for session ingestion + calibration.
 
 Session/CSV loading is delegated to ``analysis.utils.parser`` (tested there); these tests exercise
 this module's own logic - reducing a tidy ``trials`` frame to a ``Subject``, the

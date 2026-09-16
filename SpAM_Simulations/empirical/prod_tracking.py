@@ -168,10 +168,10 @@ def screening_outcomes(data_dir: str, manifest_path: str,
     (:data:`screening_audit.SIMULABLE`), so the attribution columns are what make the comparison
     honest rather than decorative.
     """
-    from analysis.utils.parser import load_data
+    from analysis.utils.parser import parse_raw_data
 
     thresholds = sa.load_thresholds(config_path)
-    data = load_data(data_dir)
+    data = parse_raw_data(data_dir)
     participants = data["participants"]
     trials = data["trials"]
     prod = participants[participants["cohort"] == "production"]
@@ -332,10 +332,10 @@ def allocation(data_dir: str, manifest_path: str) -> pd.DataFrame:
     Catch trials are excluded: they draw from a separate pictogram pool and are not part of the
     allocation being evaluated.
     """
-    from analysis.utils.parser import load_data, parse_pairwise_distances
+    from analysis.utils.parser import parse_raw_data, parse_pairwise_distances
 
     _, rel2idx = subj.load_manifest(manifest_path)
-    data = load_data(data_dir)
+    data = parse_raw_data(data_dir)
     participants = data["participants"]
     trials = data["trials"]
     prod = participants[participants["cohort"] == "production"]

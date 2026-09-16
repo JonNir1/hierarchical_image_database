@@ -60,13 +60,13 @@ TARGETS = {
 
 def _observed(data_dir: str, manifest: str, config: str, statistic: str = "min"):
     """The empirical reliability sample and the agreement target, from production."""
-    from analysis.utils.parser import load_data
+    from analysis.utils.parser import parse_raw_data
     from SpAM_Simulations.empirical import screening_audit as sa
     from SpAM_Simulations.empirical.subjects import (
         between_subject_agreement, load_prod_subjects, stack_distances)
 
     thr = sa.load_thresholds(config)
-    data = load_data(data_dir)
+    data = parse_raw_data(data_dir)
     participants, trials = data["participants"], data["trials"]
     attempted = participants[(participants["cohort"] == "production")
                              & (participants["status"].isin(["full data", "screened out"]))]
