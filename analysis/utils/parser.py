@@ -3,8 +3,8 @@ Loader for SpAM session data -- flat data/ directory, cohort determined from
 each file's own content (deployment_mode), not from which directory it lives in.
 
 Usage (from repo root):
-    from analysis.utils.parser import load_data
-    data = load_data("data/")
+    from analysis.utils.parser import parse_raw_data
+    data = parse_raw_data("data/")
     df_participants = data["participants"]  # one row per participant_id
     df_trials       = data["trials"]         # one row per real SpAM/catch trial;
                                               # join to df_participants on participant_id
@@ -143,7 +143,7 @@ _PARTICIPANTS_COLUMNS = [
 # screening_eval diagnostic fields, restored onto df_participants (v4.0+ only;
 # NaN/None for pre-v4 sessions or v4 sessions that never reached the screening
 # evaluation) -- needed to keep screening-threshold analyses possible directly
-# from load_data() output, without a separate table.
+# from parse_raw_data() output, without a separate table.
 _SCREENING_EVAL_DIAGNOSTIC_FIELDS = [
     "reasons", "move_ratio_fail_rate", "distance_sd_fail_rate",
     "min_reliability", "median_reliability",
@@ -171,7 +171,7 @@ def _build_participant_row(
 # ---------------------------------------------------------------------------
 
 
-def load_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
+def parse_raw_data(data_dir: str | Path) -> dict[str, pd.DataFrame]:
     """
     Load SpAM data from a flat *data_dir* (no pilot/prod split).
 

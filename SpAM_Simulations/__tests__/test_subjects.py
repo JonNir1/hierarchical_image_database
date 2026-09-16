@@ -1,4 +1,4 @@
-"""Tests for session ingestion + calibration.
+﻿"""Tests for session ingestion + calibration.
 
 Session/CSV loading is delegated to ``analysis.utils.parser`` (tested there); these tests exercise
 this module's own logic - reducing a tidy ``trials`` frame to a ``Subject``, the
@@ -54,7 +54,7 @@ def _trials_df(trials, participant="P", version=3.0):
 
 
 def _loaded(trials_df, participants_df=None):
-    """Mimic load_data's two-table return for monkeypatching."""
+    """Mimic parse_raw_data's two-table return for monkeypatching."""
     if participants_df is None:
         participants_df = pd.DataFrame([
             {"participant_id": pid, "cohort": "pilot",
@@ -146,14 +146,14 @@ def test_load_subjects_filters_version_and_qc(tmp_path, monkeypatch):
         _trials_df([flagged], participant="C", version=3.0),  # 100% flagged
     ], ignore_index=True)
     # stub the parser loader: this module must NOT re-read CSVs, only reduce the tidy trials frame
-    monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials))
+    monkeypatch.setattr(subjects, "parse_raw_data", lambda d: _loaded(trials))
     assert len(subjects.load_pilot_subjects("ignored", man)) == 3
     assert len(subjects.load_pilot_subjects("ignored", man, versions=[3.0])) == 2
     assert len(subjects.load_pilot_subjects("ignored", man, apply_qc=True)) == 2  # drops the flagged one
 
 
 def test_load_subjects_empty(tmp_path, monkeypatch):
-    monkeypatch.setattr(subjects, "load_data", lambda d: {"participants": pd.DataFrame(), "trials": pd.DataFrame()})
+    monkeypatch.setattr(subjects, "parse_raw_data", lambda d: {"participants": pd.DataFrame(), "trials": pd.DataFrame()})
     assert subjects.load_pilot_subjects("ignored", _write_manifest(tmp_path)) == []
 
 
@@ -371,13 +371,13 @@ class TestCohortIsolation:
 
     def test_production_excluded_by_default(self, tmp_path, monkeypatch):
         trials, participants = self._mixed(tmp_path)
-        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        monkeypatch.setattr(subjects, "parse_raw_data", lambda d: _loaded(trials, participants))
         subs = subjects.load_pilot_subjects("ignored", _write_manifest(tmp_path))
         assert [s.participant_id for s in subs] == ["PILOT_1"]
 
     def test_production_included_only_on_explicit_override(self, tmp_path, monkeypatch):
         trials, participants = self._mixed(tmp_path)
-        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        monkeypatch.setattr(subjects, "parse_raw_data", lambda d: _loaded(trials, participants))
         subs = subjects.load_pilot_subjects("ignored", _write_manifest(tmp_path),
                                          cohorts=("pilot", "production"))
         assert sorted(s.participant_id for s in subs) == ["PILOT_1", "PROD_1"]
@@ -386,7 +386,7 @@ class TestCohortIsolation:
         """`cohorts` does not imply a SHINE variant, so both filters must apply independently."""
         trials, participants = self._mixed(tmp_path)
         participants = participants.assign(shine_variant=["post", "pre"])  # PILOT_1 post, PROD_1 pre
-        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        monkeypatch.setattr(subjects, "parse_raw_data", lambda d: _loaded(trials, participants))
         # pilot cohort alone keeps the post-SHINE pilot subject...
         assert [s.participant_id for s in
                 subjects.load_pilot_subjects("ignored", _write_manifest(tmp_path))] == ["PILOT_1"]
@@ -478,21 +478,21 @@ class TestProdLoader:
 
     def test_returns_production_only(self, tmp_path, monkeypatch):
         trials, participants = self._mixed()
-        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        monkeypatch.setattr(subjects, "parse_raw_data", lambda d: _loaded(trials, participants))
         subs = subjects.load_prod_subjects("ignored", _write_manifest(tmp_path))
         assert [s.participant_id for s in subs] == ["PROD_OK"]
 
     def test_screened_out_candidates_are_excluded_by_default(self, tmp_path, monkeypatch):
         """They carry only their screening block, so they would dilute any retained-cohort statistic."""
         trials, participants = self._mixed()
-        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        monkeypatch.setattr(subjects, "parse_raw_data", lambda d: _loaded(trials, participants))
         subs = subjects.load_prod_subjects("ignored", _write_manifest(tmp_path))
         assert "PROD_OUT" not in [s.participant_id for s in subs]
 
     def test_screened_out_candidates_are_available_on_request(self, tmp_path, monkeypatch):
         """The pass-rate audit needs them, and nothing else does."""
         trials, participants = self._mixed()
-        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        monkeypatch.setattr(subjects, "parse_raw_data", lambda d: _loaded(trials, participants))
         subs = subjects.load_prod_subjects("ignored", _write_manifest(tmp_path),
                                            statuses=("full data", "screened out"))
         assert sorted(s.participant_id for s in subs) == ["PROD_OK", "PROD_OUT"]
@@ -500,7 +500,7 @@ class TestProdLoader:
     def test_pilot_loader_is_unaffected_by_the_status_filter(self, tmp_path, monkeypatch):
         """Pre-v4 sessions have no screening block, so every loadable one is 'full data'."""
         trials, participants = self._mixed()
-        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        monkeypatch.setattr(subjects, "parse_raw_data", lambda d: _loaded(trials, participants))
         subs = subjects.load_pilot_subjects("ignored", _write_manifest(tmp_path))
         assert [s.participant_id for s in subs] == ["PILOT_1"]
 
@@ -521,7 +521,7 @@ class TestProdLoader:
         trials = pd.concat([screening, experimental], ignore_index=True)
         participants = pd.DataFrame([{"participant_id": "PROD_OK", "cohort": "production",
                                       "task_version": 4.0, "status": "full data"}])
-        monkeypatch.setattr(subjects, "load_data", lambda d: _loaded(trials, participants))
+        monkeypatch.setattr(subjects, "parse_raw_data", lambda d: _loaded(trials, participants))
         subs = subjects.load_prod_subjects("ignored", _write_manifest(tmp_path))
         assert len(subs) == 1
         # Screening covers a-b, a-c, b-c; the experimental block covers c-d, c-e, d-e. Six

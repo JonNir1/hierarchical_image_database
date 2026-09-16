@@ -1,4 +1,4 @@
-"""Read-only ingestion of collected SpAM session data, and calibration of the simulation to it.
+﻿"""Read-only ingestion of collected SpAM session data, and calibration of the simulation to it.
 
 The task-v3 simulation has two free internals - ``subjects_noise_scale`` (within-subject canvas
 placement noise) and ``perspective_dispersion`` (between-subject disagreement) - plus a ground-
@@ -17,7 +17,7 @@ truth geometry. This module anchors all three to the real pilot:
 Identifiability is therefore sequential and exact (a triangular system): test-retest -> noise, then
 agreement -> dispersion.
 
-Session loading and completion filtering are delegated to ``analysis.utils.parser.load_data``,
+Session loading and completion filtering are delegated to ``analysis.utils.parser.parse_raw_data``,
 which reads a **flat** ``data/`` directory and derives each session's ``cohort`` from its own
 ``deployment_mode`` rather than from which folder it sits in; ``parse_pairwise_distances`` (also from
 ``analysis.utils.parser``) parses the per-trial JSON. This module only reduces those trials to the
@@ -51,7 +51,7 @@ import pandas as pd
 from scipy.stats import spearmanr
 
 from analysis.utils.parser import parse_pairwise_distances
-from analysis.utils.parser import load_data
+from analysis.utils.parser import parse_raw_data
 from SpAM_Simulations.models.experiment import _condensed_pair_indices
 from SpAM_Simulations.empirical.gt_construction import (
     aggregate_subjects, build_gt, n_components as gt_n_components,
@@ -113,7 +113,7 @@ def _pair_condensed_indices(pairwise_json: str, rel2idx: Dict[str, int]) -> Dict
 def subject_from_trials(trials: pd.DataFrame, rel2idx: Dict[str, int]) -> Subject:
     """Build one :class:`Subject` from a single participant's rows of the parser's trials frame.
 
-    ``trials`` is one participant's slice of ``analysis.utils.parser.load_data(...)["trials"]``,
+    ``trials`` is one participant's slice of ``analysis.utils.parser.parse_raw_data(...)["trials"]``,
     joined to ``["participants"]`` for ``task_version`` (columns ``pairwise_distances``, ``trial_id``,
     ``repeat_of_trial``, ``is_catch``, ``qc_flag``, ``task_version``, ``participant_id``). Each trial's
     normalised pairwise distances are accumulated into a per-subject condensed sum/count (a verbatim
@@ -190,13 +190,13 @@ def _load_subjects(
 
     The shared implementation behind :func:`load_pilot_subjects` and :func:`load_prod_subjects`.
     Session/CSV handling and completion filtering are delegated to
-    ``analysis.utils.parser.load_data``; everything here is filtering plus the per-participant
+    ``analysis.utils.parser.parse_raw_data``; everything here is filtering plus the per-participant
     reduction onto the manifest index space.
 
     ``cohorts`` matches the parser's ``cohort`` column, which it derives from each file's own
     ``deployment_mode`` - so ``("pilot",)`` and ``("production",)`` are the two real values.
 
-    ``statuses`` matters because ``load_data`` keeps trials for both ``"full data"`` and
+    ``statuses`` matters because ``parse_raw_data`` keeps trials for both ``"full data"`` and
     ``"screened out"`` participants. A screened-out subject carries only their screening-block
     trials, so they must not join a retained cohort; they are still wanted for the pass-rate
     audit, which asks for them explicitly.
@@ -206,7 +206,7 @@ def _load_subjects(
     ``qc_max_flag_rate`` (a robustness check). ``variants`` filters on ``shine_variant``.
     """
     _, rel2idx = load_manifest(manifest_path)
-    data = load_data(data_dir)
+    data = parse_raw_data(data_dir)
     participants, trials = data["participants"], data["trials"]
     if trials.empty:
         return []
