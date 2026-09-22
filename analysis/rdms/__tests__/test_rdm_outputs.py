@@ -19,6 +19,7 @@ import pytest
 
 from analysis.rdms.validate_rdms import (
     _try_load,
+    check_behavioral,
     check_clip,
     check_clip_correlation,
     check_sem_km,
@@ -26,6 +27,8 @@ from analysis.rdms.validate_rdms import (
     check_sens,
     check_sens_correlation,
     check_universal,
+    report_behav_correlation,
+    report_behavioral_coverage,
 )
 
 
@@ -116,3 +119,43 @@ def test_clip_pre_post_correlation():
     d_pre = _require("clip_pre")
     d_post = _require("clip_post")
     check_clip_correlation(d_pre, d_post)
+
+
+# ---------------------------------------------------------------------------
+# Behavioral (SpAM multi-arrangement) -- built via two independent aggregation
+# methods: rsatoolbox's iterative rescaling ("evidence") and the PiCS/
+# SpAM_Simulations-style plain mean ("mean"). See analysis/rdms/behavioral.py's
+# module docstring for why both are built.
+# ---------------------------------------------------------------------------
+
+_BEHAV_METHODS = ("evidence", "mean")
+_BEHAV_NAMES = [f"behav_{v}_{m}" for v in ("pre", "post") for m in _BEHAV_METHODS]
+
+
+@pytest.mark.parametrize("name", _BEHAV_NAMES)
+def test_behavioral_structure(name):
+    """Shape/non-negative/symmetric. No coverage threshold -- see validate_rdms.check_behavioral."""
+    d = _require(name)
+    check_behavioral(name, d)
+    print(report_behavioral_coverage(name))  # informational, shown with pytest -s
+
+
+@pytest.mark.parametrize("method", _BEHAV_METHODS)
+def test_behavioral_pre_post_correlation(method):
+    """Informational only -- prints the pre/post-SHINE Spearman rho for one aggregation
+    method, no pass/fail threshold."""
+    d_pre = _require(f"behav_pre_{method}")
+    d_post = _require(f"behav_post_{method}")
+    print(report_behav_correlation(f"behav_pre_{method}", d_pre, f"behav_post_{method}", d_post))
+
+
+@pytest.mark.parametrize("variant", ["pre", "post"])
+def test_behavioral_evidence_vs_mean_correlation(variant):
+    """Informational only -- how much do the two aggregation methods agree with each
+    other, for the same SHINE variant? A precursor to the downstream MDS embedding
+    comparison (see the plan's section 4.2)."""
+    d_evidence = _require(f"behav_{variant}_evidence")
+    d_mean = _require(f"behav_{variant}_mean")
+    print(report_behav_correlation(
+        f"behav_{variant}_evidence", d_evidence, f"behav_{variant}_mean", d_mean,
+    ))

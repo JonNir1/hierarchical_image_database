@@ -26,6 +26,7 @@ opencv-python>=4.13
 joblib>=1.4          # SpAM_Simulations parallel MDS sweep (needs return_as= streaming)
 statsmodels>=0.14    # analysis/pilot multiple-comparison correction (multipletests)
 pyarrow>=19.0        # parquet read/write for cached parsed data
+rsatoolbox>=0.3.2    # analysis/rdms/behavioral.py: multi-arrangement RDM combination (from_partials/rescale)
 
 # Notebook / interactive
 jupyter
