@@ -19,6 +19,10 @@ Available targets:
     sem_wn     -- D_sem_wn.npy     (WordNet shortest-path via manifest synsets)
     clip_pre   -- E_clip_pre.npy + D_clip_pre.npy   (CLIP ViT-B/32 cosine, pre-SHINE)
     clip_post  -- E_clip_post.npy + D_clip_post.npy (CLIP ViT-B/32 cosine, post-SHINE)
+    behav_pre_evidence  -- D_behav_pre_evidence.npy  (rsatoolbox multi-arrangement combination, pre-SHINE)
+    behav_post_evidence -- D_behav_post_evidence.npy (rsatoolbox multi-arrangement combination, post-SHINE)
+    behav_pre_mean  -- D_behav_pre_mean.npy  (PiCS/SpAM_Simulations-style plain mean, pre-SHINE)
+    behav_post_mean -- D_behav_post_mean.npy (PiCS/SpAM_Simulations-style plain mean, post-SHINE)
 """
 from __future__ import annotations
 
@@ -27,14 +31,22 @@ import importlib
 import sys
 import traceback
 
-# name -> (module, function, positional_args)
-_BUILDERS: dict[str, tuple[str, str, list]] = {
-    "sens_pre":  ("analysis.rdms.sensory",      "build_sensory_rdm",  ["pre_shine"]),
-    "sens_post": ("analysis.rdms.sensory",      "build_sensory_rdm",  ["post_shine"]),
-    "sem_km":    ("analysis.rdms.semantic_km",  "build_km_rdm",       []),
-    "sem_wn":    ("analysis.rdms.semantic_wn_dir", "build_wn_rdm",     []),
-    "clip_pre":  ("analysis.rdms.clip",         "build_clip_rdm",     ["pre_shine"]),
-    "clip_post": ("analysis.rdms.clip",         "build_clip_rdm",     ["post_shine"]),
+# name -> (module, function, positional_args, keyword_args)
+_BUILDERS: dict[str, tuple[str, str, list, dict]] = {
+    "sens_pre":  ("analysis.rdms.sensory",      "build_sensory_rdm",  ["pre_shine"], {}),
+    "sens_post": ("analysis.rdms.sensory",      "build_sensory_rdm",  ["post_shine"], {}),
+    "sem_km":    ("analysis.rdms.semantic_km",  "build_km_rdm",       [], {}),
+    "sem_wn":    ("analysis.rdms.semantic_wn_dir", "build_wn_rdm",     [], {}),
+    "clip_pre":  ("analysis.rdms.clip",         "build_clip_rdm",     ["pre_shine"], {}),
+    "clip_post": ("analysis.rdms.clip",         "build_clip_rdm",     ["post_shine"], {}),
+    "behav_pre_evidence":  ("analysis.rdms.behavioral", "build_behavioral_rdm",
+                             ["pre_shine"], {"aggregation": "evidence"}),
+    "behav_post_evidence": ("analysis.rdms.behavioral", "build_behavioral_rdm",
+                             ["post_shine"], {"aggregation": "evidence"}),
+    "behav_pre_mean":      ("analysis.rdms.behavioral", "build_behavioral_rdm",
+                             ["pre_shine"], {"aggregation": "mean"}),
+    "behav_post_mean":     ("analysis.rdms.behavioral", "build_behavioral_rdm",
+                             ["post_shine"], {"aggregation": "mean"}),
 }
 
 _ALL_NAMES = list(_BUILDERS.keys())
@@ -71,14 +83,14 @@ def main() -> None:
     print(f"Targets: {targets}\n")
     failures: list[str] = []
     for name in targets:
-        module_name, func_name, func_args = _BUILDERS[name]
+        module_name, func_name, func_args, func_kwargs = _BUILDERS[name]
         print(f"{'=' * 50}")
         print(f"Building: {name}")
         print(f"{'=' * 50}")
         try:
             mod = importlib.import_module(module_name)
             func = getattr(mod, func_name)
-            func(*func_args)
+            func(*func_args, **func_kwargs)
             print(f"  OK: {name}\n")
         except Exception as exc:  # noqa: BLE001 — intentional: CLI must survive any builder error
             print(f"  FAILED: {name}: {exc}")

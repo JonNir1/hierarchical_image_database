@@ -19,11 +19,18 @@ import numpy as np
 from scipy.spatial.distance import squareform
 from scipy.stats import spearmanr
 
+import json
+
 from analysis.rdms.common import (
     IMAGES_ROOT, RESULTS_DIR, _EXPECTED_LEN, _EXPECTED_N, load_manifest, load_rdm,
 )
 
-_ALL_NAMES = ["sens_pre", "sens_post", "sem_km", "sem_wn", "clip_pre", "clip_post"]
+_BEHAV_METHODS = ("evidence", "mean")
+_BEHAV_NAMES = [f"behav_{v}_{m}" for v in ("pre", "post") for m in _BEHAV_METHODS]
+_ALL_NAMES = [
+    "sens_pre", "sens_post", "sem_km", "sem_wn", "clip_pre", "clip_post",
+    *_BEHAV_NAMES,
+]
 _N = _EXPECTED_N       # 725
 _WN_FALLBACK = 30.0    # must match semantic_wn_dir._WN_FALLBACK_DIST
 _KM_MAX_DEPTH = 8      # generous upper bound for this dataset's hierarchy
@@ -154,6 +161,67 @@ def check_clip_correlation(d_pre: np.ndarray, d_post: np.ndarray) -> None:
     _check(rho > 0.9, f"Spearman rho(clip_pre, clip_post) = {rho:.3f} < 0.9")
 
 
+def _behav_metadata(name: str) -> dict:
+    meta_path = RESULTS_DIR / "metadata.json"
+    _check(meta_path.exists(), f"{meta_path} not found")
+    with open(meta_path) as f:
+        records = json.load(f)
+    for r in records:
+        if r.get("name") == name:
+            return r
+    raise CheckFailed(f"no metadata record found for '{name}'")
+
+
+def check_behavioral(name: str, d: np.ndarray) -> None:
+    """Structural checks for behavioral (SpAM multi-arrangement) RDMs.
+
+    Unlike the deterministic stimulus RDMs, pair coverage is an empirical outcome of
+    how many participants' trials jointly touched a given pair -- NaN entries for
+    never-observed pairs are expected, not a bug, so this intentionally skips
+    check_universal()'s zero-NaN assertion. There is deliberately no minimum-coverage
+    or cross-variant-correlation assertion here: unlike sens/clip (the same physical
+    images encoded two ways, so a strong correlation is a known-good baseline a
+    pipeline regression would break), there's no comparable prior for how much two
+    independent samples of noisy human multi-arrangement judgements should agree, so
+    a hardcoded bar can only be a guess. Coverage and correlation are still surfaced
+    -- see report_behavioral_coverage() / report_behav_correlation() below -- as
+    numbers for a human to judge, not as a pass/fail gate.
+    """
+    _check(d.ndim == 1, f"expected 1-D array, got shape {d.shape}")
+    _check(len(d) == _EXPECTED_LEN, f"expected length {_EXPECTED_LEN}, got {len(d)}")
+    finite = d[~np.isnan(d)]
+    _check(bool((finite >= 0).all()), f"{int(np.sum(finite < 0))} negative values")
+    sq = squareform(d, checks=False)
+    _check(sq.shape == (_N, _N), f"squareform shape {sq.shape} != ({_N}, {_N})")
+    _check(np.allclose(sq, sq.T, equal_nan=True), "distance matrix is not symmetric")
+    diag = np.diag(sq)
+    _check(bool(np.all(diag[~np.isnan(diag)] == 0)), "diagonal has non-zero entries")
+    _behav_metadata(name)  # asserts a metadata record exists at all
+
+
+def report_behavioral_coverage(name: str) -> str:
+    """Informational (non-pass/fail) coverage summary from the saved metadata."""
+    meta = _behav_metadata(name)
+    return (
+        f"{name}: {meta.get('pct_pairs_covered', float('nan')):.2f}% pair coverage, "
+        f"{meta.get('n_participants')} participants, {meta.get('n_trials')} trials, "
+        f"{meta.get('mean_judgements_per_covered_pair', float('nan')):.2f}"
+        f" +/- {meta.get('sd_judgements_per_covered_pair', float('nan')):.2f} judgements/covered pair"
+    )
+
+
+def report_behav_correlation(name_a: str, d_a: np.ndarray, name_b: str, d_b: np.ndarray) -> str:
+    """Informational (non-pass/fail) correlation between any two behavioral RDMs
+    (pre vs post for the same method, or the same variant's two combine methods
+    against each other), over jointly-covered pairs."""
+    mask = ~(np.isnan(d_a) | np.isnan(d_b))
+    n = int(mask.sum())
+    if n < 2:
+        return f"{name_a} vs {name_b}: fewer than 2 pairs jointly covered ({n})"
+    rho = float(spearmanr(d_a[mask], d_b[mask]).statistic)
+    return f"{name_a} vs {name_b}: Spearman rho = {rho:.3f} (over {n} jointly-covered pairs)"
+
+
 # ---------------------------------------------------------------------------
 # Loader (skips absent RDMs; surfaces load errors as check failures)
 # ---------------------------------------------------------------------------
@@ -233,6 +301,8 @@ def run_all_checks(names: list[str] | None = None) -> bool:
     # Check phase
     print("\n=== Universal checks ===")
     for name, d in present.items():
+        if name in _BEHAV_NAMES:
+            continue  # behavioral RDMs may legitimately have NaN — checked separately below
         run(f"{name}: shape / finite / non-negative / symmetric", check_universal, name, d)
 
     print("\n=== Per-RDM checks ===")
@@ -245,6 +315,8 @@ def run_all_checks(names: list[str] | None = None) -> bool:
             run(f"{name}: range [0, {_WN_FALLBACK}], fallback fraction < 10%", check_sem_wn, d)
         elif name in ("clip_pre", "clip_post"):
             run(f"{name}: cosine distances in [0, 2]", check_clip, d)
+        elif name in _BEHAV_NAMES:
+            run(f"{name}: shape / non-negative / symmetric", check_behavioral, name, d)
 
     print("\n=== Cross-variant checks ===")
     if "sens_pre" in present and "sens_post" in present:
@@ -258,6 +330,19 @@ def run_all_checks(names: list[str] | None = None) -> bool:
             check_clip_correlation, present["clip_pre"], present["clip_post"])
     elif {"clip_pre", "clip_post"} & set(targets):
         print("  SKIP  clip correlation — need both clip_pre and clip_post")
+
+    print("\n=== Behavioral coverage (informational, not pass/fail) ===")
+    for name in _BEHAV_NAMES:
+        if name in present:
+            print(f"  {report_behavioral_coverage(name)}")
+    for method in _BEHAV_METHODS:
+        pre_name, post_name = f"behav_pre_{method}", f"behav_post_{method}"
+        if pre_name in present and post_name in present:
+            print(f"  {report_behav_correlation(pre_name, present[pre_name], post_name, present[post_name])}")
+    for variant in ("pre", "post"):
+        ev_name, pm_name = f"behav_{variant}_evidence", f"behav_{variant}_mean"
+        if ev_name in present and pm_name in present:
+            print(f"  {report_behav_correlation(ev_name, present[ev_name], pm_name, present[pm_name])}")
 
     # Summary
     n_checked = len(present)
