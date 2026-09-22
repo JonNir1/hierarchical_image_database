@@ -21,7 +21,15 @@ following the lower/upper-bound noise-ceiling logic of Nili et al. (2014):
 Both bounds are scored with Kendall's tau (the leading metric) and Spearman's
 rho (secondary/consistency check), computed directly on the condensed RDM
 vectors over pair positions non-NaN in both sides -- no MDS/embedding step is
-involved anywhere in this module. Procrustes/MDS-based comparison was
+involved anywhere in this module. The split-half upper bound's raw Spearman is
+also Spearman-Brown-projected to full-sample size (`ceiling_full` column,
+mirroring SpAM_Simulations/empirical/gt_diagnostics.py's raw_noise_ceiling())
+for direct comparability with that module's own prior real-data noise-ceiling
+numbers (SpAM_Simulations/sim_results/v5/prod/prod_noise_ceiling.csv); it is
+NaN everywhere else -- not computed for Kendall (the correction isn't
+well-justified for a rank-concordance statistic) or for the lower bound (LOO
+already uses N-1 participants on the "others" side, not a half, so there's no
+half-to-full projection to make). Procrustes/MDS-based comparison was
 considered and dropped: every retained participant's own trial-derived pair
 graph is disconnected into ~18 separate components (confirmed by direct
 computation against the real cached data -- each of a participant's 22
@@ -63,6 +71,30 @@ _DEFAULT_N_SPLITS = 100
 
 def _cohort_name(variant: str) -> str:
     return "pre" if variant == "pre_shine" else "post"
+
+
+def _spearman_brown(r: float) -> float:
+    """Spearman-Brown projection of a half-sample correlation to full-sample size:
+    2r / (1 + r). Mirrors SpAM_Simulations/empirical/gt_diagnostics.py's raw_noise_ceiling()
+    (gt_diagnostics.py:~168), including its guard: a non-positive half-split correlation makes
+    the projection meaningless, so it's passed through unchanged rather than "corrected" into a
+    confident-looking number."""
+    if not np.isfinite(r) or r <= 0:
+        return r
+    return float(2 * r / (1 + r))
+
+
+def _add_ceiling_full(long: pd.DataFrame) -> pd.DataFrame:
+    """Add the Spearman-Brown-projected `ceiling_full` column to a melted long-format
+    reliability frame (columns include `bound`, `metric`, `value`). NaN outside
+    bound='upper', metric='spearman' -- see _spearman_brown()'s docstring and the module
+    docstring for why the projection is restricted to that combination."""
+    is_upper_spearman = (long["bound"] == "upper") & (long["metric"] == "spearman")
+    long = long.copy()
+    long["ceiling_full"] = np.where(
+        is_upper_spearman, long["value"].map(_spearman_brown), np.nan,
+    )
+    return long
 
 
 def _kendall_spearman(
@@ -190,8 +222,10 @@ def run_comparison(
     """Run LOO + split-half reliability for all three aggregation methods on one variant.
 
     Returns a tidy long-format DataFrame with columns
-    [cohort, aggregation, bound, fold_id, metric, value, n_overlap], `metric` in
-    {'kendall', 'spearman'}, `bound` in {'lower', 'upper'}.
+    [cohort, aggregation, bound, fold_id, metric, value, n_overlap, ceiling_full], `metric` in
+    {'kendall', 'spearman'}, `bound` in {'lower', 'upper'}. `ceiling_full` is the Spearman-Brown
+    projection of `value` to full-sample size; NaN except for bound='upper', metric='spearman'
+    rows (see module docstring).
     """
     if variant not in _VALID_VARIANTS:
         raise ValueError(f"variant must be 'pre_shine' or 'post_shine', got {variant!r}")
@@ -234,7 +268,7 @@ def run_comparison(
             value_vars=["kendall", "spearman"],
             var_name="metric", value_name="value",
         )
-        frames.append(long)
+        frames.append(_add_ceiling_full(long))
         n_underpowered = int(wide["underpowered"].sum())
         if n_underpowered:
             print(f"[reliability] WARNING: {n_underpowered} {aggregation!r} folds had fewer "

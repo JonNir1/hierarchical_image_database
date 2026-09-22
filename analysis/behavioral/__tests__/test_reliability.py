@@ -131,6 +131,41 @@ def test_loo_reliability_returns_exactly_n_rows(trials_by_participant, aggregati
 
 
 # ---------------------------------------------------------------------------
+# _spearman_brown / _add_ceiling_full
+# ---------------------------------------------------------------------------
+
+def test_spearman_brown_matches_closed_form():
+    assert reliability._spearman_brown(0.2) == pytest.approx(2 * 0.2 / 1.2)
+    assert reliability._spearman_brown(0.19) == pytest.approx(2 * 0.19 / 1.19)
+
+
+@pytest.mark.parametrize("r", [0.0, -0.1, -1.0, np.nan])
+def test_spearman_brown_passes_through_non_positive_or_nonfinite(r):
+    """Mirrors gt_diagnostics.raw_noise_ceiling()'s guard: a non-positive half-split
+    correlation makes the projection meaningless, so it's passed through unchanged."""
+    result = reliability._spearman_brown(r)
+    if np.isnan(r):
+        assert np.isnan(result)
+    else:
+        assert result == r
+
+
+def test_add_ceiling_full_only_populated_for_upper_spearman():
+    long = pd.DataFrame([
+        {"bound": "lower", "metric": "kendall", "value": 0.13},
+        {"bound": "lower", "metric": "spearman", "value": 0.19},
+        {"bound": "upper", "metric": "kendall", "value": 0.13},
+        {"bound": "upper", "metric": "spearman", "value": 0.19},
+    ])
+    result = reliability._add_ceiling_full(long)
+
+    assert np.isnan(result.loc[0, "ceiling_full"])  # lower/kendall
+    assert np.isnan(result.loc[1, "ceiling_full"])  # lower/spearman
+    assert np.isnan(result.loc[2, "ceiling_full"])  # upper/kendall (not well-justified)
+    assert result.loc[3, "ceiling_full"] == pytest.approx(2 * 0.19 / 1.19)  # upper/spearman
+
+
+# ---------------------------------------------------------------------------
 # make_splits / split_half_reliability
 # ---------------------------------------------------------------------------
 
