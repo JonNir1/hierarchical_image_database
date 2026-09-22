@@ -277,7 +277,7 @@ def test_build_behavioral_rdm_excludes_screened_out_and_catch_and_other_variant(
 
 def test_build_behavioral_rdm_saves_with_expected_name(patched_behavioral):
     behavioral.build_behavioral_rdm("pre_shine", cache_dir="unused")
-    assert patched_behavioral["name"] == "behav_pre_evidence"
+    assert patched_behavioral["name"] == "behav_pre_simple"
 
 
 def test_build_behavioral_rdm_name_encodes_aggregation(patched_behavioral):
@@ -343,7 +343,7 @@ def test_build_behavioral_rdm_post_shine_uses_own_prefix(patched_behavioral, mon
     )
     condensed = behavioral.build_behavioral_rdm("post_shine", cache_dir="unused")
     assert len(condensed) == 6
-    assert patched_behavioral["name"] == "behav_post_evidence"
+    assert patched_behavioral["name"] == "behav_post_simple"
 
 
 # ---------------------------------------------------------------------------

@@ -25,7 +25,15 @@ full 725x725 RDM per SHINE variant, via THREE independent aggregation methods
       SpAM_Simulations/core/helpers.py, via _calculate_mean_distances() in
       SpAM_Simulations/measures/metrics.py). See _mean_combine() below.
 
-'evidence' and 'mean' are built (not just rsatoolbox's) because a real bug was found in
+Default aggregation is 'simple' (see build_behavioral_rdm()'s `aggregation` parameter):
+a noise-ceiling reliability comparison (leave-one-out + split-half, Kendall/Spearman --
+analysis/behavioral/reliability.py / noise_ceiling.ipynb) found 'simple' significantly
+outperforms both 'evidence' and 'mean' on real data (all p<1e-4, both SHINE cohorts),
+with 'evidence' the *worst* of the three -- the opposite of the a priori expectation
+that 'evidence''s extra magnitude weighting, as a refinement of 'simple', should do at
+least as well. All three remain available and are still built for comparison.
+
+'evidence' and 'mean' are also built (not just rsatoolbox's) because a real bug was found in
 rsatoolbox.util.weighted_mds (the MDS step, not this combination step -- see
 SpAM_Simulations/core/mds_rsatoolbox_compare.py) that specifically affects data
 with missing/zero-weight pairs, which is the norm here. Rather than trust
@@ -257,11 +265,44 @@ def _mean_combine(
 _AGGREGATIONS = ("mean", "evidence", "simple")
 
 
+def _build_trials(
+    df_trials: pd.DataFrame,
+    participant_ids: pd.Series | list,
+    variant: str,
+    image_to_idx: dict[str, int],
+    n_conds: int,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Non-catch trial rows for an arbitrary participant subset -> per-trial sparse pairs.
+
+    Factored out of build_behavioral_rdm() so it can be called over any participant
+    subset (leave-one-out folds, split halves -- see analysis/behavioral/reliability.py),
+    not just the full retained-cohort set _select_participants() returns.
+    """
+    rows = df_trials[
+        df_trials["participant_id"].isin(participant_ids) & ~df_trials["is_catch"]
+    ]
+    return [
+        t for t in (
+            _trial_sparse(pw, variant, image_to_idx, n_conds)
+            for pw in rows["pairwise_distances"]
+        ) if t is not None
+    ]
+
+
+def _combine(
+    trials: list[tuple[np.ndarray, np.ndarray]], n_conds: int, aggregation: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Dispatch to _mean_combine() ('mean') or _sparse_combine() (everything else)."""
+    if aggregation == "mean":
+        return _mean_combine(trials, n_conds)
+    return _sparse_combine(trials, n_conds, method=aggregation)
+
+
 def build_behavioral_rdm(
     variant: str,
     *,
     cache_dir: str | Path = _DEFAULT_CACHE_DIR,
-    aggregation: Literal["mean", "evidence", "simple"] = "evidence",
+    aggregation: Literal["mean", "evidence", "simple"] = "simple",
 ) -> np.ndarray:
     """
     Build the behavioral (SpAM multi-arrangement) RDM for the given SHINE variant.
@@ -275,15 +316,23 @@ def build_behavioral_rdm(
                    populated at the main checkout (not copied into worktrees).
     aggregation  : how to combine each pair's multiple per-trial observations into
                    one value. One of:
-                     'evidence' (default) -- iterative per-trial evidence-weighted
-                         rescaling before averaging (Kriegeskorte & Mur, 2012,
-                         https://doi.org/10.3389/fpsyg.2012.00245), as implemented in
-                         rsatoolbox (van den Bosch et al., 2025,
-                         https://doi.org/10.1101/2025.05.22.655542). See _sparse_combine().
-                     'simple' -- same iterative rescaling as 'evidence', but with
-                         uniform per-trial weighting instead of squared-distance
-                         weighting (also from rsatoolbox.rdm.combine.rescale()). See
-                         _sparse_combine().
+                     'simple' (default) -- iterative per-trial rescaling before
+                         averaging (Kriegeskorte & Mur, 2012,
+                         https://doi.org/10.3389/fpsyg.2012.00245), with uniform
+                         (unweighted) per-trial weighting, from rsatoolbox
+                         (van den Bosch et al., 2025,
+                         https://doi.org/10.1101/2025.05.22.655542). Default per the
+                         noise-ceiling reliability comparison in
+                         analysis/behavioral/reliability.py / noise_ceiling.ipynb:
+                         'simple' significantly outperforms both 'evidence' and 'mean'
+                         on leave-one-out and split-half Kendall/Spearman reliability
+                         (all p<1e-4 across both SHINE cohorts). See _sparse_combine().
+                     'evidence' -- same iterative rescaling as 'simple', but with
+                         squared-distance-weighted trials instead of uniform weighting
+                         (also from rsatoolbox.rdm.combine.rescale()). Empirically the
+                         *worst* of the three by the reliability comparison above
+                         (effect size -0.95 to -1.0 vs 'mean') -- kept for reference/
+                         comparison, not recommended as a default. See _sparse_combine().
                      'mean' -- plain unweighted average, no rescaling at all: the
                          scheme used by the PiCS dataset (Robbins et al., 2025,
                          https://doi.org/10.3758/s13428-025-02732-0) and by this
@@ -301,13 +350,8 @@ def build_behavioral_rdm(
 
     data = load_data(cache_dir, prod_only=True)
     participants = _select_participants(data["participants"], variant)
-    trials = data["trials"][
-        data["trials"]["participant_id"].isin(participants["participant_id"])
-        & ~data["trials"]["is_catch"]
-    ]
     print(
-        f"[behavioral] variant={variant!r}: {len(participants)} participants, "
-        f"{len(trials)} non-catch trials (screening + experimental pooled)."
+        f"[behavioral] variant={variant!r}: {len(participants)} participants."
     )
 
     manifest = load_manifest()
@@ -315,18 +359,13 @@ def build_behavioral_rdm(
     n_conds = len(canonical_patterns)
     image_to_idx = {img: i for i, img in enumerate(canonical_patterns)}
 
-    trial_data = [
-        t for t in (
-            _trial_sparse(pw, variant, image_to_idx, n_conds)
-            for pw in trials["pairwise_distances"]
-        ) if t is not None
-    ]
-    print(f"[behavioral] Built {len(trial_data)} per-trial partial observation sets.")
+    trial_data = _build_trials(
+        data["trials"], participants["participant_id"], variant, image_to_idx, n_conds,
+    )
+    print(f"[behavioral] Built {len(trial_data)} per-trial partial observation sets "
+          f"(screening + experimental pooled).")
 
-    if aggregation == "mean":
-        condensed, n_obs_per_pair = _mean_combine(trial_data, n_conds)
-    else:
-        condensed, n_obs_per_pair = _sparse_combine(trial_data, n_conds, method=aggregation)
+    condensed, n_obs_per_pair = _combine(trial_data, n_conds, aggregation)
 
     n_uncovered = int(np.sum(n_obs_per_pair == 0))
     pct_covered = 100.0 * (1 - n_uncovered / n_obs_per_pair.size)
