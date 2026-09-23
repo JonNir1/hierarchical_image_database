@@ -21,17 +21,14 @@ import os
 from itertools import combinations
 
 import numpy as np
-from scipy.spatial import procrustes
-from scipy.spatial.distance import pdist, squareform
 
 os.environ.setdefault("R_LIBS_USER", r"C:\Users\nirjo\R_library\4.5")
 
 from analysis.rdms.common import load_rdm
+from analysis.rdms.mds import compare_mds_configs
 from analysis.rsatoolbox_eval.mds_rsatoolbox_vectorized import run_mds_rsatoolbox_vectorized
+from SpAM_Simulations.core.helpers import condensed_rdm_to_weighted_dists
 from SpAM_Simulations.core.multi_dimensional_scaling import run_mds
-
-_EQUIVALENT = {"disparity": 1e-3, "corr": 0.999}
-_DIFFERENT = {"disparity": 0.05, "corr": 0.95}
 
 _AGG_METHODS = ("mean", "evidence")
 _DIMS = (2, 3, 5, 10)
@@ -41,12 +38,7 @@ _CONVERGENCE_TOL = 1e-6
 
 def _load_condition_inputs(variant: str, method: str) -> tuple[np.ndarray, np.ndarray]:
     """Real RDM -> (dists with NaN->0 placeholder, binary was_observed weight)."""
-    d = load_rdm(f"behav_{variant}_{method}")
-    sq = squareform(d)
-    weight = (~np.isnan(sq)).astype(np.float64)
-    np.fill_diagonal(weight, 0.0)
-    dists = np.nan_to_num(sq, nan=0.0)
-    return dists, weight
+    return condensed_rdm_to_weighted_dists(load_rdm(f"behav_{variant}_{method}"))
 
 
 def _run_condition(backend: str, dists, weights, ndim, eps) -> dict | None:
@@ -60,24 +52,13 @@ def _run_condition(backend: str, dists, weights, ndim, eps) -> dict | None:
         return None
 
 
-def _classify(disparity: float, corr: float) -> str:
-    if disparity < _EQUIVALENT["disparity"] and corr > _EQUIVALENT["corr"]:
-        return "EQUIVALENT"
-    if disparity > _DIFFERENT["disparity"] or corr < _DIFFERENT["corr"]:
-        return "DIFFERENT"
-    return "ambiguous"
-
-
 def _compare(label_a, out_a, label_b, out_b, ndim) -> None:
     if out_a is None or out_b is None:
         print(f"    {label_a} vs {label_b}: SKIP (one or both conditions unavailable)")
         return
-    conf_a = np.asarray(out_a["conf"]).reshape(-1, ndim)
-    conf_b = np.asarray(out_b["conf"]).reshape(-1, ndim)
-    _, _, disparity = procrustes(conf_a, conf_b)
-    corr = float(np.corrcoef(np.asarray(out_a["confdist"]), np.asarray(out_b["confdist"]))[0, 1])
-    verdict = _classify(disparity, corr)
-    print(f"    {label_a} vs {label_b}: disparity={disparity:.6g}, confdist_r={corr:.6f}  -> {verdict}")
+    result = compare_mds_configs(out_a, out_b, ndim)
+    print(f"    {label_a} vs {label_b}: disparity={result['disparity']:.6g}, "
+          f"confdist_r={result['confdist_r']:.6f}  -> {result['verdict']}")
 
 
 def run_cell(variant: str, ndim: int) -> dict:

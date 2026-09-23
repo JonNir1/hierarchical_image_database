@@ -54,13 +54,13 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy.stats import kendalltau, spearmanr
 
 from analysis.rdms.behavioral import (
     _AGGREGATIONS, _combine, _mean_combine, _select_participants, _trial_sparse,
 )
-from analysis.rdms.common import REPO_ROOT, load_manifest
+from analysis.rdms.common import REPO_ROOT, image_manifest_index
 from analysis.utils.load_data import load_data
+from analysis.utils.stats import masked_rank_correlation
 
 _VALID_VARIANTS = ("pre_shine", "post_shine")
 _DEFAULT_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "parsed_data"
@@ -95,28 +95,6 @@ def _add_ceiling_full(long: pd.DataFrame) -> pd.DataFrame:
         is_upper_spearman, long["value"].map(_spearman_brown), np.nan,
     )
     return long
-
-
-def _kendall_spearman(
-    rdm_a: np.ndarray, rdm_b: np.ndarray, min_overlap: int = _DEFAULT_MIN_OVERLAP,
-) -> dict:
-    """Kendall tau + Spearman rho between two condensed RDMs, over jointly-covered pairs.
-
-    NaN-masking mirrors analysis/rdms/validate_rdms.py's report_behav_correlation() and
-    SpAM_Simulations/empirical/subjects.py's between_subject_agreement(): restrict to pair
-    positions non-NaN in *both* vectors before correlating, so partial coverage on either
-    side doesn't inflate or deflate the agreement estimate. Below min_overlap jointly-covered
-    pairs (default 20, matching between_subject_agreement's own default), the fold is flagged
-    rather than silently returning a degenerate correlation.
-    """
-    mask = ~(np.isnan(rdm_a) | np.isnan(rdm_b))
-    n = int(mask.sum())
-    if n < min_overlap:
-        return {"kendall": np.nan, "spearman": np.nan, "n_overlap": n, "underpowered": True}
-    a, b = rdm_a[mask], rdm_b[mask]
-    tau = float(kendalltau(a, b).statistic)
-    rho = float(spearmanr(a, b).statistic)
-    return {"kendall": tau, "spearman": rho, "n_overlap": n, "underpowered": False}
 
 
 def _parse_trials_by_participant(
@@ -164,7 +142,7 @@ def loo_reliability(
         others_trials = [t for other in participant_ids if other != pid for t in trials_by_participant[other]]
         left_condensed, _ = _mean_combine(left_trials, n_conds)
         others_condensed, _ = _combine(others_trials, n_conds, aggregation)
-        stats = _kendall_spearman(left_condensed, others_condensed, min_overlap)
+        stats = masked_rank_correlation(left_condensed, others_condensed, min_overlap=min_overlap)
         rows.append({"fold_id": pid, **stats})
     return pd.DataFrame(rows)
 
@@ -206,7 +184,7 @@ def split_half_reliability(
         trials_b = [t for pid in half_b for t in trials_by_participant[pid]]
         condensed_a, _ = _combine(trials_a, n_conds, aggregation)
         condensed_b, _ = _combine(trials_b, n_conds, aggregation)
-        stats = _kendall_spearman(condensed_a, condensed_b, min_overlap)
+        stats = masked_rank_correlation(condensed_a, condensed_b, min_overlap=min_overlap)
         rows.append({"fold_id": split_id, **stats})
     return pd.DataFrame(rows)
 
@@ -234,10 +212,7 @@ def run_comparison(
     participants = _select_participants(data["participants"], variant)
     participant_ids = list(participants["participant_id"])
 
-    manifest = load_manifest()
-    canonical_patterns = [p.replace("\\", "/") for p in manifest["curated_path"]]
-    n_conds = len(canonical_patterns)
-    image_to_idx = {img: i for i, img in enumerate(canonical_patterns)}
+    image_to_idx, n_conds = image_manifest_index()
 
     trials_by_participant = _parse_trials_by_participant(
         data["trials"], participant_ids, variant, image_to_idx, n_conds,

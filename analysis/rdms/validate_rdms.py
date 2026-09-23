@@ -24,6 +24,7 @@ import json
 from analysis.rdms.common import (
     IMAGES_ROOT, RESULTS_DIR, _EXPECTED_LEN, _EXPECTED_N, load_manifest, load_rdm,
 )
+from analysis.utils.stats import masked_rank_correlation
 
 _BEHAV_METHODS = ("evidence", "mean")
 _BEHAV_NAMES = [f"behav_{v}_{m}" for v in ("pre", "post") for m in _BEHAV_METHODS]
@@ -214,12 +215,10 @@ def report_behav_correlation(name_a: str, d_a: np.ndarray, name_b: str, d_b: np.
     """Informational (non-pass/fail) correlation between any two behavioral RDMs
     (pre vs post for the same method, or the same variant's two combine methods
     against each other), over jointly-covered pairs."""
-    mask = ~(np.isnan(d_a) | np.isnan(d_b))
-    n = int(mask.sum())
-    if n < 2:
-        return f"{name_a} vs {name_b}: fewer than 2 pairs jointly covered ({n})"
-    rho = float(spearmanr(d_a[mask], d_b[mask]).statistic)
-    return f"{name_a} vs {name_b}: Spearman rho = {rho:.3f} (over {n} jointly-covered pairs)"
+    stats = masked_rank_correlation(d_a, d_b, min_overlap=2)
+    if stats["underpowered"]:
+        return f"{name_a} vs {name_b}: fewer than 2 pairs jointly covered ({stats['n_overlap']})"
+    return f"{name_a} vs {name_b}: Spearman rho = {stats['spearman']:.3f} (over {stats['n_overlap']} jointly-covered pairs)"
 
 
 # ---------------------------------------------------------------------------

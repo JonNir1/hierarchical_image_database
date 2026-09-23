@@ -77,23 +77,23 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy.spatial import procrustes
-from scipy.spatial.distance import squareform
 
-from analysis.behavioral.reliability import _DEFAULT_CACHE_DIR, _cohort_name, _kendall_spearman
+from analysis.behavioral.reliability import (
+    _DEFAULT_CACHE_DIR, _DEFAULT_MIN_OVERLAP, RESULTS_DIR, _VALID_VARIANTS, _cohort_name,
+)
 from analysis.rdms.behavioral import (
     _AGGREGATIONS, _build_trials, _combine, _select_participants, build_behavioral_rdm,
 )
-from analysis.rdms.common import REPO_ROOT, load_manifest, save_rdm
+from analysis.rdms.common import image_manifest_index, save_rdm
+from analysis.rdms.mds import compare_mds_configs
 from analysis.utils.load_data import load_data
+from analysis.utils.stats import masked_rank_correlation
+from SpAM_Simulations.core.helpers import condensed_rdm_to_weighted_dists
 
 # Plain env-var default -- never touches R/rpy2 itself, safe to run unconditionally at
 # import time (matches analysis/rsatoolbox_eval/mds_rsatoolbox_compare.py:56).
 os.environ.setdefault("R_LIBS_USER", r"C:\Users\nirjo\R_library\4.5")
 
-_VALID_VARIANTS = ("pre_shine", "post_shine")
-RESULTS_DIR = REPO_ROOT / "analysis" / "results" / "behavioral"
-_DEFAULT_MIN_OVERLAP = 20
 _EXCLUDED_STATUSES = ("revoked consent", "missing data")
 _DEFAULT_DIMS = (2, 3, 5, 10)
 _DEFAULT_MAX_ITERS = 500
@@ -132,10 +132,7 @@ def build_oos_rdm(
     data = load_data(cache_dir, prod_only=False)
     oos = _oos_participant_ids(data["participants"], variant)
 
-    manifest = load_manifest()
-    canonical_patterns = [p.replace("\\", "/") for p in manifest["curated_path"]]
-    n_conds = len(canonical_patterns)
-    image_to_idx = {img: i for i, img in enumerate(canonical_patterns)}
+    image_to_idx, n_conds = image_manifest_index()
 
     trial_data = _build_trials(
         data["trials"], oos["participant_id"], variant, image_to_idx, n_conds,
@@ -187,7 +184,7 @@ def compare_generalizability(
     oos_condensed, oos_info = build_oos_rdm(
         variant, aggregation, cache_dir=cache_dir, save=save_oos,
     )
-    stats = _kendall_spearman(analytical, oos_condensed, min_overlap)
+    stats = masked_rank_correlation(analytical, oos_condensed, min_overlap=min_overlap)
     return {**oos_info, **stats}
 
 
@@ -222,29 +219,6 @@ def run_generalizability_comparison(
 
 # --------------------------------------------------------------------------- MDS leg (R)
 
-def _dists_and_weight(condensed: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Condensed RDM (may contain NaN) -> (square dists with NaN->0, binary was_observed
-    weight), matching analysis/rsatoolbox_eval/mds_deep_dive.py's _load_condition_inputs()."""
-    sq = squareform(condensed)
-    weight = (~np.isnan(sq)).astype(np.float64)
-    np.fill_diagonal(weight, 0.0)
-    dists = np.nan_to_num(sq, nan=0.0)
-    return dists, weight
-
-
-def _procrustes_compare(out_a: dict, out_b: dict, ndim: int) -> dict:
-    """Procrustes disparity + confdist Pearson r + verdict between two run_mds() outputs,
-    reusing analysis.rsatoolbox_eval.mds_deep_dive's _classify()/_EQUIVALENT/_DIFFERENT
-    thresholds rather than reimplementing them."""
-    from analysis.rsatoolbox_eval.mds_deep_dive import _classify
-
-    conf_a = np.asarray(out_a["conf"]).reshape(-1, ndim)
-    conf_b = np.asarray(out_b["conf"]).reshape(-1, ndim)
-    _, _, disparity = procrustes(conf_a, conf_b)
-    corr = float(np.corrcoef(np.asarray(out_a["confdist"]), np.asarray(out_b["confdist"]))[0, 1])
-    return {"disparity": float(disparity), "confdist_r": corr, "verdict": _classify(disparity, corr)}
-
-
 def compare_generalizability_mds(
     variant: str,
     aggregation: str,
@@ -263,13 +237,13 @@ def compare_generalizability_mds(
     analytical = build_behavioral_rdm(variant, cache_dir=cache_dir, aggregation=aggregation)
     oos_condensed, _ = build_oos_rdm(variant, aggregation, cache_dir=cache_dir, save=False)
 
-    dists_a, weight_a = _dists_and_weight(analytical)
-    dists_b, weight_b = _dists_and_weight(oos_condensed)
+    dists_a, weight_a = condensed_rdm_to_weighted_dists(analytical)
+    dists_b, weight_b = condensed_rdm_to_weighted_dists(oos_condensed)
 
     out_a = run_mds(dists_a, weight_a, ndim, max_iters, convergence_tol, precalc_init, verbose=False)
     out_b = run_mds(dists_b, weight_b, ndim, max_iters, convergence_tol, precalc_init, verbose=False)
 
-    comparison = _procrustes_compare(out_a, out_b, ndim)
+    comparison = compare_mds_configs(out_a, out_b, ndim)
     return {
         "cohort": _cohort_name(variant), "aggregation": aggregation, "ndim": ndim,
         "niter_analytical": out_a["niter"], "niter_oos": out_b["niter"],

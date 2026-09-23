@@ -5,10 +5,13 @@ analysis/rdms/__tests__/test_behavioral.py's synthetic-fixture pattern, scaled u
 to enough participants for leave-one-out/split-half to be meaningful) so this
 suite needs neither a real 725-image dataset nor real SpAM session data.
 
-Scoped to reliability.py's data-generation functions only (_kendall_spearman,
-loo_reliability, split_half_reliability, make_splits) -- the pairwise Wilcoxon
-comparisons and the plotly figure live in noise_ceiling.ipynb and are not
-unit-tested, consistent with how this repo's other analysis notebooks aren't either.
+Scoped to reliability.py's data-generation functions only (loo_reliability,
+split_half_reliability, make_splits) -- the pairwise Wilcoxon comparisons and
+the plotly figure live in noise_ceiling.ipynb and are not unit-tested,
+consistent with how this repo's other analysis notebooks aren't either.
+Masked-correlation coverage (formerly this module's own _kendall_spearman)
+moved to analysis/utils/__tests__/test_stats.py's masked_rank_correlation
+tests, alongside the shared function reliability.py now calls.
 """
 from __future__ import annotations
 
@@ -17,7 +20,6 @@ import json
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.stats import kendalltau, spearmanr
 
 import analysis.behavioral.reliability as reliability
 
@@ -83,35 +85,6 @@ def _synthetic_trials_by_participant() -> dict[str, list[tuple[np.ndarray, np.nd
 @pytest.fixture()
 def trials_by_participant():
     return _synthetic_trials_by_participant()
-
-
-# ---------------------------------------------------------------------------
-# _kendall_spearman
-# ---------------------------------------------------------------------------
-
-def test_kendall_spearman_masks_to_jointly_covered_pairs():
-    rdm_a = np.array([1.0, 2.0, np.nan, 4.0, 5.0])
-    rdm_b = np.array([1.0, np.nan, 3.0, 4.0, 6.0])
-    result = reliability._kendall_spearman(rdm_a, rdm_b, min_overlap=2)
-
-    mask = np.array([True, False, False, True, True])
-    assert result["n_overlap"] == 3
-    assert not result["underpowered"]
-    expected_tau = kendalltau(rdm_a[mask], rdm_b[mask]).statistic
-    expected_rho = spearmanr(rdm_a[mask], rdm_b[mask]).statistic
-    assert result["kendall"] == pytest.approx(expected_tau)
-    assert result["spearman"] == pytest.approx(expected_rho)
-
-
-def test_kendall_spearman_flags_underpowered_folds():
-    rdm_a = np.array([1.0, 2.0, np.nan, 4.0, 5.0])
-    rdm_b = np.array([1.0, np.nan, 3.0, 4.0, 6.0])
-    result = reliability._kendall_spearman(rdm_a, rdm_b, min_overlap=5)  # only 3 jointly covered
-
-    assert result["n_overlap"] == 3
-    assert result["underpowered"]
-    assert np.isnan(result["kendall"])
-    assert np.isnan(result["spearman"])
 
 
 # ---------------------------------------------------------------------------
