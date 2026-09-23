@@ -27,7 +27,7 @@ full 725x725 RDM per SHINE variant, via THREE independent aggregation methods
 
 Default aggregation is 'simple' (see build_behavioral_rdm()'s `aggregation` parameter):
 a noise-ceiling reliability comparison (leave-one-out + split-half, Kendall/Spearman --
-analysis/behavioral/noise_ceiling.py / noise_ceiling.ipynb) found 'simple' significantly
+analysis/behavioral/noise_ceiling.py / aggregation_comparison.ipynb) found 'simple' significantly
 outperforms both 'evidence' and 'mean' on real data (all p<1e-4, both SHINE cohorts),
 with 'evidence' the *worst* of the three -- the opposite of the a priori expectation
 that 'evidence''s extra magnitude weighting, as a refinement of 'simple', should do at
@@ -323,7 +323,7 @@ def build_behavioral_rdm(
                          (van den Bosch et al., 2025,
                          https://doi.org/10.1101/2025.05.22.655542). Default per the
                          noise-ceiling reliability comparison in
-                         analysis/behavioral/noise_ceiling.py / noise_ceiling.ipynb:
+                         analysis/behavioral/noise_ceiling.py / aggregation_comparison.ipynb:
                          'simple' significantly outperforms both 'evidence' and 'mean'
                          on leave-one-out and split-half Kendall/Spearman reliability
                          (all p<1e-4 across both SHINE cohorts). See _sparse_combine().
