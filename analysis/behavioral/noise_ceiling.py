@@ -45,7 +45,7 @@ matching this repo's existing notebook-as-analysis-surface convention
 This module only produces the underlying tidy long-format reliability data.
 
 Usage (from repo root, with the main checkout's .venv active):
-    python -m analysis.behavioral.reliability --cache-dir <path to analysis/results/parsed_data>
+    python -m analysis.behavioral.noise_ceiling --cache-dir <path to analysis/results/parsed_data>
 """
 from __future__ import annotations
 

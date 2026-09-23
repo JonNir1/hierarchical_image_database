@@ -3,7 +3,7 @@ samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect sizes, and the
 one-line significance-summary printer.
 
 The masked_rank_correlation tests below were migrated from
-analysis/behavioral/__tests__/test_reliability.py's former
+analysis/behavioral/__tests__/test_noise_ceiling.py's former
 test_kendall_spearman_* tests (that module's private _kendall_spearman() now
 just calls this shared function) -- kept here rather than duplicated in both
 places.
