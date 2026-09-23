@@ -25,7 +25,7 @@ from statsmodels.stats.multitest import multipletests
 def masked_rank_correlation(a: np.ndarray, b: np.ndarray, *, min_overlap: int | None = None) -> dict:
     """Kendall tau + Spearman rho between two (possibly incomplete) same-length
     vectors, restricted to positions non-NaN in both. Unifies
-    analysis/behavioral/reliability.py's former _kendall_spearman(),
+    analysis/behavioral/noise_ceiling.py's former _kendall_spearman(),
     analysis/behavioral/cohort_comparison.py's former masked_kendall_spearman(),
     and the correlation analysis/rdms/validate_rdms.py's
     report_behav_correlation() does inline.

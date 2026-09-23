@@ -2,7 +2,7 @@
 
 Uses a small synthetic multi-participant SpAM dataset covering every status this
 module's exclusion logic must handle (mirroring analysis/rdms/__tests__/test_behavioral.py's
-JSON/DataFrame-level synthetic-fixture pattern, since -- unlike test_reliability.py --
+JSON/DataFrame-level synthetic-fixture pattern, since -- unlike test_noise_ceiling.py --
 these functions operate on df_participants['status'] directly, not just pre-parsed
 trial tuples): retained (status='full data', task_version>=4.0), OOS-eligible
 ('screened out', 'false_positive', pilot-era 'full data' with task_version<4.0), and

@@ -1,10 +1,10 @@
 """
 Generalizability comparison for the three behavioral-RDM aggregation methods
 ('mean' / 'simple' / 'evidence', see analysis/rdms/behavioral.py) -- the second,
-independent line of evidence alongside analysis/behavioral/reliability.py's
+independent line of evidence alongside analysis/behavioral/noise_ceiling.py's
 within-cohort noise-ceiling comparison (leave-one-out + split-half).
 
-Where reliability.py asks "how much does resampling *within* the retained
+Where noise_ceiling.py asks "how much does resampling *within* the retained
 cohort agree with itself", this module asks "does the RDM built from the
 retained cohort agree with an RDM built from subjects who were never part of
 it": pilot-era task versions (1.0/2.0/3.0/3.06), plus v4+ subjects with
@@ -38,19 +38,19 @@ Two comparisons, both per (cohort, aggregation):
       analytical RDM (build_behavioral_rdm(), retained cohort) and the OOS
       RDM (build_oos_rdm(), same aggregation method), over jointly-covered
       pairs (reuses analysis.utils.stats.masked_rank_correlation()).
-      Unlike reliability.py's LOO/split-half, there is no resampling here --
+      Unlike noise_ceiling.py's LOO/split-half, there is no resampling here --
       exactly one analytical RDM and one OOS RDM per (cohort, aggregation),
       so this is a single point-estimate comparison, not a distribution of
       paired folds (no Wilcoxon test is meaningful here).
   MDS-embedding generalizability -- Procrustes disparity + confdist Pearson r
       between the two RDMs' independently-fitted MDS configurations (R
       backend, via SpAM_Simulations.core.multi_dimensional_scaling.run_mds).
-      Unlike reliability.py's noise-ceiling analysis (where a single held-out
+      Unlike noise_ceiling.py's noise-ceiling analysis (where a single held-out
       participant's own trial graph is provably disconnected into ~18
       islands, so MDS can never run there), both OOS pools here are pooled,
       multi-subject data and confirmed single connected components, so MDS is
       feasible. Compute cost is also trivial (a handful of one-time fits, not
-      the S=100-iteration budget that ruled out MDS for reliability.py's
+      the S=100-iteration budget that ruled out MDS for noise_ceiling.py's
       split-half leg), so this sweeps ndim in {2, 3, 5, 10}, matching the
       earlier R-vs-rsatoolbox deep-dive's grid (analysis/rsatoolbox_eval/).
 
@@ -63,7 +63,7 @@ want to guard against R not being configured should probe before calling
 them (see analysis/behavioral/aggregation_comparison.ipynb's Part 2 for the
 exact pattern).
 
-As with reliability.py, this module is data-generation only -- no stats
+As with noise_ceiling.py, this module is data-generation only -- no stats
 significance-testing or plotting here; that's notebook work.
 
 Usage (from repo root, with the main checkout's .venv active):
@@ -78,7 +78,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analysis.behavioral.reliability import (
+from analysis.behavioral.noise_ceiling import (
     _DEFAULT_CACHE_DIR, _DEFAULT_MIN_OVERLAP, RESULTS_DIR, _VALID_VARIANTS, _cohort_name,
 )
 from analysis.rdms.behavioral import (

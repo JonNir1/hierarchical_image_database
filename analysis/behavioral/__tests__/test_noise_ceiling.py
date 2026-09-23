@@ -1,17 +1,17 @@
-"""Tests for analysis.behavioral.reliability's data-generation functions.
+"""Tests for analysis.behavioral.noise_ceiling's data-generation functions.
 
 Uses a small synthetic multi-participant SpAM dataset (mirroring
 analysis/rdms/__tests__/test_behavioral.py's synthetic-fixture pattern, scaled up
 to enough participants for leave-one-out/split-half to be meaningful) so this
 suite needs neither a real 725-image dataset nor real SpAM session data.
 
-Scoped to reliability.py's data-generation functions only (loo_reliability,
+Scoped to noise_ceiling.py's data-generation functions only (loo_reliability,
 split_half_reliability, make_splits) -- the pairwise Wilcoxon comparisons and
 the plotly figure live in noise_ceiling.ipynb and are not unit-tested,
 consistent with how this repo's other analysis notebooks aren't either.
 Masked-correlation coverage (formerly this module's own _kendall_spearman)
 moved to analysis/utils/__tests__/test_stats.py's masked_rank_correlation
-tests, alongside the shared function reliability.py now calls.
+tests, alongside the shared function noise_ceiling.py now calls.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import analysis.behavioral.reliability as reliability
+import analysis.behavioral.noise_ceiling as noise_ceiling
 
 # 6 synthetic images -> C(6,2) = 15 pairs
 _IMAGES = ["img0.png", "img1.png", "img2.png", "img3.png", "img4.png", "img5.png"]
@@ -50,7 +50,7 @@ def _trial_dict(images: list[str], base: float, rng: np.random.Generator) -> dic
 
 def _synthetic_trials_by_participant() -> dict[str, list[tuple[np.ndarray, np.ndarray]]]:
     """8 synthetic participants, each with 3 trials of 4 overlapping images, parsed
-    directly into reliability.py's (indices, values) sparse-trial format (bypassing
+    directly into noise_ceiling.py's (indices, values) sparse-trial format (bypassing
     the JSON/DataFrame layer, since this suite targets the LOO/split-half math, not
     the trial-parsing wiring already covered by test_behavioral.py)."""
     from analysis.rdms.behavioral import _condensed_index
@@ -94,7 +94,7 @@ def trials_by_participant():
 @pytest.mark.parametrize("aggregation", ["mean", "simple", "evidence"])
 def test_loo_reliability_returns_exactly_n_rows(trials_by_participant, aggregation):
     n_conds = len(_IMAGES)
-    result = reliability.loo_reliability(
+    result = noise_ceiling.loo_reliability(
         "pre_shine", aggregation, trials_by_participant=trials_by_participant,
         n_conds=n_conds, min_overlap=3,
     )
@@ -108,15 +108,15 @@ def test_loo_reliability_returns_exactly_n_rows(trials_by_participant, aggregati
 # ---------------------------------------------------------------------------
 
 def test_spearman_brown_matches_closed_form():
-    assert reliability._spearman_brown(0.2) == pytest.approx(2 * 0.2 / 1.2)
-    assert reliability._spearman_brown(0.19) == pytest.approx(2 * 0.19 / 1.19)
+    assert noise_ceiling._spearman_brown(0.2) == pytest.approx(2 * 0.2 / 1.2)
+    assert noise_ceiling._spearman_brown(0.19) == pytest.approx(2 * 0.19 / 1.19)
 
 
 @pytest.mark.parametrize("r", [0.0, -0.1, -1.0, np.nan])
 def test_spearman_brown_passes_through_non_positive_or_nonfinite(r):
     """Mirrors gt_diagnostics.raw_noise_ceiling()'s guard: a non-positive half-split
     correlation makes the projection meaningless, so it's passed through unchanged."""
-    result = reliability._spearman_brown(r)
+    result = noise_ceiling._spearman_brown(r)
     if np.isnan(r):
         assert np.isnan(result)
     else:
@@ -130,7 +130,7 @@ def test_add_ceiling_full_only_populated_for_upper_spearman():
         {"bound": "upper", "metric": "kendall", "value": 0.13},
         {"bound": "upper", "metric": "spearman", "value": 0.19},
     ])
-    result = reliability._add_ceiling_full(long)
+    result = noise_ceiling._add_ceiling_full(long)
 
     assert np.isnan(result.loc[0, "ceiling_full"])  # lower/kendall
     assert np.isnan(result.loc[1, "ceiling_full"])  # lower/spearman
@@ -144,14 +144,14 @@ def test_add_ceiling_full_only_populated_for_upper_spearman():
 
 def test_make_splits_is_deterministic_given_a_seed():
     ids = [f"p{i}" for i in range(_N_PARTICIPANTS)]
-    splits_a = reliability.make_splits(ids, n_splits=10, seed=42)
-    splits_b = reliability.make_splits(ids, n_splits=10, seed=42)
+    splits_a = noise_ceiling.make_splits(ids, n_splits=10, seed=42)
+    splits_b = noise_ceiling.make_splits(ids, n_splits=10, seed=42)
     assert splits_a == splits_b
 
 
 def test_make_splits_halves_are_disjoint_and_cover_all_participants():
     ids = [f"p{i}" for i in range(_N_PARTICIPANTS)]
-    splits = reliability.make_splits(ids, n_splits=5, seed=0)
+    splits = noise_ceiling.make_splits(ids, n_splits=5, seed=0)
     for half_a, half_b in splits:
         assert set(half_a) & set(half_b) == set()
         assert set(half_a) | set(half_b) == set(ids)
@@ -162,8 +162,8 @@ def test_make_splits_halves_are_disjoint_and_cover_all_participants():
 def test_split_half_reliability_returns_exactly_n_splits_rows(trials_by_participant, aggregation):
     n_conds = len(_IMAGES)
     ids = list(trials_by_participant.keys())
-    splits = reliability.make_splits(ids, n_splits=7, seed=1)
-    result = reliability.split_half_reliability(
+    splits = noise_ceiling.make_splits(ids, n_splits=7, seed=1)
+    result = noise_ceiling.split_half_reliability(
         "pre_shine", aggregation, trials_by_participant=trials_by_participant,
         n_conds=n_conds, splits=splits, min_overlap=3,
     )
@@ -178,17 +178,17 @@ def test_split_half_reliability_reuses_identical_splits_across_aggregations(tria
     the same seed."""
     n_conds = len(_IMAGES)
     ids = list(trials_by_participant.keys())
-    splits = reliability.make_splits(ids, n_splits=5, seed=3)
+    splits = noise_ceiling.make_splits(ids, n_splits=5, seed=3)
 
-    result_mean = reliability.split_half_reliability(
+    result_mean = noise_ceiling.split_half_reliability(
         "pre_shine", "mean", trials_by_participant=trials_by_participant,
         n_conds=n_conds, splits=splits, min_overlap=3,
     )
-    result_evidence = reliability.split_half_reliability(
+    result_evidence = noise_ceiling.split_half_reliability(
         "pre_shine", "evidence", trials_by_participant=trials_by_participant,
         n_conds=n_conds, splits=splits, min_overlap=3,
     )
     # Same splits object -> same fold_id -> split-partition correspondence for both calls.
     assert list(result_mean["fold_id"]) == list(result_evidence["fold_id"])
     # Re-deriving the splits with the same seed must match what was actually used.
-    assert splits == reliability.make_splits(ids, n_splits=5, seed=3)
+    assert splits == noise_ceiling.make_splits(ids, n_splits=5, seed=3)

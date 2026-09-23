@@ -27,7 +27,7 @@ full 725x725 RDM per SHINE variant, via THREE independent aggregation methods
 
 Default aggregation is 'simple' (see build_behavioral_rdm()'s `aggregation` parameter):
 a noise-ceiling reliability comparison (leave-one-out + split-half, Kendall/Spearman --
-analysis/behavioral/reliability.py / noise_ceiling.ipynb) found 'simple' significantly
+analysis/behavioral/noise_ceiling.py / noise_ceiling.ipynb) found 'simple' significantly
 outperforms both 'evidence' and 'mean' on real data (all p<1e-4, both SHINE cohorts),
 with 'evidence' the *worst* of the three -- the opposite of the a priori expectation
 that 'evidence''s extra magnitude weighting, as a refinement of 'simple', should do at
@@ -275,7 +275,7 @@ def _build_trials(
     """Non-catch trial rows for an arbitrary participant subset -> per-trial sparse pairs.
 
     Factored out of build_behavioral_rdm() so it can be called over any participant
-    subset (leave-one-out folds, split halves -- see analysis/behavioral/reliability.py),
+    subset (leave-one-out folds, split halves -- see analysis/behavioral/noise_ceiling.py),
     not just the full retained-cohort set _select_participants() returns.
     """
     rows = df_trials[
@@ -323,7 +323,7 @@ def build_behavioral_rdm(
                          (van den Bosch et al., 2025,
                          https://doi.org/10.1101/2025.05.22.655542). Default per the
                          noise-ceiling reliability comparison in
-                         analysis/behavioral/reliability.py / noise_ceiling.ipynb:
+                         analysis/behavioral/noise_ceiling.py / noise_ceiling.ipynb:
                          'simple' significantly outperforms both 'evidence' and 'mean'
                          on leave-one-out and split-half Kendall/Spearman reliability
                          (all p<1e-4 across both SHINE cohorts). See _sparse_combine().
