@@ -7,7 +7,7 @@ suite needs neither a real 725-image dataset nor real SpAM session data.
 
 Scoped to noise_ceiling.py's data-generation functions only (loo_reliability,
 split_half_reliability, make_splits) -- the pairwise Wilcoxon comparisons and
-the plotly figure live in noise_ceiling.ipynb and are not unit-tested,
+the plotly figure live in aggregation_comparison.ipynb and are not unit-tested,
 consistent with how this repo's other analysis notebooks aren't either.
 Masked-correlation coverage (formerly this module's own _kendall_spearman)
 moved to analysis/utils/__tests__/test_stats.py's masked_rank_correlation
