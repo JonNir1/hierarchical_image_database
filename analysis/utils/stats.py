@@ -22,7 +22,27 @@ from scipy.stats import kendalltau, mannwhitneyu, spearmanr, wilcoxon
 from statsmodels.stats.multitest import multipletests
 
 
-def masked_rank_correlation(a: np.ndarray, b: np.ndarray, *, min_overlap: int | None = None) -> dict:
+def _tie_pairs(x: np.ndarray) -> float:
+    _, counts = np.unique(x, return_counts=True)
+    return float(np.sum(counts * (counts - 1) / 2))
+
+
+def kendall_tau_a(a: np.ndarray, b: np.ndarray) -> float:
+    """Kendall's tau-a, (C - D) / (n(n-1)/2), recovered exactly from scipy's tie-corrected
+    tau-b: tau_b = (C - D) / sqrt((n0 - n1)(n0 - n2)) with n0 = total pairs and n1/n2 = tied pairs
+    in each vector. Unlike tau-b, ties are not removed from the denominator, which is the variant
+    Nili et al. (2014) recommend when the model RDM has many tied ranks."""
+    n = len(a)
+    if n < 2:
+        return np.nan
+    n0 = n * (n - 1) / 2
+    tau_b = kendalltau(a, b).statistic
+    return float(tau_b * np.sqrt((n0 - _tie_pairs(a)) * (n0 - _tie_pairs(b))) / n0)
+
+
+def masked_rank_correlation(
+    a: np.ndarray, b: np.ndarray, *, min_overlap: int | None = None, tau_a: bool = False,
+) -> dict:
     """Kendall tau + Spearman rho between two (possibly incomplete) same-length
     vectors, restricted to positions non-NaN in both. Unifies
     analysis/behavioral/noise_ceiling.py's former _kendall_spearman(),
@@ -33,15 +53,21 @@ def masked_rank_correlation(a: np.ndarray, b: np.ndarray, *, min_overlap: int | 
     If `min_overlap` is given, an `"underpowered"` bool flag is added (True,
     with kendall/spearman set to NaN, when fewer than `min_overlap` positions
     are jointly non-NaN) -- otherwise `"underpowered"` is omitted entirely.
+
+    If `tau_a` is True, a `"kendall_a"` entry (see kendall_tau_a()) is added; `"kendall"`
+    stays tau-b either way.
     """
     mask = ~(np.isnan(a) | np.isnan(b))
     n = int(mask.sum())
     if min_overlap is not None and n < min_overlap:
-        return {"kendall": np.nan, "spearman": np.nan, "n_overlap": n, "underpowered": True}
+        under = {"kendall": np.nan, "spearman": np.nan, "n_overlap": n, "underpowered": True}
+        return {**under, "kendall_a": np.nan} if tau_a else under
     a_masked, b_masked = a[mask], b[mask]
     tau = float(kendalltau(a_masked, b_masked).statistic)
     rho = float(spearmanr(a_masked, b_masked).statistic)
     result = {"kendall": tau, "spearman": rho, "n_overlap": n}
+    if tau_a:
+        result["kendall_a"] = kendall_tau_a(a_masked, b_masked)
     if min_overlap is not None:
         result["underpowered"] = False
     return result
