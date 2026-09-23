@@ -17,7 +17,7 @@ from scipy.stats import kendalltau, spearmanr
 from statsmodels.stats.multitest import multipletests
 
 from analysis.utils.stats import (
-    masked_rank_correlation, mwu_effect_size, mwu_family, print_comparison_line, wilcoxon_effect_size,
+    kendall_tau_a, masked_rank_correlation, mwu_effect_size, mwu_family, print_comparison_line, wilcoxon_effect_size,
 )
 
 # ---------------------------------------------------------------------------
@@ -47,6 +47,39 @@ def test_masked_rank_correlation_flags_underpowered_folds():
     assert result["underpowered"]
     assert np.isnan(result["kendall"])
     assert np.isnan(result["spearman"])
+
+
+def _brute_force_tau_a(a: np.ndarray, b: np.ndarray) -> float:
+    n = len(a)
+    s = sum(np.sign(a[i] - a[j]) * np.sign(b[i] - b[j]) for i in range(n) for j in range(i + 1, n))
+    return s / (n * (n - 1) / 2)
+
+
+def test_kendall_tau_a_matches_brute_force_with_ties():
+    rng = np.random.default_rng(0)
+    a = rng.integers(1, 5, size=40).astype(float)
+    b = rng.normal(size=40) + a * 0.5
+    assert kendall_tau_a(a, b) == pytest.approx(_brute_force_tau_a(a, b))
+
+
+def test_kendall_tau_a_matches_rsatoolbox():
+    from rsatoolbox.rdm import RDMs, compare
+    rng = np.random.default_rng(1)
+    a = rng.integers(1, 6, size=200).astype(float)
+    b = rng.normal(size=200) + a * 0.3
+    expected = compare(RDMs(a[None, :]), RDMs(b[None, :]), method="tau-a").item()
+    assert kendall_tau_a(a, b) == pytest.approx(expected)
+
+
+def test_masked_rank_correlation_tau_a_flag_adds_key_without_changing_others():
+    rdm_a = np.array([1.0, 2.0, np.nan, 4.0, 5.0, 2.0])
+    rdm_b = np.array([1.0, np.nan, 3.0, 4.0, 6.0, 1.0])
+    plain = masked_rank_correlation(rdm_a, rdm_b)
+    with_a = masked_rank_correlation(rdm_a, rdm_b, tau_a=True)
+    assert "kendall_a" not in plain
+    assert {k: with_a[k] for k in plain} == plain
+    mask = ~(np.isnan(rdm_a) | np.isnan(rdm_b))
+    assert with_a["kendall_a"] == pytest.approx(_brute_force_tau_a(rdm_a[mask], rdm_b[mask]))
 
 
 def test_masked_rank_correlation_no_min_overlap_omits_underpowered_key():
