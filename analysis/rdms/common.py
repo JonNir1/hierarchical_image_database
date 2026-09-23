@@ -88,6 +88,21 @@ def order_hash() -> str:
     return hashlib.sha256(paths_str.encode()).hexdigest()[:16]
 
 
+@lru_cache(maxsize=1)
+def image_manifest_index() -> tuple[dict[str, int], int]:
+    """
+    Canonical image path (forward-slash-normalised curated_path) -> condensed-
+    vector index, plus the total image count -- the lookup every RDM builder
+    needs to map a trial's image src onto a position in the condensed vector.
+
+    Cached; the manifest row order must not change within a process (same
+    assumption order_hash() already makes).
+    """
+    manifest = load_manifest()
+    canonical = [p.replace("\\", "/") for p in manifest["curated_path"]]
+    return {img: i for i, img in enumerate(canonical)}, len(canonical)
+
+
 def image_paths(variant: str) -> list[Path]:
     """
     Return the list of absolute image Paths in manifest order for *variant*.

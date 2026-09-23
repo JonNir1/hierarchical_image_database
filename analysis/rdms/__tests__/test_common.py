@@ -85,6 +85,31 @@ def test_order_hash_length():
 
 
 # ---------------------------------------------------------------------------
+# image_manifest_index
+# ---------------------------------------------------------------------------
+
+def test_image_manifest_index_matches_load_manifest():
+    image_to_idx, n_conds = common.image_manifest_index()
+    manifest = common.load_manifest()
+    assert n_conds == len(manifest)
+    canonical = [p.replace("\\", "/") for p in manifest["curated_path"]]
+    assert list(image_to_idx.keys()) == canonical
+    assert image_to_idx[canonical[0]] == 0
+    assert image_to_idx[canonical[-1]] == n_conds - 1
+
+
+def test_image_manifest_index_normalises_backslashes():
+    image_to_idx, _ = common.image_manifest_index()
+    assert all("\\" not in path for path in image_to_idx)
+
+
+def test_image_manifest_index_is_cached():
+    first = common.image_manifest_index()
+    second = common.image_manifest_index()
+    assert first[0] is second[0]  # same dict object, not just equal
+
+
+# ---------------------------------------------------------------------------
 # load_image_rgb: alpha compositing
 # ---------------------------------------------------------------------------
 
