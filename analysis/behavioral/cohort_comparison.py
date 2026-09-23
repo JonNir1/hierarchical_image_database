@@ -14,8 +14,8 @@ Usage (from repo root):
         retained_participants, pair_coverage, subject_reliability,
         main_trials, subject_trial_stats, pairwise_distance_values,
         subject_ks_distance, mwu_two_group,
-        fig_reliability, fig_trial_time_moves, fig_distance_vs_null,
-        fig_demographics, fig_retention_status,
+        fig_reliability, fig_trial_time_moves, fig_trial_progression,
+        fig_distance_vs_null, fig_demographics, fig_retention_status,
     )
 """
 from __future__ import annotations
@@ -47,6 +47,7 @@ _COHORT_COLORS: dict[str, dict[str, str]] = {
         "main":        "#2a78d6",
         "violin":      "rgba(42,120,214,0.35)",
         "violin_line": "rgba(42,120,214,0.9)",
+        "subj":        "rgba(42,120,214,0.2)",
         "dot":         "rgba(42,120,214,0.9)",
         "dot_err":     "rgba(42,120,214,0.6)",
     },
@@ -54,6 +55,7 @@ _COHORT_COLORS: dict[str, dict[str, str]] = {
         "main":        "#eb6834",
         "violin":      "rgba(235,104,52,0.35)",
         "violin_line": "rgba(235,104,52,0.9)",
+        "subj":        "rgba(235,104,52,0.2)",
         "dot":         "rgba(235,104,52,0.9)",
         "dot_err":     "rgba(235,104,52,0.6)",
     },
@@ -265,6 +267,73 @@ def fig_trial_time_moves(
         height=460, width=1200,
         margin={"l": 60, "r": 40, "t": 70, "b": 60},
         showlegend=True,
+    )
+    return fig
+
+
+def _add_progression_panel(fig: go.Figure, trials_by_cohort: dict[str, pd.DataFrame], value_col: str, row: int, yaxis_title: str) -> None:
+    """Shared body for fig_trial_progression()'s two rows: mean +/- SE of
+    *value_col* over trial number, plus thin per-subject lines underneath --
+    same progression-panel style as analysis/pilot/figures.py's
+    fig_trial_duration/fig_moves bottom rows."""
+    for cohort in _COHORTS:
+        cc = _cc(cohort)
+        tdf = trials_by_cohort[cohort]
+
+        for _pid, grp in tdf.groupby("participant_id"):
+            grp_sorted = grp.sort_values("trial_id")
+            fig.add_trace(go.Scatter(
+                x=grp_sorted["trial_id"], y=grp_sorted[value_col],
+                mode="lines", line={"color": cc["subj"], "width": 1},
+                showlegend=False, hoverinfo="skip", legendgroup=cohort,
+            ), row=row, col=1)
+
+        agg = (
+            tdf.groupby("trial_id")[value_col]
+            .agg(mean="mean", std="std", n="count")
+            .assign(se=lambda x: x["std"] / np.sqrt(x["n"]))
+            .reset_index()
+        )
+        x = agg["trial_id"].tolist()
+        mean = agg["mean"].tolist()
+        se = agg["se"].tolist()
+
+        fig.add_trace(go.Scatter(
+            x=x + x[::-1],
+            y=[m + s for m, s in zip(mean, se)] + [m - s for m, s in zip(mean[::-1], se[::-1])],
+            fill="toself", fillcolor=cc["main"], opacity=0.2,
+            line={"color": "rgba(0,0,0,0)"}, showlegend=False, hoverinfo="skip",
+            legendgroup=cohort,
+        ), row=row, col=1)
+        fig.add_trace(go.Scatter(
+            x=x, y=mean, mode="lines+markers",
+            line={"color": cc["main"], "width": 3}, marker={"size": 7, "color": cc["main"]},
+            name=_label(cohort), legendgroup=cohort, showlegend=(row == 1),
+        ), row=row, col=1)
+
+    fig.update_xaxes(title_text="Trial number", row=row, col=1)
+    fig.update_yaxes(title_text=yaxis_title, row=row, col=1)
+
+
+def fig_trial_progression(trials_by_cohort: dict[str, pd.DataFrame]) -> go.Figure:
+    """2-row figure: mean +/- SE trial duration (top) and number of moves
+    (bottom) over trial number within the session (main trials only), with
+    thin per-subject lines underneath -- same progression-panel style as
+    analysis/pilot/figures.py's fig_trial_duration/fig_moves bottom rows,
+    grouped by SHINE cohort instead of task version."""
+    fig = make_subplots(
+        rows=2, cols=1,
+        subplot_titles=["Trial duration over task progression", "Number of moves over task progression"],
+        vertical_spacing=0.15,
+    )
+    _add_progression_panel(fig, trials_by_cohort, "rt_s", row=1, yaxis_title="Trial duration (s)")
+    _add_progression_panel(fig, trials_by_cohort, "num_moves", row=2, yaxis_title="Moves per trial")
+
+    fig.update_layout(
+        template="plotly_white",
+        title="Trial duration & moves over task progression, by cohort",
+        height=620, margin={"l": 60, "r": 40, "t": 70, "b": 60},
+        showlegend=True, legend={"groupclick": "togglegroup"},
     )
     return fig
 
