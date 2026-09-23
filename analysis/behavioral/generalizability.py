@@ -37,7 +37,7 @@ Two comparisons, both per (cohort, aggregation):
   raw RDM generalizability -- Kendall's tau + Spearman's rho between the
       analytical RDM (build_behavioral_rdm(), retained cohort) and the OOS
       RDM (build_oos_rdm(), same aggregation method), over jointly-covered
-      pairs (reuses analysis.behavioral.reliability._kendall_spearman()).
+      pairs (reuses analysis.utils.stats.masked_rank_correlation()).
       Unlike reliability.py's LOO/split-half, there is no resampling here --
       exactly one analytical RDM and one OOS RDM per (cohort, aggregation),
       so this is a single point-estimate comparison, not a distribution of

@@ -22,7 +22,8 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from scipy.stats import spearmanr
+
+from analysis.utils.spearman_r import pair_spearman_r
 
 # ---------------------------------------------------------------------------
 # Shared session/demographics helpers -- schema-independent (they parse a single
@@ -558,12 +559,11 @@ def _trial_image_set(pw_json: str) -> frozenset[str]:
 
 
 def _safe_pair_spearman_r(orig_row: pd.Series, repeat_row: pd.Series, pid: str, trial_id: int) -> float | None:
-    """Like spearman_r.pair_spearman_r, but degrades to None + a UserWarning on
-    malformed pairwise_distances JSON instead of raising (real corrupted-file case
-    observed in prod data)."""
+    """Thin wrapper over spearman_r.pair_spearman_r that degrades to None + a
+    UserWarning on malformed pairwise_distances JSON instead of raising (real
+    corrupted-file case observed in prod data)."""
     try:
-        d_orig = _distance_dict(orig_row["pairwise_distances"])
-        d_repeat = _distance_dict(repeat_row["pairwise_distances"])
+        return pair_spearman_r(orig_row, repeat_row)
     except json.JSONDecodeError:
         warnings.warn(
             f"Participant {pid}, trial_id {trial_id}: malformed pairwise_distances JSON, "
@@ -572,19 +572,6 @@ def _safe_pair_spearman_r(orig_row: pd.Series, repeat_row: pd.Series, pid: str, 
             stacklevel=2,
         )
         return None
-    keys = d_orig.keys() & d_repeat.keys()
-    if len(keys) < 2:
-        return None
-    keys = sorted(keys, key=lambda k: sorted(k))
-    r, _p = spearmanr([d_orig[k] for k in keys], [d_repeat[k] for k in keys])
-    return r
-
-
-def _distance_dict(pw_json: str) -> dict[frozenset, float]:
-    if pd.isna(pw_json) or pw_json == "":
-        return {}
-    items = json.loads(pw_json)
-    return {frozenset((d["src1"], d["src2"])): d["distance"] for d in items}
 
 
 def _load_trials_for_participant(pid: str, session_path: Path) -> pd.DataFrame:
