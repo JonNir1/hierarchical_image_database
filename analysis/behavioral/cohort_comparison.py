@@ -13,7 +13,7 @@ Usage (from repo root):
     from analysis.behavioral.cohort_comparison import (
         retained_participants, pair_coverage, subject_reliability,
         main_trials, subject_trial_stats, pairwise_distance_values,
-        subject_ks_distance, mwu_two_group,
+        subject_wasserstein_distance, subject_ks_distance, mwu_two_group,
         fig_reliability, fig_trial_time_moves, fig_trial_progression,
         fig_distance_vs_null, fig_demographics, fig_retention_status,
     )
@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from scipy.stats import gaussian_kde, mannwhitneyu
+from scipy.stats import gaussian_kde, mannwhitneyu, wasserstein_distance
 
 from analysis.pilot.figures import trial_ks_distance
 from analysis.rdms.behavioral import _build_trials, _mean_combine, _select_participants
@@ -153,12 +153,36 @@ def pairwise_distance_values(df_trials_main: pd.DataFrame) -> list[float]:
     ]
 
 
+def trial_wasserstein_distance(pw_json: str, null_distribution: np.ndarray) -> float:
+    """Earth mover's (Wasserstein-1) distance between one trial's pairwise
+    distances and *null_distribution*. Unlike the KS D statistic (max gap
+    between CDFs, shape-only), Wasserstein integrates over the full gap
+    between distributions, so it's sensitive to *how far* the trial's
+    distances sit from the null, not just whether the two shapes differ --
+    the more appropriate primary measure for a magnitude comparison here.
+    Companion to analysis.pilot.figures.trial_ks_distance(), which is kept as
+    a secondary/shape-robustness check."""
+    dists = list(parse_pairwise_distances(pw_json).values())
+    if len(dists) < 2:
+        return np.nan
+    return wasserstein_distance(dists, null_distribution)
+
+
+def subject_wasserstein_distance(df_trials_main: pd.DataFrame, null_distribution: np.ndarray) -> pd.Series:
+    """Per-participant mean Wasserstein distance of each main trial's
+    pairwise-distance distribution from *null_distribution* -- primary
+    distance-from-null measure (see trial_wasserstein_distance())."""
+    w = df_trials_main["pairwise_distances"].apply(trial_wasserstein_distance, null_distribution=null_distribution)
+    return w.groupby(df_trials_main["participant_id"]).mean()
+
+
 def subject_ks_distance(df_trials_main: pd.DataFrame, null_distribution: np.ndarray) -> pd.Series:
     """Per-participant mean KS distance (D statistic) of each main trial's
     pairwise-distance distribution against *null_distribution* -- reuses
     analysis.pilot.figures.trial_ks_distance(), the same measure as
-    analysis/pilot/analysis.ipynb's Test 3 (KS distance from null), here
-    grouped by SHINE cohort instead of task version."""
+    analysis/pilot/analysis.ipynb's Test 3 (KS distance from null). Secondary
+    to subject_wasserstein_distance() here (see its docstring); grouped by
+    SHINE cohort instead of task version."""
     ks = df_trials_main["pairwise_distances"].apply(trial_ks_distance, null_distribution=null_distribution)
     return ks.groupby(df_trials_main["participant_id"]).mean()
 
@@ -338,15 +362,45 @@ def fig_trial_progression(trials_by_cohort: dict[str, pd.DataFrame]) -> go.Figur
     return fig
 
 
+def _add_distance_from_null_violin(fig: go.Figure, values_by_cohort: dict[str, pd.Series], row: int, col: int, xaxis_title: str) -> None:
+    """Shared body for fig_distance_vs_null()'s two bottom-row distance-from-
+    null violin panels (Wasserstein primary, KS secondary)."""
+    for i, cohort in enumerate(_COHORTS):
+        cc = _cc(cohort)
+        values = values_by_cohort[cohort]
+        fig.add_trace(go.Violin(
+            x=values.values, y0=i, orientation="h", side="both",
+            fillcolor=cc["violin"], line_color=cc["violin_line"],
+            name=_label(cohort), legendgroup=cohort, showlegend=False,
+            width=0.6, points=False,
+        ), row=row, col=col)
+        y_dots = i + np.linspace(-0.15, 0.15, len(values))
+        fig.add_trace(go.Scatter(
+            x=np.sort(values.values), y=y_dots, mode="markers",
+            marker={"color": cc["dot"], "size": 7, "opacity": 0.8},
+            showlegend=False, legendgroup=cohort,
+        ), row=row, col=col)
+
+    fig.update_xaxes(title_text=xaxis_title, row=row, col=col)
+    fig.update_yaxes(
+        range=[-0.6, len(_COHORTS) - 0.4],
+        tickvals=list(range(len(_COHORTS))), ticktext=[_label(c) for c in _COHORTS],
+        row=row, col=col,
+    )
+
+
 def fig_distance_vs_null(
     dists_by_cohort: dict[str, list[float]],
     null_distribution: np.ndarray,
+    wasserstein_by_cohort: dict[str, pd.Series],
     ks_by_cohort: dict[str, pd.Series],
 ) -> go.Figure:
-    """2x2 grid: top (spans both cols) = per-cohort KDE of pairwise SpAM
+    """2x3 grid: top row (spans all 3 cols) = per-cohort KDE of pairwise SpAM
     distances vs. the random-placement null; bottom-left = per-cohort
-    deviation from null (KDE_cohort - KDE_null); bottom-right = per-subject
-    KS distance from null, violin + dots. Adapted from
+    deviation from null (KDE_cohort - KDE_null); bottom-middle = per-subject
+    Wasserstein distance from null, violin + dots (primary distance-from-null
+    measure, see trial_wasserstein_distance()); bottom-right = the same for
+    KS distance (secondary/shape-robustness check). Adapted from
     analysis/pilot/figures.py's fig_pairwise_distance_distribution, grouped by
     SHINE cohort instead of task version."""
     x = np.linspace(0.0, 1.0, 500)
@@ -355,13 +409,15 @@ def fig_distance_vs_null(
     total_obs = sum(len(v) for v in dists_by_cohort.values())
 
     fig = make_subplots(
-        rows=2, cols=2,
-        specs=[[{"colspan": 2}, None], [{}, {}]],
+        rows=2, cols=3,
+        specs=[[{"colspan": 3}, None, None], [{}, {}, {}]],
         subplot_titles=[
             f"Pairwise SpAM distance distribution (n={total_obs:,} pair observations)",
-            "Δ density vs. null", "KS distance from null per subject",
+            "Δ density vs. null",
+            "Wasserstein distance from null per subject (primary)",
+            "KS distance from null per subject (secondary)",
         ],
-        row_heights=[0.45, 0.55], vertical_spacing=0.16, horizontal_spacing=0.12,
+        row_heights=[0.42, 0.58], vertical_spacing=0.18, horizontal_spacing=0.1,
     )
 
     fig.add_trace(go.Scatter(
@@ -390,36 +446,18 @@ def fig_distance_vs_null(
         showlegend=False,
     ), row=2, col=1)
 
-    for i, cohort in enumerate(_COHORTS):
-        cc = _cc(cohort)
-        ks = ks_by_cohort[cohort]
-        fig.add_trace(go.Violin(
-            x=ks.values, y0=i, orientation="h", side="both",
-            fillcolor=cc["violin"], line_color=cc["violin_line"],
-            name=_label(cohort), legendgroup=cohort, showlegend=False,
-            width=0.6, points=False,
-        ), row=2, col=2)
-        y_dots = i + np.linspace(-0.15, 0.15, len(ks))
-        fig.add_trace(go.Scatter(
-            x=np.sort(ks.values), y=y_dots, mode="markers",
-            marker={"color": cc["dot"], "size": 7, "opacity": 0.8},
-            showlegend=False, legendgroup=cohort,
-        ), row=2, col=2)
+    _add_distance_from_null_violin(fig, wasserstein_by_cohort, row=2, col=2, xaxis_title="Wasserstein distance (vs. null)")
+    _add_distance_from_null_violin(fig, ks_by_cohort, row=2, col=3, xaxis_title="KS D (vs. null)")
 
     fig.update_yaxes(title_text="Density", row=1, col=1)
     fig.update_xaxes(title_text="Normalised distance", row=1, col=1)
     fig.update_yaxes(title_text="Δ density vs null", row=2, col=1)
     fig.update_xaxes(title_text="Normalised distance", row=2, col=1)
-    fig.update_xaxes(title_text="KS D (vs. null)", row=2, col=2)
-    fig.update_yaxes(
-        range=[-0.6, len(_COHORTS) - 0.4],
-        tickvals=list(range(len(_COHORTS))), ticktext=[_label(c) for c in _COHORTS],
-        row=2, col=2,
-    )
 
     fig.update_layout(
         template="plotly_white",
-        height=680, margin={"l": 80, "r": 40, "t": 60, "b": 60},
+        height=680, width=1200,
+        margin={"l": 80, "r": 40, "t": 60, "b": 60},
         showlegend=True,
     )
     return fig
