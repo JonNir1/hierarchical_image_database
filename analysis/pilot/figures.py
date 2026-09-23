@@ -27,50 +27,19 @@ from plotly.subplots import make_subplots
 from scipy.stats import gaussian_kde, ks_2samp, spearmanr
 
 from analysis.utils.parser import parse_pairwise_distances
+from analysis.utils.plotting import add_progression_panel, add_violin_dots_panel, fig_group_status_bar, role_palette
 
 # ---------------------------------------------------------------------------
 # Version colour palette
 # ---------------------------------------------------------------------------
 
-_VERSION_PALETTE: dict[float, dict[str, str]] = {
-    # Colorblind-safe categorical set (validated all-pairs CVD-safe + normal-vision
-    # separation with dataviz-skill's validate_palette.js; blue/orange/aqua/violet is
-    # one of the passing 4-hue combinations from the reference 8-hue theme). v4.0 was
-    # previously missing here and fell back to the same gray as the null-distribution
-    # trace, making v3 vs. v4 unreadable -- each version now gets its own validated hue.
-    1.0: {
-        "main":         "#2a78d6",
-        "violin":       "rgba(42,120,214,0.35)",
-        "violin_line":  "rgba(42,120,214,0.9)",
-        "subj":         "rgba(42,120,214,0.2)",
-        "dot":          "rgba(42,120,214,0.9)",
-        "dot_err":      "rgba(42,120,214,0.6)",
-    },
-    2.0: {
-        "main":         "#eb6834",
-        "violin":       "rgba(235,104,52,0.35)",
-        "violin_line":  "rgba(235,104,52,0.9)",
-        "subj":         "rgba(235,104,52,0.2)",
-        "dot":          "rgba(235,104,52,0.9)",
-        "dot_err":      "rgba(235,104,52,0.6)",
-    },
-    3.0: {
-        "main":         "#1baf7a",
-        "violin":       "rgba(27,175,122,0.35)",
-        "violin_line":  "rgba(27,175,122,0.9)",
-        "subj":         "rgba(27,175,122,0.2)",
-        "dot":          "rgba(27,175,122,0.9)",
-        "dot_err":      "rgba(27,175,122,0.6)",
-    },
-    4.0: {
-        "main":         "#4a3aa7",
-        "violin":       "rgba(74,58,167,0.35)",
-        "violin_line":  "rgba(74,58,167,0.9)",
-        "subj":         "rgba(74,58,167,0.2)",
-        "dot":          "rgba(74,58,167,0.9)",
-        "dot_err":      "rgba(74,58,167,0.6)",
-    },
-}
+# Colorblind-safe categorical set (validated all-pairs CVD-safe + normal-vision
+# separation with dataviz-skill's validate_palette.js; blue/orange/aqua/violet is
+# one of the passing 4-hue combinations from the reference 8-hue theme, via the
+# shared analysis.utils.plotting.role_palette() generator). v4.0 was previously
+# missing here and fell back to the same gray as the null-distribution trace,
+# making v3 vs. v4 unreadable -- each version now gets its own validated hue.
+_VERSION_PALETTE: dict[float, dict[str, str]] = role_palette([1.0, 2.0, 3.0, 4.0])
 
 _PALETTE_FALLBACK: dict[str, str] = {
     "main":         "#555555",
@@ -237,61 +206,25 @@ def fig_completion_status(df_participants: pd.DataFrame) -> go.Figure:
     totally missing file, e.g. a Prolific/Pavlovia handoff that never reached us)
     can't be attributed to a version; rather than silently dropping them, they get
     one extra "Unknown version" subplot so they stay visible in this figure.
+
+    Via analysis.utils.plotting.fig_group_status_bar().
     """
     df = _with_major_version(df_participants)
     versions = _sorted_versions(df)
     unknown_df = df_participants[df_participants["task_version"].isna()]
     has_unknown = not unknown_df.empty
-    n_panels = len(versions) + (1 if has_unknown else 0)
-    categories = list(_STATUS_LABEL_MAP)
 
-    subplot_titles = [f"{_vlabel(v)} (N={int((df['task_version'] == v).sum())})" for v in versions]
+    panels = {v: df[df["task_version"] == v] for v in versions}
+    panel_titles = {v: f"{_vlabel(v)} (N={len(panels[v])})" for v in versions}
     if has_unknown:
-        subplot_titles.append(f"Unknown version (N={len(unknown_df)})")
+        panels["unknown"] = unknown_df
+        panel_titles["unknown"] = f"Unknown version (N={len(unknown_df)})"
 
-    fig = make_subplots(
-        rows=1, cols=n_panels,
-        subplot_titles=subplot_titles,
-        horizontal_spacing=0.12,
+    return fig_group_status_bar(
+        panels, "status", status_order=list(_STATUS_LABEL_MAP), status_labels=_STATUS_LABEL_MAP,
+        bar_colors=_STATUS_COLOR_MAP, panel_titles=panel_titles, title="Participant status by version",
+        height=280, width=max(700, 260 * len(panels)),
     )
-
-    def _add_status_bar(vdf: pd.DataFrame, col_idx: int) -> None:
-        counts = vdf["status"].value_counts()
-        total = counts.sum()
-        pcts = (counts / total * 100).round(1)
-        cats_present = [c for c in categories if c in counts.index]
-        fig.add_trace(go.Bar(
-            x=[pcts.get(c, 0) for c in cats_present],
-            y=[_STATUS_LABEL_MAP[c] for c in cats_present],
-            orientation="h",
-            width=0.55,
-            text=[f"{pcts.get(c, 0):.1f}% (n={counts.get(c, 0)})" for c in cats_present],
-            textposition="auto",
-            textfont={"size": 10},
-            insidetextfont={"color": "white", "size": 10},
-            cliponaxis=False,
-            marker_color=[_STATUS_COLOR_MAP[c] for c in cats_present],
-            showlegend=False,
-        ), row=1, col=col_idx)
-        fig.update_xaxes(
-            range=[0, 100], tickvals=[0, 25, 50, 75, 100],
-            title_text="% of participants", row=1, col=col_idx,
-        )
-        fig.update_yaxes(autorange="reversed", row=1, col=col_idx)
-
-    for col_idx, v in enumerate(versions, start=1):
-        _add_status_bar(df[df["task_version"] == v], col_idx)
-    if has_unknown:
-        _add_status_bar(unknown_df, n_panels)
-
-    fig.update_layout(
-        template="plotly_white",
-        title="Participant status by version",
-        height=280,
-        width=max(700, 260 * n_panels),
-        margin={"l": 140, "r": 60, "t": 70, "b": 50},
-    )
-    return fig
 
 
 # ---------------------------------------------------------------------------
@@ -299,110 +232,13 @@ def fig_completion_status(df_participants: pd.DataFrame) -> go.Figure:
 # ---------------------------------------------------------------------------
 
 
-def _add_violin_dots_panel(fig, df_trials, col, versions, row, col_idx=1, xaxis_title=""):
-    """Shared body for the 'violin + per-subject mean±SD dots, one row per version'
-    panel used by fig_trial_duration/fig_moves' top row."""
-    for i, v in enumerate(versions):
-        vc = _vc(v)
-        vdf = df_trials[df_trials["task_version"] == v]
-        stats = _subject_stats(vdf, col)
-        stats = stats.sort_values("mean").reset_index(drop=True)
-        y_dots = i + np.linspace(-0.15, 0.15, len(stats))
-
-        fig.add_trace(go.Violin(
-            x=vdf[col],
-            y0=i,
-            orientation="h",
-            side="both",
-            fillcolor=vc["violin"],
-            line_color=vc["violin_line"],
-            name=_vlabel(v),
-            legendgroup=_vlabel(v),
-            showlegend=True,
-            width=0.6,
-            points=False,
-        ), row=row, col=col_idx)
-        fig.add_trace(go.Scatter(
-            x=stats["mean"],
-            y=y_dots.tolist(),
-            mode="markers",
-            marker={"color": vc["dot"], "size": 8, "symbol": "circle"},
-            error_x={"type": "data", "array": stats["std"].tolist(), "visible": True,
-                     "color": vc["dot_err"], "thickness": 1.5, "width": 4},
-            showlegend=False,
-            legendgroup=_vlabel(v),
-            name=f"{_vlabel(v)} subject mean ± SD",
-        ), row=row, col=col_idx)
-
-    y_range = [-0.55, len(versions) - 0.45]
-    fig.update_yaxes(
-        range=y_range,
-        tickvals=list(range(len(versions))),
-        ticktext=[_vlabel(v) for v in versions],
-        row=row, col=col_idx,
-    )
-    fig.update_xaxes(title_text=xaxis_title, row=row, col=col_idx)
-
-
-def _add_progression_panel(fig, df_trials, col, versions, row, col_idx=1, yaxis_title=""):
-    """Shared body for the 'mean±SE line over trial_id + thin per-subject lines'
-    panel used by fig_trial_duration/fig_moves' bottom row."""
-    for v in versions:
-        vc = _vc(v)
-        vdf = df_trials[df_trials["task_version"] == v]
-
-        for _pid, grp in vdf.groupby("participant_id"):
-            grp_sorted = grp.sort_values("trial_id")
-            fig.add_trace(go.Scatter(
-                x=grp_sorted["trial_id"],
-                y=grp_sorted[col],
-                mode="lines",
-                line={"color": vc["subj"], "width": 1},
-                showlegend=False,
-                hoverinfo="skip",
-            ), row=row, col=col_idx)
-
-        agg = (
-            vdf.groupby("trial_id")[col]
-            .agg(mean="mean", std="std", n="count")
-            .assign(se=lambda x: x["std"] / np.sqrt(x["n"]))
-            .reset_index()
-        )
-        x = agg["trial_id"].tolist()
-        mean = agg["mean"].tolist()
-        se = agg["se"].tolist()
-
-        fig.add_trace(go.Scatter(
-            x=x + x[::-1],
-            y=[m + s for m, s in zip(mean, se)] + [m - s for m, s in zip(mean[::-1], se[::-1])],
-            fill="toself",
-            fillcolor=vc["main"],
-            opacity=0.2,
-            line={"color": "rgba(0,0,0,0)"},
-            showlegend=False,
-            hoverinfo="skip",
-        ), row=row, col=col_idx)
-        fig.add_trace(go.Scatter(
-            x=x,
-            y=mean,
-            mode="lines+markers",
-            line={"color": vc["main"], "width": 3},
-            marker={"size": 7, "color": vc["main"]},
-            name=f"{_vlabel(v)} mean ± SE",
-            legendgroup=_vlabel(v),
-            showlegend=False,
-        ), row=row, col=col_idx)
-
-    fig.update_xaxes(title_text="Trial ID", row=row, col=col_idx)
-    fig.update_yaxes(title_text=yaxis_title, row=row, col=col_idx)
-
-
 def fig_trial_duration(df_trials: pd.DataFrame) -> go.Figure:
     """
     Trial duration, merged 2-row figure: top row = per-subject horizontal violin
     + mean±SD dots (one row per major version); bottom row = duration over trial_id
-    progression (mean±SE band + thin per-subject lines). Replaces the old separate
-    fig_trial_duration_per_subject / fig_duration_progression.
+    progression (mean±SE band + thin per-subject lines), via
+    analysis.utils.plotting.add_violin_dots_panel()/add_progression_panel().
+    Replaces the old separate fig_trial_duration_per_subject / fig_duration_progression.
     """
     df = _with_major_version(df_trials).assign(rt_s=lambda d: _rt_s(d))
     versions = _sorted_versions(df)
@@ -413,8 +249,19 @@ def fig_trial_duration(df_trials: pd.DataFrame) -> go.Figure:
         subplot_titles=["Trial duration per subject", "Trial duration over task progression"],
         vertical_spacing=0.2,
     )
-    _add_violin_dots_panel(fig, df, "rt_s", versions, row=1, xaxis_title="Trial duration (s)")
-    _add_progression_panel(fig, df, "rt_s", versions, row=2, yaxis_title="Trial duration (s)")
+    frames = {v: df[df["task_version"] == v] for v in versions}
+    colors = {v: _vc(v) for v in versions}
+    labels = {v: _vlabel(v) for v in versions}
+    violins = {v: frames[v]["rt_s"] for v in versions}
+    dots = {
+        v: _subject_stats(frames[v], "rt_s").sort_values("mean").rename(columns={"mean": "value", "std": "error"})
+        for v in versions
+    }
+    add_violin_dots_panel(fig, violins, dots, row=1, colors=colors, labels=labels, xaxis_title="Trial duration (s)")
+    add_progression_panel(
+        fig, frames, "rt_s", "trial_id", row=2, colors=colors, labels=labels,
+        xaxis_title="Trial ID", yaxis_title="Trial duration (s)", show_legend=False,
+    )
 
     fig.add_vline(x=60, line={"color": "rgba(120,120,120,0.55)", "width": 1.5, "dash": "dash"}, row=1, col=1)
 
@@ -438,8 +285,9 @@ def fig_moves(df_trials: pd.DataFrame) -> go.Figure:
     """
     Number of moves, merged 2-row figure: top row = per-subject horizontal violin
     + mean±SD dots (one row per major version); bottom row = moves over trial_id
-    progression (mean±SE band + thin per-subject lines). Replaces the old separate
-    fig_moves_per_subject / fig_moves_progression.
+    progression (mean±SE band + thin per-subject lines), via
+    analysis.utils.plotting.add_violin_dots_panel()/add_progression_panel().
+    Replaces the old separate fig_moves_per_subject / fig_moves_progression.
     """
     df = _with_major_version(df_trials)
     versions = _sorted_versions(df)
@@ -450,8 +298,19 @@ def fig_moves(df_trials: pd.DataFrame) -> go.Figure:
         subplot_titles=["Number of moves per subject", "Number of moves over task progression"],
         vertical_spacing=0.2,
     )
-    _add_violin_dots_panel(fig, df, "num_moves", versions, row=1, xaxis_title="Moves per trial")
-    _add_progression_panel(fig, df, "num_moves", versions, row=2, yaxis_title="Moves per trial")
+    frames = {v: df[df["task_version"] == v] for v in versions}
+    colors = {v: _vc(v) for v in versions}
+    labels = {v: _vlabel(v) for v in versions}
+    violins = {v: frames[v]["num_moves"] for v in versions}
+    dots = {
+        v: _subject_stats(frames[v], "num_moves").sort_values("mean").rename(columns={"mean": "value", "std": "error"})
+        for v in versions
+    }
+    add_violin_dots_panel(fig, violins, dots, row=1, colors=colors, labels=labels, xaxis_title="Moves per trial")
+    add_progression_panel(
+        fig, frames, "num_moves", "trial_id", row=2, colors=colors, labels=labels,
+        xaxis_title="Trial ID", yaxis_title="Moves per trial", show_legend=False,
+    )
 
     fig.update_layout(
         template="plotly_white",

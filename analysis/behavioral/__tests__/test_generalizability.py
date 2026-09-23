@@ -88,9 +88,12 @@ def _synthetic_trials() -> pd.DataFrame:
 
 @pytest.fixture()
 def patched_generalizability(monkeypatch):
-    """Monkeypatches both generalizability.py's own load_manifest/load_data/save_rdm
-    (used by build_oos_rdm) AND analysis.rdms.behavioral's (used internally by
-    build_behavioral_rdm, imported into generalizability.py and called as-is)."""
+    """Monkeypatches generalizability.py's own image_manifest_index/load_data/save_rdm
+    (used by build_oos_rdm) AND analysis.rdms.behavioral's load_manifest/load_data/save_rdm
+    (used internally by build_behavioral_rdm, imported into generalizability.py and called
+    as-is). generalizability.py gets image_manifest_index() (analysis.rdms.common's shared
+    manifest-index helper) rather than load_manifest() directly -- see
+    analysis/rdms/common.py's image_manifest_index()."""
     import analysis.rdms.behavioral as behavioral
 
     fake_data = {"participants": _synthetic_participants(), "trials": _synthetic_trials()}
@@ -100,8 +103,11 @@ def patched_generalizability(monkeypatch):
         saved[name] = {"condensed": condensed, "metric": metric, "source": source, "extra": extra or {}}
         return None
 
+    fake_index = ({img: i for i, img in enumerate(_IMAGES)}, len(_IMAGES))
+    monkeypatch.setattr(generalizability, "image_manifest_index", lambda: fake_index)
+    monkeypatch.setattr(behavioral, "load_manifest", _synthetic_manifest)
+
     for module in (generalizability, behavioral):
-        monkeypatch.setattr(module, "load_manifest", _synthetic_manifest)
         monkeypatch.setattr(module, "load_data", lambda cache_dir, prod_only=False: fake_data)
         monkeypatch.setattr(module, "save_rdm", fake_save_rdm)
 

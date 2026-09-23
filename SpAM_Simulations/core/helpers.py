@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from scipy.spatial import procrustes
 from scipy.spatial.distance import squareform, num_obs_y
 
 
@@ -30,3 +31,32 @@ def mean_from_sum_and_count(total: np.ndarray, count: np.ndarray) -> np.ndarray:
     """Per-entry mean from accumulated sum/count arrays; NaN wherever `count` is 0."""
     with np.errstate(divide='ignore', invalid='ignore'):
         return np.where(count > 0, total / count, np.nan)
+
+
+def condensed_rdm_to_weighted_dists(condensed: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """A condensed RDM (may contain NaN for unobserved pairs) -> (dists, weights),
+    both condensed 1-D arrays, ready for run_mds(): dists has NaN replaced by 0,
+    weights is 1 where the pair was observed and 0 otherwise. No squareform
+    round-trip is needed -- run_mds()'s own convert_to_condensed() accepts a 1-D
+    condensed array directly."""
+    weights = (~np.isnan(condensed)).astype(np.float64)
+    dists = np.nan_to_num(condensed, nan=0.0)
+    return dists, weights
+
+
+def procrustes_m2(conf_a: np.ndarray, conf_b: np.ndarray) -> float:
+    """Procrustes disparity M^2 between two point configurations of the same
+    items, after optimal translation/rotation/scaling."""
+    _, _, disparity = procrustes(conf_a, conf_b)
+    return float(disparity)
+
+
+def double_centered_gram(imputed_condensed: np.ndarray) -> np.ndarray:
+    """Double-centred Gram matrix of a COMPLETE (no-NaN) condensed distance
+    vector -- the classical (Torgerson) MDS input step. The caller is
+    responsible for imputing/filling any missing pairs before calling this;
+    this function has no NaN-handling of its own."""
+    sq = squareform(imputed_condensed) ** 2
+    n = sq.shape[0]
+    centring = np.eye(n) - np.ones((n, n)) / n
+    return -0.5 * centring @ sq @ centring
