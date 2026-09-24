@@ -159,3 +159,51 @@ def match_montage(stimuli: Stimuli, matches: pd.DataFrame, indices: list[int], p
         ours = load_our_image(paths[int(row)]) if pd.notna(row) else np.full_like(ext, 255)
         tiles.append(np.hstack([ext, np.asarray(Image.fromarray(ours).resize((_SIZE, _SIZE)))]))
     Image.fromarray(np.vstack(tiles)).save(path)
+
+
+# ---------------------------------------------------------------------------
+# Approved overlap and external targets, aligned to our manifest order
+# ---------------------------------------------------------------------------
+
+_CLEAR_MAX_HAMMING = 10
+_CLEAR_MAX_PIXEL_MAE = 5.0
+
+
+def approved_overlap(matches: pd.DataFrame) -> pd.DataFrame:
+    """Matches confirmed by visual review: hamming <= 10 and pixel MAE < 5 (42 of the 92, with a
+    clean gap to the next-best assignment), sorted by manifest row.
+
+    Columns ext_index / manifest_row give the aligned orderings used for every subset below.
+    """
+    clear = matches[(matches["hamming"] <= _CLEAR_MAX_HAMMING) & (matches["pixel_mae"] < _CLEAR_MAX_PIXEL_MAE)]
+    out = clear.sort_values("manifest_row").reset_index(drop=True)
+    out["manifest_row"] = out["manifest_row"].astype(int)
+    return out
+
+
+def _subset_square(square: np.ndarray, ext_indices: np.ndarray) -> np.ndarray:
+    from scipy.spatial.distance import squareform
+
+    return squareform(square[np.ix_(ext_indices, ext_indices)], checks=False)
+
+
+def external_targets(overlap: pd.DataFrame) -> dict[str, list[np.ndarray]]:
+    """Condensed external RDMs on the overlap images, ordered like `overlap` (manifest order).
+
+    behavioral_mur2013: 16 participants' similarity-judgment RDMs; hIT_kriegeskorte2008: 8 human IT
+    fMRI RDMs (4 subjects x 2 sessions); mIT_kriegeskorte2008: the monkey IT RDM from the paper's
+    Figure 1 (a single, pooled RDM).
+    """
+    from scipy.spatial.distance import squareform
+
+    ext = overlap["ext_index"].to_numpy()
+    behavioral = [_subset_square(r, ext) for r in load_behavioral_rdms()]
+    brain = [_subset_square(r, ext) for r in load_brain_rdms().values()]
+    fig1 = _load_mat("Kriegeskorte_Neuron2008_supplementalData.mat")["RDMs_mIT_hIT_fig1"]
+    monkey = [r for r in fig1 if str(r.name).startswith("mIT")]
+    monkey_square = [squareform(np.asarray(r.RDM, dtype=np.float64)) for r in monkey]
+    return {
+        "behavioral_mur2013": behavioral,
+        "hIT_kriegeskorte2008": brain,
+        "mIT_kriegeskorte2008": [_subset_square(r, ext) for r in monkey_square],
+    }

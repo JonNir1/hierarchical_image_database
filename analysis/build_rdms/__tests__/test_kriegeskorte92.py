@@ -45,3 +45,13 @@ def test_match_by_phash_leaves_categories_without_candidates_unmatched(monkeypat
     monkeypatch.setattr(k92, "load_our_image", lambda path: _blob(rng))
     result = k92.match_by_phash(stimuli, manifest, manifest.index)
     assert result["manifest_row"].isna().all()
+
+
+def test_approved_overlap_keeps_only_clear_matches_sorted_by_manifest_row():
+    matches = pd.DataFrame({
+        "ext_index": [0, 1, 2, 3], "manifest_row": [30.0, 10.0, 20.0, np.nan],
+        "hamming": [2.0, 0.0, 60.0, np.nan], "pixel_mae": [0.3, 0.1, 40.0, np.nan],
+    })
+    result = k92.approved_overlap(matches)
+    assert result["manifest_row"].tolist() == [10, 30]
+    assert result["ext_index"].tolist() == [1, 0]

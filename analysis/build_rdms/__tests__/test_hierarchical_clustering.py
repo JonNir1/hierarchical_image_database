@@ -79,3 +79,17 @@ def test_agglomerative_agreement_recovers_planted_embedding():
     table = hcl.agglomerative_agreement(hcl.path_tree_to_linkage(_PARTS), embedded)
     assert set(table["linkage"]) == {"average", "ward", "complete"}
     assert (table["baker_gamma"] > 0.3).all()
+
+
+def test_tree_shuffle_test_matches_identical_trees_and_rejects_random():
+    from scipy.cluster.hierarchy import linkage
+
+    rng = np.random.default_rng(4)
+    coords = np.vstack([rng.normal(loc=c, scale=0.2, size=(6, 2)) for c in (0.0, 5.0, 10.0)])
+    z = linkage(pdist(coords), "average")
+    same = hcl.tree_shuffle_test(z, z, n_perm=200, seed=0)
+    assert same.observed == pytest.approx(1.0)
+    assert same.p_value < 0.05
+    other = linkage(pdist(rng.normal(size=(18, 2))), "average")
+    unrelated = hcl.tree_shuffle_test(z, other, n_perm=200, seed=1)
+    assert unrelated.p_value > 0.05

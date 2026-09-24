@@ -82,3 +82,15 @@ def test_percentile_ci_ignores_nans():
     lo, hi = me.percentile_ci(np.array([1.0, 2.0, 3.0, np.nan, 4.0]))
     assert lo == pytest.approx(1.075)
     assert hi == pytest.approx(3.925)
+
+
+def test_bootstrap_multi_matches_single_model_draws():
+    rng = np.random.default_rng(9)
+    trials = _make_trials(rng, 10, noise=0.3)
+    model = _model_rdm()
+    multi = me.bootstrap_combined_fit_multi(
+        trials, {"a": model, "b": model[::-1].copy()}, _N, aggregation="mean", n_boot=8, seed=3,
+    )
+    single = me.bootstrap_combined_fit(trials, model, _N, aggregation="mean", n_boot=8, seed=3)
+    assert len(multi) == 16
+    assert np.allclose(multi.loc[multi["model"] == "a", "kendall_a"].to_numpy(), single["kendall_a"].to_numpy())

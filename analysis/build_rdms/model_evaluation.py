@@ -31,7 +31,7 @@ from scipy.spatial.distance import squareform
 
 from analysis.build_rdms.behavior.noise_ceiling import _DEFAULT_CACHE_DIR, _parse_trials_by_participant
 from analysis.build_rdms.behavior.spam_ratings import _combine, _mean_combine, _select_participants
-from analysis.build_rdms.common import image_manifest_index
+from analysis.build_rdms.common import image_manifest_index, subset_condensed
 from analysis.utils.load_data import load_data
 from analysis.utils.stats import masked_rank_correlation
 
@@ -99,15 +99,17 @@ def label_shuffle_test_masked(
     return MaskedShuffleResult(observed, null, p_value)
 
 
-def bootstrap_combined_fit(
-    trials_by_participant: TrialsByParticipant, model: np.ndarray, n_conds: int,
-    *, aggregation: str = "simple", n_boot: int = 500, seed: int = 0,
+def bootstrap_combined_fit_multi(
+    trials_by_participant: TrialsByParticipant, models: dict[str, np.ndarray], n_conds: int,
+    *, aggregation: str = "simple", n_boot: int = 500, seed: int = 0, subset: np.ndarray | None = None,
 ) -> pd.DataFrame:
-    """Participant bootstrap of the combined RDM's model correlation.
+    """Participant bootstrap of the combined RDM's correlation with several model RDMs at once.
 
-    Each draw resamples participants with replacement, re-combines their pooled trials with
-    `aggregation`, and scores the result against `model`. One row per draw; percentile CIs are
-    left to the caller (see percentile_ci()).
+    Each draw resamples participants with replacement and re-combines their pooled trials with
+    `aggregation` once, then scores that combined RDM against every model, so the (expensive)
+    combination is shared across models. One row per (draw, model); percentile CIs are left to the
+    caller (see percentile_ci()). With `subset` (manifest row indices), the combined RDM is
+    restricted to those images before scoring, so every model must be that subset's RDM.
     """
     rng = np.random.default_rng(seed)
     ids = list(trials_by_participant)
@@ -116,8 +118,22 @@ def bootstrap_combined_fit(
         drawn = rng.choice(len(ids), size=len(ids), replace=True)
         trials = [t for i in drawn for t in trials_by_participant[ids[i]]]
         combined, _ = _combine(trials, n_conds, aggregation)
-        rows.append({"boot": b, **_stats(combined, model)})
+        if subset is not None:
+            combined = subset_condensed(combined, subset)
+        rows += [{"boot": b, "model": name, **_stats(combined, model)} for name, model in models.items()]
     return pd.DataFrame(rows)
+
+
+def bootstrap_combined_fit(
+    trials_by_participant: TrialsByParticipant, model: np.ndarray, n_conds: int,
+    *, aggregation: str = "simple", n_boot: int = 500, seed: int = 0, subset: np.ndarray | None = None,
+) -> pd.DataFrame:
+    """Single-model form of bootstrap_combined_fit_multi() (no `model` column in the result)."""
+    boots = bootstrap_combined_fit_multi(
+        trials_by_participant, {"model": model}, n_conds,
+        aggregation=aggregation, n_boot=n_boot, seed=seed, subset=subset,
+    )
+    return boots.drop(columns="model")
 
 
 def loo_model_fit(

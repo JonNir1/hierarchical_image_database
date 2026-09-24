@@ -478,3 +478,19 @@ def test_sensory_identical_images_zero_distance(tmp_path, monkeypatch):
     monkeypatch.setattr(common, "save_rdm", lambda *a, **kw: None)
     condensed = sensory_mod.build_sensory_rdm("pre_shine")
     assert condensed[0] == 0.0
+
+
+def test_subset_condensed_reorders_and_keeps_nans():
+    from scipy.spatial.distance import squareform
+
+    square = np.arange(16, dtype=float).reshape(4, 4)
+    square = (square + square.T) / 2
+    np.fill_diagonal(square, 0.0)
+    full = squareform(square, checks=False)
+    full[0] = np.nan
+    idx = np.array([3, 1, 0])
+    result = common.subset_condensed(full, idx)
+    expected = squareform(squareform(full, checks=False)[np.ix_(idx, idx)], checks=False)
+    assert np.array_equal(result, expected, equal_nan=True)
+    assert len(result) == 3
+    assert np.isnan(result[2]) and not np.isnan(result[:2]).any()

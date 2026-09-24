@@ -27,7 +27,9 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from scipy.spatial.distance import pdist
+from scipy.stats import rankdata
+from scipy.cluster.hierarchy import cophenet
+from scipy.spatial.distance import pdist, squareform
 
 from analysis.build_rdms.hierarchy_comparison import path_parts
 from analysis.build_rdms.behavior.mds import run_mds_sweep
@@ -44,7 +46,7 @@ Parts = list[tuple[str, ...]]
 __all__ = [
     "path_parts", "path_tree_to_linkage", "km_level_labels", "perceptual_embeddings",
     "agglomerative_agreement", "GammaShuffleResult", "dendrogram_shuffle_test",
-    "hdbscan_level_agreement",
+    "hdbscan_level_agreement", "tree_shuffle_test",
 ]
 
 
@@ -152,6 +154,26 @@ def dendrogram_shuffle_test(
     for i in range(n_perm):
         permuted = [parts[j] for j in rng.permutation(len(parts))]
         null[i] = baker_gamma(cophenetic_ranks(path_tree_to_linkage(permuted)), perceptual_ranks)
+    p_value = (float(np.sum(null >= observed)) + 1.0) / (n_perm + 1.0)
+    return GammaShuffleResult(observed, null, p_value)
+
+
+def tree_shuffle_test(
+    z_fixed: np.ndarray, z_shuffled: np.ndarray, *, n_perm: int = 1000, seed: int = 0,
+) -> GammaShuffleResult:
+    """Baker's gamma between two dendrograms over the same images, versus a null that permutes image
+    identity in `z_shuffled` (one-sided, +1 corrected). Generalises dendrogram_shuffle_test to any
+    second tree, e.g. an external cohort's."""
+    rng = np.random.default_rng(seed)
+    fixed_ranks = cophenetic_ranks(z_fixed)
+    coph = squareform(cophenet(z_shuffled))
+    n = coph.shape[0]
+    observed = baker_gamma(fixed_ranks, cophenetic_ranks(z_shuffled))
+    null = np.empty(n_perm)
+    for i in range(n_perm):
+        p = rng.permutation(n)
+        permuted = squareform(coph[np.ix_(p, p)], checks=False)
+        null[i] = baker_gamma(fixed_ranks, rankdata(permuted))
     p_value = (float(np.sum(null >= observed)) + 1.0) / (n_perm + 1.0)
     return GammaShuffleResult(observed, null, p_value)
 
