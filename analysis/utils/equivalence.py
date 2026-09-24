@@ -22,6 +22,13 @@ from scipy.stats import norm, rankdata
 
 from analysis.utils.stats import rank_biserial
 
+# Project-chosen equivalence bounds (no pre-defined smallest effect size of
+# interest exists). 0.3 rank-biserial is roughly d = 0.45, about what n = 77-79
+# per group can distinguish from zero (see equivalence_sensitivity()); 0.15 is
+# 15 percentage points for proportions.
+RANK_BISERIAL_BOUND = 0.3
+RISK_DIFFERENCE_BOUND = 0.15
+
 
 def _bootstrap_rank_biserial(a: np.ndarray, b: np.ndarray, n_boot: int, rng: np.random.Generator) -> np.ndarray:
     """Rank-biserial r of `n_boot` bootstrap resamples (each group resampled

@@ -6,8 +6,9 @@ null (Wasserstein primary, KS secondary).
 
 Usage (from repo root):
     from analysis.behavioral.cohort_quality import (
-        subject_reliability, pairwise_distance_values, subject_wasserstein_distance,
-        subject_ks_distance, fig_reliability, fig_distance_vs_null,
+        subject_reliability, subject_repeat_slope, pairwise_distance_values,
+        subject_wasserstein_distance, subject_ks_distance, fig_reliability,
+        fig_repeat_reliability, fig_distance_vs_null,
     )
 """
 from __future__ import annotations
@@ -21,7 +22,7 @@ from scipy.stats import gaussian_kde, wasserstein_distance
 from analysis.behavioral.cohort_comparison import COHORT_COLORS, COHORT_LABEL, COHORTS, cohort_colors, cohort_label
 from analysis.pilot.figures import trial_ks_distance
 from analysis.utils.parser import parse_pairwise_distances
-from analysis.utils.plotting import add_violin_dots_panel
+from analysis.utils.plotting import add_progression_panel, add_violin_dots_panel
 
 
 def subject_reliability(df_trials: pd.DataFrame, participant_ids: pd.Series | list) -> pd.Series:
@@ -30,6 +31,19 @@ def subject_reliability(df_trials: pd.DataFrame, participant_ids: pd.Series | li
     per repeat trial by analysis/utils/parser.py). Index is participant_id."""
     df = df_trials[df_trials["participant_id"].isin(participant_ids)]
     return df.groupby("participant_id")["reliability"].mean().dropna()
+
+
+def subject_repeat_slope(repeat_df: pd.DataFrame, *, min_repeats: int = 3) -> pd.Series:
+    """Per-participant least-squares slope of test-retest Spearman r on repeat
+    index (analysis.utils.repeat_reliability.repeat_reliability_by_index()'s
+    output), in r units per repeat. Participants with fewer than *min_repeats*
+    valid repeats are dropped. Index is participant_id."""
+    slopes = {
+        pid: float(np.polyfit(grp["repeat_index"], grp["spearman_r"], 1)[0])
+        for pid, grp in repeat_df.groupby("participant_id")
+        if len(grp) >= min_repeats
+    }
+    return pd.Series(slopes, dtype=float)
 
 
 def pairwise_distance_values(df_trials_main: pd.DataFrame) -> list[float]:
@@ -99,6 +113,26 @@ def fig_reliability(rel_by_cohort: dict[str, pd.Series]) -> go.Figure:
         title="Within-subject reliability by cohort",
         height=380, margin={"l": 100, "r": 40, "t": 60, "b": 60},
         showlegend=True,
+    )
+    return fig
+
+
+def fig_repeat_reliability(repeat_by_cohort: dict[str, pd.DataFrame]) -> go.Figure:
+    """Test-retest Spearman r over repeat index (mean +/- SE per repeat, thin
+    per-subject lines underneath), one trace per cohort -- via
+    analysis.utils.plotting.add_progression_panel()."""
+    fig = make_subplots(rows=1, cols=1)
+    add_progression_panel(
+        fig, repeat_by_cohort, "spearman_r", "repeat_index", row=1, colors=COHORT_COLORS, labels=COHORT_LABEL,
+        xaxis_title="Repeat #", yaxis_title="Spearman r (repeat vs. original)", show_legend=True,
+    )
+    n_repeats = max(int(df["repeat_index"].max()) for df in repeat_by_cohort.values())
+    fig.update_xaxes(tickvals=list(range(1, n_repeats + 1)))
+    fig.update_layout(
+        template="plotly_white",
+        title="Test-retest reliability over repeat trials, by cohort",
+        height=420, margin={"l": 70, "r": 40, "t": 70, "b": 60},
+        showlegend=True, legend={"groupclick": "togglegroup"},
     )
     return fig
 
