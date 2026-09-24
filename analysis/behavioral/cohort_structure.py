@@ -2,7 +2,9 @@
 Pre- vs post-SHINE cohort comparison, structure layer (analysis/behavioral/
 cohort_structure.ipynb): MDS-based structural comparison of the two cohorts'
 behavioral RDMs (eigenvalue scree, weighted-SMACOF stress, cross-cohort
-agreement) and the cohort-label permutation test of pre-vs-post RDM agreement.
+agreement), the cohort-label permutation test of pre-vs-post RDM agreement, and
+its equivalence counterpart (delete-a-group jackknife CI of observed minus the
+exchangeable-null expectation).
 
 MDS-embedding logic itself (classical eigenspectrum, cached SMACOF sweep,
 cross-embedding comparison) lives in analysis/rdms/mds.py.
@@ -11,6 +13,7 @@ Usage (from repo root):
     from analysis.behavioral.cohort_structure import (
         MDS_CACHE_DIR, PERMUTATION_CACHE_DIR, fig_eigenvalue_scree, fig_stress_scree,
         fig_cross_cohort_agreement, permutation_test_cohort_agreement, fig_permutation_null,
+        equivalence_test_cohort_agreement,
     )
 """
 from __future__ import annotations
@@ -21,14 +24,15 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 import numpy as np
-import plotly.graph_objects as go
-
 import pandas as pd
+import plotly.graph_objects as go
+from scipy.stats import norm
 
 from analysis.behavioral.cohort_comparison import COHORTS, cohort_colors, cohort_label
 from analysis.behavioral.noise_ceiling import _parse_trials_by_participant
 from analysis.rdms.behavioral import _combine
 from analysis.rdms.common import REPO_ROOT, image_manifest_index
+from analysis.utils.equivalence import resolvable_bound
 from analysis.utils.stats import masked_rank_correlation
 
 MDS_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "behavioral" / "mds_cache"
@@ -159,8 +163,8 @@ def _split_agreement(split: tuple[list[str], list[str]]) -> tuple[float, float]:
     return agreement["kendall"], agreement["spearman"]
 
 
-def _fingerprint(ids_a: Sequence[str], ids_b: Sequence[str], n_perm: int, seed: int) -> str:
-    payload = "|".join(ids_a) + "#" + "|".join(ids_b) + f"#{n_perm}#{seed}"
+def _fingerprint(ids_a: Sequence[str], ids_b: Sequence[str], design: int | str, seed: int) -> str:
+    payload = "|".join(ids_a) + "#" + "|".join(ids_b) + f"#{design}#{seed}"
     return hashlib.sha1(payload.encode()).hexdigest()
 
 
@@ -180,20 +184,29 @@ def _save_cached_null(cache_path: Path | None, fingerprint: str, null: np.ndarra
     np.savez(cache_path, null=null, fingerprint=fingerprint)
 
 
+def _run_tasks(func: Callable, tasks: list, rdm_builder: RdmBuilder, n_jobs: int) -> np.ndarray:
+    if n_jobs == 1:
+        _init_worker(rdm_builder)
+        return np.array([func(task) for task in tasks])
+    with ProcessPoolExecutor(max_workers=n_jobs, initializer=_init_worker, initargs=(rdm_builder,)) as executor:
+        return np.array(list(executor.map(func, tasks, chunksize=4)))
+
+
+def _random_splits(
+    pooled_ids: Sequence[str], n_a: int, n_splits: int, rng: np.random.Generator,
+) -> list[tuple[list[str], list[str]]]:
+    splits = []
+    for _ in range(n_splits):
+        shuffled = rng.permutation(np.array(pooled_ids)).tolist()
+        splits.append((shuffled[:n_a], shuffled[n_a:]))
+    return splits
+
+
 def _draw_null(
     rdm_builder: RdmBuilder, ids_a: list[str], ids_b: list[str], n_perm: int, seed: int, n_jobs: int,
 ) -> np.ndarray:
-    rng = np.random.default_rng(seed)
-    pooled = np.array(ids_a + ids_b)
-    splits = []
-    for _ in range(n_perm):
-        shuffled = rng.permutation(pooled).tolist()
-        splits.append((shuffled[:len(ids_a)], shuffled[len(ids_a):]))
-    if n_jobs == 1:
-        _init_worker(rdm_builder)
-        return np.array([_split_agreement(split) for split in splits])
-    with ProcessPoolExecutor(max_workers=n_jobs, initializer=_init_worker, initargs=(rdm_builder,)) as executor:
-        return np.array(list(executor.map(_split_agreement, splits, chunksize=4)))
+    splits = _random_splits(ids_a + ids_b, len(ids_a), n_perm, np.random.default_rng(seed))
+    return _run_tasks(_split_agreement, splits, rdm_builder, n_jobs)
 
 
 def permutation_test_cohort_agreement(
@@ -250,3 +263,75 @@ def fig_permutation_null(result: dict, statistic: str, *, statistic_label: str) 
         height=380, margin={"l": 70, "r": 40, "t": 70, "b": 60}, showlegend=False,
     )
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Equivalence of pre- vs post-cohort RDM agreement
+# ---------------------------------------------------------------------------
+
+
+def _deviation_from_exchangeable(task: tuple) -> tuple[float, float]:
+    ids_a, ids_b, splits = task
+    observed = masked_rank_correlation(_worker_builder(ids_a), _worker_builder(ids_b))
+    null = np.array([_split_agreement(split) for split in splits])
+    return observed["kendall"] - null[:, 0].mean(), observed["spearman"] - null[:, 1].mean()
+
+
+def equivalence_test_cohort_agreement(
+    rdm_builder: RdmBuilder, ids_a: Sequence[str], ids_b: Sequence[str], permutation_result: dict, *,
+    n_groups: int = 20, n_null: int = 10, alpha: float = 0.05, power: float = 0.8, step: float = 0.01,
+    seed: int = 0, n_jobs: int = 1, cache_path: Path | None = None,
+) -> dict[str, dict]:
+    """Are cohorts A and B's RDMs as alike as exchangeable cohorts would be, to
+    within a bound? The effect is D = observed agreement minus the mean of the
+    label-permutation null (`permutation_result`, from
+    permutation_test_cohort_agreement()), per statistic ("kendall", "spearman").
+
+    The CI of D comes from a delete-a-group jackknife over subjects: each
+    cohort's subjects are split into `n_groups` random groups, one group per
+    cohort is left out in turn, and D is recomputed on the remaining subjects
+    against a fresh `n_null`-draw permutation null of those subjects; the
+    (1 - 2*alpha) CI is D +/- z * SE_jackknife. The permutation null's own
+    spread is not used, because every shuffle reuses the same subjects and so
+    understates sampling variability; a with-replacement bootstrap is avoided
+    because duplicated subjects would end up in both shuffled groups.
+
+    The bound follows the project rule: the smallest bound at which a true
+    D = 0 is declared equivalent with probability `power`,
+    (z_(1-alpha) + z_power) * SE, rounded up to a multiple of `step` (in
+    tau/rho units).
+
+    Returns {"kendall"/"spearman": result dict} in the format of
+    analysis.utils.equivalence's tests (effect, ci_low, ci_high, bound,
+    equivalent), plus "se" and "sensitivity"."""
+    ids_a, ids_b = list(ids_a), list(ids_b)
+    fingerprint = _fingerprint(ids_a, ids_b, f"jackknife{n_groups}x{n_null}", seed)
+    replicates = _load_cached_null(cache_path, fingerprint)
+    if replicates is None:
+        rng = np.random.default_rng(seed)
+        groups_a = np.array_split(rng.permutation(ids_a), n_groups)
+        groups_b = np.array_split(rng.permutation(ids_b), n_groups)
+        tasks = []
+        for g in range(n_groups):
+            kept_a = [i for h, group in enumerate(groups_a) if h != g for i in group.tolist()]
+            kept_b = [i for h, group in enumerate(groups_b) if h != g for i in group.tolist()]
+            tasks.append((kept_a, kept_b, _random_splits(kept_a + kept_b, len(kept_a), n_null, rng)))
+        replicates = _run_tasks(_deviation_from_exchangeable, tasks, rdm_builder, n_jobs)
+        _save_cached_null(cache_path, fingerprint, replicates)
+
+    z_ci, z_power = float(norm.ppf(1 - alpha)), float(norm.ppf(power))
+    results = {}
+    for column, key in enumerate(("kendall", "spearman")):
+        effect = permutation_result[key]["observed"] - permutation_result[key]["null_mean"]
+        deviations = replicates[:, column]
+        se = float(np.sqrt((n_groups - 1) / n_groups * np.sum((deviations - deviations.mean()) ** 2)))
+        low, high = effect - z_ci * se, effect + z_ci * se
+        sensitivity = (z_ci + z_power) * se
+        bound = resolvable_bound(sensitivity, step=step)
+        results[key] = {
+            "comparison": f"observed - exchangeable expectation ({key})", "n (A)": len(ids_a), "n (B)": len(ids_b),
+            "effect": round(float(effect), 4), "ci_low": round(float(low), 4), "ci_high": round(float(high), 4),
+            "bound": bound, "equivalent": bool(-bound < low and high < bound),
+            "se": round(se, 5), "sensitivity": round(sensitivity, 5),
+        }
+    return results

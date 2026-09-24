@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from analysis.behavioral.cohort_structure import permutation_test_cohort_agreement
+from analysis.behavioral.cohort_structure import equivalence_test_cohort_agreement, permutation_test_cohort_agreement
 
 _N_PAIRS = 300
 
@@ -66,3 +66,26 @@ def test_cache_round_trip_and_fingerprint_invalidation(tmp_path):
         _MeanBuilder(subject_rdms), ids_a, ids_b, n_perm=20, seed=4, cache_path=cache,
     )
     assert not np.array_equal(first["null"], other_seed["null"])
+
+
+def test_equivalence_exchangeable_cohorts_are_equivalent_within_the_resolvable_bound():
+    subject_rdms, ids_a, ids_b = _subjects(15, same_structure=True)
+    builder = _MeanBuilder(subject_rdms)
+    permutation = permutation_test_cohort_agreement(builder, ids_a, ids_b, n_perm=50, seed=1)
+    result = equivalence_test_cohort_agreement(
+        builder, ids_a, ids_b, permutation, n_groups=5, n_null=5, seed=1,
+    )["spearman"]
+    assert result["ci_low"] < result["effect"] < result["ci_high"]
+    assert result["bound"] >= result["sensitivity"]
+    assert result["equivalent"]
+
+
+def test_equivalence_cohorts_with_different_structure_are_not_equivalent():
+    subject_rdms, ids_a, ids_b = _subjects(15, same_structure=False)
+    builder = _MeanBuilder(subject_rdms)
+    permutation = permutation_test_cohort_agreement(builder, ids_a, ids_b, n_perm=50, seed=1)
+    result = equivalence_test_cohort_agreement(
+        builder, ids_a, ids_b, permutation, n_groups=5, n_null=5, seed=1,
+    )["spearman"]
+    assert result["effect"] < -0.1
+    assert not result["equivalent"]
