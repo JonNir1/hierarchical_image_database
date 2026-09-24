@@ -94,3 +94,30 @@ def test_bootstrap_multi_matches_single_model_draws():
     single = me.bootstrap_combined_fit(trials, model, _N, aggregation="mean", n_boot=8, seed=3)
     assert len(multi) == 16
     assert np.allclose(multi.loc[multi["model"] == "a", "kendall_a"].to_numpy(), single["kendall_a"].to_numpy())
+
+
+def test_bootstrap_cohort_difference_is_near_zero_for_identical_populations_and_detects_a_gap():
+    rng = np.random.default_rng(11)
+    same_a = _make_trials(rng, 12, noise=0.3)
+    same_b = _make_trials(rng, 12, noise=0.3)
+    noisy_b = _make_trials(rng, 12, noise=6.0)
+    model = _model_rdm()
+    null = me.bootstrap_cohort_difference(same_a, same_b, {"m": model}, _N, aggregation="mean", n_boot=40, seed=1)
+    gap = me.bootstrap_cohort_difference(same_a, noisy_b, {"m": model}, _N, aggregation="mean", n_boot=40, seed=1)
+    assert {"kendall_a_diff", "spearman_diff", "kendall_a_a", "kendall_a_b"} <= set(null.columns)
+    assert abs(null["kendall_a_diff"].mean()) < 0.1
+    assert gap["kendall_a_diff"].mean() > 0.2
+
+
+def test_bootstrap_cohort_difference_pair_mask_removes_masked_pairs():
+    rng = np.random.default_rng(12)
+    a, b = _make_trials(rng, 8, noise=0.3), _make_trials(rng, 8, noise=0.3)
+    model = _model_rdm()
+    mask = np.zeros(len(model), dtype=bool)
+    mask[:30] = True
+    boots = me.bootstrap_cohort_difference(a, b, {"m": model}, _N, aggregation="mean", n_boot=5, seed=2,
+                                             pair_masks={"own": None, "masked": mask})
+    masked, own = boots[boots["pairs"] == "masked"], boots[boots["pairs"] == "own"]
+    assert (masked["n_overlap_a"] <= 30).all() and (masked["n_overlap_b"] <= 30).all()
+    assert (masked["n_overlap_a"] > 0).all()
+    assert (own["n_overlap_a"] > masked["n_overlap_a"].max()).any()

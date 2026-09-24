@@ -16,7 +16,7 @@ Usage (from repo root):
     from analysis.utils.equivalence import (
         equivalence_test_rank_biserial, equivalence_test_risk_difference,
         equivalence_sensitivity, equivalence_sensitivity_risk_difference,
-        resolvable_bound, print_equivalence_line,
+        resolvable_bound, print_equivalence_line, equivalence_test_bootstrap_effect,
     )
 """
 from __future__ import annotations
@@ -141,6 +141,32 @@ def resolvable_bound(sensitivity: float, *, step: float = 0.05) -> float:
     multiple of `step` (0.27 -> 0.30 at the default), so the bound is never
     tighter than what the design can resolve."""
     return round(float(np.ceil(round(sensitivity / step, 9)) * step), 10)
+
+
+def equivalence_test_bootstrap_effect(
+    effect: float, boot_effects, *, label: str = "effect", alpha: float = 0.05, power: float = 0.8,
+    step: float = 0.01, n_a: int | None = None, n_b: int | None = None,
+) -> dict:
+    """Equivalence test for any effect whose sampling distribution is available as bootstrap draws
+    (e.g. a difference of two cohorts' RDM-vs-target correlations): the (1 - 2*alpha) percentile CI
+    of the draws must lie inside +/- bound.
+
+    The bound follows the project rule: the smallest bound at which a true effect of 0 is declared
+    equivalent with probability `power`, (z_(1-alpha) + z_power) * SE with SE the bootstrap SD,
+    rounded up to a multiple of `step` (in the effect's own units). `min_bound` is the smallest
+    bound at which this CI would pass, i.e. what the data alone can exclude."""
+    draws = np.asarray(boot_effects, dtype=float)
+    draws = draws[np.isfinite(draws)]
+    se = float(draws.std(ddof=1))
+    low, high = (float(q) for q in np.quantile(draws, [alpha, 1 - alpha]))
+    sensitivity = float(norm.ppf(1 - alpha) + norm.ppf(power)) * se
+    bound = resolvable_bound(sensitivity, step=step)
+    return {
+        "comparison": label, "n (A)": n_a, "n (B)": n_b,
+        "effect": round(float(effect), 4), "ci_low": round(low, 4), "ci_high": round(high, 4),
+        "bound": bound, "equivalent": bool(-bound < low and high < bound),
+        "se": round(se, 5), "sensitivity": round(sensitivity, 5), "min_bound": round(max(abs(low), abs(high)), 4),
+    }
 
 
 def print_equivalence_line(result: dict) -> None:

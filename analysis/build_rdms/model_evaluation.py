@@ -136,6 +136,46 @@ def bootstrap_combined_fit(
     return boots.drop(columns="model")
 
 
+def bootstrap_cohort_difference(
+    trials_a: TrialsByParticipant, trials_b: TrialsByParticipant, models: dict[str, np.ndarray], n_conds: int,
+    *, aggregation: str = "simple", n_boot: int = 1000, seed: int = 0, subset: np.ndarray | None = None,
+    pair_masks: dict[str, np.ndarray | None] | None = None,
+) -> pd.DataFrame:
+    """Bootstrap of (cohort A - cohort B) in each cohort's combined-RDM correlation with each model.
+
+    The cohorts are disjoint participants, so each is resampled on its own; per draw both are
+    re-combined with `aggregation` once and restricted to `subset`. `pair_masks` names the pair sets
+    to score on (default {"own": None}, each cohort on the pairs it observed); a boolean mask over the
+    subset's condensed pairs restricts both cohorts to those pairs, removing any difference in which
+    pairs they happened to observe. One row per (draw, pair set, model) with `<stat>_a`, `<stat>_b`,
+    `<stat>_diff` and the overlap counts.
+    """
+    rng = np.random.default_rng(seed)
+    ids_a, ids_b = list(trials_a), list(trials_b)
+    pair_masks = {"own": None} if pair_masks is None else pair_masks
+
+    def combined_rdm(trials: TrialsByParticipant, ids: list[str]) -> np.ndarray:
+        drawn = rng.choice(len(ids), size=len(ids), replace=True)
+        combined, _ = _combine([t for i in drawn for t in trials[ids[i]]], n_conds, aggregation)
+        return subset_condensed(combined, subset) if subset is not None else combined
+
+    rows = []
+    for b in range(n_boot):
+        rdm_a, rdm_b = combined_rdm(trials_a, ids_a), combined_rdm(trials_b, ids_b)
+        for pairs, mask in pair_masks.items():
+            scored_a = rdm_a if mask is None else np.where(mask, rdm_a, np.nan)
+            scored_b = rdm_b if mask is None else np.where(mask, rdm_b, np.nan)
+            for name, model in models.items():
+                stats_a, stats_b = _stats(scored_a, model), _stats(scored_b, model)
+                row = {"boot": b, "pairs": pairs, "model": name,
+                       "n_overlap_a": stats_a["n_overlap"], "n_overlap_b": stats_b["n_overlap"]}
+                for key in _STAT_KEYS:
+                    row.update({f"{key}_a": stats_a[key], f"{key}_b": stats_b[key],
+                                f"{key}_diff": stats_a[key] - stats_b[key]})
+                rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def loo_model_fit(
     trials_by_participant: TrialsByParticipant, model: np.ndarray, n_conds: int,
     *, aggregation: str = "simple", min_overlap: int = 20,

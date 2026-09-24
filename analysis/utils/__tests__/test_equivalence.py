@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 
 from analysis.utils.equivalence import (
-    equivalence_sensitivity, equivalence_sensitivity_risk_difference, equivalence_test_rank_biserial,
+    equivalence_sensitivity, equivalence_sensitivity_risk_difference, equivalence_test_bootstrap_effect,
+    equivalence_test_rank_biserial,
     equivalence_test_risk_difference, print_equivalence_line, resolvable_bound,
 )
 from analysis.utils.stats import mwu_effect_size, rank_biserial
@@ -115,3 +116,29 @@ def test_equivalence_sensitivity_risk_difference_shrinks_with_n_and_peaks_near_h
 ])
 def test_resolvable_bound_rounds_up_to_the_step(sensitivity, step, expected):
     assert resolvable_bound(sensitivity, step=step) == pytest.approx(expected)
+
+
+# ---------------------------------------------------------------------------
+# equivalence_test_bootstrap_effect
+# ---------------------------------------------------------------------------
+
+def test_bootstrap_effect_declares_equivalence_for_tight_null_distribution():
+    draws = np.random.default_rng(0).normal(0.0, 0.02, size=2000)
+    result = equivalence_test_bootstrap_effect(0.0, draws, label="d")
+    assert result["equivalent"]
+    assert result["bound"] == resolvable_bound((1.6449 + 0.8416) * 0.02, step=0.01)
+    assert result["min_bound"] < result["bound"]
+
+
+def test_bootstrap_effect_rejects_equivalence_for_shifted_distribution():
+    draws = np.random.default_rng(1).normal(0.15, 0.02, size=2000)
+    result = equivalence_test_bootstrap_effect(0.15, draws)
+    assert not result["equivalent"]
+    assert result["ci_low"] > 0.1
+
+
+def test_bootstrap_effect_bound_is_never_tighter_than_the_ci_at_true_zero_power_rule():
+    draws = np.random.default_rng(2).normal(0.0, 0.05, size=4000)
+    result = equivalence_test_bootstrap_effect(0.0, draws)
+    assert result["bound"] >= result["sensitivity"]
+    assert result["bound"] - result["sensitivity"] < 0.01 + 1e-9
