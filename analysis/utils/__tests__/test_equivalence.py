@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 
 from analysis.utils.equivalence import (
-    equivalence_sensitivity, equivalence_test_rank_biserial, equivalence_test_risk_difference,
-    print_equivalence_line,
+    equivalence_sensitivity, equivalence_sensitivity_risk_difference, equivalence_test_rank_biserial,
+    equivalence_test_risk_difference, print_equivalence_line, resolvable_bound,
 )
 from analysis.utils.stats import mwu_effect_size, rank_biserial
 
@@ -103,3 +103,21 @@ def test_print_equivalence_line_reports_verdict(capsys):
     out = capsys.readouterr().out
     assert "X vs Y" in out
     assert "(equivalent)" in out
+
+
+def test_equivalence_sensitivity_risk_difference_shrinks_with_n_and_peaks_near_half():
+    small = equivalence_sensitivity_risk_difference(30, 30, 0.5)
+    large = equivalence_sensitivity_risk_difference(120, 120, 0.5)
+    skewed = equivalence_sensitivity_risk_difference(120, 120, 0.9)
+    assert large < small
+    assert skewed < large
+    # 90% CI half-width at p=0.5, n=77 is about 0.13, and the observed difference itself
+    # varies by about +/-0.10 (80th percentile), so 80% power needs roughly 0.23
+    assert 0.20 < equivalence_sensitivity_risk_difference(77, 77, 0.5) < 0.26
+
+
+@pytest.mark.parametrize("sensitivity, step, expected", [
+    (0.27, 0.05, 0.30), (0.30, 0.05, 0.30), (0.301, 0.05, 0.35), (0.0043, 0.01, 0.01), (0.0100, 0.01, 0.01),
+])
+def test_resolvable_bound_rounds_up_to_the_step(sensitivity, step, expected):
+    assert resolvable_bound(sensitivity, step=step) == pytest.approx(expected)
