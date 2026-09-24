@@ -1,7 +1,7 @@
 """
 General statistical comparison helpers shared across analysis/ subdirectories:
 masked rank correlation between two (possibly incomplete) same-length vectors,
-independent-samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect
+rank-biserial effect size, independent-samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect
 sizes, and a one-line significance-summary printer. None of this is specific
 to RDMs or MDS -- see analysis/rdms/mds.py for that layer.
 
@@ -18,7 +18,7 @@ from typing import Callable
 
 import numpy as np
 import pandas as pd
-from scipy.stats import kendalltau, mannwhitneyu, spearmanr, wilcoxon
+from scipy.stats import kendalltau, mannwhitneyu, rankdata, spearmanr, wilcoxon
 from statsmodels.stats.multitest import multipletests
 
 
@@ -71,6 +71,17 @@ def masked_rank_correlation(
     if min_overlap is not None:
         result["underpowered"] = False
     return result
+
+
+def rank_biserial(values_a: np.ndarray, values_b: np.ndarray) -> float:
+    """Rank-biserial effect size r = 1 - 2U/(n_A*n_B) between two independent
+    samples (the effect size mwu_effect_size() reports), without the p-value:
+    positive when A tends to be smaller than B. Ranks are averaged over ties,
+    matching scipy's Mann-Whitney U."""
+    n_a, n_b = len(values_a), len(values_b)
+    ranks = rankdata(np.concatenate([values_a, values_b]))
+    u_a = ranks[:n_a].sum() - n_a * (n_a + 1) / 2
+    return float(1 - 2 * u_a / (n_a * n_b))
 
 
 def mwu_effect_size(values_a, values_b, *, label_a: str = "A", label_b: str = "B") -> dict:

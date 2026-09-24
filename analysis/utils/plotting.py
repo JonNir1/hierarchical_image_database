@@ -3,13 +3,14 @@ Shared plotly scaffolding for the per-group figure idioms used across
 analysis/pilot/figures.py and analysis/behavioral/cohort_comparison.py: a
 colorblind-safe categorical palette generator, a violin+per-key-dots panel, a
 mean+/-SE-progression-over-x panel (thin per-subject lines underneath), and a
-horizontal %-status bar chart. None of this is specific to any one notebook's
+horizontal %-status bar chart, and an equivalence-test forest plot. None of this is specific to any one notebook's
 grouping (task version, SHINE cohort, aggregation method, ...) -- callers
 supply their own keys/frames/colors/labels.
 
 Usage (from repo root):
     from analysis.utils.plotting import (
         role_palette, add_violin_dots_panel, add_progression_panel, fig_group_status_bar,
+        fig_equivalence_forest,
     )
 """
 from __future__ import annotations
@@ -214,5 +215,45 @@ def fig_group_status_bar(
     fig.update_layout(
         template="plotly_white", title=title, height=height, width=width,
         margin={"l": 160, "r": 60, "t": 70, "b": 50},
+    )
+    return fig
+
+
+_EQUIVALENT_COLOR = "#2a78d6"
+_NOT_EQUIVALENT_COLOR = "#eb6834"
+
+
+def fig_equivalence_forest(results: dict[str, dict], *, x_title: str, title: str) -> go.Figure:
+    """Forest plot of equivalence-test results (analysis.utils.equivalence's
+    equivalence_test_*() dicts), one row per outcome: effect marker with its
+    (1 - 2*alpha) CI, and the +/- bound drawn as two tick marks on the same row
+    (bounds may differ per row). Rows whose CI lies inside the bound are blue,
+    the rest orange."""
+    fig = go.Figure()
+    names = list(results)
+    for name in names:
+        result = results[name]
+        color = _EQUIVALENT_COLOR if result["equivalent"] else _NOT_EQUIVALENT_COLOR
+        fig.add_trace(go.Scatter(
+            x=[result["effect"]], y=[name], mode="markers",
+            marker={"color": color, "size": 10},
+            error_x={
+                "type": "data", "symmetric": False, "color": color, "thickness": 2, "width": 6,
+                "array": [result["ci_high"] - result["effect"]], "arrayminus": [result["effect"] - result["ci_low"]],
+            },
+            showlegend=False,
+            hovertemplate=f"{name}<br>effect=%{{x:.3f}}<br>CI [{result['ci_low']:.3f}, {result['ci_high']:.3f}]<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=[-result["bound"], result["bound"]], y=[name, name], mode="markers",
+            marker={"color": "rgba(80,80,80,0.8)", "size": 14, "symbol": "line-ns-open", "line": {"width": 2}},
+            showlegend=False, hoverinfo="skip",
+        ))
+    fig.add_vline(x=0, line={"color": "rgba(80,80,80,0.5)", "width": 1, "dash": "dot"})
+    fig.update_yaxes(autorange="reversed", categoryorder="array", categoryarray=names)
+    fig.update_xaxes(title_text=x_title)
+    fig.update_layout(
+        template="plotly_white", title=title,
+        height=140 + 55 * len(names), margin={"l": 160, "r": 40, "t": 70, "b": 60},
     )
     return fig

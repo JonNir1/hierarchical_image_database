@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from analysis.utils.plotting import (
-    add_progression_panel, add_violin_dots_panel, fig_group_status_bar, role_palette,
+    add_progression_panel, add_violin_dots_panel, fig_equivalence_forest, fig_group_status_bar, role_palette,
 )
 
 # ---------------------------------------------------------------------------
@@ -166,3 +166,19 @@ def test_fig_group_status_bar_color_by_status_vs_by_panel():
         bar_colors={"pre": "#333333"}, panel_titles={"pre": "Pre"},
     )
     assert list(fig_by_panel.data[0].marker.color) == ["#333333", "#333333"]
+
+
+# ---------------------------------------------------------------------------
+# fig_equivalence_forest
+# ---------------------------------------------------------------------------
+
+def test_fig_equivalence_forest_colors_rows_by_verdict_and_draws_bounds():
+    results = {
+        "Age": {"effect": 0.02, "ci_low": -0.10, "ci_high": 0.14, "bound": 0.3, "equivalent": True},
+        "Moves": {"effect": 0.25, "ci_low": 0.05, "ci_high": 0.45, "bound": 0.3, "equivalent": False},
+    }
+    fig = fig_equivalence_forest(results, x_title="Rank-biserial r", title="t")
+    assert len(fig.data) == 4  # effect+CI trace and bound-tick trace per outcome
+    assert fig.data[0].marker.color == "#2a78d6"
+    assert fig.data[2].marker.color == "#eb6834"
+    assert list(fig.data[1].x) == [-0.3, 0.3]
