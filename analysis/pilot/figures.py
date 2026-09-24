@@ -28,6 +28,7 @@ from scipy.stats import gaussian_kde, ks_2samp, spearmanr
 
 from analysis.utils.parser import parse_pairwise_distances
 from analysis.utils.plotting import add_progression_panel, add_violin_dots_panel, fig_group_status_bar, role_palette
+from analysis.utils.repeat_reliability import repeat_reliability_by_index
 
 # ---------------------------------------------------------------------------
 # Version colour palette
@@ -341,37 +342,20 @@ _GROUP_COLOR_FALLBACK: dict[str, str] = {
 
 def _repeat_reliability_by_index(df_trials: pd.DataFrame) -> pd.DataFrame:
     """
-    Per-subject, per-repeat-ordinal Spearman r (v3+ trial-repeat mechanism only;
-    v1/v2 have no verbatim trial repeats). repeat_index is 1-based, ordered by
-    ascending trial_id within each subject's session -- repeat #1 is the earliest
-    repeat trial encountered, etc. v3.x sessions have 3 repeats; v4.x sessions have
-    4 (2 in the screening stage, 2 in the experimental stage). Reliability values
-    are read directly from the trials' precomputed `reliability` column (the parser
-    already computes Spearman r per repeat row) rather than recomputed here.
+    Per-subject, per-repeat-ordinal Spearman r for v3+ sessions (v1/v2 have no
+    verbatim trial repeats), via analysis.utils.repeat_reliability. v3.x
+    sessions have 3 repeats; v4.x sessions have 4 (2 in the screening stage, 2
+    in the experimental stage).
 
     Returns one row per (participant_id, repeat_index): participant_id,
     task_version, version_group ("v3.*"/"v4.*"/...), repeat_index, spearman_r.
     """
     df_v3plus = df_trials[df_trials["task_version"] >= 3.0]
-    rows = []
-    for pid, df_s in df_v3plus.groupby("participant_id"):
-        version = float(df_s["task_version"].iloc[0])
-        repeats = (
-            df_s[df_s["repeat_of_trial"].notna() & df_s["reliability"].notna()]
-            .sort_values("trial_id")
-        )
-        for i, (_, row) in enumerate(repeats.iterrows(), start=1):
-            rows.append({
-                "participant_id": pid,
-                "task_version": version,
-                "version_group": f"v{int(version)}.*",
-                "repeat_index": i,
-                "spearman_r": float(row["reliability"]),
-            })
-    return pd.DataFrame(
-        rows,
-        columns=["participant_id", "task_version", "version_group", "repeat_index", "spearman_r"],
-    )
+    r_df = repeat_reliability_by_index(df_v3plus)
+    version = df_v3plus.groupby("participant_id")["task_version"].first().astype(float)
+    r_df["task_version"] = r_df["participant_id"].map(version)
+    r_df["version_group"] = r_df["task_version"].map(lambda v: f"v{int(v)}.*")
+    return r_df[["participant_id", "task_version", "version_group", "repeat_index", "spearman_r"]]
 
 
 def fig_reliability(df_trials: pd.DataFrame) -> go.Figure:
@@ -436,55 +420,14 @@ def fig_reliability(df_trials: pd.DataFrame) -> go.Figure:
     fig.update_xaxes(title_text="Spearman r (repeat vs. original)", row=1, col=1)
 
     # --- Bottom row: progression ---
-    for group in groups:
-        gc = _GROUP_COLORS.get(group, _GROUP_COLOR_FALLBACK)
-        gdf = r_df[r_df["version_group"] == group]
-
-        for _pid, grp in gdf.groupby("participant_id"):
-            grp_sorted = grp.sort_values("repeat_index")
-            fig.add_trace(go.Scatter(
-                x=grp_sorted["repeat_index"],
-                y=grp_sorted["spearman_r"],
-                mode="lines",
-                line={"color": gc["subj"], "width": 1},
-                showlegend=False,
-                hoverinfo="skip",
-            ), row=2, col=1)
-
-        agg = (
-            gdf.groupby("repeat_index")["spearman_r"]
-            .agg(mean="mean", std="std", n="count")
-            .assign(se=lambda x: x["std"] / np.sqrt(x["n"]))
-            .reset_index()
-        )
-        x = agg["repeat_index"].tolist()
-        mean = agg["mean"].tolist()
-        se = agg["se"].tolist()
-
-        fig.add_trace(go.Scatter(
-            x=x + x[::-1],
-            y=[m + s for m, s in zip(mean, se)] + [m - s for m, s in zip(mean[::-1], se[::-1])],
-            fill="toself",
-            fillcolor=gc["main"],
-            opacity=0.2,
-            line={"color": "rgba(0,0,0,0)"},
-            showlegend=False,
-            hoverinfo="skip",
-        ), row=2, col=1)
-        fig.add_trace(go.Scatter(
-            x=x,
-            y=mean,
-            mode="lines+markers",
-            line={"color": gc["main"], "width": 3},
-            marker={"size": 8, "color": gc["main"]},
-            name=f"{group} mean ± SE",
-            legendgroup=group,
-            showlegend=False,
-        ), row=2, col=1)
+    add_progression_panel(
+        fig, {g: r_df[r_df["version_group"] == g] for g in groups}, "spearman_r", "repeat_index", row=2,
+        colors={g: _GROUP_COLORS.get(g, _GROUP_COLOR_FALLBACK) for g in groups},
+        xaxis_title="Repeat #", yaxis_title="Spearman r (repeat vs. original)",
+    )
 
     max_repeat = int(r_df["repeat_index"].max())
-    fig.update_xaxes(title_text="Repeat #", tickvals=list(range(1, max_repeat + 1)), row=2, col=1)
-    fig.update_yaxes(title_text="Spearman r (repeat vs. original)", row=2, col=1)
+    fig.update_xaxes(tickvals=list(range(1, max_repeat + 1)), row=2, col=1)
 
     fig.update_layout(
         template="plotly_white",
