@@ -40,7 +40,7 @@ Notebook: [`behavioral/3_geometry.ipynb`](behavioral/3_geometry.ipynb) (commit `
 
 ## Choice of RDM aggregation method
 
-Notebook: [`behavioral/aggregation_comparison.ipynb`](behavioral/aggregation_comparison.ipynb) (commit `8a2b898`)
+Notebook: [`build_rdms/behavior/aggregation_comparison.ipynb`](build_rdms/behavior/aggregation_comparison.ipynb) (commit `8a2b898`)
 
 - **Noise-ceiling reliability:** "simple" > "mean" > "evidence" in both cohorts. Split-half Kendall tau (simple / mean / evidence): 0.132 / 0.129 / 0.110 (pre), 0.140 / 0.139 / 0.119 (post). Evidence vs mean: p<1e-12, |effect size| >= 0.95 in every cell.
 - **Full-sample noise ceiling:** the Spearman-Brown-projected ceiling for "simple" is about 0.33 (pre) and 0.35 (post).

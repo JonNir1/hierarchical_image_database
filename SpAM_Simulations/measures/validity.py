@@ -20,7 +20,7 @@ is meaningless. Everything here is compared after median-rescaling, and the grad
 standardised gaps, which are scale-free.
 
 Uses ``SpAM_Task/stimuli_manifest.json`` as the only ordering source. ``images/manifest.csv`` (what
-``analysis/rdms/common.py`` reads) is not usable: it has 725 rows but only 719 distinct paths, with
+``analysis/build_rdms/common.py`` reads) is not usable: it has 725 rows but only 719 distinct paths, with
 six caucasian faces duplicated and the six hispanic ones missing entirely.
 """
 from __future__ import annotations
@@ -55,8 +55,8 @@ def _lca_depth(a: tuple, b: tuple) -> int:
 def hierarchy_levels(manifest_images: Sequence[str]) -> np.ndarray:
     """Condensed vector of LCA depth for every image pair, in ``scipy`` condensed order.
 
-    Deliberately a small reimplementation of ``analysis.rdms.semantic_km``'s ``_dir_parts`` /
-    ``_lca_depth`` rather than an import: that module pulls in ``analysis.rdms.common``, which reads
+    Deliberately a small reimplementation of ``analysis.build_rdms.semantic.semantic_km``'s ``_dir_parts`` /
+    ``_lca_depth`` rather than an import: that module pulls in ``analysis.build_rdms.common``, which reads
     the broken ``images/manifest.csv`` and would need a third sparse-checkout path on EC2. The
     tests assert the two agree on a hand-written path list.
     """

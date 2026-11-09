@@ -41,7 +41,7 @@ data/
 # predictions in analysis/rdms/imagenet_vs_path.py cannot be resolved to
 # synsets at all. Tracked so the mapping is pinned to the ordering the
 # predictions were made under, and so no network fetch is needed to reproduce.
-!analysis/rdms/imagenet_class_index.json
+!analysis/build_rdms/imagenet_class_index.json
 
 # SpAM_Simulations MDS-sweep output store (ResultStore: meta.csv + confdists.f32)
 mds_store/

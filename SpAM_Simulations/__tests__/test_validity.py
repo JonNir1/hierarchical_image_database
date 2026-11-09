@@ -1,7 +1,7 @@
 """Tests for the empirical-validity checks.
 
 Hand-built hierarchies with known LCA depths, plus an agreement test against
-``analysis.rdms.semantic_km`` (skipped when that module cannot be imported, since it drags in the
+``analysis.build_rdms.semantic.semantic_km`` (skipped when that module cannot be imported, since it drags in the
 broken images/manifest.csv loader).
 
 No R needed.
@@ -152,9 +152,9 @@ def test_compare_to_pilot_detects_a_structurally_wrong_simulation():
 # --------------------------------------------------------------------- cross-check
 
 def test_lca_agrees_with_semantic_km():
-    """The reimplementation must match analysis.rdms.semantic_km, which it deliberately avoids importing."""
-    km = pytest.importorskip("analysis.rdms.semantic_km",
-                             reason="analysis.rdms unavailable (it reads the broken images/manifest.csv)")
+    """The reimplementation must match analysis.build_rdms.semantic.semantic_km, which it deliberately avoids importing."""
+    km = pytest.importorskip("analysis.build_rdms.semantic.semantic_km",
+                             reason="analysis.build_rdms unavailable (it reads the broken images/manifest.csv)")
     for a in PATHS:
         for b in PATHS:
             mine = val._lca_depth(val._dir_parts(a), val._dir_parts(b))

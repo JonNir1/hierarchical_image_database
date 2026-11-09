@@ -3,7 +3,7 @@ Pre- vs post-SHINE cohort comparison, shared layer: cohort labels/colours, the
 retained-subject loader, and the data-prep and figure helpers for the "do the
 cohorts behave the same?" notebook (analysis/behavioral/1_demographics_and_behavior.ipynb).
 Retained subjects are production, task_version>=4.0, status=="full data" -- the
-same definition analysis.rdms.behavioral.build_behavioral_rdm() uses.
+same definition analysis.build_rdms.behavior.behavioral.build_behavioral_rdm() uses.
 
 Companion modules, one per notebook question:
     data_quality.py    -- is the data equally good? (reliability, distance vs null)
@@ -31,8 +31,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from analysis.rdms.behavioral import _build_trials, _mean_combine, _select_participants
-from analysis.rdms.common import image_manifest_index
+from analysis.build_rdms.behavior.behavioral import _build_trials, _mean_combine, _select_participants
+from analysis.build_rdms.common import image_manifest_index
 from analysis.utils.load_data import load_data
 from analysis.utils.plotting import add_progression_panel, fig_group_status_bar, role_palette
 
@@ -64,7 +64,7 @@ def cohort_label(cohort: str) -> str:
 
 def retained_participants(df_participants: pd.DataFrame, cohort: str) -> pd.DataFrame:
     """Retained subjects for *cohort* ('pre' or 'post'): production cohort,
-    status == 'full data', task_version >= 4.0 (analysis.rdms.behavioral's
+    status == 'full data', task_version >= 4.0 (analysis.build_rdms.behavior.behavioral's
     _select_participants(), pre-filtered to cohort == 'production' here so
     the caller doesn't have to pass an already prod_only-filtered frame)."""
     if cohort not in COHORTS:
@@ -76,7 +76,7 @@ def retained_participants(df_participants: pd.DataFrame, cohort: str) -> pd.Data
 def pair_coverage(df_trials: pd.DataFrame, participant_ids: pd.Series | list, cohort: str) -> dict:
     """Coverage of the full 725-image pair space by >=1 SpAM judgement from
     *participant_ids*, via the same unweighted trial aggregation
-    analysis.rdms.behavioral._mean_combine() uses (screening + experimental
+    analysis.build_rdms.behavior.behavioral._mean_combine() uses (screening + experimental
     trials pooled -- see the project's screening-pass-subjects-use-full-data
     convention).
 
