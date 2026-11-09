@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analysis.behavioral.cohort_quality import subject_repeat_slope
+from analysis.behavioral.data_quality import subject_repeat_slope
 
 
 def _repeat_df(rows: list[tuple]) -> pd.DataFrame:

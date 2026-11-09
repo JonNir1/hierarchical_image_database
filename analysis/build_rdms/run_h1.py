@@ -20,7 +20,7 @@ import argparse
 import pandas as pd
 from statsmodels.stats.multitest import multipletests
 
-from analysis.behavioral.cohort_comparison import MDS_CACHE_DIR
+from analysis.behavioral.demographics_and_behavior import MDS_CACHE_DIR
 from analysis.build_rdms import hierarchical_clustering as hcl
 from analysis.build_rdms import model_evaluation as me
 from analysis.build_rdms.common import REPO_ROOT, load_rdm

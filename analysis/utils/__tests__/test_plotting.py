@@ -2,7 +2,7 @@
 the shared panel/figure builders. Light structural checks only (trace counts,
 colors, axis ranges) -- matching this repo's existing convention of not
 deep-testing plotly figure internals (neither analysis/pilot/figures.py nor
-analysis/behavioral/cohort_comparison.py have unit tests for their fig_*
+analysis/behavioral/demographics_and_behavior.py have unit tests for their fig_*
 functions; notebook execution is the check there)."""
 from __future__ import annotations
 

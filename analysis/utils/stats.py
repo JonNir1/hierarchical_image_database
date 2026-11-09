@@ -46,7 +46,7 @@ def masked_rank_correlation(
     """Kendall tau + Spearman rho between two (possibly incomplete) same-length
     vectors, restricted to positions non-NaN in both. Unifies
     analysis/build_rdms/behavior/noise_ceiling.py's former _kendall_spearman(),
-    analysis/behavioral/cohort_comparison.py's former masked_kendall_spearman(),
+    analysis/behavioral/demographics_and_behavior.py's former masked_kendall_spearman(),
     and the correlation analysis/build_rdms/validate_rdms.py's
     report_behav_correlation() does inline.
 
@@ -87,7 +87,7 @@ def rank_biserial(values_a: np.ndarray, values_b: np.ndarray) -> float:
 def mwu_effect_size(values_a, values_b, *, label_a: str = "A", label_b: str = "B") -> dict:
     """Two-sided Mann-Whitney U between two independent samples, with
     rank-biserial effect size r = 1 - 2U/(n_A*n_B). Unifies
-    analysis/behavioral/cohort_comparison.py's former mwu_two_group() and
+    analysis/behavioral/demographics_and_behavior.py's former mwu_two_group() and
     analysis/pilot/analysis.ipynb's former inline mwu_compare()."""
     a = np.asarray(values_a, dtype=float)
     b = np.asarray(values_b, dtype=float)
@@ -157,7 +157,7 @@ def print_comparison_line(result: dict, *, alpha: float = 0.05, corrected: bool 
     """One-line significance summary for an mwu_effect_size()/mwu_family()-row
     result dict. `corrected` reads "p_corrected" instead of "p" (use True for
     an mwu_family() row). Unifies analysis/pilot/analysis.ipynb's former
-    print_bottom_line() and analysis/behavioral/cohort_comparison.ipynb's
+    print_bottom_line() and analysis/behavioral/1_demographics_and_behavior.ipynb's
     former _print_mwu()."""
     p_key = "p_corrected" if corrected else "p"
     p = result[p_key]
