@@ -1,17 +1,17 @@
 """
 Run Q1 analysis 1 (perceptual RDM vs. the Kiani-Mur tree) for both SHINE cohorts and write tidy
-CSVs to analysis/results/hierarchy_comparison/ for analysis/rdms/h1_inference.ipynb to plot.
+CSVs to analysis/results/hierarchy_comparison/ for analysis/build_rdms/h1_inference.ipynb to plot.
 
   1a  masked label-shuffle test, participant bootstrap of the combined RDM, per-participant model
-      fit vs. lower noise bound            (analysis.rdms.model_evaluation)
+      fit vs. lower noise bound            (analysis.build_rdms.model_evaluation)
   1b  Baker's gamma vs. the KM tree per (MDS dim, linkage) with shuffle null, and per-level
-      HDBSCAN agreement                    (analysis.rdms.hierarchical_clustering)
+      HDBSCAN agreement                    (analysis.build_rdms.hierarchical_clustering)
 
 Family-wise correction: Benjamini-Hochberg within each cohort over the confirmatory p-values
 (permutation test on tau-a, plus the gamma shuffle test per linkage at the reference dimension).
 
 Usage (from repo root):
-    python -m analysis.rdms.run_h1 [--n-perm 1000] [--n-boot 500] [--ref-dim 10]
+    python -m analysis.build_rdms.run_h1 [--n-perm 1000] [--n-boot 500] [--ref-dim 10]
 """
 from __future__ import annotations
 
@@ -21,9 +21,9 @@ import pandas as pd
 from statsmodels.stats.multitest import multipletests
 
 from analysis.behavioral.cohort_comparison import MDS_CACHE_DIR
-from analysis.rdms import hierarchical_clustering as hcl
-from analysis.rdms import model_evaluation as me
-from analysis.rdms.common import REPO_ROOT, load_rdm
+from analysis.build_rdms import hierarchical_clustering as hcl
+from analysis.build_rdms import model_evaluation as me
+from analysis.build_rdms.common import REPO_ROOT, load_rdm
 from analysis.utils.stats import wilcoxon_effect_size
 
 RESULTS_DIR = REPO_ROOT / "analysis" / "results" / "hierarchy_comparison"

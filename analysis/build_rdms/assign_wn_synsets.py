@@ -10,7 +10,7 @@ THIS IS THE REFERENCE CONCEPT ASSIGNMENT FOR THE DATASET.
 concept is this image", and D_sem_wn is built from it (semantic_wn_dir.py).
 Future analyses needing a per-image concept should read that column rather than
 re-deriving one from the path or from a classifier. Reasons, measured in
-analysis/rdms/imagenet_vs_path.py over all 725 images:
+analysis/build_rdms/imagenet_vs_path.py over all 725 images:
 
   - Automatic path parsing reaches a different synset than this module's
     assignment for 376 of 717 resolvable images, and none of those differences
@@ -72,7 +72,7 @@ stem    = filename without extension, trailing digits stripped, lowercased,
 dirname = immediate parent directory name, lowercased.
 
 Usage (from repo root, with .venv active):
-    python -m analysis.rdms.assign_wn_synsets
+    python -m analysis.build_rdms.assign_wn_synsets
 
 Output: images/manifest.csv updated in place (wn_synset_name column).
 """

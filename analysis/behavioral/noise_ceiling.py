@@ -1,6 +1,6 @@
 """
 Noise-ceiling reliability comparison for the three behavioral-RDM aggregation
-methods ('mean' / 'simple' / 'evidence', see analysis/rdms/behavioral.py),
+methods ('mean' / 'simple' / 'evidence', see analysis/build_rdms/behavioral.py),
 following the lower/upper-bound noise-ceiling logic of Nili et al. (2014):
 
   lower bound -- leave-one-participant-out (LOO): exact, N folds (one per
@@ -55,10 +55,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analysis.rdms.behavioral import (
+from analysis.build_rdms.behavioral import (
     _AGGREGATIONS, _combine, _mean_combine, _select_participants, _trial_sparse,
 )
-from analysis.rdms.common import REPO_ROOT, image_manifest_index
+from analysis.build_rdms.common import REPO_ROOT, image_manifest_index
 from analysis.utils.load_data import load_data
 from analysis.utils.stats import masked_rank_correlation
 

@@ -7,7 +7,7 @@ its equivalence counterpart (delete-a-group jackknife CI of observed minus the
 exchangeable-null expectation).
 
 MDS-embedding logic itself (classical eigenspectrum, cached SMACOF sweep,
-cross-embedding comparison) lives in analysis/rdms/mds.py.
+cross-embedding comparison) lives in analysis/build_rdms/mds.py.
 
 Usage (from repo root):
     from analysis.behavioral.cohort_structure import (
@@ -30,8 +30,8 @@ from scipy.stats import norm
 
 from analysis.behavioral.cohort_comparison import COHORTS, cohort_colors, cohort_label
 from analysis.behavioral.noise_ceiling import _parse_trials_by_participant
-from analysis.rdms.behavioral import _combine
-from analysis.rdms.common import REPO_ROOT, image_manifest_index
+from analysis.build_rdms.behavioral import _combine
+from analysis.build_rdms.common import REPO_ROOT, image_manifest_index
 from analysis.utils.equivalence import resolvable_bound
 from analysis.utils.stats import masked_rank_correlation
 
@@ -46,7 +46,7 @@ _worker_builder: RdmBuilder | None = None
 def fig_eigenvalue_scree(eig_by_cohort: dict[str, np.ndarray], max_dims: int) -> go.Figure:
     """Line+marker scree plot of the first *max_dims* classical-MDS
     eigenvalues, one trace per cohort. See
-    analysis.rdms.mds.classical_mds_eigenspectrum()'s caveat -- qualitative
+    analysis.build_rdms.mds.classical_mds_eigenspectrum()'s caveat -- qualitative
     view only, not a validated dimensionality estimate at this RDM's
     coverage level."""
     fig = go.Figure()

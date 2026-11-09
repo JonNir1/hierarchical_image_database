@@ -1,4 +1,4 @@
-"""Tests for analysis.rdms.imagenet_vs_path: path-concept extraction, the 3x3
+"""Tests for analysis.build_rdms.imagenet_vs_path: path-concept extraction, the 3x3
 distance grid, and the argmin bookkeeping. No ResNet forward pass is involved;
 classify_top_k() is the only part that needs the model, and it is not exercised
 here."""
@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import analysis.rdms.imagenet_vs_path as ivp
+import analysis.build_rdms.imagenet_vs_path as ivp
 
 # ImageNet class indices with stable, well-known synsets.
 _COCK = 7        # cock.n.05

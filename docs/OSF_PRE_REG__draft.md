@@ -136,7 +136,7 @@ distance, synsets from image category labels) as a registered supplementary spec
 
 *Note on what the WordNet fit does and does not test*: we originally framed this as a
 robustness check on $D_{sem} = D_{KM}$. Pre-data diagnostics on the reference RDMs
-(`analysis/rdms/compare_to_hierarchy.ipynb`) show that framing to be wrong.
+(`analysis/build_rdms/compare_to_hierarchy.ipynb`) show that framing to be wrong.
 $D_{WN}$ and $D_{CLIP}$ are near-orthogonal to each other (Spearman ρ = 0.05, and
 slightly negative at −0.06 once $D_{KM}$ is held fixed), while each independently tracks
 $D_{KM}$ (ρ = 0.29 and 0.35). Their joint $R^2$ predicting $D_{KM}$ is 0.194, against
@@ -291,7 +291,7 @@ intervals of 5 subjects after reaching N=75).
   are assigned `woman.n.01` or `man.n.01` from a gender token in the filename; human-body
   images resolve via their category dirname (e.g., `clown.n.01`, `child.n.01`, `hand.n.01`).
   Synset assignments are stored in `images/manifest.csv` (column `wn_synset_name`);
-  the assignment code is in `analysis/rdms/assign_wn_synsets.py`.
+  the assignment code is in `analysis/build_rdms/assign_wn_synsets.py`.
   *Note on methodology change*: the original plan was to classify each image with
   ResNet-50 and map the predicted ImageNet class to its WordNet synset. This approach was
   abandoned because ImageNet-1K does not include person, face, or human-body categories,
@@ -302,7 +302,7 @@ intervals of 5 subjects after reaching N=75).
   The curated `wn_synset_name` column is the reference concept assignment for the dataset;
   all analyses that need a per-image concept read it rather than re-deriving one.
 
-  We since quantified that decision (`analysis/rdms/imagenet_vs_path.py`), scoring every
+  We since quantified that decision (`analysis/build_rdms/imagenet_vs_path.py`), scoring every
   image on a 3×3 grid of WordNet distances between the top-3 ResNet-50 predictions and
   three concepts read off the curated path (filename stem, parent directory, and their
   compound). Of 717 resolvable images, automatic derivation reaches a different synset

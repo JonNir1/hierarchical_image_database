@@ -32,7 +32,7 @@ one inside semantic_km.build_km_rdm(). Sharing it would make
 reconstruct_km_from_hierarchy() a tautology instead of a check.
 
 Usage:
-    from analysis.rdms import hierarchy_comparison as hc
+    from analysis.build_rdms import hierarchy_comparison as hc
     hc.correlation_matrix(["sem_km", "clip_pre"])
 """
 from __future__ import annotations
@@ -46,7 +46,7 @@ import plotly.graph_objects as go
 from scipy.spatial.distance import squareform
 from scipy.stats import rankdata
 
-from analysis.rdms.common import _EXPECTED_N, load_manifest, load_rdm
+from analysis.build_rdms.common import _EXPECTED_N, load_manifest, load_rdm
 
 # Directory level -> what that level of the tree encodes.
 LEVEL_NAMES: dict[int, str] = {

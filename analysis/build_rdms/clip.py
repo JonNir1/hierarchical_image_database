@@ -26,7 +26,7 @@ Requires:
     pip install open_clip_torch
 
 Usage (from repo root):
-    python -m analysis.rdms.clip
+    python -m analysis.build_rdms.clip
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ import open_clip
 import torch
 from tqdm import tqdm
 
-from analysis.rdms.common import cosine_distances, image_paths, open_as_rgb_pil, save_embeddings
+from analysis.build_rdms.common import cosine_distances, image_paths, open_as_rgb_pil, save_embeddings
 
 # See the module docstring: '-quickgelu' matches the activation OpenAI's
 # weights were trained with. Do not drop the suffix.
@@ -79,7 +79,7 @@ def build_clip_rdm(variant: str) -> np.ndarray:
     meta = {"variant": variant, "model": _MODEL_NAME, "pretrained": _PRETRAINED}
 
     print(f"[clip] Embedding matrix {E.shape}. Saving embeddings ...")
-    save_embeddings(short, E, source="analysis.rdms.clip", extra=meta)
+    save_embeddings(short, E, source="analysis.build_rdms.clip", extra=meta)
     print(f"[clip] Saved E_{short}.npy")
 
     print("[clip] Computing pairwise cosine distances ...")
@@ -87,7 +87,7 @@ def build_clip_rdm(variant: str) -> np.ndarray:
         E,
         save_result=True,
         name=short,
-        source="analysis.rdms.clip",
+        source="analysis.build_rdms.clip",
         extra={**meta, "embedding_dim": E.shape[1]},
     )
     print(f"[clip] Saved D_{short}.npy  (length {len(condensed)})")

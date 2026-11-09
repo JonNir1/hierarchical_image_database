@@ -1,4 +1,4 @@
-"""Tests for analysis.rdms.validate_rdms: the pure numpy/scipy invariant checks
+"""Tests for analysis.build_rdms.validate_rdms: the pure numpy/scipy invariant checks
 and the run_all_checks orchestration (load/skip/failure aggregation)."""
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 from scipy.spatial.distance import pdist
 
-import analysis.rdms.common as common
-import analysis.rdms.validate_rdms as vr
+import analysis.build_rdms.common as common
+import analysis.build_rdms.validate_rdms as vr
 
 # ---------------------------------------------------------------------------
 # Small synthetic dataset constants (used to patch module-level values)

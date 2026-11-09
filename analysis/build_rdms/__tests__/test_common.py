@@ -1,5 +1,5 @@
-"""Tests for analysis.rdms.common, analysis.rdms.semantic_km (helpers + smoke),
-and smoke tests for analysis.rdms.sensory."""
+"""Tests for analysis.build_rdms.common, analysis.build_rdms.semantic_km (helpers + smoke),
+and smoke tests for analysis.build_rdms.sensory."""
 from __future__ import annotations
 
 import json
@@ -10,7 +10,7 @@ import pytest
 from PIL import Image
 from scipy.spatial.distance import pdist, squareform
 
-import analysis.rdms.common as common
+import analysis.build_rdms.common as common
 
 # ---------------------------------------------------------------------------
 # Small synthetic dataset constants (used to patch module-level values)
@@ -436,7 +436,7 @@ def test_load_rdm_missing_record_raises(patched_results):
 # semantic_km helpers
 # ---------------------------------------------------------------------------
 
-import analysis.rdms.semantic_km as km
+import analysis.build_rdms.semantic_km as km
 
 
 def test_dir_parts_windows_backslash():
@@ -543,7 +543,7 @@ def test_build_km_rdm_symmetric(patched_km):
 # sensory smoke test
 # ---------------------------------------------------------------------------
 
-import analysis.rdms.sensory as sensory_mod
+import analysis.build_rdms.sensory as sensory_mod
 
 
 @pytest.fixture()

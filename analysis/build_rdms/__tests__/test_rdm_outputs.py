@@ -7,7 +7,7 @@ Each test is skipped automatically when the corresponding .npy file is absent
 even if only a subset of RDMs has been generated.
 
 Run locally after building all (or some) RDMs:
-    pytest analysis/rdms/__tests__/test_rdm_outputs.py -v
+    pytest analysis/build_rdms/__tests__/test_rdm_outputs.py -v
 
 For CI with shared artifacts: download the .npy files and metadata.json into
 analysis/results/rdms/ before running pytest, then include this file in the
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from analysis.rdms.validate_rdms import (
+from analysis.build_rdms.validate_rdms import (
     _try_load,
     check_behavioral,
     check_clip,
@@ -124,7 +124,7 @@ def test_clip_pre_post_correlation():
 # ---------------------------------------------------------------------------
 # Behavioral (SpAM multi-arrangement) -- built via two independent aggregation
 # methods: rsatoolbox's iterative rescaling ("evidence") and the PiCS/
-# SpAM_Simulations-style plain mean ("mean"). See analysis/rdms/behavioral.py's
+# SpAM_Simulations-style plain mean ("mean"). See analysis/build_rdms/behavioral.py's
 # module docstring for why both are built.
 # ---------------------------------------------------------------------------
 

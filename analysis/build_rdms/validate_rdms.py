@@ -5,10 +5,10 @@ Checks every RDM that is present; skips ones not yet built.
 Exits 0 if all present RDMs pass; exits 1 if any check fails.
 
 Run from repo root (with .venv active):
-    python -m analysis.rdms.validate_rdms
+    python -m analysis.build_rdms.validate_rdms
 
 To validate a specific subset:
-    python -m analysis.rdms.validate_rdms --only sens_pre sem_km
+    python -m analysis.build_rdms.validate_rdms --only sens_pre sem_km
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from scipy.stats import spearmanr
 
 import json
 
-from analysis.rdms.common import (
+from analysis.build_rdms.common import (
     IMAGES_ROOT, RESULTS_DIR, _EXPECTED_LEN, _EXPECTED_N, load_manifest, load_rdm,
 )
 from analysis.utils.stats import masked_rank_correlation
@@ -271,7 +271,7 @@ def run_all_checks(names: list[str] | None = None) -> bool:
         print(f"\n{'=' * 50}")
         print("FAILED: manifest does not match the image directories. "
               "Fix images/manifest.csv, then rebuild all RDMs "
-              "(`python -m analysis.rdms.build_all`); their order_hash is now stale.")
+              "(`python -m analysis.build_rdms.build_all`); their order_hash is now stale.")
         return False
 
     # Load phase
@@ -294,7 +294,7 @@ def run_all_checks(names: list[str] | None = None) -> bool:
         print(f"  LOAD ERROR  {name}: {err}")
 
     if not present and not load_errors:
-        print("No RDMs found. Run `python -m analysis.rdms.build_all` first.")
+        print("No RDMs found. Run `python -m analysis.build_rdms.build_all` first.")
         return False
 
     # Check phase

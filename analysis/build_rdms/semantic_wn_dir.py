@@ -8,7 +8,7 @@ No neural-network classification step — synsets are derived directly
 from each image's filename stem and parent directory, with manual
 overrides for polysemous or missing cases.  See images/manifest.csv
 column wn_synset_name and the assignment logic in
-analysis/rdms/assign_wn_synsets.py (or the git history of manifest.csv
+analysis/build_rdms/assign_wn_synsets.py (or the git history of manifest.csv
 for the full provenance).
 
 Supersedes semantic_wn.py (ResNet-50 + WordNet pipeline).
@@ -17,7 +17,7 @@ Output (to analysis/results/rdms/):
     D_sem_wn.npy
 
 Usage (from repo root):
-    python -m analysis.rdms.semantic_wn_dir
+    python -m analysis.build_rdms.semantic_wn_dir
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from nltk.corpus import wordnet as wn
 from nltk.corpus.reader.wordnet import WordNetError
 from tqdm import tqdm
 
-from analysis.rdms.common import load_manifest, save_rdm, _EXPECTED_N
+from analysis.build_rdms.common import load_manifest, save_rdm, _EXPECTED_N
 
 _WN_FALLBACK_DIST = 30.0
 
@@ -54,7 +54,7 @@ def build_wn_rdm() -> np.ndarray:
     if "wn_synset_name" not in manifest.columns:
         raise RuntimeError(
             "images/manifest.csv is missing the 'wn_synset_name' column. "
-            "Run analysis/rdms/assign_wn_synsets.py to populate it."
+            "Run analysis/build_rdms/assign_wn_synsets.py to populate it."
         )
 
     synsets: list[wn.Synset | None] = []
@@ -102,7 +102,7 @@ def build_wn_rdm() -> np.ndarray:
         "sem_wn",
         condensed,
         metric="wordnet_shortest_path",
-        source="analysis.rdms.semantic_wn_dir",
+        source="analysis.build_rdms.semantic_wn_dir",
         extra={
             "synset_source": "images/manifest.csv:wn_synset_name",
             "wn_fallback_dist": _WN_FALLBACK_DIST,

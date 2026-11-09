@@ -1,6 +1,6 @@
 """
 Generalizability comparison for the three behavioral-RDM aggregation methods
-('mean' / 'simple' / 'evidence', see analysis/rdms/behavioral.py) -- the second,
+('mean' / 'simple' / 'evidence', see analysis/build_rdms/behavioral.py) -- the second,
 independent line of evidence alongside analysis/behavioral/noise_ceiling.py's
 within-cohort noise-ceiling comparison (leave-one-out + split-half).
 
@@ -14,7 +14,7 @@ one that's merely reliable within its own sample.
 
 Out-of-sample (OOS) pool definition (see _oos_participant_ids()): NOT in the
 retained cohort (status=='full data' & task_version>=4.0, same as
-analysis.rdms.behavioral._select_participants()) AND status not in
+analysis.build_rdms.behavioral._select_participants()) AND status not in
 {'revoked consent', 'missing data'} -- those two are hard exclusions
 regardless of purpose (revoked consent is an ethical/legal boundary, not a
 data-quality one; missing data has no content to use). Confirmed against the
@@ -81,11 +81,11 @@ import pandas as pd
 from analysis.behavioral.noise_ceiling import (
     _DEFAULT_CACHE_DIR, _DEFAULT_MIN_OVERLAP, RESULTS_DIR, _VALID_VARIANTS, _cohort_name,
 )
-from analysis.rdms.behavioral import (
+from analysis.build_rdms.behavioral import (
     _AGGREGATIONS, _build_trials, _combine, _select_participants, build_behavioral_rdm,
 )
-from analysis.rdms.common import image_manifest_index, save_rdm
-from analysis.rdms.mds import compare_mds_configs
+from analysis.build_rdms.common import image_manifest_index, save_rdm
+from analysis.build_rdms.mds import compare_mds_configs
 from analysis.utils.load_data import load_data
 from analysis.utils.stats import masked_rank_correlation
 from SpAM_Simulations.core.helpers import condensed_rdm_to_weighted_dists

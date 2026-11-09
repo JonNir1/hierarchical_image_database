@@ -70,7 +70,7 @@ contributes real perceptual judgements from both blocks, not just the
 experimental one.
 
 Usage (from repo root, with the main checkout's .venv active):
-    python -m analysis.rdms.behavioral --cache-dir <path to analysis/results/parsed_data>
+    python -m analysis.build_rdms.behavioral --cache-dir <path to analysis/results/parsed_data>
 """
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from analysis.rdms.common import REPO_ROOT, load_manifest, save_rdm
+from analysis.build_rdms.common import REPO_ROOT, load_manifest, save_rdm
 from analysis.utils.load_data import load_data
 from analysis.utils.parser import parse_pairwise_distances
 
@@ -390,7 +390,7 @@ def build_behavioral_rdm(
         short,
         condensed,
         metric=metric,
-        source="analysis.rdms.behavioral",
+        source="analysis.build_rdms.behavioral",
         extra={
             "variant": variant,
             "n_participants": int(len(participants)),

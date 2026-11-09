@@ -33,7 +33,7 @@ from scipy.spatial.distance import pdist
 # Paths
 # ---------------------------------------------------------------------------
 
-# analysis/rdms/common.py  ->  analysis/rdms/  ->  analysis/  ->  repo root
+# analysis/build_rdms/common.py  ->  analysis/build_rdms/  ->  analysis/  ->  repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = REPO_ROOT / "images" / "manifest.csv"
 IMAGES_ROOT = REPO_ROOT / "images"

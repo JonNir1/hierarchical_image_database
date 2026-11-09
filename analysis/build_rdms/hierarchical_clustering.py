@@ -3,7 +3,7 @@ Hierarchical-clustering agreement between the perceptual SpAM geometry and the K
 directory tree (Q1, analysis 1b).
 
 Ground truth is the tree itself, converted to a scipy linkage matrix by path_tree_to_linkage().
-The perceptual side is an MDS embedding of the behavioral RDM (analysis.rdms.mds.run_mds_sweep,
+The perceptual side is an MDS embedding of the behavioral RDM (analysis.build_rdms.mds.run_mds_sweep,
 which handles the missing pairs) that is then clustered two ways, reusing the machinery built for
 the SpAM_Simulations reproducibility analysis rather than reimplementing it:
 
@@ -15,7 +15,7 @@ the SpAM_Simulations reproducibility analysis rather than reimplementing it:
       (ARI / VI over the images HDBSCAN clustered) instead of Baker's gamma, and is descriptive.
 
 Usage (from repo root):
-    from analysis.rdms import hierarchical_clustering as hcl
+    from analysis.build_rdms import hierarchical_clustering as hcl
     parts = hcl.path_parts()
     z_gt = hcl.path_tree_to_linkage(parts)
 """
@@ -29,8 +29,8 @@ import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist
 
-from analysis.rdms.hierarchy_comparison import path_parts
-from analysis.rdms.mds import run_mds_sweep
+from analysis.build_rdms.hierarchy_comparison import path_parts
+from analysis.build_rdms.mds import run_mds_sweep
 from SpAM_Simulations.measures.cluster_stability import (
     DEFAULT_LINKAGES, baker_gamma, build_linkage, cophenetic_fidelity, cophenetic_ranks,
     variation_of_information,

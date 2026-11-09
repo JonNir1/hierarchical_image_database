@@ -173,7 +173,7 @@ def _real_behavioral_case(variant_name: str):
     """Real behav_pre/behav_post RDM + a coverage-derived weight matrix (0 for
     never-observed pairs). Restricted to a dense, fully-connected sub-block since
     the full RDM (35% uncovered pairs) is not guaranteed connected as-is."""
-    from analysis.rdms.common import load_rdm, RESULTS_DIR
+    from analysis.build_rdms.common import load_rdm, RESULTS_DIR
     import json
 
     condensed = load_rdm(variant_name)

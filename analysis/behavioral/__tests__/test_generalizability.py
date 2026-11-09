@@ -1,7 +1,7 @@
 """Tests for analysis.behavioral.generalizability's data-generation functions.
 
 Uses a small synthetic multi-participant SpAM dataset covering every status this
-module's exclusion logic must handle (mirroring analysis/rdms/__tests__/test_behavioral.py's
+module's exclusion logic must handle (mirroring analysis/build_rdms/__tests__/test_behavioral.py's
 JSON/DataFrame-level synthetic-fixture pattern, since -- unlike test_noise_ceiling.py --
 these functions operate on df_participants['status'] directly, not just pre-parsed
 trial tuples): retained (status='full data', task_version>=4.0), OOS-eligible
@@ -89,12 +89,12 @@ def _synthetic_trials() -> pd.DataFrame:
 @pytest.fixture()
 def patched_generalizability(monkeypatch):
     """Monkeypatches generalizability.py's own image_manifest_index/load_data/save_rdm
-    (used by build_oos_rdm) AND analysis.rdms.behavioral's load_manifest/load_data/save_rdm
+    (used by build_oos_rdm) AND analysis.build_rdms.behavioral's load_manifest/load_data/save_rdm
     (used internally by build_behavioral_rdm, imported into generalizability.py and called
-    as-is). generalizability.py gets image_manifest_index() (analysis.rdms.common's shared
+    as-is). generalizability.py gets image_manifest_index() (analysis.build_rdms.common's shared
     manifest-index helper) rather than load_manifest() directly -- see
-    analysis/rdms/common.py's image_manifest_index()."""
-    import analysis.rdms.behavioral as behavioral
+    analysis/build_rdms/common.py's image_manifest_index()."""
+    import analysis.build_rdms.behavioral as behavioral
 
     fake_data = {"participants": _synthetic_participants(), "trials": _synthetic_trials()}
     saved: dict = {}

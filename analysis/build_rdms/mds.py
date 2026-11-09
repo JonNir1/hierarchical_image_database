@@ -8,7 +8,7 @@ SpAM_Simulations/core/ -- this module is the analysis-side layer that caches swe
 and compares results across cohorts/conditions, not a second copy of the fitting logic.
 
 Usage (from repo root):
-    from analysis.rdms.mds import (
+    from analysis.build_rdms.mds import (
         classical_mds_eigenspectrum, effective_rank, run_mds_sweep,
         compare_mds_configs, classify_mds_agreement,
     )

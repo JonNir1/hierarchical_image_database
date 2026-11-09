@@ -9,7 +9,7 @@ ground truth, so this is new.
 coordinate equally, so it makes no claim about *where* SHINE acts. If SHINE instead acts selectively
 on sensory dimensions - which is what RQ3 supposes - the power this yields is optimistic or
 pessimistic depending on how much of the distance variance those dimensions carry.
-``analysis/rdms/`` already holds ``sens_pre``/``sens_post``, so a sensory-weighted variant is the
+``analysis/build_rdms/`` already holds ``sens_pre``/``sens_post``, so a sensory-weighted variant is the
 natural follow-up; it is deliberately not attempted here, because deriving the sensory/semantic
 split of the ground truth's axes would make the power estimate conditional on that derivation.
 

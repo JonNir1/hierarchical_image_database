@@ -1,4 +1,4 @@
-"""Tests for analysis.rdms.hierarchical_clustering on a small ragged toy tree."""
+"""Tests for analysis.build_rdms.hierarchical_clustering on a small ragged toy tree."""
 from __future__ import annotations
 
 import numpy as np
@@ -6,8 +6,8 @@ import pytest
 from scipy.cluster.hierarchy import cophenet, is_valid_linkage
 from scipy.spatial.distance import pdist
 
-import analysis.rdms.hierarchical_clustering as hcl
-from analysis.rdms.hierarchy_comparison import lca_depth_condensed
+import analysis.build_rdms.hierarchical_clustering as hcl
+from analysis.build_rdms.hierarchy_comparison import lca_depth_condensed
 from SpAM_Simulations.measures.cluster_stability import baker_gamma, cophenetic_ranks
 
 # Ragged: leaves at depth 2 and 3, a directory holding images directly plus a subdirectory.

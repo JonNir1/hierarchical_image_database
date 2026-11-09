@@ -1,12 +1,12 @@
-"""Tests for analysis.rdms.model_evaluation on small synthetic SpAM-like data."""
+"""Tests for analysis.build_rdms.model_evaluation on small synthetic SpAM-like data."""
 from __future__ import annotations
 
 import numpy as np
 import pytest
 from scipy.spatial.distance import squareform
 
-from analysis.rdms import model_evaluation as me
-from analysis.rdms.behavioral import _condensed_index
+from analysis.build_rdms import model_evaluation as me
+from analysis.build_rdms.behavioral import _condensed_index
 
 _N = 16
 _GROUP = np.repeat(np.arange(4), 4)
@@ -36,7 +36,7 @@ def _make_trials(rng: np.random.Generator, n_participants: int, noise: float) ->
 def test_label_shuffle_masked_detects_planted_structure():
     rng = np.random.default_rng(0)
     trials = _make_trials(rng, 20, noise=0.3)
-    from analysis.rdms.behavioral import _combine
+    from analysis.build_rdms.behavioral import _combine
     combined, _ = _combine([t for ts in trials.values() for t in ts], _N, "mean")
     result = me.label_shuffle_test_masked(combined, _model_rdm(), n_perm=200, seed=1)
     assert result.observed["kendall_a"] > 0.3

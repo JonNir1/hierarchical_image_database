@@ -1,4 +1,4 @@
-"""Tests for analysis.rdms.hierarchy_comparison: tree derivation from manifest
+"""Tests for analysis.build_rdms.hierarchy_comparison: tree derivation from manifest
 paths, the KM reconstruction identity, and the statistical helpers."""
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ import pandas as pd
 import pytest
 from scipy.spatial.distance import squareform
 
-import analysis.rdms.common as common
-import analysis.rdms.hierarchy_comparison as hc
-import analysis.rdms.semantic_km as km
+import analysis.build_rdms.common as common
+import analysis.build_rdms.hierarchy_comparison as hc
+import analysis.build_rdms.semantic_km as km
 
 B = chr(92)  # backslash, matching the manifest's Windows-style curated_path
 

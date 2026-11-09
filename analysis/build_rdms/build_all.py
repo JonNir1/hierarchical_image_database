@@ -4,13 +4,13 @@ CLI to build any or all reference RDMs.
 Usage (from repo root, with .venv active):
 
     # Build everything
-    python -m analysis.rdms.build_all
+    python -m analysis.build_rdms.build_all
 
     # Build a specific subset
-    python -m analysis.rdms.build_all --only sens_pre sem_km
+    python -m analysis.build_rdms.build_all --only sens_pre sem_km
 
     # Build everything except the slow ones
-    python -m analysis.rdms.build_all --skip sem_wn clip_pre clip_post
+    python -m analysis.build_rdms.build_all --skip sem_wn clip_pre clip_post
 
 Available targets:
     sens_pre   -- D_sens_pre.npy   (pixel Euclidean, pre-SHINE)
@@ -33,19 +33,19 @@ import traceback
 
 # name -> (module, function, positional_args, keyword_args)
 _BUILDERS: dict[str, tuple[str, str, list, dict]] = {
-    "sens_pre":  ("analysis.rdms.sensory",      "build_sensory_rdm",  ["pre_shine"], {}),
-    "sens_post": ("analysis.rdms.sensory",      "build_sensory_rdm",  ["post_shine"], {}),
-    "sem_km":    ("analysis.rdms.semantic_km",  "build_km_rdm",       [], {}),
-    "sem_wn":    ("analysis.rdms.semantic_wn_dir", "build_wn_rdm",     [], {}),
-    "clip_pre":  ("analysis.rdms.clip",         "build_clip_rdm",     ["pre_shine"], {}),
-    "clip_post": ("analysis.rdms.clip",         "build_clip_rdm",     ["post_shine"], {}),
-    "behav_pre_evidence":  ("analysis.rdms.behavioral", "build_behavioral_rdm",
+    "sens_pre":  ("analysis.build_rdms.sensory",      "build_sensory_rdm",  ["pre_shine"], {}),
+    "sens_post": ("analysis.build_rdms.sensory",      "build_sensory_rdm",  ["post_shine"], {}),
+    "sem_km":    ("analysis.build_rdms.semantic_km",  "build_km_rdm",       [], {}),
+    "sem_wn":    ("analysis.build_rdms.semantic_wn_dir", "build_wn_rdm",     [], {}),
+    "clip_pre":  ("analysis.build_rdms.clip",         "build_clip_rdm",     ["pre_shine"], {}),
+    "clip_post": ("analysis.build_rdms.clip",         "build_clip_rdm",     ["post_shine"], {}),
+    "behav_pre_evidence":  ("analysis.build_rdms.behavioral", "build_behavioral_rdm",
                              ["pre_shine"], {"aggregation": "evidence"}),
-    "behav_post_evidence": ("analysis.rdms.behavioral", "build_behavioral_rdm",
+    "behav_post_evidence": ("analysis.build_rdms.behavioral", "build_behavioral_rdm",
                              ["post_shine"], {"aggregation": "evidence"}),
-    "behav_pre_mean":      ("analysis.rdms.behavioral", "build_behavioral_rdm",
+    "behav_pre_mean":      ("analysis.build_rdms.behavioral", "build_behavioral_rdm",
                              ["pre_shine"], {"aggregation": "mean"}),
-    "behav_post_mean":     ("analysis.rdms.behavioral", "build_behavioral_rdm",
+    "behav_post_mean":     ("analysis.build_rdms.behavioral", "build_behavioral_rdm",
                              ["post_shine"], {"aggregation": "mean"}),
 }
 

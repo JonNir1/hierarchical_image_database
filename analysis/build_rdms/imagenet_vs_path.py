@@ -33,14 +33,14 @@ measures the gap between the two views rather than trying to close it, and the
 human images are the clearest illustration of why the ResNet route was dropped.
 
 Inputs:
-    analysis/rdms/imagenet_class_index.json   tracked; maps class idx -> wnid.
+    analysis/build_rdms/imagenet_class_index.json   tracked; maps class idx -> wnid.
                                               Needed because torchvision ships
                                               class names but not wnids.
 Outputs (to analysis/results/rdms/):
     imagenet_vs_path.csv   one row per image: full grid, min, argmin, synsets
 
 Usage (from repo root):
-    python -m analysis.rdms.imagenet_vs_path
+    python -m analysis.build_rdms.imagenet_vs_path
 """
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ from nltk.corpus.reader.wordnet import WordNetError
 from torchvision.models import ResNet50_Weights, resnet50
 from tqdm import tqdm
 
-from analysis.rdms.common import (
+from analysis.build_rdms.common import (
     RESULTS_DIR, image_paths, load_manifest, open_as_rgb_pil,
 )
 
@@ -281,7 +281,7 @@ def load_comparison_table() -> pd.DataFrame:
     """Load the cached table, or raise directing the caller to build it."""
     if not TABLE_PATH.exists():
         raise FileNotFoundError(
-            f"{TABLE_PATH} not found. Run `python -m analysis.rdms.imagenet_vs_path`."
+            f"{TABLE_PATH} not found. Run `python -m analysis.build_rdms.imagenet_vs_path`."
         )
     return pd.read_csv(TABLE_PATH)
 
