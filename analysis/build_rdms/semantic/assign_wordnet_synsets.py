@@ -7,7 +7,7 @@ overwriting if present).
 
 THIS IS THE REFERENCE CONCEPT ASSIGNMENT FOR THE DATASET.
 `images/manifest.csv:wn_synset_name` is the single source of truth for "what
-concept is this image", and D_sem_wn is built from it (semantic_wn_dir.py).
+concept is this image", and D_sem_wn is built from it (wordnet.py).
 Future analyses needing a per-image concept should read that column rather than
 re-deriving one from the path or from a classifier. Reasons, measured in
 analysis/build_rdms/imagenet_vs_path.py over all 725 images:
@@ -72,7 +72,7 @@ stem    = filename without extension, trailing digits stripped, lowercased,
 dirname = immediate parent directory name, lowercased.
 
 Usage (from repo root, with .venv active):
-    python -m analysis.build_rdms.semantic.assign_wn_synsets
+    python -m analysis.build_rdms.semantic.assign_wordnet_synsets
 
 Output: images/manifest.csv updated in place (wn_synset_name column).
 """
@@ -237,23 +237,23 @@ def main() -> None:
 
     if "wn_synset_name" in df.columns:
         existing = df["wn_synset_name"].notna().sum()
-        print(f"[assign_wn_synsets] Existing wn_synset_name: {existing}/{len(df)} non-null.")
+        print(f"[assign_wordnet_synsets] Existing wn_synset_name: {existing}/{len(df)} non-null.")
 
-    print(f"[assign_wn_synsets] Assigning synsets for {len(df)} images ...")
+    print(f"[assign_wordnet_synsets] Assigning synsets for {len(df)} images ...")
     df["wn_synset_name"] = assign_all(df)
 
     null_count = df["wn_synset_name"].isna().sum()
     if null_count:
-        print(f"[assign_wn_synsets] WARNING: {null_count} images have no synset:")
+        print(f"[assign_wordnet_synsets] WARNING: {null_count} images have no synset:")
         print(df[df["wn_synset_name"].isna()]["curated_path"].to_string())
     else:
-        print("[assign_wn_synsets] All images assigned a synset.")
+        print("[assign_wordnet_synsets] All images assigned a synset.")
 
     n_unique = df["wn_synset_name"].nunique()
-    print(f"[assign_wn_synsets] {n_unique} unique synsets across {len(df)} images.")
+    print(f"[assign_wordnet_synsets] {n_unique} unique synsets across {len(df)} images.")
 
     df.to_csv(MANIFEST_PATH, index=False)
-    print(f"[assign_wn_synsets] Saved -> {MANIFEST_PATH}")
+    print(f"[assign_wordnet_synsets] Saved -> {MANIFEST_PATH}")
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 Uses a tiny synthetic 4-image manifest and hand-built partial trials (patching
 load_manifest/load_data/save_rdm in the module's own namespace, mirroring the
-sensory/semantic_km test patterns in test_common.py) so this suite needs
+sensory/kiani test patterns in test_common.py) so this suite needs
 neither a real 725-image dataset nor real SpAM session data.
 """
 from __future__ import annotations

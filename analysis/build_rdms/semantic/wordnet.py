@@ -8,7 +8,7 @@ No neural-network classification step — synsets are derived directly
 from each image's filename stem and parent directory, with manual
 overrides for polysemous or missing cases.  See images/manifest.csv
 column wn_synset_name and the assignment logic in
-analysis/build_rdms/semantic/assign_wn_synsets.py (or the git history of manifest.csv
+analysis/build_rdms/semantic/assign_wordnet_synsets.py (or the git history of manifest.csv
 for the full provenance).
 
 Supersedes semantic_wn.py (ResNet-50 + WordNet pipeline).
@@ -17,7 +17,7 @@ Output (to analysis/results/rdms/):
     D_sem_wn.npy
 
 Usage (from repo root):
-    python -m analysis.build_rdms.semantic.semantic_wn_dir
+    python -m analysis.build_rdms.semantic.wordnet
 """
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ def build_wn_rdm() -> np.ndarray:
     if "wn_synset_name" not in manifest.columns:
         raise RuntimeError(
             "images/manifest.csv is missing the 'wn_synset_name' column. "
-            "Run analysis/build_rdms/semantic/assign_wn_synsets.py to populate it."
+            "Run analysis/build_rdms/semantic/assign_wordnet_synsets.py to populate it."
         )
 
     synsets: list[wn.Synset | None] = []
@@ -69,13 +69,13 @@ def build_wn_rdm() -> np.ndarray:
 
     none_count = sum(s is None for s in synsets)
     if none_count:
-        print(f"[semantic_wn_dir] {none_count} images had no resolvable synset.")
+        print(f"[wordnet] {none_count} images had no resolvable synset.")
 
     n = len(synsets)
     if n != _EXPECTED_N:
         raise RuntimeError(f"Expected {_EXPECTED_N} images, got {n}.")
 
-    print(f"[semantic_wn_dir] Computing pairwise WN distances for {n} images ...")
+    print(f"[wordnet] Computing pairwise WN distances for {n} images ...")
     k = n * (n - 1) // 2
     condensed = np.empty(k, dtype=np.float64)
     fallback_pairs = 0
@@ -94,7 +94,7 @@ def build_wn_rdm() -> np.ndarray:
 
     if fallback_pairs:
         print(
-            f"[semantic_wn_dir] {fallback_pairs} pairs used fallback "
+            f"[wordnet] {fallback_pairs} pairs used fallback "
             f"distance {_WN_FALLBACK_DIST}"
         )
 
@@ -102,13 +102,13 @@ def build_wn_rdm() -> np.ndarray:
         "sem_wn",
         condensed,
         metric="wordnet_shortest_path",
-        source="analysis.build_rdms.semantic.semantic_wn_dir",
+        source="analysis.build_rdms.semantic.wordnet",
         extra={
             "synset_source": "images/manifest.csv:wn_synset_name",
             "wn_fallback_dist": _WN_FALLBACK_DIST,
         },
     )
-    print(f"[semantic_wn_dir] Saved D_sem_wn.npy  (length {len(condensed)})")
+    print(f"[wordnet] Saved D_sem_wn.npy  (length {len(condensed)})")
     return condensed
 
 

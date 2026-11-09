@@ -33,7 +33,7 @@ _ALL_NAMES = [
     *_BEHAV_NAMES,
 ]
 _N = _EXPECTED_N       # 725
-_WN_FALLBACK = 30.0    # must match semantic_wn_dir._WN_FALLBACK_DIST
+_WN_FALLBACK = 30.0    # must match wordnet._WN_FALLBACK_DIST
 _KM_MAX_DEPTH = 8      # generous upper bound for this dataset's hierarchy
 
 

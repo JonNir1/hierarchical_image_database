@@ -28,7 +28,7 @@ label_shuffle_test(), which permutes image identity (rows and columns together)
 and so respects that dependence structure.
 
 The LCA logic here is deliberately a second implementation, independent of the
-one inside semantic_km.build_km_rdm(). Sharing it would make
+one inside kiani.build_km_rdm(). Sharing it would make
 reconstruct_km_from_hierarchy() a tautology instead of a check.
 
 Usage:
@@ -112,7 +112,7 @@ def reconstruct_km_from_hierarchy() -> np.ndarray:
     floored at 1 off-diagonal.
 
     Compare against load_rdm("sem_km") to confirm the KM RDM is exactly the tree
-    and nothing else. Uses an LCA implementation independent of semantic_km's.
+    and nothing else. Uses an LCA implementation independent of kiani's.
     """
     parts = path_parts()
     depths = path_depths(parts)

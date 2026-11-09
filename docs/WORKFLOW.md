@@ -40,10 +40,10 @@ has been done and what is pending.
 - [ ] Sensory RDMs. `code: analysis/build_rdms/sensory/pixels.py`.
       flatten images, calculate pairwise Euclidean. No luminance
       renorm (SHINE already handles it). Out: `D_sens_pre.npy`, `D_sens_post.npy`.
-- [ ] Semantic RDM (Kiani-Mur). `code: analysis/build_rdms/semantic/semantic_km.py`.
+- [ ] Semantic RDM (Kiani-Mur). `code: analysis/build_rdms/semantic/kiani.py`.
       Per pair: sum of mismatch indicators across the 3 KM tree levels
       (animate/inanimate, mid-level, basic). Out: `D_sem_km.npy`.
-- [ ] Semantic RDM (WordNet). `code: analysis/build_rdms/semantic/semantic_wn_dir.py`.
+- [ ] Semantic RDM (WordNet). `code: analysis/build_rdms/semantic/wordnet.py`.
       Synsets assigned directly from image category labels (filename stem + directory,
       with manual overrides for polysemous cases; see `images/manifest.csv` column
       `wn_synset_name`). Pairwise WordNet shortest-path distance. Out: `D_sem_wn.npy`.

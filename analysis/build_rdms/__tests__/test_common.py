@@ -1,4 +1,4 @@
-"""Tests for analysis.build_rdms.common, analysis.build_rdms.semantic.semantic_km (helpers + smoke),
+"""Tests for analysis.build_rdms.common, analysis.build_rdms.semantic.kiani (helpers + smoke),
 and smoke tests for analysis.build_rdms.sensory.pixels."""
 from __future__ import annotations
 
@@ -433,10 +433,10 @@ def test_load_rdm_missing_record_raises(patched_results):
 
 
 # ---------------------------------------------------------------------------
-# semantic_km helpers
+# kiani helpers
 # ---------------------------------------------------------------------------
 
-import analysis.build_rdms.semantic.semantic_km as km
+import analysis.build_rdms.semantic.kiani as km
 
 
 def test_dir_parts_windows_backslash():
@@ -470,7 +470,7 @@ def test_lca_depth_one_shallower():
 
 
 # ---------------------------------------------------------------------------
-# semantic_km smoke test (build_km_rdm with synthetic manifest)
+# kiani smoke test (build_km_rdm with synthetic manifest)
 # ---------------------------------------------------------------------------
 
 def _make_synthetic_manifest(paths: list[str]) -> pd.DataFrame:

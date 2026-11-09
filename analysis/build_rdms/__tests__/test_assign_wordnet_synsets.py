@@ -1,5 +1,5 @@
 """
-Tests for analysis.build_rdms.semantic.assign_wn_synsets: the rule-based WordNet synset
+Tests for analysis.build_rdms.semantic.assign_wordnet_synsets: the rule-based WordNet synset
 assignment logic (filename stem + directory -> synset name).
 
 Covers each of the six priority-ordered rules in isolation via small synthetic
@@ -20,10 +20,10 @@ import pandas as pd
 import pytest
 
 nltk = pytest.importorskip(
-    "nltk", reason="assign_wn_synsets requires nltk + the WordNet corpus"
+    "nltk", reason="assign_wordnet_synsets requires nltk + the WordNet corpus"
 )
 
-from analysis.build_rdms.semantic.assign_wn_synsets import _parse_path, assign_all, assign_synset  # noqa: E402
+from analysis.build_rdms.semantic.assign_wordnet_synsets import _parse_path, assign_all, assign_synset  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

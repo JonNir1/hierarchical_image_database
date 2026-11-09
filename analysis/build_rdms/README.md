@@ -17,10 +17,10 @@ build_rdms/
               generalizability.py agreement with a held-out-subject RDM
               aggregation_comparison.ipynb   picks the aggregation method
 
-  semantic/   semantic_km.py      Kiani-Mur directory-tree path length
-              semantic_wn_dir.py  WordNet shortest path
-              assign_wn_synsets.py  the reference concept assignment it reads
-              clip.py             CLIP ViT-B/32 cosine (visual-semantic)
+  semantic/   kiani.py                   Kiani-Mur directory-tree path length
+              wordnet.py                 WordNet shortest path
+              assign_wordnet_synsets.py  the reference concept assignment it reads
+              clip.py                    CLIP ViT-B/32 cosine (visual-semantic)
 
   sensory/    pixels.py           pixel Euclidean, pre and post SHINE
 ```

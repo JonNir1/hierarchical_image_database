@@ -28,7 +28,7 @@ Why this is a diagnostic and not an RDM builder: ImageNet-1K contains no
 person, face, or human-body categories, so all 164 human images in this dataset
 are unclassifiable in principle and their scores reflect the nearest available
 non-human class. D_sem_wn is therefore built by direct label-to-synset
-assignment (see semantic_wn_dir.py and assign_wn_synsets.py). This module
+assignment (see wordnet.py and assign_wordnet_synsets.py). This module
 measures the gap between the two views rather than trying to close it, and the
 human images are the clearest illustration of why the ResNet route was dropped.
 
@@ -70,7 +70,7 @@ PATH_SLOTS: tuple[str, ...] = ("filename", "dirname", "combined")
 TOP_K = 3
 
 #: Distance used when a synset pair has no connecting path. Matches
-#: semantic_wn_dir._WN_FALLBACK_DIST so the two modules stay comparable.
+#: wordnet._WN_FALLBACK_DIST so the two modules stay comparable.
 WN_FALLBACK_DIST = 30.0
 
 
@@ -461,7 +461,7 @@ def plot_agreement_by_branch(df: pd.DataFrame) -> go.Figure:
     fig.update_layout(
         title=("Would automatic path parsing have reproduced the curated synset?"
                "<br><sub>per branch; the human branch is why the manual assignment "
-               "in assign_wn_synsets.py is the reference</sub>"),
+               "in assign_wordnet_synsets.py is the reference</sub>"),
         xaxis_title="branch", yaxis_title="images", barmode="stack",
         template=_TEMPLATE, height=480, width=880,
         legend=dict(orientation="h", y=-0.2, x=0.5, xanchor="center"),
