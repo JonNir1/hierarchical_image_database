@@ -11,7 +11,7 @@ build_rdms/
   validate_rdms.py       invariant checks over whatever has been built
   __tests__/             all tests for this package, flat (see note below)
 
-  behavior/   behavioral.py       SpAM trials -> 725x725 RDM (3 aggregations)
+  behavior/   spam_ratings.py     SpAM trials -> 725x725 RDM (3 aggregations)
               mds.py              MDS embedding layer over those RDMs
               noise_ceiling.py    leave-one-out / split-half reliability bounds
               generalizability.py agreement with a held-out-subject RDM
