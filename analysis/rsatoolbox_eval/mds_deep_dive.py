@@ -25,7 +25,7 @@ import numpy as np
 os.environ.setdefault("R_LIBS_USER", r"C:\Users\nirjo\R_library\4.5")
 
 from analysis.build_rdms.common import load_rdm
-from analysis.build_rdms.mds import compare_mds_configs
+from analysis.build_rdms.behavior.mds import compare_mds_configs
 from analysis.rsatoolbox_eval.mds_rsatoolbox_vectorized import run_mds_rsatoolbox_vectorized
 from SpAM_Simulations.core.helpers import condensed_rdm_to_weighted_dists
 from SpAM_Simulations.core.multi_dimensional_scaling import run_mds

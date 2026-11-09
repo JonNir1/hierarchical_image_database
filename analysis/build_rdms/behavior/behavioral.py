@@ -27,7 +27,7 @@ full 725x725 RDM per SHINE variant, via THREE independent aggregation methods
 
 Default aggregation is 'simple' (see build_behavioral_rdm()'s `aggregation` parameter):
 a noise-ceiling reliability comparison (leave-one-out + split-half, Kendall/Spearman --
-analysis/behavioral/noise_ceiling.py / aggregation_comparison.ipynb) found 'simple' significantly
+analysis/build_rdms/behavior/noise_ceiling.py / aggregation_comparison.ipynb) found 'simple' significantly
 outperforms both 'evidence' and 'mean' on real data (all p<1e-4, both SHINE cohorts),
 with 'evidence' the *worst* of the three -- the opposite of the a priori expectation
 that 'evidence''s extra magnitude weighting, as a refinement of 'simple', should do at
@@ -70,7 +70,7 @@ contributes real perceptual judgements from both blocks, not just the
 experimental one.
 
 Usage (from repo root, with the main checkout's .venv active):
-    python -m analysis.build_rdms.behavioral --cache-dir <path to analysis/results/parsed_data>
+    python -m analysis.build_rdms.behavior.behavioral --cache-dir <path to analysis/results/parsed_data>
 """
 from __future__ import annotations
 
@@ -275,7 +275,7 @@ def _build_trials(
     """Non-catch trial rows for an arbitrary participant subset -> per-trial sparse pairs.
 
     Factored out of build_behavioral_rdm() so it can be called over any participant
-    subset (leave-one-out folds, split halves -- see analysis/behavioral/noise_ceiling.py),
+    subset (leave-one-out folds, split halves -- see analysis/build_rdms/behavior/noise_ceiling.py),
     not just the full retained-cohort set _select_participants() returns.
     """
     rows = df_trials[
@@ -323,7 +323,7 @@ def build_behavioral_rdm(
                          (van den Bosch et al., 2025,
                          https://doi.org/10.1101/2025.05.22.655542). Default per the
                          noise-ceiling reliability comparison in
-                         analysis/behavioral/noise_ceiling.py / aggregation_comparison.ipynb:
+                         analysis/build_rdms/behavior/noise_ceiling.py / aggregation_comparison.ipynb:
                          'simple' significantly outperforms both 'evidence' and 'mean'
                          on leave-one-out and split-half Kendall/Spearman reliability
                          (all p<1e-4 across both SHINE cohorts). See _sparse_combine().
@@ -390,7 +390,7 @@ def build_behavioral_rdm(
         short,
         condensed,
         metric=metric,
-        source="analysis.build_rdms.behavioral",
+        source="analysis.build_rdms.behavior.behavioral",
         extra={
             "variant": variant,
             "n_participants": int(len(participants)),

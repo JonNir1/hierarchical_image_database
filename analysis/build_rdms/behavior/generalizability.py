@@ -1,7 +1,7 @@
 """
 Generalizability comparison for the three behavioral-RDM aggregation methods
-('mean' / 'simple' / 'evidence', see analysis/build_rdms/behavioral.py) -- the second,
-independent line of evidence alongside analysis/behavioral/noise_ceiling.py's
+('mean' / 'simple' / 'evidence', see analysis/build_rdms/behavior/behavioral.py) -- the second,
+independent line of evidence alongside analysis/build_rdms/behavior/noise_ceiling.py's
 within-cohort noise-ceiling comparison (leave-one-out + split-half).
 
 Where noise_ceiling.py asks "how much does resampling *within* the retained
@@ -14,7 +14,7 @@ one that's merely reliable within its own sample.
 
 Out-of-sample (OOS) pool definition (see _oos_participant_ids()): NOT in the
 retained cohort (status=='full data' & task_version>=4.0, same as
-analysis.build_rdms.behavioral._select_participants()) AND status not in
+analysis.build_rdms.behavior.behavioral._select_participants()) AND status not in
 {'revoked consent', 'missing data'} -- those two are hard exclusions
 regardless of purpose (revoked consent is an ethical/legal boundary, not a
 data-quality one; missing data has no content to use). Confirmed against the
@@ -67,7 +67,7 @@ As with noise_ceiling.py, this module is data-generation only -- no stats
 significance-testing or plotting here; that's notebook work.
 
 Usage (from repo root, with the main checkout's .venv active):
-    python -m analysis.behavioral.generalizability --cache-dir <path to analysis/results/parsed_data>
+    python -m analysis.build_rdms.behavior.generalizability --cache-dir <path to analysis/results/parsed_data>
 """
 from __future__ import annotations
 
@@ -78,14 +78,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analysis.behavioral.noise_ceiling import (
+from analysis.build_rdms.behavior.noise_ceiling import (
     _DEFAULT_CACHE_DIR, _DEFAULT_MIN_OVERLAP, RESULTS_DIR, _VALID_VARIANTS, _cohort_name,
 )
-from analysis.build_rdms.behavioral import (
+from analysis.build_rdms.behavior.behavioral import (
     _AGGREGATIONS, _build_trials, _combine, _select_participants, build_behavioral_rdm,
 )
 from analysis.build_rdms.common import image_manifest_index, save_rdm
-from analysis.build_rdms.mds import compare_mds_configs
+from analysis.build_rdms.behavior.mds import compare_mds_configs
 from analysis.utils.load_data import load_data
 from analysis.utils.stats import masked_rank_correlation
 from SpAM_Simulations.core.helpers import condensed_rdm_to_weighted_dists
@@ -162,7 +162,7 @@ def build_oos_rdm(
         short = f"behav_{cohort}_{aggregation}_oos"
         metric = "spam_plain_mean_oos" if aggregation == "mean" else f"spam_multi_arrangement_{aggregation}_oos"
         save_rdm(
-            short, condensed, metric=metric, source="analysis.behavioral.generalizability",
+            short, condensed, metric=metric, source="analysis.build_rdms.behavior.generalizability",
             extra={"variant": variant, **info},
         )
         print(f"[generalizability] Saved D_{short}.npy")

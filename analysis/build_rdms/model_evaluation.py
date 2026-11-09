@@ -29,8 +29,8 @@ import numpy as np
 import pandas as pd
 from scipy.spatial.distance import squareform
 
-from analysis.behavioral.noise_ceiling import _DEFAULT_CACHE_DIR, _parse_trials_by_participant
-from analysis.build_rdms.behavioral import _combine, _mean_combine, _select_participants
+from analysis.build_rdms.behavior.noise_ceiling import _DEFAULT_CACHE_DIR, _parse_trials_by_participant
+from analysis.build_rdms.behavior.behavioral import _combine, _mean_combine, _select_participants
 from analysis.build_rdms.common import image_manifest_index
 from analysis.utils.load_data import load_data
 from analysis.utils.stats import masked_rank_correlation

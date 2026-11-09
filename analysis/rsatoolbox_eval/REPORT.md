@@ -4,7 +4,7 @@ Investigation into whether `rsatoolbox`'s MDS embedding step
 (`rsatoolbox.util.weighted_mds`) could replace the R `smacof::mds()` bridge used in
 [`SpAM_Simulations/core/multi_dimensional_scaling.py`](../../SpAM_Simulations/core/multi_dimensional_scaling.py).
 This is a *separate* question from whether `rsatoolbox` is useful for building the
-behavioral RDMs in the first place ([`analysis/build_rdms/behavioral.py`](../rdms/behavioral.py)) --
+behavioral RDMs in the first place ([`analysis/build_rdms/behavior/behavioral.py`](../rdms/behavioral.py)) --
 that part of `rsatoolbox` (`rdm.combine.from_partials()`/`rescale()`) has no bugs found
 against it and remains in active use.
 

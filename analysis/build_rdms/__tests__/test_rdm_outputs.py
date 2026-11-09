@@ -124,7 +124,7 @@ def test_clip_pre_post_correlation():
 # ---------------------------------------------------------------------------
 # Behavioral (SpAM multi-arrangement) -- built via two independent aggregation
 # methods: rsatoolbox's iterative rescaling ("evidence") and the PiCS/
-# SpAM_Simulations-style plain mean ("mean"). See analysis/build_rdms/behavioral.py's
+# SpAM_Simulations-style plain mean ("mean"). See analysis/build_rdms/behavior/behavioral.py's
 # module docstring for why both are built.
 # ---------------------------------------------------------------------------
 

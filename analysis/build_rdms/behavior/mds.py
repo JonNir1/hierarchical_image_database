@@ -8,7 +8,7 @@ SpAM_Simulations/core/ -- this module is the analysis-side layer that caches swe
 and compares results across cohorts/conditions, not a second copy of the fitting logic.
 
 Usage (from repo root):
-    from analysis.build_rdms.mds import (
+    from analysis.build_rdms.behavior.mds import (
         classical_mds_eigenspectrum, effective_rank, run_mds_sweep,
         compare_mds_configs, classify_mds_agreement,
     )
@@ -149,7 +149,7 @@ def compare_mds_configs(out_a: dict, out_b: dict, ndim: int) -> dict:
     """{"disparity", "confdist_r", "verdict"} between two run_mds() (or
     run_mds_sweep() per-dimension) outputs. Unifies
     analysis/rsatoolbox_eval/mds_deep_dive.py's _compare() scoring and
-    analysis/behavioral/generalizability.py's _procrustes_compare()."""
+    analysis/build_rdms/behavior/generalizability.py's _procrustes_compare()."""
     conf_a = np.asarray(out_a["conf"]).reshape(-1, ndim)
     conf_b = np.asarray(out_b["conf"]).reshape(-1, ndim)
     disparity = procrustes_m2(conf_a, conf_b)

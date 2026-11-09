@@ -1,4 +1,4 @@
-"""Tests for analysis.behavioral.noise_ceiling's data-generation functions.
+"""Tests for analysis.build_rdms.behavior.noise_ceiling's data-generation functions.
 
 Uses a small synthetic multi-participant SpAM dataset (mirroring
 analysis/build_rdms/__tests__/test_behavioral.py's synthetic-fixture pattern, scaled up
@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import analysis.behavioral.noise_ceiling as noise_ceiling
+import analysis.build_rdms.behavior.noise_ceiling as noise_ceiling
 
 # 6 synthetic images -> C(6,2) = 15 pairs
 _IMAGES = ["img0.png", "img1.png", "img2.png", "img3.png", "img4.png", "img5.png"]
@@ -53,7 +53,7 @@ def _synthetic_trials_by_participant() -> dict[str, list[tuple[np.ndarray, np.nd
     directly into noise_ceiling.py's (indices, values) sparse-trial format (bypassing
     the JSON/DataFrame layer, since this suite targets the LOO/split-half math, not
     the trial-parsing wiring already covered by test_behavioral.py)."""
-    from analysis.build_rdms.behavioral import _condensed_index
+    from analysis.build_rdms.behavior.behavioral import _condensed_index
 
     n_conds = len(_IMAGES)
     img2idx = _image_to_idx()

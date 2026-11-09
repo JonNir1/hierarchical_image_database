@@ -39,13 +39,13 @@ _BUILDERS: dict[str, tuple[str, str, list, dict]] = {
     "sem_wn":    ("analysis.build_rdms.semantic_wn_dir", "build_wn_rdm",     [], {}),
     "clip_pre":  ("analysis.build_rdms.clip",         "build_clip_rdm",     ["pre_shine"], {}),
     "clip_post": ("analysis.build_rdms.clip",         "build_clip_rdm",     ["post_shine"], {}),
-    "behav_pre_evidence":  ("analysis.build_rdms.behavioral", "build_behavioral_rdm",
+    "behav_pre_evidence":  ("analysis.build_rdms.behavior.behavioral", "build_behavioral_rdm",
                              ["pre_shine"], {"aggregation": "evidence"}),
-    "behav_post_evidence": ("analysis.build_rdms.behavioral", "build_behavioral_rdm",
+    "behav_post_evidence": ("analysis.build_rdms.behavior.behavioral", "build_behavioral_rdm",
                              ["post_shine"], {"aggregation": "evidence"}),
-    "behav_pre_mean":      ("analysis.build_rdms.behavioral", "build_behavioral_rdm",
+    "behav_pre_mean":      ("analysis.build_rdms.behavior.behavioral", "build_behavioral_rdm",
                              ["pre_shine"], {"aggregation": "mean"}),
-    "behav_post_mean":     ("analysis.build_rdms.behavioral", "build_behavioral_rdm",
+    "behav_post_mean":     ("analysis.build_rdms.behavior.behavioral", "build_behavioral_rdm",
                              ["post_shine"], {"aggregation": "mean"}),
 }
 

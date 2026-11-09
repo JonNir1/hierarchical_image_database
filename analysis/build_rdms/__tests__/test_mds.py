@@ -1,4 +1,4 @@
-"""Tests for analysis.build_rdms.mds: classical eigenspectrum, the cached weighted-
+"""Tests for analysis.build_rdms.behavior.mds: classical eigenspectrum, the cached weighted-
 SMACOF sweep, and cross-embedding comparison. run_mds_sweep's cache-hit path
 needs no R; its cache-miss (real fit) path is skipped automatically when
 R/rpy2/smacof isn't available, mirroring
@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from scipy.spatial.distance import pdist
 
-from analysis.build_rdms.mds import (
+from analysis.build_rdms.behavior.mds import (
     classical_mds_eigenspectrum, classify_mds_agreement, compare_mds_configs,
     effective_rank, run_mds_sweep,
 )

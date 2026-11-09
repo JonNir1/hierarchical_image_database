@@ -1,4 +1,4 @@
-"""Tests for analysis.build_rdms.behavioral: the SpAM multi-arrangement RDM builder.
+"""Tests for analysis.build_rdms.behavior.behavioral: the SpAM multi-arrangement RDM builder.
 
 Uses a tiny synthetic 4-image manifest and hand-built partial trials (patching
 load_manifest/load_data/save_rdm in the module's own namespace, mirroring the
@@ -17,7 +17,7 @@ from rsatoolbox.rdm.combine import rescale as rsatoolbox_rescale
 from rsatoolbox.rdm.combine import from_partials
 from scipy.spatial.distance import squareform
 
-import analysis.build_rdms.behavioral as behavioral
+import analysis.build_rdms.behavior.behavioral as behavioral
 
 # 4 synthetic images -> C(4,2) = 6 pairs
 _IMAGES = ["img0.png", "img1.png", "img2.png", "img3.png"]
