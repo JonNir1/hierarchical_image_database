@@ -138,7 +138,7 @@ def mwu_family(
 def wilcoxon_effect_size(x: np.ndarray, y: np.ndarray) -> dict:
     """Paired Wilcoxon signed-rank test + matched-pairs rank-biserial effect
     size (R+ - R-) / sum(ranks). Extracts
-    analysis/behavioral/aggregation_comparison.ipynb's former inline
+    analysis/build_rdms/behavior/aggregation_comparison.ipynb's former inline
     _wilcoxon_row()."""
     diff = np.asarray(x) - np.asarray(y)
     diff_nz = diff[diff != 0]

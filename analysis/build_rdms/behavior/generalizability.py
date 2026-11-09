@@ -60,7 +60,7 @@ the function body (mirroring SpAM_Simulations/empirical/gt_construction.py's
 own lazy-import pattern at gt_construction.py:214), so importing this module
 never touches R/rpy2 -- only calling those two functions does. Callers that
 want to guard against R not being configured should probe before calling
-them (see analysis/behavioral/aggregation_comparison.ipynb's Part 2 for the
+them (see analysis/build_rdms/behavior/aggregation_comparison.ipynb's Part 2 for the
 exact pattern).
 
 As with noise_ceiling.py, this module is data-generation only -- no stats
