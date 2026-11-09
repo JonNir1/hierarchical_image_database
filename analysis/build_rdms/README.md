@@ -22,7 +22,7 @@ build_rdms/
               assign_wn_synsets.py  the reference concept assignment it reads
               clip.py             CLIP ViT-B/32 cosine (visual-semantic)
 
-  sensory/    sensory.py          pixel Euclidean, pre and post SHINE
+  sensory/    pixels.py           pixel Euclidean, pre and post SHINE
 ```
 
 `clip.py` sits under `semantic/` rather than `sensory/` because D_CLIP acts as a
