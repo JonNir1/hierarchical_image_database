@@ -1,6 +1,6 @@
 """
 Pre- vs post-SHINE cohort comparison, structure layer (analysis/behavioral/
-cohort_structure.ipynb): MDS-based structural comparison of the two cohorts'
+3_geometry.ipynb): MDS-based structural comparison of the two cohorts'
 behavioral RDMs (eigenvalue scree, weighted-SMACOF stress, cross-cohort
 agreement), the cohort-label permutation test of pre-vs-post RDM agreement, and
 its equivalence counterpart (delete-a-group jackknife CI of observed minus the
@@ -28,7 +28,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from scipy.stats import norm
 
-from analysis.behavioral.cohort_comparison import COHORTS, cohort_colors, cohort_label
+from analysis.behavioral.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
 from analysis.behavioral.noise_ceiling import _parse_trials_by_participant
 from analysis.rdms.behavioral import _combine
 from analysis.rdms.common import REPO_ROOT, image_manifest_index

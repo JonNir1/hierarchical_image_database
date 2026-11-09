@@ -1,6 +1,6 @@
 """
 Pre- vs post-SHINE cohort comparison, data-quality layer (analysis/behavioral/
-cohort_data_quality.ipynb): within-subject test-retest reliability (overall and
+2_data_quality.ipynb): within-subject test-retest reliability (overall and
 over repeat index) and pairwise-distance distributions vs the random-placement
 null (Wasserstein primary, KS secondary).
 
@@ -19,7 +19,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.stats import gaussian_kde, wasserstein_distance
 
-from analysis.behavioral.cohort_comparison import COHORT_COLORS, COHORT_LABEL, COHORTS, cohort_colors, cohort_label
+from analysis.behavioral.demographics_and_behavior import COHORT_COLORS, COHORT_LABEL, COHORTS, cohort_colors, cohort_label
 from analysis.pilot.figures import trial_ks_distance
 from analysis.utils.parser import parse_pairwise_distances
 from analysis.utils.plotting import add_progression_panel, add_violin_dots_panel

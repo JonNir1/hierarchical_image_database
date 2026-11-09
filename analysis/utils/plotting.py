@@ -1,6 +1,6 @@
 """
 Shared plotly scaffolding for the per-group figure idioms used across
-analysis/pilot/figures.py and analysis/behavioral/cohort_comparison.py: a
+analysis/pilot/figures.py and analysis/behavioral/demographics_and_behavior.py: a
 colorblind-safe categorical palette generator, a violin+per-key-dots panel, a
 mean+/-SE-progression-over-x panel (thin per-subject lines underneath), and a
 horizontal %-status bar chart, and an equivalence-test forest plot. None of this is specific to any one notebook's
@@ -71,7 +71,7 @@ def add_violin_dots_panel(
     lets the same function cover both analysis/pilot/figures.py's former
     _add_violin_dots_panel (dots = per-subject mean +/- SD, aggregated from a
     finer-grained trial-level violin) and
-    analysis/behavioral/cohort_comparison.py's former inline violin+dots code
+    analysis/behavioral/demographics_and_behavior.py's former inline violin+dots code
     (dots = the same already-per-subject values as the violin, no error
     bars).
     """
@@ -121,7 +121,7 @@ def add_progression_panel(
     thin per-participant lines underneath, one set of traces per key in
     `frames`. Unifies the identically-named _add_progression_panel() that
     used to live independently in both analysis/pilot/figures.py and
-    analysis/behavioral/cohort_comparison.py.
+    analysis/behavioral/demographics_and_behavior.py.
 
     `show_legend` is per-call (not inferred from `row`) so a caller building
     a multi-row figure can show the legend once, on whichever call it likes
@@ -184,7 +184,7 @@ def fig_group_status_bar(
     """Horizontal %-of-rows bar chart of `status_col` categories, one panel
     per key in `panels`. Unifies analysis/pilot/figures.py's former
     fig_completion_status (bar_colors keyed by status) and
-    analysis/behavioral/cohort_comparison.py's former fig_retention_status
+    analysis/behavioral/demographics_and_behavior.py's former fig_retention_status
     (bar_colors keyed by panel key, one color per panel)."""
     keys = list(panels)
     n_panels = len(keys)

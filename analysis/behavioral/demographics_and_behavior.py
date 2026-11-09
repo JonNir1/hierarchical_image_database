@@ -1,12 +1,12 @@
 """
 Pre- vs post-SHINE cohort comparison, shared layer: cohort labels/colours, the
 retained-subject loader, and the data-prep and figure helpers for the "do the
-cohorts behave the same?" notebook (analysis/behavioral/cohort_comparison.ipynb).
+cohorts behave the same?" notebook (analysis/behavioral/1_demographics_and_behavior.ipynb).
 Retained subjects are production, task_version>=4.0, status=="full data" -- the
 same definition analysis.rdms.behavioral.build_behavioral_rdm() uses.
 
 Companion modules, one per notebook question:
-    cohort_quality.py    -- is the data equally good? (reliability, distance vs null)
+    data_quality.py    -- is the data equally good? (reliability, distance vs null)
     cohort_structure.py  -- do they give the same similarity structure? (MDS, permutation)
 
 Statistical tests are deliberately NOT in these modules -- they are notebook

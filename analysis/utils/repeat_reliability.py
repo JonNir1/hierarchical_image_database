@@ -2,7 +2,7 @@
 Test-retest reliability by repeat index: one Spearman r per verbatim trial
 repeat, ordered within each subject's session. Shared by
 analysis/pilot/figures.py (per task-version group) and
-analysis/behavioral/cohort_quality.py (per SHINE cohort).
+analysis/behavioral/data_quality.py (per SHINE cohort).
 
 Usage (from repo root):
     from analysis.utils.repeat_reliability import repeat_reliability_by_index
