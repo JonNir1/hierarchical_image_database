@@ -33,8 +33,8 @@ import traceback
 
 # name -> (module, function, positional_args, keyword_args)
 _BUILDERS: dict[str, tuple[str, str, list, dict]] = {
-    "sens_pre":  ("analysis.build_rdms.sensory",      "build_sensory_rdm",  ["pre_shine"], {}),
-    "sens_post": ("analysis.build_rdms.sensory",      "build_sensory_rdm",  ["post_shine"], {}),
+    "sens_pre":  ("analysis.build_rdms.sensory.sensory",      "build_sensory_rdm",  ["pre_shine"], {}),
+    "sens_post": ("analysis.build_rdms.sensory.sensory",      "build_sensory_rdm",  ["post_shine"], {}),
     "sem_km":    ("analysis.build_rdms.semantic.semantic_km",  "build_km_rdm",       [], {}),
     "sem_wn":    ("analysis.build_rdms.semantic.semantic_wn_dir", "build_wn_rdm",     [], {}),
     "clip_pre":  ("analysis.build_rdms.semantic.clip",         "build_clip_rdm",     ["pre_shine"], {}),

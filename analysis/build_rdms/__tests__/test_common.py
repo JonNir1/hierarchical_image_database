@@ -1,5 +1,5 @@
 """Tests for analysis.build_rdms.common, analysis.build_rdms.semantic.semantic_km (helpers + smoke),
-and smoke tests for analysis.build_rdms.sensory."""
+and smoke tests for analysis.build_rdms.sensory.sensory."""
 from __future__ import annotations
 
 import json
@@ -543,7 +543,7 @@ def test_build_km_rdm_symmetric(patched_km):
 # sensory smoke test
 # ---------------------------------------------------------------------------
 
-import analysis.build_rdms.sensory as sensory_mod
+import analysis.build_rdms.sensory.sensory as sensory_mod
 
 
 @pytest.fixture()

@@ -8,7 +8,7 @@ Outputs (to analysis/results/rdms/):
     D_sens_post.npy  -- post-SHINE images
 
 Usage (from repo root):
-    python -m analysis.build_rdms.sensory
+    python -m analysis.build_rdms.sensory.sensory
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def build_sensory_rdm(variant: str) -> np.ndarray:
         X,
         save_result=True,
         name=short,
-        source="analysis.build_rdms.sensory",
+        source="analysis.build_rdms.sensory.sensory",
         extra={"variant": variant, "pixel_matrix_shape": list(X.shape)},
     )
     print(f"[sensory] Saved D_{short}.npy  (length {len(condensed)})")

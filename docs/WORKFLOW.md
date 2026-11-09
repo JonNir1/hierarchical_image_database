@@ -18,7 +18,7 @@ has been done and what is pending.
   the non-lossy artifact (re-deriving a distance metric doesn't require re-running
   the encoder); distances are computed from them via the shared, embedder-agnostic
   `common.euclidean_distances()` / `common.cosine_distances()` helpers, with
-  `save_result=True` persisting the RDM in the same call. `analysis/build_rdms/sensory.py`
+  `save_result=True` persisting the RDM in the same call. `analysis/build_rdms/sensory/sensory.py`
   (raw pixels, not a learned embedder) uses `euclidean_distances()` for the same
   reason but does not persist its pixel matrix — at 175×175×3 it would dwarf the RDM.
 
@@ -37,7 +37,7 @@ has been done and what is pending.
       Kiani-Mur labels, WordNet labels, and a per-image **text description**
       (~1 sentence; consumed by SGPT in the exploratory semantic RDM step below).
       Output: `analysis/results/dataset_manifest.csv`. (Distinct from the task's `stimuli_manifest.json`.)
-- [ ] Sensory RDMs. `code: analysis/build_rdms/sensory.py`.
+- [ ] Sensory RDMs. `code: analysis/build_rdms/sensory/sensory.py`.
       flatten images, calculate pairwise Euclidean. No luminance
       renorm (SHINE already handles it). Out: `D_sens_pre.npy`, `D_sens_post.npy`.
 - [ ] Semantic RDM (Kiani-Mur). `code: analysis/build_rdms/semantic/semantic_km.py`.
