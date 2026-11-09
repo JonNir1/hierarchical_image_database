@@ -72,7 +72,7 @@ stem    = filename without extension, trailing digits stripped, lowercased,
 dirname = immediate parent directory name, lowercased.
 
 Usage (from repo root, with .venv active):
-    python -m analysis.build_rdms.assign_wn_synsets
+    python -m analysis.build_rdms.semantic.assign_wn_synsets
 
 Output: images/manifest.csv updated in place (wn_synset_name column).
 """

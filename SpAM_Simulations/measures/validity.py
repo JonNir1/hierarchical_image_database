@@ -55,7 +55,7 @@ def _lca_depth(a: tuple, b: tuple) -> int:
 def hierarchy_levels(manifest_images: Sequence[str]) -> np.ndarray:
     """Condensed vector of LCA depth for every image pair, in ``scipy`` condensed order.
 
-    Deliberately a small reimplementation of ``analysis.build_rdms.semantic_km``'s ``_dir_parts`` /
+    Deliberately a small reimplementation of ``analysis.build_rdms.semantic.semantic_km``'s ``_dir_parts`` /
     ``_lca_depth`` rather than an import: that module pulls in ``analysis.build_rdms.common``, which reads
     the broken ``images/manifest.csv`` and would need a third sparse-checkout path on EC2. The
     tests assert the two agree on a hand-written path list.

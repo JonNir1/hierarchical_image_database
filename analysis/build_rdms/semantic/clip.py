@@ -26,7 +26,7 @@ Requires:
     pip install open_clip_torch
 
 Usage (from repo root):
-    python -m analysis.build_rdms.clip
+    python -m analysis.build_rdms.semantic.clip
 """
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def build_clip_rdm(variant: str) -> np.ndarray:
     meta = {"variant": variant, "model": _MODEL_NAME, "pretrained": _PRETRAINED}
 
     print(f"[clip] Embedding matrix {E.shape}. Saving embeddings ...")
-    save_embeddings(short, E, source="analysis.build_rdms.clip", extra=meta)
+    save_embeddings(short, E, source="analysis.build_rdms.semantic.clip", extra=meta)
     print(f"[clip] Saved E_{short}.npy")
 
     print("[clip] Computing pairwise cosine distances ...")
@@ -87,7 +87,7 @@ def build_clip_rdm(variant: str) -> np.ndarray:
         E,
         save_result=True,
         name=short,
-        source="analysis.build_rdms.clip",
+        source="analysis.build_rdms.semantic.clip",
         extra={**meta, "embedding_dim": E.shape[1]},
     )
     print(f"[clip] Saved D_{short}.npy  (length {len(condensed)})")

@@ -15,7 +15,7 @@ Output (to analysis/results/rdms/):
     D_sem_km.npy
 
 Usage (from repo root):
-    python -m analysis.build_rdms.semantic_km
+    python -m analysis.build_rdms.semantic.semantic_km
 """
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ def build_km_rdm() -> np.ndarray:
         "sem_km",
         condensed,
         metric="km_tree_edge",
-        source="analysis.build_rdms.semantic_km",
+        source="analysis.build_rdms.semantic.semantic_km",
     )
     print(f"[semantic_km] Saved D_sem_km.npy  (length {len(condensed)})")
     return condensed

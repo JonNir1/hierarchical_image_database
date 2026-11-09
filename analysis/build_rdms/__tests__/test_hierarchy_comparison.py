@@ -9,7 +9,7 @@ from scipy.spatial.distance import squareform
 
 import analysis.build_rdms.common as common
 import analysis.build_rdms.hierarchy_comparison as hc
-import analysis.build_rdms.semantic_km as km
+import analysis.build_rdms.semantic.semantic_km as km
 
 B = chr(92)  # backslash, matching the manifest's Windows-style curated_path
 

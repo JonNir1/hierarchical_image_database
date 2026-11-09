@@ -291,7 +291,7 @@ intervals of 5 subjects after reaching N=75).
   are assigned `woman.n.01` or `man.n.01` from a gender token in the filename; human-body
   images resolve via their category dirname (e.g., `clown.n.01`, `child.n.01`, `hand.n.01`).
   Synset assignments are stored in `images/manifest.csv` (column `wn_synset_name`);
-  the assignment code is in `analysis/build_rdms/assign_wn_synsets.py`.
+  the assignment code is in `analysis/build_rdms/semantic/assign_wn_synsets.py`.
   *Note on methodology change*: the original plan was to classify each image with
   ResNet-50 and map the predicted ImageNet class to its WordNet synset. This approach was
   abandoned because ImageNet-1K does not include person, face, or human-body categories,

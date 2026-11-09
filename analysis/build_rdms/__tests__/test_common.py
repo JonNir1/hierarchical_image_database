@@ -1,4 +1,4 @@
-"""Tests for analysis.build_rdms.common, analysis.build_rdms.semantic_km (helpers + smoke),
+"""Tests for analysis.build_rdms.common, analysis.build_rdms.semantic.semantic_km (helpers + smoke),
 and smoke tests for analysis.build_rdms.sensory."""
 from __future__ import annotations
 
@@ -436,7 +436,7 @@ def test_load_rdm_missing_record_raises(patched_results):
 # semantic_km helpers
 # ---------------------------------------------------------------------------
 
-import analysis.build_rdms.semantic_km as km
+import analysis.build_rdms.semantic.semantic_km as km
 
 
 def test_dir_parts_windows_backslash():

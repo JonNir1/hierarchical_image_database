@@ -40,10 +40,10 @@ has been done and what is pending.
 - [ ] Sensory RDMs. `code: analysis/build_rdms/sensory.py`.
       flatten images, calculate pairwise Euclidean. No luminance
       renorm (SHINE already handles it). Out: `D_sens_pre.npy`, `D_sens_post.npy`.
-- [ ] Semantic RDM (Kiani-Mur). `code: analysis/build_rdms/semantic_km.py`.
+- [ ] Semantic RDM (Kiani-Mur). `code: analysis/build_rdms/semantic/semantic_km.py`.
       Per pair: sum of mismatch indicators across the 3 KM tree levels
       (animate/inanimate, mid-level, basic). Out: `D_sem_km.npy`.
-- [ ] Semantic RDM (WordNet). `code: analysis/build_rdms/semantic_wn_dir.py`.
+- [ ] Semantic RDM (WordNet). `code: analysis/build_rdms/semantic/semantic_wn_dir.py`.
       Synsets assigned directly from image category labels (filename stem + directory,
       with manual overrides for polysemous cases; see `images/manifest.csv` column
       `wn_synset_name`). Pairwise WordNet shortest-path distance. Out: `D_sem_wn.npy`.
@@ -52,7 +52,7 @@ has been done and what is pending.
       concepts from the path or from a classifier. Automatic derivation disagrees with
       it for 376 of 717 resolvable images (median 9 WordNet edges) and drops to 3.7%
       agreement on the human branch. Evidence: `analysis/build_rdms/imagenet_vs_path.py`.
-- [ ] Visual-semantic RDM (CLIP). `code: analysis/build_rdms/clip.py`.
+- [ ] Visual-semantic RDM (CLIP). `code: analysis/build_rdms/semantic/clip.py`.
       Load OpenAI pretrained CLIP **ViT-B/32** (via `open_clip`), using the
       `ViT-B-32-quickgelu` config — **not** plain `ViT-B-32`, which pairs OpenAI's
       QuickGELU-trained weights with standard-GELU activations and silently shifts
@@ -65,12 +65,12 @@ has been done and what is pending.
       post-SHINE images.
       Out: `E_clip_pre.npy`, `E_clip_post.npy` (raw embeddings),
       `D_clip_pre.npy`, `D_clip_post.npy` (condensed RDM).
-- [ ] (Exploratory) High-level visual RDM (VGG-16). `code: analysis/build_rdms/visual_vgg.py`.
+- [ ] (Exploratory) High-level visual RDM (VGG-16). `code: analysis/build_rdms/semantic/visual_vgg.py`.
       Load ImageNet-pretrained VGG-16 from `torchvision`. Forward-pass each image and
       extract **FC7 penultimate-layer** activations (Shoham et al. 2024 spec).
       Pairwise **cosine** distance via `cosine_distances()`. Run pre and post SHINE.
       Out: `E_vgg_pre.npy`, `E_vgg_post.npy`, `D_vgg_pre.npy`, `D_vgg_post.npy`.
-- [ ] (Exploratory) SGPT-based semantic RDM. `code: analysis/build_rdms/semantic_sgpt.py`.
+- [ ] (Exploratory) SGPT-based semantic RDM. `code: analysis/build_rdms/semantic/semantic_sgpt.py`.
       Requires per-image text descriptions in the dataset manifest (Shoham et al.
       used first-paragraph Wikipedia / dictionary definitions). Encode each description
       with **SGPT-1.3B-msmarco-mean-tokens** (bi-encoder), take output layer.
