@@ -15,7 +15,7 @@ Output (to analysis/results/rdms/):
     D_sem_km.npy
 
 Usage (from repo root):
-    python -m analysis.build_rdms.semantic.semantic_km
+    python -m analysis.build_rdms.semantic.kiani
 """
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def build_km_rdm() -> np.ndarray:
     depths = np.array([len(p) for p in dir_parts], dtype=np.float64)
     n = len(dir_parts)
     max_depth = int(depths.max())
-    print(f"[semantic_km] Building LCA matrix for {n} images (max depth {max_depth}) ...")
+    print(f"[kiani] Building LCA matrix for {n} images (max depth {max_depth}) ...")
 
     # Build LCA matrix: for each level l, images sharing the same path prefix
     # of length l have LCA >= l. Overwriting with increasing l leaves each cell
@@ -94,9 +94,9 @@ def build_km_rdm() -> np.ndarray:
         "sem_km",
         condensed,
         metric="km_tree_edge",
-        source="analysis.build_rdms.semantic.semantic_km",
+        source="analysis.build_rdms.semantic.kiani",
     )
-    print(f"[semantic_km] Saved D_sem_km.npy  (length {len(condensed)})")
+    print(f"[kiani] Saved D_sem_km.npy  (length {len(condensed)})")
     return condensed
 
 

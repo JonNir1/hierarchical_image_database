@@ -1,7 +1,7 @@
 """Tests for analysis.build_rdms.behavior.noise_ceiling's data-generation functions.
 
 Uses a small synthetic multi-participant SpAM dataset (mirroring
-analysis/build_rdms/__tests__/test_behavioral.py's synthetic-fixture pattern, scaled up
+analysis/build_rdms/__tests__/test_spam_ratings.py's synthetic-fixture pattern, scaled up
 to enough participants for leave-one-out/split-half to be meaningful) so this
 suite needs neither a real 725-image dataset nor real SpAM session data.
 
@@ -52,8 +52,8 @@ def _synthetic_trials_by_participant() -> dict[str, list[tuple[np.ndarray, np.nd
     """8 synthetic participants, each with 3 trials of 4 overlapping images, parsed
     directly into noise_ceiling.py's (indices, values) sparse-trial format (bypassing
     the JSON/DataFrame layer, since this suite targets the LOO/split-half math, not
-    the trial-parsing wiring already covered by test_behavioral.py)."""
-    from analysis.build_rdms.behavior.behavioral import _condensed_index
+    the trial-parsing wiring already covered by test_spam_ratings.py)."""
+    from analysis.build_rdms.behavior.spam_ratings import _condensed_index
 
     n_conds = len(_IMAGES)
     img2idx = _image_to_idx()

@@ -33,19 +33,19 @@ import traceback
 
 # name -> (module, function, positional_args, keyword_args)
 _BUILDERS: dict[str, tuple[str, str, list, dict]] = {
-    "sens_pre":  ("analysis.build_rdms.sensory.sensory",      "build_sensory_rdm",  ["pre_shine"], {}),
-    "sens_post": ("analysis.build_rdms.sensory.sensory",      "build_sensory_rdm",  ["post_shine"], {}),
-    "sem_km":    ("analysis.build_rdms.semantic.semantic_km",  "build_km_rdm",       [], {}),
-    "sem_wn":    ("analysis.build_rdms.semantic.semantic_wn_dir", "build_wn_rdm",     [], {}),
+    "sens_pre":  ("analysis.build_rdms.sensory.pixels",      "build_sensory_rdm",  ["pre_shine"], {}),
+    "sens_post": ("analysis.build_rdms.sensory.pixels",      "build_sensory_rdm",  ["post_shine"], {}),
+    "sem_km":    ("analysis.build_rdms.semantic.kiani",  "build_km_rdm",       [], {}),
+    "sem_wn":    ("analysis.build_rdms.semantic.wordnet", "build_wn_rdm",     [], {}),
     "clip_pre":  ("analysis.build_rdms.semantic.clip",         "build_clip_rdm",     ["pre_shine"], {}),
     "clip_post": ("analysis.build_rdms.semantic.clip",         "build_clip_rdm",     ["post_shine"], {}),
-    "behav_pre_evidence":  ("analysis.build_rdms.behavior.behavioral", "build_behavioral_rdm",
+    "behav_pre_evidence":  ("analysis.build_rdms.behavior.spam_ratings", "build_behavioral_rdm",
                              ["pre_shine"], {"aggregation": "evidence"}),
-    "behav_post_evidence": ("analysis.build_rdms.behavior.behavioral", "build_behavioral_rdm",
+    "behav_post_evidence": ("analysis.build_rdms.behavior.spam_ratings", "build_behavioral_rdm",
                              ["post_shine"], {"aggregation": "evidence"}),
-    "behav_pre_mean":      ("analysis.build_rdms.behavior.behavioral", "build_behavioral_rdm",
+    "behav_pre_mean":      ("analysis.build_rdms.behavior.spam_ratings", "build_behavioral_rdm",
                              ["pre_shine"], {"aggregation": "mean"}),
-    "behav_post_mean":     ("analysis.build_rdms.behavior.behavioral", "build_behavioral_rdm",
+    "behav_post_mean":     ("analysis.build_rdms.behavior.spam_ratings", "build_behavioral_rdm",
                              ["post_shine"], {"aggregation": "mean"}),
 }
 

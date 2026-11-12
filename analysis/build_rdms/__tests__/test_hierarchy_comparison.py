@@ -9,7 +9,7 @@ from scipy.spatial.distance import squareform
 
 import analysis.build_rdms.common as common
 import analysis.build_rdms.hierarchy_comparison as hc
-import analysis.build_rdms.semantic.semantic_km as km
+import analysis.build_rdms.semantic.kiani as km
 
 B = chr(92)  # backslash, matching the manifest's Windows-style curated_path
 
@@ -90,7 +90,7 @@ class TestTreeDerivation:
 # ---------------------------------------------------------------------------
 
 class TestReconstruction:
-    def test_matches_semantic_km_builder(self, toy_tree, monkeypatch, tmp_path):
+    def test_matches_kiani_builder(self, toy_tree, monkeypatch, tmp_path):
         """The independent reimplementation must agree with the real builder.
 
         This is the check the notebook relies on. hierarchy_comparison keeps its

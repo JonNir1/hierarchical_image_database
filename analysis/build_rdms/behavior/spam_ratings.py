@@ -51,7 +51,7 @@ here -- at this project's real data size (~1,700+ trials) that array alone is
 iterative loop, enough to push a single process past 10GB RSS on a 16GB
 machine without finishing. _sparse_combine() runs the exact same algorithm
 (verified against rsatoolbox's own from_partials()+rescale()+mean() on
-synthetic data in __tests__/test_behavioral.py) over each trial's own
+synthetic data in __tests__/test_spam_ratings.py) over each trial's own
 (indices, values) pairs plus one dense (262_450,) running estimate, instead of
 a dense (n_trials, 262_450) array -- no behavior change, only memory footprint
 (rsatoolbox itself is still a required dependency, used for that equivalence
@@ -70,7 +70,7 @@ contributes real perceptual judgements from both blocks, not just the
 experimental one.
 
 Usage (from repo root, with the main checkout's .venv active):
-    python -m analysis.build_rdms.behavior.behavioral --cache-dir <path to analysis/results/parsed_data>
+    python -m analysis.build_rdms.behavior.spam_ratings --cache-dir <path to analysis/results/parsed_data>
 """
 from __future__ import annotations
 
@@ -184,7 +184,7 @@ def _sparse_combine(
     Reimplements rsatoolbox.rdm.combine.rescale() + RDMs.mean(weights='rescalingWeights')
     (see module docstring for why) over sparse per-trial (indices, values) pairs instead
     of materializing a dense (n_trials, vector_len) array. Verified against rsatoolbox's
-    own dense implementation in __tests__/test_behavioral.py.
+    own dense implementation in __tests__/test_spam_ratings.py.
 
     Returns (final_condensed, n_obs_per_pair) -- final_condensed is NaN at pair positions
     with zero total observations across every trial.
@@ -390,7 +390,7 @@ def build_behavioral_rdm(
         short,
         condensed,
         metric=metric,
-        source="analysis.build_rdms.behavior.behavioral",
+        source="analysis.build_rdms.behavior.spam_ratings",
         extra={
             "variant": variant,
             "n_participants": int(len(participants)),

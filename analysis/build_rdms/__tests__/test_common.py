@@ -1,5 +1,5 @@
-"""Tests for analysis.build_rdms.common, analysis.build_rdms.semantic.semantic_km (helpers + smoke),
-and smoke tests for analysis.build_rdms.sensory.sensory."""
+"""Tests for analysis.build_rdms.common, analysis.build_rdms.semantic.kiani (helpers + smoke),
+and smoke tests for analysis.build_rdms.sensory.pixels."""
 from __future__ import annotations
 
 import json
@@ -433,10 +433,10 @@ def test_load_rdm_missing_record_raises(patched_results):
 
 
 # ---------------------------------------------------------------------------
-# semantic_km helpers
+# kiani helpers
 # ---------------------------------------------------------------------------
 
-import analysis.build_rdms.semantic.semantic_km as km
+import analysis.build_rdms.semantic.kiani as km
 
 
 def test_dir_parts_windows_backslash():
@@ -470,7 +470,7 @@ def test_lca_depth_one_shallower():
 
 
 # ---------------------------------------------------------------------------
-# semantic_km smoke test (build_km_rdm with synthetic manifest)
+# kiani smoke test (build_km_rdm with synthetic manifest)
 # ---------------------------------------------------------------------------
 
 def _make_synthetic_manifest(paths: list[str]) -> pd.DataFrame:
@@ -543,7 +543,7 @@ def test_build_km_rdm_symmetric(patched_km):
 # sensory smoke test
 # ---------------------------------------------------------------------------
 
-import analysis.build_rdms.sensory.sensory as sensory_mod
+import analysis.build_rdms.sensory.pixels as sensory_mod
 
 
 @pytest.fixture()
