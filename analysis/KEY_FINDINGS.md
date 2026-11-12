@@ -36,7 +36,6 @@ Notebook: [`behavioral/3_geometry.ipynb`](behavioral/3_geometry.ipynb) (commit `
 - **Label permutation:** the raw pre-post agreement (tau 0.148, rho 0.220) is no lower than for shuffled cohort labels (null mean 0.148 and 0.220, one-sided p=0.44 for both, 500 permutations). There is no detectable cohort effect on the similarity structure.
 - **Equivalence of agreement:** observed minus the exchangeable expectation is -0.0002 for tau (90% CI [-0.005, 0.005], bound +/-0.01) and -0.0004 for rho (CI [-0.007, 0.007], bound +/-0.02), so the cohorts agree as much as identical cohorts would, to within about 0.01 to 0.02.
 - **Stress:** stress-1 falls from about 0.45 (d=2) to about 0.36 (d=15) in both cohorts, with no sharp elbow. All 28 fits converged at `max_iters=1000`.
-- **Caveat, eigenvalue scree:** the classical-MDS scree is not valid at this coverage. Mean-imputation gives an "effective rank" of 354 (pre) and 353 (post) out of 725, the artifact documented in `SpAM_Simulations/empirical/gt_construction.py`. Do not use it to choose dimensionality.
 
 ## Choice of RDM aggregation method
 
