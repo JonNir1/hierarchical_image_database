@@ -2,15 +2,16 @@
 Shared plotly scaffolding for the per-group figure idioms used across
 analysis/pilot/figures.py and analysis/behavioral/demographics_and_behavior.py: a
 colorblind-safe categorical palette generator, a violin+per-key-dots panel, a
-mean+/-SE-progression-over-x panel (thin per-subject lines underneath), and a
-horizontal %-status bar chart, and an equivalence-test forest plot. None of this is specific to any one notebook's
+mean+/-SE-progression-over-x panel (thin per-subject lines underneath), a
+split violin (one group per side), a horizontal %-status bar chart, and an
+equivalence-test forest plot. None of this is specific to any one notebook's
 grouping (task version, SHINE cohort, aggregation method, ...) -- callers
 supply their own keys/frames/colors/labels.
 
 Usage (from repo root):
     from analysis.utils.plotting import (
-        role_palette, add_violin_dots_panel, add_progression_panel, fig_group_status_bar,
-        fig_equivalence_forest,
+        role_palette, add_violin_dots_panel, add_progression_panel, add_split_violin,
+        fig_group_status_bar, fig_equivalence_forest,
     )
 """
 from __future__ import annotations
@@ -115,11 +116,11 @@ def add_violin_dots_panel(
 def add_progression_panel(
     fig: go.Figure, frames: dict[str, pd.DataFrame], value_col: str, x_col: str, *, row: int, col_idx: int = 1,
     xaxis_title: str = "", yaxis_title: str = "", colors: dict, labels: dict | None = None,
-    show_legend: bool = False,
+    show_legend: bool = False, show_participants: bool = True,
 ) -> None:
     """Mean +/- SE line over `x_col` (e.g. trial number, repeat index), with
-    thin per-participant lines underneath, one set of traces per key in
-    `frames`. Unifies the identically-named _add_progression_panel() that
+    thin per-participant lines underneath (unless `show_participants` is
+    False), one set of traces per key in `frames`. Unifies the identically-named _add_progression_panel() that
     used to live independently in both analysis/pilot/figures.py and
     analysis/behavioral/demographics_and_behavior.py.
 
@@ -131,13 +132,14 @@ def add_progression_panel(
     for key, df in frames.items():
         c = colors[key]
 
-        for _pid, grp in df.groupby("participant_id"):
-            grp_sorted = grp.sort_values(x_col)
-            fig.add_trace(go.Scatter(
-                x=grp_sorted[x_col], y=grp_sorted[value_col],
-                mode="lines", line={"color": c["subj"], "width": 1},
-                showlegend=False, hoverinfo="skip", legendgroup=key,
-            ), row=row, col=col_idx)
+        if show_participants:
+            for _pid, grp in df.groupby("participant_id"):
+                grp_sorted = grp.sort_values(x_col)
+                fig.add_trace(go.Scatter(
+                    x=grp_sorted[x_col], y=grp_sorted[value_col],
+                    mode="lines", line={"color": c["subj"], "width": 1},
+                    showlegend=False, hoverinfo="skip", legendgroup=key,
+                ), row=row, col=col_idx)
 
         agg = (
             df.groupby(x_col)[value_col]
@@ -164,6 +166,44 @@ def add_progression_panel(
 
     fig.update_xaxes(title_text=xaxis_title, row=row, col=col_idx)
     fig.update_yaxes(title_text=yaxis_title, row=row, col=col_idx)
+
+
+def add_split_violin(
+    fig: go.Figure, left_values, right_values, *, left_key, right_key, colors: dict, labels: dict,
+    position: float = 0.0, width: float = 0.9, row: int = 1, col_idx: int = 1, secondary_y: bool = False,
+    left_dots=None, right_dots=None, show_participants: bool = True, show_legend: bool = False,
+    box_visible: bool = False, seed: int = 0,
+) -> None:
+    """One vertical split violin centred on x = `position`: `left_values` fill
+    the left half (coloured by `colors[left_key]`), `right_values` the right
+    half (`colors[right_key]`). Optional `left_dots` / `right_dots` (e.g.
+    per-subject values when the violins hold trial-level data) are drawn as
+    jittered markers within the matching half, unless `show_participants` is
+    False. `show_legend` adds the two halves to the legend (grouped by key, so
+    other traces with the same legendgroup toggle together). `secondary_y`
+    draws on the subplot's secondary y-axis (needs a secondary_y spec in
+    make_subplots). Several calls with different `position`s put several split
+    violins on one subplot; the caller sets the x tick labels."""
+    extra = {"secondary_y": True} if secondary_y else {}
+    rng = np.random.default_rng(seed)
+    for key, values, dots, side, sign in (
+        (left_key, left_values, left_dots, "negative", -1), (right_key, right_values, right_dots, "positive", 1),
+    ):
+        c = colors[key]
+        fig.add_trace(go.Violin(
+            x0=position, y=np.asarray(values, dtype=float), width=width, side=side, points=False,
+            fillcolor=c["violin"], line_color=c["violin_line"], meanline_visible=True, box_visible=box_visible,
+            name=labels[key], legendgroup=key, showlegend=show_legend,
+        ), row=row, col=col_idx, **extra)
+        if not show_participants or dots is None:
+            continue
+        dots = np.asarray(dots, dtype=float)
+        fig.add_trace(go.Scatter(
+            x=position + sign * rng.uniform(0.04, 0.3 * width, size=len(dots)), y=dots, mode="markers",
+            marker={"color": c["dot"], "size": 6, "opacity": 0.8}, showlegend=False, legendgroup=key,
+            name=f"{labels[key]} subjects", hovertemplate="%{y:.3f}<extra></extra>",
+        ), row=row, col=col_idx, **extra)
+    fig.update_layout(violinmode="overlay")
 
 
 def _bar_color_for(bar_colors: dict[str, str], panel_key, status) -> str:

@@ -10,7 +10,7 @@ import pytest
 from scipy.spatial.distance import pdist
 
 from analysis.build_rdms.behavior.mds import (
-    classical_mds_eigenspectrum, classify_mds_agreement, compare_mds_configs,
+    classical_mds_eigenspectrum, classify_mds_agreement, compare_mds_configs, embedding_eigenspectrum,
     effective_rank, run_mds_sweep,
 )
 
@@ -49,6 +49,16 @@ def test_classical_mds_eigenspectrum_imputes_missing_pairs():
     eig = classical_mds_eigenspectrum(with_missing)
     assert eig.shape == (n_points,)
     assert not np.any(np.isnan(eig))
+
+
+def test_embedding_eigenspectrum_matches_gram_of_own_distances():
+    pts = np.random.default_rng(2).random((12, 3)) * [4.0, 2.0, 1.0]
+    raw = embedding_eigenspectrum(pts, normalize=False)
+    gram_top = classical_mds_eigenspectrum(pdist(pts))[:3]
+    np.testing.assert_allclose(raw, gram_top, rtol=1e-8)
+    normalized = embedding_eigenspectrum(pts)
+    assert normalized.sum() == pytest.approx(1.0)
+    assert np.all(np.diff(normalized) <= 1e-12)
 
 
 def test_effective_rank_threshold():

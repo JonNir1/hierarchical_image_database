@@ -1,17 +1,17 @@
 """
 Pre- vs post-SHINE cohort comparison, structure layer (analysis/behavioral/
 3_geometry.ipynb): MDS-based structural comparison of the two cohorts'
-behavioral RDMs (eigenvalue scree, weighted-SMACOF stress, cross-cohort
+behavioral RDMs (weighted-SMACOF stress, embedding eigenvalue spectra, cross-cohort
 agreement), the cohort-label permutation test of pre-vs-post RDM agreement, and
 its equivalence counterpart (delete-a-group jackknife CI of observed minus the
 exchangeable-null expectation).
 
-MDS-embedding logic itself (classical eigenspectrum, cached SMACOF sweep,
+MDS-embedding logic itself (embedding eigenspectrum, cached SMACOF sweep,
 cross-embedding comparison) lives in analysis/build_rdms/behavior/mds.py.
 
 Usage (from repo root):
     from analysis.behavioral.cohort_structure import (
-        MDS_CACHE_DIR, PERMUTATION_CACHE_DIR, fig_eigenvalue_scree, fig_stress_scree,
+        MDS_CACHE_DIR, PERMUTATION_CACHE_DIR, fig_stress_scree, fig_embedding_spectrum,
         fig_cross_cohort_agreement, permutation_test_cohort_agreement, fig_permutation_null,
         equivalence_test_cohort_agreement,
     )
@@ -26,6 +26,7 @@ from typing import Callable, Sequence
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from scipy.stats import norm
 
 from analysis.behavioral.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
@@ -43,27 +44,30 @@ RdmBuilder = Callable[[Sequence[str]], np.ndarray]
 _worker_builder: RdmBuilder | None = None
 
 
-def fig_eigenvalue_scree(eig_by_cohort: dict[str, np.ndarray], max_dims: int) -> go.Figure:
-    """Line+marker scree plot of the first *max_dims* classical-MDS
-    eigenvalues, one trace per cohort. See
-    analysis.build_rdms.behavior.mds.classical_mds_eigenspectrum()'s caveat -- qualitative
-    view only, not a validated dimensionality estimate at this RDM's
-    coverage level."""
-    fig = go.Figure()
-    x = list(range(1, max_dims + 1))
-    for cohort in COHORTS:
-        cc = cohort_colors(cohort)
-        fig.add_trace(go.Scatter(
-            x=x, y=eig_by_cohort[cohort][:max_dims].tolist(),
-            mode="lines+markers", line={"color": cc["main"], "width": 2.5},
-            marker={"size": 8, "color": cc["main"]}, name=cohort_label(cohort),
-        ))
-    fig.update_xaxes(title_text="Component", tickvals=x)
-    fig.update_yaxes(title_text="Eigenvalue")
+def fig_embedding_spectrum(spectra_by_dim: dict[int, dict[str, np.ndarray]]) -> go.Figure:
+    """One subplot per embedding dimensionality (shared y-axis), each with a
+    line+marker eigenvalue spectrum per cohort: the share of variance along
+    each principal axis of the fitted SMACOF embedding
+    (analysis.build_rdms.behavior.mds.embedding_eigenspectrum(), normalised)."""
+    dims = list(spectra_by_dim)
+    fig = make_subplots(
+        rows=1, cols=len(dims), shared_yaxes=True, subplot_titles=[f"{d} dimensions" for d in dims],
+        horizontal_spacing=0.04,
+    )
+    for col_idx, dim in enumerate(dims, start=1):
+        for cohort in COHORTS:
+            cc = cohort_colors(cohort)
+            fig.add_trace(go.Scatter(
+                x=list(range(1, dim + 1)), y=spectra_by_dim[dim][cohort].tolist(),
+                mode="lines+markers", line={"color": cc["main"], "width": 2.5},
+                marker={"size": 7, "color": cc["main"]}, name=cohort_label(cohort), legendgroup=cohort,
+                showlegend=col_idx == 1,
+            ), row=1, col=col_idx)
+        fig.update_xaxes(title_text="Component", tickvals=list(range(1, dim + 1)), row=1, col=col_idx)
+    fig.update_yaxes(title_text="Proportion of variance (eigenvalue)", row=1, col=1)
     fig.update_layout(
-        template="plotly_white",
-        title=f"Classical-MDS eigenvalue scree (mean-imputed -- qualitative only, first {max_dims} components)",
-        height=420, margin={"l": 70, "r": 40, "t": 70, "b": 60},
+        template="plotly_white", title="Eigenvalue spectrum of the MDS embeddings",
+        height=420, margin={"l": 70, "r": 40, "t": 80, "b": 60},
     )
     return fig
 
@@ -112,7 +116,7 @@ def fig_cross_cohort_agreement(agreement_by_x: dict[str, dict], dims: list[int])
     fig.add_trace(go.Scatter(x=x_labels, y=spearman, mode="lines+markers", name="Spearman rho", line={"color": _AGREEMENT_COLORS["spearman"], "width": 2.5}, marker={"size": 8}))
     fig.add_trace(go.Scatter(x=x_labels, y=one_minus_m2, mode="lines+markers", name="1 - Procrustes m2", line={"color": _AGREEMENT_COLORS["one_minus_m2"], "width": 2.5}, marker={"size": 8}))
 
-    fig.update_xaxes(title_text="Comparison", type="category")
+    fig.update_xaxes(title_text="Embedding dimensionality", type="category")
     fig.update_yaxes(title_text="Agreement (bigger = better)")
     fig.update_layout(
         template="plotly_white",
