@@ -34,7 +34,7 @@ from plotly.subplots import make_subplots
 from analysis.build_rdms.behavior.spam_ratings import _build_trials, _mean_combine, _select_participants
 from analysis.build_rdms.common import image_manifest_index
 from analysis.utils.load_data import load_data
-from analysis.utils.plotting import add_progression_panel, fig_group_status_bar, role_palette
+from analysis.utils.plotting import add_progression_panel, add_split_violin, fig_group_status_bar, role_palette
 
 # ---------------------------------------------------------------------------
 # Cohort labels / colours
@@ -137,29 +137,28 @@ def load_retained_cohorts(cache_dir: Path) -> dict:
 
 def fig_trial_time_moves(
     trials_by_cohort: dict[str, pd.DataFrame], subj_stats_by_cohort: dict[str, pd.DataFrame],
+    *, show_participants: bool = True,
 ) -> go.Figure:
     """3-panel figure comparing trial dynamics between cohorts (main trials
-    only): trial-duration distribution, number-of-moves distribution (both
-    per-trial violins), and per-subject mean moves vs. mean duration scatter --
-    styled like analysis/pilot/figures.py's fig_duration_vs_moves."""
+    only): trial-duration and number-of-moves distributions (per-trial split
+    violins, pre on the left and post on the right, with per-subject mean dots
+    when `show_participants`), and a per-subject mean moves vs. mean duration
+    scatter -- styled like analysis/pilot/figures.py's fig_duration_vs_moves."""
     fig = make_subplots(
         rows=1, cols=3,
         subplot_titles=["Trial duration", "Number of moves", "Moves vs. duration (per subject)"],
     )
+    for col_idx, column in ((1, "rt_s"), (2, "num_moves")):
+        add_split_violin(
+            fig, trials_by_cohort["pre"][column], trials_by_cohort["post"][column],
+            left_key="pre", right_key="post", colors=COHORT_COLORS, labels=COHORT_LABEL,
+            left_dots=subj_stats_by_cohort["pre"][column], right_dots=subj_stats_by_cohort["post"][column],
+            show_participants=show_participants, show_legend=col_idx == 1, box_visible=True, row=1, col_idx=col_idx,
+        )
+        fig.update_xaxes(showticklabels=False, range=[-0.6, 0.6], row=1, col=col_idx)
+
     for cohort in COHORTS:
         cc = cohort_colors(cohort)
-        tdf = trials_by_cohort[cohort]
-        fig.add_trace(go.Violin(
-            y=tdf["rt_s"], x0=cohort_label(cohort), name=cohort_label(cohort), legendgroup=cohort,
-            marker_color=cc["main"], fillcolor=cc["violin"], line_color=cc["violin_line"],
-            box_visible=True, meanline_visible=True, points=False, showlegend=True,
-        ), row=1, col=1)
-        fig.add_trace(go.Violin(
-            y=tdf["num_moves"], x0=cohort_label(cohort), name=cohort_label(cohort), legendgroup=cohort,
-            marker_color=cc["main"], fillcolor=cc["violin"], line_color=cc["violin_line"],
-            box_visible=True, meanline_visible=True, points=False, showlegend=False,
-        ), row=1, col=2)
-
         sdf = subj_stats_by_cohort[cohort]
         fig.add_trace(go.Scatter(
             x=sdf["num_moves"], y=sdf["rt_s"], mode="markers",
@@ -184,8 +183,8 @@ def fig_trial_time_moves(
 
 def fig_trial_progression(trials_by_cohort: dict[str, pd.DataFrame]) -> go.Figure:
     """2-row figure: mean +/- SE trial duration (top) and number of moves
-    (bottom) over trial number within the session (main trials only), with
-    thin per-subject lines underneath -- via
+    (bottom) over trial number within the session (main trials only), without
+    the per-subject lines -- via
     analysis.utils.plotting.add_progression_panel(), same progression-panel
     style as analysis/pilot/figures.py's fig_trial_duration/fig_moves bottom
     rows, grouped by SHINE cohort instead of task version."""
@@ -196,11 +195,11 @@ def fig_trial_progression(trials_by_cohort: dict[str, pd.DataFrame]) -> go.Figur
     )
     add_progression_panel(
         fig, trials_by_cohort, "rt_s", "trial_id", row=1, colors=COHORT_COLORS, labels=COHORT_LABEL,
-        xaxis_title="Trial number", yaxis_title="Trial duration (s)", show_legend=True,
+        xaxis_title="Trial number", yaxis_title="Trial duration (s)", show_legend=True, show_participants=False,
     )
     add_progression_panel(
         fig, trials_by_cohort, "num_moves", "trial_id", row=2, colors=COHORT_COLORS, labels=COHORT_LABEL,
-        xaxis_title="Trial number", yaxis_title="Moves per trial", show_legend=False,
+        xaxis_title="Trial number", yaxis_title="Moves per trial", show_legend=False, show_participants=False,
     )
 
     fig.update_layout(

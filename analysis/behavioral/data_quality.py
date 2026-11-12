@@ -22,7 +22,7 @@ from scipy.stats import gaussian_kde, wasserstein_distance
 from analysis.behavioral.demographics_and_behavior import COHORT_COLORS, COHORT_LABEL, COHORTS, cohort_colors, cohort_label
 from analysis.pilot.figures import trial_ks_distance
 from analysis.utils.parser import parse_pairwise_distances
-from analysis.utils.plotting import add_progression_panel, add_violin_dots_panel
+from analysis.utils.plotting import add_progression_panel, add_split_violin
 
 
 def subject_reliability(df_trials: pd.DataFrame, participant_ids: pd.Series | list) -> pd.Series:
@@ -96,35 +96,38 @@ def subject_ks_distance(df_trials_main: pd.DataFrame, null_distribution: np.ndar
 # ---------------------------------------------------------------------------
 
 
-def fig_reliability(rel_by_cohort: dict[str, pd.Series]) -> go.Figure:
+def fig_reliability(rel_by_cohort: dict[str, pd.Series], *, show_participants: bool = True) -> go.Figure:
     """Within-subject reliability (per-subject mean Spearman r across trial
-    repeats), one horizontal violin + individual subject dots per cohort --
-    via analysis.utils.plotting.add_violin_dots_panel(), styled like
-    analysis/pilot/figures.py's fig_reliability violin panel."""
+    repeats): one split violin, pre on the left and post on the right, with
+    individual subject dots when `show_participants` -- via
+    analysis.utils.plotting.add_split_violin()."""
     fig = make_subplots(rows=1, cols=1)
-    violins = {c: rel_by_cohort[c].values for c in COHORTS}
-    dots = {c: pd.DataFrame({"value": np.sort(rel_by_cohort[c].values)}) for c in COHORTS}
-    add_violin_dots_panel(
-        fig, violins, dots, row=1, colors=COHORT_COLORS, labels=COHORT_LABEL,
-        xaxis_title="Within-subject reliability (Spearman r)",
+    values = {c: rel_by_cohort[c].values for c in COHORTS}
+    add_split_violin(
+        fig, values["pre"], values["post"], left_key="pre", right_key="post", colors=COHORT_COLORS,
+        labels=COHORT_LABEL, left_dots=values["pre"], right_dots=values["post"],
+        show_participants=show_participants, show_legend=True,
     )
+    fig.update_xaxes(showticklabels=False, range=[-0.6, 0.6])
+    fig.update_yaxes(title_text="Within-subject reliability (Spearman r)")
     fig.update_layout(
         template="plotly_white",
         title="Within-subject reliability by cohort",
-        height=380, margin={"l": 100, "r": 40, "t": 60, "b": 60},
+        height=420, margin={"l": 70, "r": 40, "t": 60, "b": 40},
         showlegend=True,
     )
     return fig
 
 
 def fig_repeat_reliability(repeat_by_cohort: dict[str, pd.DataFrame]) -> go.Figure:
-    """Test-retest Spearman r over repeat index (mean +/- SE per repeat, thin
-    per-subject lines underneath), one trace per cohort -- via
+    """Test-retest Spearman r over repeat index (mean +/- SE per repeat), one
+    trace per cohort, without the per-subject lines -- via
     analysis.utils.plotting.add_progression_panel()."""
     fig = make_subplots(rows=1, cols=1)
     add_progression_panel(
         fig, repeat_by_cohort, "spearman_r", "repeat_index", row=1, colors=COHORT_COLORS, labels=COHORT_LABEL,
         xaxis_title="Repeat #", yaxis_title="Spearman r (repeat vs. original)", show_legend=True,
+        show_participants=False,
     )
     n_repeats = max(int(df["repeat_index"].max()) for df in repeat_by_cohort.values())
     fig.update_xaxes(tickvals=list(range(1, n_repeats + 1)))
@@ -142,13 +145,15 @@ def fig_distance_vs_null(
     null_distribution: np.ndarray,
     wasserstein_by_cohort: dict[str, pd.Series],
     ks_by_cohort: dict[str, pd.Series],
+    *, show_participants: bool = True,
 ) -> go.Figure:
     """2x3 grid: top row (spans all 3 cols) = per-cohort KDE of pairwise SpAM
-    distances vs. the random-placement null; bottom-left = per-cohort
-    deviation from null (KDE_cohort - KDE_null); bottom-middle = per-subject
-    Wasserstein distance from null, violin + dots (primary distance-from-null
-    measure, see trial_wasserstein_distance()); bottom-right = the same for
-    KS distance (secondary/shape-robustness check). Adapted from
+    distances vs. the random-placement null; bottom-left = per-subject
+    distance from null as two split violins (pre left, post right): Wasserstein
+    on the left y-axis (primary, see trial_wasserstein_distance()) and KS on
+    the right y-axis (secondary/shape-robustness check); bottom-middle =
+    density difference between cohorts (KDE_pre - KDE_post); bottom-right =
+    per-cohort deviation from null (KDE_cohort - KDE_null). Adapted from
     analysis/pilot/figures.py's fig_pairwise_distance_distribution, grouped by
     SHINE cohort instead of task version."""
     x = np.linspace(0.0, 1.0, 500)
@@ -158,12 +163,12 @@ def fig_distance_vs_null(
 
     fig = make_subplots(
         rows=2, cols=3,
-        specs=[[{"colspan": 3}, None, None], [{}, {}, {}]],
+        specs=[[{"colspan": 3}, None, None], [{"secondary_y": True}, {}, {}]],
         subplot_titles=[
             f"Pairwise SpAM distance distribution (n={total_obs:,} pair observations)",
+            "Distance from null per subject",
+            "Δ density pre - post",
             "Δ density vs. null",
-            "Wasserstein distance from null per subject (primary)",
-            "KS distance from null per subject (secondary)",
         ],
         row_heights=[0.42, 0.58], vertical_spacing=0.18, horizontal_spacing=0.1,
     )
@@ -187,28 +192,39 @@ def fig_distance_vs_null(
             fill="tozeroy", fillcolor=cc["violin"],
             line={"color": cc["main"], "width": 1.5},
             name=cohort_label(cohort), legendgroup=cohort, showlegend=False,
-        ), row=2, col=1)
+        ), row=2, col=3)
     fig.add_trace(go.Scatter(
-        x=[0.0, 1.0], y=[0.0, 0.0],
-        line={"color": "rgba(80,80,80,0.55)", "width": 1.2, "dash": "dot"},
-        showlegend=False,
-    ), row=2, col=1)
+        x=x.tolist(), y=(cohort_kde["pre"] - cohort_kde["post"]).tolist(),
+        fill="tozeroy", fillcolor="rgba(90,90,90,0.30)",
+        line={"color": "rgba(60,60,60,0.9)", "width": 1.5},
+        name="Pre - post", showlegend=False,
+    ), row=2, col=2)
+    for col_idx in (2, 3):
+        fig.add_trace(go.Scatter(
+            x=[0.0, 1.0], y=[0.0, 0.0],
+            line={"color": "rgba(80,80,80,0.55)", "width": 1.2, "dash": "dot"},
+            showlegend=False,
+        ), row=2, col=col_idx)
 
-    for values_by_cohort, col_idx, xaxis_title in (
-        (wasserstein_by_cohort, 2, "Wasserstein distance (vs. null)"),
-        (ks_by_cohort, 3, "KS D (vs. null)"),
-    ):
-        violins = {c: values_by_cohort[c].values for c in COHORTS}
-        dots = {c: pd.DataFrame({"value": np.sort(values_by_cohort[c].values)}) for c in COHORTS}
-        add_violin_dots_panel(
-            fig, violins, dots, row=2, col_idx=col_idx, colors=COHORT_COLORS, labels=COHORT_LABEL,
-            xaxis_title=xaxis_title, show_violin_legend=False,
+    for values_by_cohort, position, secondary_y in ((wasserstein_by_cohort, 0.0, False), (ks_by_cohort, 1.0, True)):
+        values = {c: values_by_cohort[c].values for c in COHORTS}
+        add_split_violin(
+            fig, values["pre"], values["post"], left_key="pre", right_key="post", colors=COHORT_COLORS,
+            labels=COHORT_LABEL, left_dots=values["pre"], right_dots=values["post"], position=position,
+            show_participants=show_participants, row=2, col_idx=1, secondary_y=secondary_y,
         )
 
     fig.update_yaxes(title_text="Density", row=1, col=1)
     fig.update_xaxes(title_text="Normalised distance", row=1, col=1)
-    fig.update_yaxes(title_text="Δ density vs null", row=2, col=1)
-    fig.update_xaxes(title_text="Normalised distance", row=2, col=1)
+    fig.update_xaxes(
+        tickvals=[0.0, 1.0], ticktext=["Wasserstein (primary)", "KS (secondary)"], range=[-0.6, 1.6], row=2, col=1,
+    )
+    fig.update_yaxes(title_text="Wasserstein distance (vs. null)", rangemode="tozero", secondary_y=False, row=2, col=1)
+    fig.update_yaxes(title_text="KS D (vs. null)", rangemode="tozero", secondary_y=True, row=2, col=1)
+    fig.update_yaxes(title_text="Δ density pre - post", row=2, col=2)
+    fig.update_xaxes(title_text="Normalised distance", row=2, col=2)
+    fig.update_yaxes(title_text="Δ density vs null", row=2, col=3)
+    fig.update_xaxes(title_text="Normalised distance", row=2, col=3)
 
     fig.update_layout(
         template="plotly_white",
