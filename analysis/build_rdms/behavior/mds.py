@@ -9,7 +9,7 @@ and compares results across cohorts/conditions, not a second copy of the fitting
 
 Usage (from repo root):
     from analysis.build_rdms.behavior.mds import (
-        classical_mds_eigenspectrum, effective_rank, run_mds_sweep,
+        classical_mds_eigenspectrum, effective_rank, embedding_eigenspectrum, run_mds_sweep,
         compare_mds_configs, classify_mds_agreement,
     )
 """
@@ -56,6 +56,20 @@ def effective_rank(eigenvalues: np.ndarray, rel_tol: float = 1e-8) -> int:
     the mean-imputation artifact more than the RDM's real structure."""
     threshold = rel_tol * eigenvalues[0]
     return int(np.sum(eigenvalues > threshold))
+
+
+def embedding_eigenspectrum(configuration: np.ndarray, *, normalize: bool = True) -> np.ndarray:
+    """Eigenvalues (descending) of the Gram matrix of a fitted embedding
+    (n_points x d): the variance along each principal axis of the column-
+    centred configuration, i.e. its squared singular values -- equal to the d
+    non-zero eigenvalues of the double-centred Gram matrix of the embedding's
+    own pairwise distances. Unlike classical_mds_eigenspectrum() there is no
+    imputation, so the spectrum is valid on a SMACOF embedding. `normalize`
+    returns proportions of total variance (sum 1), which makes embeddings with
+    arbitrary overall scale comparable."""
+    singular_values = np.linalg.svd(configuration - configuration.mean(axis=0), compute_uv=False)
+    eigenvalues = singular_values ** 2
+    return eigenvalues / eigenvalues.sum() if normalize else eigenvalues
 
 
 # ---------------------------------------------------------------------------
