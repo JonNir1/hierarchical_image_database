@@ -13,7 +13,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from analysis.utils.plotting import (
-    add_progression_panel, add_violin_dots_panel, fig_equivalence_forest, fig_group_status_bar, role_palette,
+    add_progression_panel, add_split_violin, add_violin_dots_panel, fig_equivalence_forest, fig_group_status_bar,
+    role_palette,
 )
 
 # ---------------------------------------------------------------------------
@@ -113,6 +114,10 @@ def test_add_progression_panel_trace_count():
     expected = (3 + 2) + 2 * 2
     assert len(fig.data) == expected
 
+    fig_no_subjects = make_subplots(rows=1, cols=1)
+    add_progression_panel(fig_no_subjects, frames, "value", "trial_id", row=1, colors=colors, show_participants=False)
+    assert len(fig_no_subjects.data) == 2 * 2  # band + mean line per key only
+
 
 def test_add_progression_panel_show_legend_is_per_call():
     fig = make_subplots(rows=1, cols=1)
@@ -126,6 +131,35 @@ def test_add_progression_panel_show_legend_is_per_call():
     add_progression_panel(fig2, frame, "value", "trial_id", row=1, colors=colors, show_legend=False)
     mean_line2 = next(t for t in fig2.data if t.mode == "lines+markers")
     assert mean_line2.showlegend is False
+
+
+# ---------------------------------------------------------------------------
+# add_split_violin
+# ---------------------------------------------------------------------------
+
+def test_add_split_violin_sides_dots_and_secondary_axis():
+    colors = role_palette(["pre", "post"])
+    labels = {"pre": "Pre", "post": "Post"}
+    values = np.linspace(0, 1, 20)
+    fig = make_subplots(rows=1, cols=1, specs=[[{"secondary_y": True}]])
+    add_split_violin(
+        fig, values, values + 1, left_key="pre", right_key="post", colors=colors, labels=labels,
+        left_dots=values[:5], right_dots=values[:4], secondary_y=True,
+    )
+    violins = [t for t in fig.data if t.type == "violin"]
+    assert [v.side for v in violins] == ["negative", "positive"]
+    assert [v.fillcolor for v in violins] == [colors["pre"]["violin"], colors["post"]["violin"]]
+    dots = [t for t in fig.data if t.type == "scatter"]
+    assert [len(d.x) for d in dots] == [5, 4]
+    assert all(x < 0 for x in dots[0].x) and all(x > 0 for x in dots[1].x)
+    assert {t.yaxis for t in fig.data} == {"y2"}
+
+    fig_no_dots = make_subplots(rows=1, cols=1)
+    add_split_violin(
+        fig_no_dots, values, values, left_key="pre", right_key="post", colors=colors, labels=labels,
+        left_dots=values, right_dots=values, show_participants=False,
+    )
+    assert [t.type for t in fig_no_dots.data] == ["violin", "violin"]
 
 
 # ---------------------------------------------------------------------------
