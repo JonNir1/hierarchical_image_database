@@ -1,13 +1,6 @@
 """Tests for analysis.utils.stats: masked rank correlation, independent-
 samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect sizes, and the
-one-line significance-summary printer.
-
-The masked_rank_correlation tests below were migrated from
-analysis/behavioral/__tests__/test_noise_ceiling.py's former
-test_kendall_spearman_* tests (that module's private _kendall_spearman() now
-just calls this shared function) -- kept here rather than duplicated in both
-places.
-"""
+one-line significance-summary printer."""
 from __future__ import annotations
 
 import numpy as np
@@ -24,29 +17,23 @@ from analysis.utils.stats import (
 # masked_rank_correlation
 # ---------------------------------------------------------------------------
 
-def test_masked_rank_correlation_masks_to_jointly_covered_pairs():
-    rdm_a = np.array([1.0, 2.0, np.nan, 4.0, 5.0])
-    rdm_b = np.array([1.0, np.nan, 3.0, 4.0, 6.0])
-    result = masked_rank_correlation(rdm_a, rdm_b, min_overlap=2)
+_RDM_A = np.array([1.0, 2.0, np.nan, 4.0, 5.0])
+_RDM_B = np.array([1.0, np.nan, 3.0, 4.0, 6.0])
+
+
+@pytest.mark.parametrize("min_overlap, underpowered", [(2, False), (5, True)])
+def test_masked_rank_correlation_masks_to_jointly_covered_pairs_and_flags_underpowered(min_overlap, underpowered):
+    result = masked_rank_correlation(_RDM_A, _RDM_B, min_overlap=min_overlap)
 
     mask = np.array([True, False, False, True, True])
     assert result["n_overlap"] == 3
-    assert not result["underpowered"]
-    expected_tau = kendalltau(rdm_a[mask], rdm_b[mask]).statistic
-    expected_rho = spearmanr(rdm_a[mask], rdm_b[mask]).statistic
-    assert result["kendall"] == pytest.approx(expected_tau)
-    assert result["spearman"] == pytest.approx(expected_rho)
-
-
-def test_masked_rank_correlation_flags_underpowered_folds():
-    rdm_a = np.array([1.0, 2.0, np.nan, 4.0, 5.0])
-    rdm_b = np.array([1.0, np.nan, 3.0, 4.0, 6.0])
-    result = masked_rank_correlation(rdm_a, rdm_b, min_overlap=5)  # only 3 jointly covered
-
-    assert result["n_overlap"] == 3
-    assert result["underpowered"]
-    assert np.isnan(result["kendall"])
-    assert np.isnan(result["spearman"])
+    assert bool(result["underpowered"]) == underpowered
+    if underpowered:
+        assert np.isnan(result["kendall"])
+        assert np.isnan(result["spearman"])
+        return
+    assert result["kendall"] == pytest.approx(kendalltau(_RDM_A[mask], _RDM_B[mask]).statistic)
+    assert result["spearman"] == pytest.approx(spearmanr(_RDM_A[mask], _RDM_B[mask]).statistic)
 
 
 def _brute_force_tau_a(a: np.ndarray, b: np.ndarray) -> float:
@@ -109,6 +96,7 @@ def test_mwu_effect_size_fully_separated_groups():
     result = mwu_effect_size(a, b)
     assert result["U"] == 0.0
     assert result["r"] == pytest.approx(1.0)  # maximal rank-biserial effect
+    assert mwu_effect_size(b, a)["r"] == pytest.approx(-1.0)
     assert result["p"] == pytest.approx(0.1, abs=0.01)
 
 
@@ -169,18 +157,13 @@ def test_wilcoxon_effect_size_no_differences_returns_nan_without_error():
 # print_comparison_line
 # ---------------------------------------------------------------------------
 
-def test_print_comparison_line_uses_p_by_default(capsys):
-    result = {"comparison": "A vs B", "U": 5.0, "p": 0.01, "r": 0.5}
-    print_comparison_line(result)
+@pytest.mark.parametrize("result, kwargs, expected_fragments", [
+    ({"comparison": "A vs B", "U": 5.0, "p": 0.01, "r": 0.5}, {}, ["A vs B", "p=0.0100", "significant"]),
+    ({"comparison": "A vs B", "U": 5.0, "p_corrected": 0.2, "r": 0.5}, {"corrected": True},
+     ["p_corrected=0.2000", "not significant"]),
+])
+def test_print_comparison_line_reports_p_or_corrected_p(capsys, result, kwargs, expected_fragments):
+    print_comparison_line(result, **kwargs)
     out = capsys.readouterr().out
-    assert "A vs B" in out
-    assert "p=0.0100" in out
-    assert "significant" in out
-
-
-def test_print_comparison_line_uses_p_corrected_when_requested(capsys):
-    result = {"comparison": "A vs B", "U": 5.0, "p_corrected": 0.2, "r": 0.5}
-    print_comparison_line(result, corrected=True)
-    out = capsys.readouterr().out
-    assert "p_corrected=0.2000" in out
-    assert "not significant" in out
+    for fragment in expected_fragments:
+        assert fragment in out
