@@ -4,11 +4,13 @@ import pytest
 
 from SpAM_Simulations.core.config import (
     SimulationConfig, TaskV2_3SimulationConfig, TaskV2_4SimulationConfig, TaskV3SimulationConfig,
-    TaskV4SimulationConfig, MDSSweepConfig
+    TaskV4SimulationConfig, TaskV5SimulationConfig, MDSSweepConfig
 )
+from SpAM_Simulations.core.pipeline import _task_key
 from SpAM_Simulations.models.task_v2_3_experiment import TaskV2_3ExperimentParameters
 from SpAM_Simulations.models.task_v2_4_experiment import TaskV2_4ExperimentParameters
 from SpAM_Simulations.models.task_v4_experiment import TaskV4ExperimentParameters
+from SpAM_Simulations.models.task_v5_experiment import TaskV5ExperimentParameters
 
 
 def _base_grids(**over):
@@ -107,29 +109,16 @@ def test_task_v2_4_config_is_a_task_v2_3_config():
     assert cfg.uses_random_ground_truth
 
 
-def test_task_v2_4_config_rejects_empty_frac_trials_repeated():
+@pytest.mark.parametrize("bad", [
+    dict(frac_images_repeated=[0.0], frac_trials_repeated=[]),
+    dict(frac_images_repeated=[0.0], frac_trials_repeated=[1.0]),
+    dict(frac_images_repeated=[0.0], frac_trials_repeated=[-0.1]),
+    dict(frac_images_repeated=[0.0], frac_trials_repeated=[0.0, 1.5]),
+    dict(frac_images_repeated=[], frac_trials_repeated=[0.0]),   # inherited from v2.3
+], ids=["empty-trials", "trials-1.0", "trials-negative", "trials-above-1", "empty-images-inherited"])
+def test_task_v2_4_config_rejects_invalid_repeat_grids(bad):
     with pytest.raises(ValueError):
-        TaskV2_4SimulationConfig(
-            n_images=10, n_dims=2, frac_images_repeated=[0.0],
-            frac_trials_repeated=[], **_base_grids()
-        )
-
-
-@pytest.mark.parametrize("bad", [[1.0], [-0.1], [0.0, 1.5]])
-def test_task_v2_4_config_rejects_frac_trials_repeated_out_of_range(bad):
-    with pytest.raises(ValueError):
-        TaskV2_4SimulationConfig(
-            n_images=10, n_dims=2, frac_images_repeated=[0.0],
-            frac_trials_repeated=bad, **_base_grids()
-        )
-
-
-def test_task_v2_4_config_inherits_empty_frac_images_repeated_validation():
-    with pytest.raises(ValueError):
-        TaskV2_4SimulationConfig(
-            n_images=10, n_dims=2, frac_images_repeated=[],
-            frac_trials_repeated=[0.0], **_base_grids()
-        )
+        TaskV2_4SimulationConfig(n_images=10, n_dims=2, **bad, **_base_grids())
 
 
 def test_task_v2_4_config_param_grid():
@@ -169,31 +158,22 @@ def test_task_v4_config_param_grid():
     assert {p.screening_trials for p in grid} == {8}
 
 
-@pytest.mark.parametrize("empty", ["screening_trials", "screening_repeats",
-                                   "screening_min_reliability"])
-def test_task_v4_config_rejects_empty_screening_grids(empty):
-    with pytest.raises(ValueError, match=empty):
-        TaskV4SimulationConfig(**_v4_kwargs(**{empty: []}), **_base_grids())
-
-
-@pytest.mark.parametrize("bad", [-1.5, 1.5])
-def test_task_v4_config_rejects_min_reliability_out_of_range(bad):
-    with pytest.raises(ValueError, match="screening_min_reliability"):
-        TaskV4SimulationConfig(**_v4_kwargs(screening_min_reliability=[bad]), **_base_grids())
-
-
-def test_task_v4_config_rejects_repeats_leaving_no_originals():
-    """Caught at config time, not hours into the sweep when the assertion finally fires."""
-    with pytest.raises(ValueError, match="at least one distinct trial"):
-        TaskV4SimulationConfig(**_v4_kwargs(screening_trials=[4], screening_repeats=[4]),
-                               **_base_grids())
-
-
-def test_task_v4_config_flags_infeasible_products_not_just_pairs():
-    """A grid can be individually valid yet contain an infeasible Cartesian combination."""
-    with pytest.raises(ValueError, match="at least one distinct trial"):
-        TaskV4SimulationConfig(**_v4_kwargs(screening_trials=[8, 2], screening_repeats=[2]),
-                               **_base_grids())
+@pytest.mark.parametrize("over, match", [
+    (dict(screening_trials=[]), "screening_trials"),
+    (dict(screening_repeats=[]), "screening_repeats"),
+    (dict(screening_min_reliability=[]), "screening_min_reliability"),
+    (dict(screening_min_reliability=[-1.5]), "screening_min_reliability"),
+    (dict(screening_min_reliability=[1.5]), "screening_min_reliability"),
+    # no un-repeated original trial: caught at config time, not hours into the sweep
+    (dict(screening_trials=[4], screening_repeats=[4]), "at least one distinct trial"),
+    # individually valid values whose Cartesian product contains an infeasible combination
+    (dict(screening_trials=[8, 2], screening_repeats=[2]), "at least one distinct trial"),
+    (dict(perspective_dispersion=[]), "perspective_dispersion"),   # inherited from v3
+], ids=["empty-trials", "empty-repeats", "empty-min-reliability", "min-reliability-below",
+        "min-reliability-above", "no-originals", "infeasible-product", "empty-dispersion-v3"])
+def test_task_v4_config_rejects_invalid_grids(over, match):
+    with pytest.raises(ValueError, match=match):
+        TaskV4SimulationConfig(**_v4_kwargs(**over), **_base_grids())
 
 
 def test_task_v4_config_allows_screening_trials_zero():
@@ -203,6 +183,40 @@ def test_task_v4_config_allows_screening_trials_zero():
     assert all(p.screening_trials == 0 for p in cfg.param_grid())
 
 
-def test_task_v4_config_inherits_v3_validation():
-    with pytest.raises(ValueError, match="perspective_dispersion"):
-        TaskV4SimulationConfig(**_v4_kwargs(perspective_dispersion=[]), **_base_grids())
+# --------------------------------------------------------------------------- task-v5 (canvas)
+
+def _v5_config(**over):
+    return TaskV5SimulationConfig(**_v4_kwargs(**over), **_base_grids())
+
+
+@pytest.mark.parametrize("over, match", [
+    (dict(within_session_drift=[]), "non-empty"),
+    (dict(within_session_drift=[0.0]), "positive"),
+    (dict(canvas_softness=[]), "non-empty"),
+    (dict(canvas_softness=[0.0]), "positive"),
+], ids=["empty-drift", "nonpositive-drift", "empty-softness", "nonpositive-softness"])
+def test_task_v5_config_rejects_empty_or_nonpositive_grid(over, match):
+    with pytest.raises(ValueError, match=match):
+        _v5_config(**over)
+
+
+def test_drift_is_a_grid_axis():
+    """It has to reach `param_grid`, or a swept sensitivity value would silently do nothing."""
+    grid = _v5_config(within_session_drift=[1.0, 1.4]).param_grid()
+    assert sorted({p.within_session_drift for p in grid}) == [1.0, 1.4]
+
+
+def test_v5_params_survive_the_store_round_trip():
+    """`_task_key` coerces every field with float(), so every v5 field must be numeric.
+
+    Fields are located by NAME rather than by offset from the end: the key is
+    ``(*params, rep, ndim)``, so appending a field to the tuple shifts every negative index and a
+    positional assertion here would fail for a reason that has nothing to do with what it checks.
+    """
+    params = TaskV5ExperimentParameters(*[1.0] * 12, 4.0)
+    key = _task_key(params, rep=0, ndim=3)
+    assert key[params._fields.index("canvas_softness")] == 4.0
+    assert key[params._fields.index("exclude_false_positives")] == 0.0
+    assert key[params._fields.index("within_session_drift")] == 1.0
+    assert all(isinstance(v, float) for v in key[:-2])
+    assert len(key) == len(params._fields) + 2            # + rep, ndim
