@@ -63,6 +63,7 @@ def test_target_dims_empty_raises():
         MDSSweepConfig(min_ndim=6).target_dims(gt_dimensions=5)
 
 
+@pytest.mark.legacy
 def test_task_v2_3_config_is_a_simulation_config():
     """Dataclass inheritance: gets the GT-source fields/validation for free."""
     cfg = TaskV2_3SimulationConfig(
@@ -72,6 +73,7 @@ def test_task_v2_3_config_is_a_simulation_config():
     assert cfg.uses_random_ground_truth
 
 
+@pytest.mark.legacy
 def test_task_v2_3_config_inherits_ground_truth_validation():
     with pytest.raises(ValueError):  # neither GT source
         TaskV2_3SimulationConfig(frac_images_repeated=[1 / 3], **_base_grids())
@@ -82,11 +84,13 @@ def test_task_v2_3_config_inherits_ground_truth_validation():
         )
 
 
+@pytest.mark.legacy
 def test_task_v2_3_config_rejects_empty_frac_images_repeated():
     with pytest.raises(ValueError):
         TaskV2_3SimulationConfig(n_images=10, n_dims=2, frac_images_repeated=[], **_base_grids())
 
 
+@pytest.mark.legacy
 def test_task_v2_3_config_param_grid():
     cfg = TaskV2_3SimulationConfig(
         n_images=30, n_dims=4, frac_images_repeated=[0.0, 1 / 3], **_base_grids()
@@ -98,6 +102,7 @@ def test_task_v2_3_config_param_grid():
     assert {p.frac_images_repeated for p in grid} == {0.0, 1 / 3}
 
 
+@pytest.mark.legacy
 def test_task_v2_4_config_is_a_task_v2_3_config():
     """Dataclass inheritance: inherits the v2.3 levers/validation and the GT-source handling."""
     cfg = TaskV2_4SimulationConfig(
@@ -116,11 +121,13 @@ def test_task_v2_4_config_is_a_task_v2_3_config():
     dict(frac_images_repeated=[0.0], frac_trials_repeated=[0.0, 1.5]),
     dict(frac_images_repeated=[], frac_trials_repeated=[0.0]),   # inherited from v2.3
 ], ids=["empty-trials", "trials-1.0", "trials-negative", "trials-above-1", "empty-images-inherited"])
+@pytest.mark.legacy
 def test_task_v2_4_config_rejects_invalid_repeat_grids(bad):
     with pytest.raises(ValueError):
         TaskV2_4SimulationConfig(n_images=10, n_dims=2, **bad, **_base_grids())
 
 
+@pytest.mark.legacy
 def test_task_v2_4_config_param_grid():
     cfg = TaskV2_4SimulationConfig(
         n_images=30, n_dims=4, frac_images_repeated=[0.0],

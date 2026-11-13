@@ -195,6 +195,7 @@ class TestScreeningFalsePositives:
         assert res.subject_noises.size == 20
         assert res.screening_false_positive_rate > 0  # and yet the cohort is still full
 
+    @pytest.mark.slow
     def test_a_stricter_gate_leaves_MORE_false_positives(self, run):
         """Regression to the mean, and it runs against intuition.
 
