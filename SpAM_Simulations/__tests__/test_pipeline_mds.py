@@ -69,15 +69,19 @@ def test_embedding_stability(tmp_path, small_sim):
     assert row["mean_spearman"] > 0.5
 
 
-def test_sweep_resumes(tmp_path):
-    sim, _ = _small_sim()
+def test_sweep_resumes(tmp_path, small_sim):
     store_path = tmp_path / "store"
-    # first pass: only ndim=3
-    pipeline.run_mds_sweep(sim, MDSSweepConfig(ndims=[3], max_iters=100), store_path, verbose=False)
-    n_after_first = len(ResultStore.open(store_path))
-    assert n_after_first == 3
-    # second pass over a superset (3 and 4): resumes, only adds the 3 new ndim=4 tasks
-    store = pipeline.run_mds_sweep(sim, MDSSweepConfig(ndims=[3, 4], max_iters=100), store_path, verbose=False)
+    # first pass at ndim=4 fixes the store's configuration width at max_ndim=4
+    pipeline.run_mds_sweep(small_sim, MDSSweepConfig(ndims=[4], max_iters=100), store_path, verbose=False)
+    assert len(ResultStore.open(store_path)) == 3
+    # a superset that fits that width resumes, adding only the 3 new ndim=3 tasks
+    store = pipeline.run_mds_sweep(small_sim, MDSSweepConfig(ndims=[3, 4], max_iters=100), store_path,
+                                   verbose=False)
     df = store.metadata()
     assert len(df) == 6
-    assert sorted(df["ndim"]) == [3, 3, 3, 4, 4, 4]  # no duplicate ndim=3 tasks
+    assert sorted(df["ndim"]) == [3, 3, 3, 4, 4, 4]  # no duplicate ndim=4 tasks
+    # a dimension wider than the store is refused before any fit runs
+    with pytest.raises(ValueError, match="max_ndim=4"):
+        pipeline.run_mds_sweep(small_sim, MDSSweepConfig(ndims=[3, 4, 5], max_iters=100), store_path,
+                               verbose=False)
+    assert len(ResultStore.open(store_path)) == 6
