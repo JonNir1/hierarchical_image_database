@@ -3,10 +3,14 @@ using a cheap synthetic RDM builder (mean of per-subject vectors) in place of th
 real trial-aggregating builder."""
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import numpy as np
 import pytest
 
-from analysis.behavioral.cohort_structure import equivalence_test_cohort_agreement, permutation_test_cohort_agreement
+from analysis.behavioral.cohort_structure import (
+    equivalence_test_cohort_agreement, permutation_test_cohort_agreement, rdm_from_subject_trials,
+)
 
 _N_PAIRS = 300
 
@@ -35,16 +39,38 @@ class _MeanBuilder:
         return np.mean([self.subject_rdms[i] for i in ids], axis=0)
 
 
-def test_exchangeable_cohorts_give_a_non_small_p():
-    subject_rdms, ids_a, ids_b = _subjects(12, same_structure=True)
-    result = permutation_test_cohort_agreement(_MeanBuilder(subject_rdms), ids_a, ids_b, n_perm=100, seed=1)
+class _Cohorts(NamedTuple):
+    builder: _MeanBuilder
+    ids_a: list[str]
+    ids_b: list[str]
+    permutation: dict
+
+
+def _cohorts(same_structure: bool) -> _Cohorts:
+    subject_rdms, ids_a, ids_b = _subjects(15, same_structure=same_structure)
+    builder = _MeanBuilder(subject_rdms)
+    permutation = permutation_test_cohort_agreement(builder, ids_a, ids_b, n_perm=100, seed=1)
+    return _Cohorts(builder, ids_a, ids_b, permutation)
+
+
+@pytest.fixture(scope="module")
+def exchangeable_cohorts() -> _Cohorts:
+    return _cohorts(same_structure=True)
+
+
+@pytest.fixture(scope="module")
+def different_cohorts() -> _Cohorts:
+    return _cohorts(same_structure=False)
+
+
+def test_exchangeable_cohorts_give_a_non_small_p(exchangeable_cohorts):
+    result = exchangeable_cohorts.permutation
     assert result["spearman"]["p"] > 0.05
     assert result["null"].shape == (100, 2)
 
 
-def test_cohorts_with_different_structure_give_a_small_p():
-    subject_rdms, ids_a, ids_b = _subjects(12, same_structure=False)
-    result = permutation_test_cohort_agreement(_MeanBuilder(subject_rdms), ids_a, ids_b, n_perm=100, seed=1)
+def test_cohorts_with_different_structure_give_a_small_p(different_cohorts):
+    result = different_cohorts.permutation
     assert result["spearman"]["p"] == pytest.approx(1 / 101)
     assert result["spearman"]["observed"] < result["spearman"]["null_low"]
 
@@ -68,24 +94,35 @@ def test_cache_round_trip_and_fingerprint_invalidation(tmp_path):
     assert not np.array_equal(first["null"], other_seed["null"])
 
 
-def test_equivalence_exchangeable_cohorts_are_equivalent_within_the_resolvable_bound():
-    subject_rdms, ids_a, ids_b = _subjects(15, same_structure=True)
-    builder = _MeanBuilder(subject_rdms)
-    permutation = permutation_test_cohort_agreement(builder, ids_a, ids_b, n_perm=50, seed=1)
-    result = equivalence_test_cohort_agreement(
-        builder, ids_a, ids_b, permutation, n_groups=5, n_null=5, seed=1,
+def _equivalence(cohorts: _Cohorts) -> dict:
+    return equivalence_test_cohort_agreement(
+        cohorts.builder, cohorts.ids_a, cohorts.ids_b, cohorts.permutation, n_groups=5, n_null=5, seed=1,
     )["spearman"]
+
+
+def test_equivalence_exchangeable_cohorts_are_equivalent_within_the_resolvable_bound(exchangeable_cohorts):
+    result = _equivalence(exchangeable_cohorts)
     assert result["ci_low"] < result["effect"] < result["ci_high"]
     assert result["bound"] >= result["sensitivity"]
     assert result["equivalent"]
 
 
-def test_equivalence_cohorts_with_different_structure_are_not_equivalent():
-    subject_rdms, ids_a, ids_b = _subjects(15, same_structure=False)
-    builder = _MeanBuilder(subject_rdms)
-    permutation = permutation_test_cohort_agreement(builder, ids_a, ids_b, n_perm=50, seed=1)
-    result = equivalence_test_cohort_agreement(
-        builder, ids_a, ids_b, permutation, n_groups=5, n_null=5, seed=1,
-    )["spearman"]
+def test_equivalence_cohorts_with_different_structure_are_not_equivalent(different_cohorts):
+    result = _equivalence(different_cohorts)
     assert result["effect"] < -0.1
     assert not result["equivalent"]
+
+
+def test_rdm_from_subject_trials_pools_selected_subjects_with_simple_rescaling():
+    pairs = np.array([0, 1, 2])  # condensed indices of the first 3 of 6 pairs for 4 conditions
+    trials_by_subject = {
+        "a": [(pairs, np.array([1.0, 2.0, 3.0]))],
+        "b": [(pairs, np.array([2.0, 4.0, 6.0]))],
+        "c": [(np.array([3, 4, 5]), np.array([9.0, 1.0, 1.0]))],  # not selected
+    }
+    rdm = rdm_from_subject_trials(["a", "b"], trials_by_subject, n_conds=4)
+
+    assert rdm.shape == (6,)  # n(n-1)/2
+    # Proportional trials rescale to the same unit-norm vector, so pooling keeps it.
+    np.testing.assert_allclose(rdm[:3], np.array([1.0, 2.0, 3.0]) / np.sqrt(14.0))
+    assert np.isnan(rdm[3:]).all()

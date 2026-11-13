@@ -21,16 +21,12 @@ from analysis.utils.plotting import (
 # role_palette
 # ---------------------------------------------------------------------------
 
-def test_role_palette_assigns_hues_in_order():
+def test_role_palette_assigns_hues_in_order_and_matches_original_version_palette():
     palette = role_palette(["pre", "post"])
     assert palette["pre"]["main"] == "#2a78d6"
     assert palette["post"]["main"] == "#eb6834"
-
-
-def test_role_palette_matches_original_version_palette_values():
-    """Byte-identical to analysis/pilot/figures.py's former _VERSION_PALETTE[1.0]."""
-    palette = role_palette(["v1"])
-    assert palette["v1"] == {
+    # Byte-identical to analysis/pilot/figures.py's former _VERSION_PALETTE[1.0].
+    assert palette["pre"] == {
         "main": "#2a78d6",
         "violin": "rgba(42,120,214,0.35)",
         "violin_line": "rgba(42,120,214,0.9)",
@@ -40,21 +36,17 @@ def test_role_palette_matches_original_version_palette_values():
     }
 
 
-def test_role_palette_raises_when_more_keys_than_hues():
+def test_role_palette_supports_four_hues_and_raises_beyond():
+    assert len(role_palette(["a", "b", "c", "d"])) == 4
     with pytest.raises(ValueError, match="validated hues"):
         role_palette(["a", "b", "c", "d", "e"])
-
-
-def test_role_palette_all_four_validated_hues_ok():
-    palette = role_palette(["a", "b", "c", "d"])
-    assert len(palette) == 4
 
 
 # ---------------------------------------------------------------------------
 # add_violin_dots_panel
 # ---------------------------------------------------------------------------
 
-def test_add_violin_dots_panel_trace_count_and_error_bars():
+def test_add_violin_dots_panel_trace_count_error_bars_and_legend_only_on_violin():
     fig = make_subplots(rows=1, cols=1)
     colors = role_palette(["pre", "post"])
     violins = {"pre": np.array([1.0, 2.0, 3.0]), "post": np.array([4.0, 5.0])}
@@ -73,19 +65,8 @@ def test_add_violin_dots_panel_trace_count_and_error_bars():
     post_dots = next(t for t in scatter_traces if t.legendgroup == "post")
     assert pre_dots.error_x.array is not None
     assert post_dots.error_x.array is None  # plotly always materializes an ErrorX() object; array is what matters
-
-
-def test_add_violin_dots_panel_legend_only_on_violin():
-    fig = make_subplots(rows=1, cols=1)
-    colors = role_palette(["a"])
-    add_violin_dots_panel(
-        fig, {"a": np.array([1.0, 2.0])}, {"a": pd.DataFrame({"value": [1.0, 2.0]})},
-        row=1, colors=colors,
-    )
-    violin = next(t for t in fig.data if isinstance(t, go.Violin))
-    dots = next(t for t in fig.data if isinstance(t, go.Scatter))
-    assert violin.showlegend is True
-    assert dots.showlegend is False
+    assert all(t.showlegend is True for t in violin_traces)
+    assert all(t.showlegend is False for t in scatter_traces)
 
 
 # ---------------------------------------------------------------------------
@@ -93,12 +74,12 @@ def test_add_violin_dots_panel_legend_only_on_violin():
 # ---------------------------------------------------------------------------
 
 def _synthetic_progression_frame(n_participants: int, n_trials: int) -> pd.DataFrame:
-    rows = []
     rng = np.random.default_rng(0)
-    for p in range(n_participants):
-        for t in range(1, n_trials + 1):
-            rows.append({"participant_id": f"p{p}", "trial_id": t, "value": rng.random()})
-    return pd.DataFrame(rows)
+    return pd.DataFrame({
+        "participant_id": np.repeat([f"p{p}" for p in range(n_participants)], n_trials),
+        "trial_id": np.tile(np.arange(1, n_trials + 1), n_participants),
+        "value": rng.random(n_participants * n_trials),
+    })
 
 
 def test_add_progression_panel_trace_count():
@@ -119,18 +100,14 @@ def test_add_progression_panel_trace_count():
     assert len(fig_no_subjects.data) == 2 * 2  # band + mean line per key only
 
 
-def test_add_progression_panel_show_legend_is_per_call():
+@pytest.mark.parametrize("show_legend", [True, False])
+def test_add_progression_panel_show_legend_is_per_call(show_legend):
     fig = make_subplots(rows=1, cols=1)
     colors = role_palette(["a"])
     frame = {"a": _synthetic_progression_frame(2, 3)}
-    add_progression_panel(fig, frame, "value", "trial_id", row=1, colors=colors, show_legend=True)
+    add_progression_panel(fig, frame, "value", "trial_id", row=1, colors=colors, show_legend=show_legend)
     mean_line = next(t for t in fig.data if t.mode == "lines+markers")
-    assert mean_line.showlegend is True
-
-    fig2 = make_subplots(rows=1, cols=1)
-    add_progression_panel(fig2, frame, "value", "trial_id", row=1, colors=colors, show_legend=False)
-    mean_line2 = next(t for t in fig2.data if t.mode == "lines+markers")
-    assert mean_line2.showlegend is False
+    assert mean_line.showlegend is show_legend
 
 
 # ---------------------------------------------------------------------------
@@ -185,21 +162,17 @@ def test_fig_group_status_bar_percentages_sum_to_100():
         assert sum(trace.x) == pytest.approx(100.0)
 
 
-def test_fig_group_status_bar_color_by_status_vs_by_panel():
+@pytest.mark.parametrize("bar_colors, expected", [
+    ({"full data": "#111111", "screened out": "#222222"}, ["#111111", "#222222"]),  # keyed by status
+    ({"pre": "#333333"}, ["#333333", "#333333"]),  # keyed by panel
+])
+def test_fig_group_status_bar_color_by_status_vs_by_panel(bar_colors, expected):
     panels = {"pre": pd.DataFrame({"status": ["full data", "screened out"]})}
-
-    fig_by_status = fig_group_status_bar(
+    fig = fig_group_status_bar(
         panels, "status", status_order=_STATUS_ORDER, status_labels=_STATUS_LABELS,
-        bar_colors={"full data": "#111111", "screened out": "#222222"},
-        panel_titles={"pre": "Pre"},
+        bar_colors=bar_colors, panel_titles={"pre": "Pre"},
     )
-    assert list(fig_by_status.data[0].marker.color) == ["#111111", "#222222"]
-
-    fig_by_panel = fig_group_status_bar(
-        panels, "status", status_order=_STATUS_ORDER, status_labels=_STATUS_LABELS,
-        bar_colors={"pre": "#333333"}, panel_titles={"pre": "Pre"},
-    )
-    assert list(fig_by_panel.data[0].marker.color) == ["#333333", "#333333"]
+    assert list(fig.data[0].marker.color) == expected
 
 
 # ---------------------------------------------------------------------------

@@ -1,64 +1,44 @@
 // Run: node --test SpAM_Task/__tests__/catch_trials.test.js
 'use strict';
 
-const { describe, it } = require('node:test');
+const { describe, it, before } = require('node:test');
 const assert = require('node:assert/strict');
-const vm     = require('node:vm');
-const fs     = require('node:fs');
-const path   = require('node:path');
+const { load, makeRng, ALL_IMAGES, CONFIG: BASE_CONFIG } = require('./helpers');
 
-const load = f => vm.runInThisContext(fs.readFileSync(path.resolve(__dirname, f), 'utf8'));
 load('../js/utils.js');
 load('../js/trial_generator.js');
 
-// Deterministic LCG used across all tests (avoids seedrandom dependency in Node).
-const makeRng = (seed = 42) => {
-    let s = seed >>> 0;
-    return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0x100000000; };
-};
-
 const CATCH_POOL = Array.from({ length: 20 }, (_, i) => `catch_${i}.png`);
 const IMAGES_PER_CATCH_TRIAL = 10;
-const IMAGES_PER_TRIAL = 20;
 const CONFIG = {
-    experimental_trials: { images_per_trial: IMAGES_PER_TRIAL },
-    screening_block:     { enabled: false, num_experimental_trials: 0 },
-    experimental_block:  { num_experimental_trials: 10 },
+    ...BASE_CONFIG,
+    screening_block:    { enabled: false, num_experimental_trials: 0 },
+    experimental_block: { num_experimental_trials: 10 },
 };
 const SORT_W = 900;
 const SORT_H = 700;
 
 // ── buildCatchTrial ───────────────────────────────────────────────────────────
 describe('buildCatchTrial', () => {
-    it('returns an object with type catch, images, and target_location', () => {
+    it('returns a catch trial with exactly imagesPerTrial images and one of the five valid target_locations', () => {
         const trial = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng());
         assert.equal(trial.type, 'catch');
         assert.ok(Array.isArray(trial.images));
-        assert.ok(typeof trial.target_location === 'string');
-    });
-
-    it('samples exactly imagesPerTrial images', () => {
-        const trial = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng());
         assert.equal(trial.images.length, IMAGES_PER_CATCH_TRIAL);
-    });
-
-    it('target_location is one of the five valid options', () => {
-        const trial = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng());
+        assert.ok(typeof trial.target_location === 'string');
         assert.ok(CATCH_LOCATIONS.includes(trial.target_location));
     });
 
-    it('is deterministic with the same rng seed', () => {
+    it('is deterministic with the same rng seed and differs across seeds', () => {
         const a = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng(99));
         const b = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng(99));
         assert.deepEqual(a, b);
-    });
 
-    it('produces different results with different seeds', () => {
-        const a = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng(1));
-        const b = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng(2));
+        const c = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng(1));
+        const d = buildCatchTrial(CATCH_POOL, IMAGES_PER_CATCH_TRIAL, makeRng(2));
         // Not guaranteed but overwhelmingly likely with any reasonable RNG
         assert.ok(
-            a.target_location !== b.target_location || !a.images.every((x, i) => x === b.images[i]),
+            c.target_location !== d.target_location || !c.images.every((x, i) => x === d.images[i]),
             'Expected different seeds to produce different trials'
         );
     });
@@ -66,29 +46,20 @@ describe('buildCatchTrial', () => {
 
 // ── insertCatchTrials ─────────────────────────────────────────────────────────
 describe('insertCatchTrials', () => {
-    const ALL_IMAGES = Array.from({ length: 754 }, (_, i) => `img_${i}.png`);
-    const freshMains = () => buildTrialLists(ALL_IMAGES, CONFIG, makeRng());
-
-    it('combined length is numMain + numCatch', () => {
-        const result = insertCatchTrials(freshMains(), CATCH_POOL, 2, IMAGES_PER_CATCH_TRIAL, makeRng());
-        assert.equal(result.length, 12);
+    let mains, result;
+    before(() => {
+        mains  = buildTrialLists(ALL_IMAGES, CONFIG, makeRng());
+        result = insertCatchTrials(mains, CATCH_POOL, 2, IMAGES_PER_CATCH_TRIAL, makeRng());
     });
 
-    it('catch trials land at positions 3 and 7', () => {
-        const result = insertCatchTrials(freshMains(), CATCH_POOL, 2, IMAGES_PER_CATCH_TRIAL, makeRng());
+    it('combined length is numMain + numCatch, with catch trials at positions 3 and 7 carrying a target_location', () => {
+        assert.equal(result.length, 12);
         assert.equal(result[3].type, 'catch');
         assert.equal(result[7].type, 'catch');
-    });
-
-    it('catch trials carry a target_location string', () => {
-        const result = insertCatchTrials(freshMains(), CATCH_POOL, 2, IMAGES_PER_CATCH_TRIAL, makeRng());
-        const catches = result.filter(t => t.type === 'catch');
-        catches.forEach(t => assert.ok(CATCH_LOCATIONS.includes(t.target_location)));
+        result.filter(t => t.type === 'catch').forEach(t => assert.ok(CATCH_LOCATIONS.includes(t.target_location)));
     });
 
     it('main trials are preserved in order', () => {
-        const mains  = freshMains();
-        const result = insertCatchTrials(mains, CATCH_POOL, 2, IMAGES_PER_CATCH_TRIAL, makeRng());
         const mainOut = result.filter(t => t.type === 'main');
         assert.equal(mainOut.length, 10);
         mainOut.forEach((t, i) => assert.deepEqual(t.images, mains[i]));
@@ -97,27 +68,18 @@ describe('insertCatchTrials', () => {
 
 // ── computeCentroid ───────────────────────────────────────────────────────────
 describe('computeCentroid', () => {
-    it('returns the mean x and y', () => {
-        const locs = [
-            { src: 'a', x: 100, y: 200 },
-            { src: 'b', x: 300, y: 400 },
-        ];
-        const c = computeCentroid(locs);
-        assert.equal(c.x, 200);
-        assert.equal(c.y, 300);
-    });
-
-    it('handles a single image', () => {
-        const c = computeCentroid([{ src: 'a', x: 50, y: 75 }]);
-        assert.equal(c.x, 50);
-        assert.equal(c.y, 75);
-    });
-
-    it('returns {0,0} for empty array', () => {
-        const c = computeCentroid([]);
-        assert.equal(c.x, 0);
-        assert.equal(c.y, 0);
-    });
+    const cases = [
+        ['returns the mean x and y', [{ src: 'a', x: 100, y: 200 }, { src: 'b', x: 300, y: 400 }], { x: 200, y: 300 }],
+        ['handles a single image', [{ src: 'a', x: 50, y: 75 }], { x: 50, y: 75 }],
+        ['returns {0,0} for empty array', [], { x: 0, y: 0 }],
+    ];
+    for (const [name, locs, expected] of cases) {
+        it(name, () => {
+            const c = computeCentroid(locs);
+            assert.equal(c.x, expected.x);
+            assert.equal(c.y, expected.y);
+        });
+    }
 });
 
 // ── allImagesNearTarget ───────────────────────────────────────────────────────
@@ -130,50 +92,35 @@ describe('allImagesNearTarget', () => {
     const cluster = (x, y, n = 3) =>
         Array.from({ length: n }, (_, i) => ({ src: `img_${i}.png`, x, y }));
 
-    it('all images at exact centre passes "center"', () => {
-        const locs = cluster(SORT_W / 2, SORT_H / 2);
-        assert.ok(allImagesNearTarget(locs, 'center', SORT_W, SORT_H, TOL));
+    // Target points sit at EDGE=15% from each edge.
+    const targets = {
+        'center':              { x: SORT_W / 2,    y: SORT_H / 2 },
+        'top left corner':     { x: SORT_W * 0.15, y: SORT_H * 0.15 },
+        'top right corner':    { x: SORT_W * 0.85, y: SORT_H * 0.15 },
+        'bottom left corner':  { x: SORT_W * 0.15, y: SORT_H * 0.85 },
+        'bottom right corner': { x: SORT_W * 0.85, y: SORT_H * 0.85 },
+    };
+
+    for (const [target, point] of Object.entries(targets)) {
+        it(`"${target}" passes when all images are at its own target point`, () => {
+            assert.ok(allImagesNearTarget(cluster(point.x, point.y), target, SORT_W, SORT_H, TOL));
+        });
+    }
+
+    it('"center" fails when all images are far from the centre', () => {
+        assert.ok(!allImagesNearTarget(cluster(SORT_W * 0.9, SORT_H * 0.9), 'center', SORT_W, SORT_H, TOL));
     });
 
-    it('all images far from centre fails "center"', () => {
-        const locs = cluster(SORT_W * 0.9, SORT_H * 0.9);
-        assert.ok(!allImagesNearTarget(locs, 'center', SORT_W, SORT_H, TOL));
-    });
-
-    it('all images at top-left target passes "top left corner"', () => {
-        // Target point is at EDGE=15% from each edge
-        const locs = cluster(SORT_W * 0.15, SORT_H * 0.15);
-        assert.ok(allImagesNearTarget(locs, 'top left corner', SORT_W, SORT_H, TOL));
-    });
-
-    it('all images at centre fails "top left corner"', () => {
-        const locs = cluster(SORT_W / 2, SORT_H / 2);
-        assert.ok(!allImagesNearTarget(locs, 'top left corner', SORT_W, SORT_H, TOL));
-    });
+    for (const target of Object.keys(targets).filter(t => t !== 'center')) {
+        it(`"${target}" fails when all images are at the centre`, () => {
+            assert.ok(!allImagesNearTarget(cluster(SORT_W / 2, SORT_H / 2), target, SORT_W, SORT_H, TOL));
+        });
+    }
 
     it('one stray image causes failure even if others are on target', () => {
         const locs = cluster(SORT_W * 0.15, SORT_H * 0.15);
         locs.push({ src: 'stray.png', x: SORT_W / 2, y: SORT_H / 2 }); // far from corner
         assert.ok(!allImagesNearTarget(locs, 'top left corner', SORT_W, SORT_H, TOL));
-    });
-
-    it('each corner target passes only when all images are near that corner', () => {
-        const corners = {
-            'top left corner':     { x: SORT_W * 0.15, y: SORT_H * 0.15 },
-            'top right corner':    { x: SORT_W * 0.85, y: SORT_H * 0.15 },
-            'bottom left corner':  { x: SORT_W * 0.15, y: SORT_H * 0.85 },
-            'bottom right corner': { x: SORT_W * 0.85, y: SORT_H * 0.85 },
-        };
-        for (const [loc, pos] of Object.entries(corners)) {
-            assert.ok(
-                allImagesNearTarget(cluster(pos.x, pos.y), loc, SORT_W, SORT_H, TOL),
-                `Expected pass for ${loc} at its own target point`,
-            );
-            assert.ok(
-                !allImagesNearTarget(cluster(SORT_W / 2, SORT_H / 2), loc, SORT_W, SORT_H, TOL),
-                `Expected fail for ${loc} when images are at centre`,
-            );
-        }
     });
 
     it('returns false for empty locations array', () => {

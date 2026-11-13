@@ -46,21 +46,27 @@ def _r_annotations(fig) -> list[str]:
     return [a.text for a in fig.layout.annotations if a.yanchor == "middle"]
 
 
-def test_only_repeats_true_selects_pairs_in_presentation_order():
+@pytest.fixture(scope="module")
+def trials_df_with_two_repeat_pairs() -> pd.DataFrame:
     # trial 5 repeats trial 2; trial 9 repeats trial 4.
-    df = _make_trials_df(n_trials=10, repeats={5: 2, 9: 4})
-
-    fig = visualize_trials(df, only_repeats=True)
-
-    assert _subplot_titles(fig) == ["Trial 2", "Trial 5", "Trial 4", "Trial 9"]
+    return _make_trials_df(n_trials=10, repeats={5: 2, 9: 4})
 
 
-def test_only_repeats_false_first_subplots_match_only_repeats_true():
-    df = _make_trials_df(n_trials=10, repeats={5: 2, 9: 4})
+@pytest.fixture(scope="module")
+def fig_pairs(trials_df_with_two_repeat_pairs: pd.DataFrame):
+    return visualize_trials(trials_df_with_two_repeat_pairs, only_repeats=True)
 
-    fig_pairs = visualize_trials(df, only_repeats=True)
-    fig_all = visualize_trials(df, only_repeats=False)
 
+@pytest.fixture(scope="module")
+def fig_all(trials_df_with_two_repeat_pairs: pd.DataFrame):
+    return visualize_trials(trials_df_with_two_repeat_pairs, only_repeats=False)
+
+
+def test_only_repeats_true_selects_pairs_in_presentation_order(fig_pairs):
+    assert _subplot_titles(fig_pairs) == ["Trial 2", "Trial 5", "Trial 4", "Trial 9"]
+
+
+def test_only_repeats_false_first_subplots_match_only_repeats_true(fig_pairs, fig_all):
     pair_titles = _subplot_titles(fig_pairs)
     all_titles = _subplot_titles(fig_all)
 
@@ -119,10 +125,6 @@ def test_pair_r_annotations_and_median_subtitle():
     assert "median test-retest R = 0.000" in fig.layout.title.text
 
 
-def test_no_pairwise_distances_means_no_r_annotations_or_subtitle():
-    df = _make_trials_df(n_trials=10, repeats={5: 2, 9: 4})
-
-    fig = visualize_trials(df, only_repeats=False)
-
-    assert _r_annotations(fig) == []
-    assert "median" not in fig.layout.title.text
+def test_no_pairwise_distances_means_no_r_annotations_or_subtitle(fig_all):
+    assert _r_annotations(fig_all) == []
+    assert "median" not in fig_all.layout.title.text
