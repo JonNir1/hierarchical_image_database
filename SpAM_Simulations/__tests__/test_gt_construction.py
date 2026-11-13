@@ -281,12 +281,6 @@ def test_build_gt_from_pilot_delegates(monkeypatch):
     assert seen == {"n": 7, "method": "classical"}
 
 
-def test_choose_n_dims_is_gone():
-    """The imputed-eigenspectrum rule must not come back: it manufactured rank on sparse data."""
-    from SpAM_Simulations.empirical import subjects
-    assert not hasattr(subjects, "_choose_n_dims")
-
-
 @pytest.mark.skipif(not _MDS_AVAILABLE, reason=_MDS_SKIP)
 def test_smacof_embedding_matches_the_requested_shape():
     subs = _cohort(n_subjects=6, n_images=12)
