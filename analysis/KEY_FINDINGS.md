@@ -33,8 +33,8 @@ Notebook: [`behavioral/2_data_quality.ipynb`](behavioral/2_data_quality.ipynb) (
 Notebook: [`behavioral/3_geometry.ipynb`](behavioral/3_geometry.ipynb) (commit `5d1be86`)
 
 - **Structural agreement, pre vs post:** on the raw RDMs (107,040 jointly rated pairs) Kendall tau is 0.15 and Spearman rho 0.22. After SMACOF embedding, agreement is much higher (d=2: tau 0.50, rho 0.69). Rank correlation dips to about 0.40 at d=4-6 and recovers to 0.47/0.65 at d=15, while Procrustes m^2 worsens overall (0.31 at d=2 to 0.56 at d=15).
-- **Label permutation:** the raw pre-post agreement (tau 0.148, rho 0.220) is no lower than for shuffled cohort labels (null mean 0.148 and 0.220, one-sided p=0.44 for both, 500 permutations). There is no detectable cohort effect on the similarity structure.
-- **Equivalence of agreement:** observed minus the exchangeable expectation is -0.0002 for tau (90% CI [-0.005, 0.005], bound +/-0.01) and -0.0004 for rho (CI [-0.007, 0.007], bound +/-0.02), so the cohorts agree as much as identical cohorts would, to within about 0.01 to 0.02.
+- **Label permutation:** the raw pre-post agreement (tau 0.148, rho 0.220) is no lower than for shuffled cohort labels (null mean 0.148 and 0.220, one-sided p=0.43 for both, 250 permutations). There is no detectable cohort effect on the similarity structure.
+- **Equivalence of agreement:** observed minus the exchangeable expectation is -0.0003 for tau (90% CI [-0.005, 0.004], bound +/-0.01) and -0.0004 for rho (CI [-0.007, 0.006], bound +/-0.02), so the cohorts agree as much as identical cohorts would, to within about 0.01 to 0.02.
 - **Stress:** stress-1 falls from about 0.45 (d=2) to about 0.36 (d=15) in both cohorts, with no sharp elbow. All 28 fits converged at `max_iters=1000`.
 
 ## Choice of RDM aggregation method
