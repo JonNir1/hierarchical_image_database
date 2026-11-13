@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 
 import numpy as np
-import pandas as pd
 import pytest
 from PIL import Image
 from scipy.spatial.distance import pdist
+
+from _rdm_helpers import patch_common_results, synthetic_manifest
 
 import analysis.build_rdms.common as common
 
@@ -29,9 +30,7 @@ def patched_results(tmp_path, monkeypatch):
     Redirect RESULTS_DIR to a temp dir and shrink expected N so tests don't
     need a real 725-image dataset.
     """
-    monkeypatch.setattr(common, "RESULTS_DIR", tmp_path)
-    monkeypatch.setattr(common, "_EXPECTED_LEN", _LEN)
-    monkeypatch.setattr(common, "_EXPECTED_N", _N)
+    patch_common_results(monkeypatch, tmp_path, _N)
     return tmp_path
 
 
@@ -458,17 +457,6 @@ def test_lca_depth_one_shallower():
 # kiani smoke test (build_km_rdm with synthetic manifest)
 # ---------------------------------------------------------------------------
 
-def _make_synthetic_manifest(paths: list[str]) -> pd.DataFrame:
-    return pd.DataFrame({
-        "curated_path": paths,
-        "curated_filename": [p.split("\\")[-1] for p in paths],
-        "category": ["X"] * len(paths),
-        "source_dataset": ["test"] * len(paths),
-        "source_filename_or_url": [""] * len(paths),
-        "manual_match_validation": ["V"] * len(paths),
-    })
-
-
 @pytest.fixture()
 def patched_km(tmp_path, monkeypatch):
     """Patch km module so build_km_rdm uses a tiny synthetic manifest."""
@@ -478,7 +466,7 @@ def patched_km(tmp_path, monkeypatch):
         r"animate\animal\fish\fish1.png",    # depth 3, different leaf
         r"inanimate\object\tool\hammer1.png", # depth 3, different top-level
     ]
-    synthetic = _make_synthetic_manifest(paths_4img)
+    synthetic = synthetic_manifest(paths_4img)
     monkeypatch.setattr(km, "load_manifest", lambda: synthetic)
     monkeypatch.setattr(km, "save_rdm", lambda *a, **kw: None)
     return paths_4img

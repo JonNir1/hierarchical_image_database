@@ -7,12 +7,11 @@ neither a real 725-image dataset nor real SpAM session data.
 """
 from __future__ import annotations
 
-import json
-
 import numpy as np
 import pandas as pd
 import pytest
 import rsatoolbox
+from _rdm_helpers import pairwise_json, synthetic_manifest
 from rsatoolbox.rdm.combine import rescale as rsatoolbox_rescale
 from rsatoolbox.rdm.combine import from_partials
 from scipy.spatial.distance import squareform
@@ -23,16 +22,8 @@ import analysis.build_rdms.behavior.spam_ratings as behavioral
 _IMAGES = ["img0.png", "img1.png", "img2.png", "img3.png"]
 
 
-def _pairwise_json(pairs: dict[tuple[str, str], float], variant_dir: str) -> str:
-    items = [
-        {"src1": f"./images/{variant_dir}/{a}", "src2": f"./images/{variant_dir}/{b}", "distance": d}
-        for (a, b), d in pairs.items()
-    ]
-    return json.dumps(items)
-
-
 def _synthetic_manifest() -> pd.DataFrame:
-    return pd.DataFrame({"curated_path": _IMAGES})
+    return synthetic_manifest(_IMAGES)
 
 
 def _synthetic_participants() -> pd.DataFrame:
@@ -50,7 +41,7 @@ def _synthetic_trials() -> pd.DataFrame:
         # p1, screening block: img0-img1-img2 triangle
         {
             "participant_id": "p1", "is_catch": False, "block_type": "screening",
-            "pairwise_distances": _pairwise_json(
+            "pairwise_distances": pairwise_json(
                 {("img0.png", "img1.png"): 0.1, ("img0.png", "img2.png"): 0.2,
                  ("img1.png", "img2.png"): 0.3},
                 "pre_shine",
@@ -59,7 +50,7 @@ def _synthetic_trials() -> pd.DataFrame:
         # p1, experimental block: img1-img2-img3 triangle (overlaps p1's own screening trial on img1/img2)
         {
             "participant_id": "p1", "is_catch": False, "block_type": "experimental",
-            "pairwise_distances": _pairwise_json(
+            "pairwise_distances": pairwise_json(
                 {("img1.png", "img2.png"): 0.32, ("img1.png", "img3.png"): 0.4,
                  ("img2.png", "img3.png"): 0.5},
                 "pre_shine",
@@ -68,12 +59,12 @@ def _synthetic_trials() -> pd.DataFrame:
         # p1 catch trial: must be excluded regardless of its content
         {
             "participant_id": "p1", "is_catch": True, "block_type": "experimental",
-            "pairwise_distances": _pairwise_json({("img0.png", "img1.png"): 0.99}, "pre_shine"),
+            "pairwise_distances": pairwise_json({("img0.png", "img1.png"): 0.99}, "pre_shine"),
         },
         # p2, experimental block: same img1-img2-img3 triangle, independent judgement
         {
             "participant_id": "p2", "is_catch": False, "block_type": "experimental",
-            "pairwise_distances": _pairwise_json(
+            "pairwise_distances": pairwise_json(
                 {("img1.png", "img2.png"): 0.28, ("img1.png", "img3.png"): 0.42,
                  ("img2.png", "img3.png"): 0.48},
                 "pre_shine",
@@ -82,14 +73,13 @@ def _synthetic_trials() -> pd.DataFrame:
         # p3 (screened out) -- must be excluded even though it has trial data
         {
             "participant_id": "p3", "is_catch": False, "block_type": "screening",
-            "pairwise_distances": _pairwise_json({("img0.png", "img3.png"): 0.6}, "pre_shine"),
+            "pairwise_distances": pairwise_json({("img0.png", "img3.png"): 0.6}, "pre_shine"),
         },
     ]
     return pd.DataFrame(rows)
 
 
-@pytest.fixture()
-def patched_behavioral(monkeypatch):
+def _patch_behavioral(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(behavioral, "load_manifest", _synthetic_manifest)
     monkeypatch.setattr(
         behavioral, "load_data",
@@ -106,6 +96,28 @@ def patched_behavioral(monkeypatch):
 
     monkeypatch.setattr(behavioral, "save_rdm", fake_save_rdm)
     return saved
+
+
+@pytest.fixture()
+def patched_behavioral(monkeypatch):
+    return _patch_behavioral(monkeypatch)
+
+
+@pytest.fixture(scope="module")
+def built_pre() -> dict[str, tuple[np.ndarray, dict]]:
+    """build_behavioral_rdm("pre_shine") once per aggregation: {key: (condensed, saved)}.
+
+    "default" is the call with no aggregation argument. Treat the arrays as read-only.
+    """
+    built = {}
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        saved = _patch_behavioral(monkeypatch)
+        for key, kwargs in {"default": {}, "mean": {"aggregation": "mean"},
+                            "evidence": {"aggregation": "evidence"},
+                            "simple": {"aggregation": "simple"}}.items():
+            condensed = behavioral.build_behavioral_rdm("pre_shine", cache_dir="unused", **kwargs)
+            built[key] = (condensed, dict(saved))
+    return built
 
 
 # ---------------------------------------------------------------------------
@@ -144,10 +156,8 @@ def test_condensed_index_matches_squareform():
     """_condensed_index must agree with scipy squareform's own condensed ordering."""
     n = 6
     sq = squareform(np.arange(n * (n - 1) // 2), checks=False)
-    for i in range(n):
-        for j in range(i + 1, n):
-            idx = behavioral._condensed_index(np.array([i]), np.array([j]), n)[0]
-            assert sq[i, j] == idx
+    i, j = np.triu_indices(n, k=1)
+    np.testing.assert_array_equal(behavioral._condensed_index(i, j, n), sq[i, j])
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +172,7 @@ def test_trial_sparse_none_for_empty_pairwise():
 
 def test_trial_sparse_indices_and_values():
     image_to_idx = {img: i for i, img in enumerate(_IMAGES)}
-    pw = _pairwise_json({("img0.png", "img1.png"): 0.1, ("img0.png", "img2.png"): 0.2,
+    pw = pairwise_json({("img0.png", "img1.png"): 0.1, ("img0.png", "img2.png"): 0.2,
                           ("img1.png", "img2.png"): 0.3}, "pre_shine")
     indices, values = behavioral._trial_sparse(pw, "pre_shine", image_to_idx, 4)
     got = dict(zip(indices.tolist(), values.tolist()))
@@ -237,46 +247,43 @@ def test_sparse_combine_matches_rsatoolbox_dense(method):
 # build_behavioral_rdm (end-to-end on synthetic data)
 # ---------------------------------------------------------------------------
 
-def test_build_behavioral_rdm_condensed_length(patched_behavioral):
-    condensed = behavioral.build_behavioral_rdm("pre_shine", cache_dir="unused")
+def test_build_behavioral_rdm_condensed_length(built_pre):
+    condensed, _ = built_pre["default"]
     assert len(condensed) == 4 * 3 // 2  # 6 pairs
 
 
-def test_build_behavioral_rdm_excludes_uncovered_pair(patched_behavioral):
+def test_build_behavioral_rdm_excludes_uncovered_pair(built_pre):
     """img0-img3 is never jointly observed in any p1/p2 trial (only p3's excluded
     screened-out trial touches it) -- must come out NaN, not silently zero or dropped."""
-    condensed = behavioral.build_behavioral_rdm("pre_shine", cache_dir="unused")
+    condensed, _ = built_pre["default"]
     sq = squareform(condensed)
     i0, i3 = _IMAGES.index("img0.png"), _IMAGES.index("img3.png")
     assert np.isnan(sq[i0, i3])
 
 
-def test_build_behavioral_rdm_covered_pairs_are_finite_and_nonneg(patched_behavioral):
-    condensed = behavioral.build_behavioral_rdm("pre_shine", cache_dir="unused")
+def test_build_behavioral_rdm_covered_pairs_are_finite_and_nonneg(built_pre):
+    condensed, _ = built_pre["default"]
     sq = squareform(condensed)
     i1, i2 = _IMAGES.index("img1.png"), _IMAGES.index("img2.png")
     assert np.isfinite(sq[i1, i2])
     assert sq[i1, i2] >= 0
 
 
-def test_build_behavioral_rdm_excludes_screened_out_and_catch_and_other_variant(patched_behavioral):
+def test_build_behavioral_rdm_excludes_screened_out_and_catch_and_other_variant(built_pre):
     """n_participants must be 2 (p1, p2 only) -- p3 is screened out, p4 is the
     wrong shine_variant, p5 is below the min task_version, and p1's catch trial
     must not count toward n_trials."""
-    behavioral.build_behavioral_rdm("pre_shine", cache_dir="unused")
-    extra = patched_behavioral["extra"]
-    assert extra["n_participants"] == 2
-    assert extra["n_trials"] == 3  # p1 screening + p1 experimental + p2 experimental
+    _, saved = built_pre["default"]
+    assert saved["extra"]["n_participants"] == 2
+    assert saved["extra"]["n_trials"] == 3  # p1 screening + p1 experimental + p2 experimental
 
 
-def test_build_behavioral_rdm_saves_with_expected_name(patched_behavioral):
-    behavioral.build_behavioral_rdm("pre_shine", cache_dir="unused")
-    assert patched_behavioral["name"] == "behav_pre_simple"
+def test_build_behavioral_rdm_saves_with_expected_name(built_pre):
+    assert built_pre["default"][1]["name"] == "behav_pre_simple"
 
 
-def test_build_behavioral_rdm_name_encodes_aggregation(patched_behavioral):
-    behavioral.build_behavioral_rdm("pre_shine", cache_dir="unused", aggregation="mean")
-    assert patched_behavioral["name"] == "behav_pre_mean"
+def test_build_behavioral_rdm_name_encodes_aggregation(built_pre):
+    assert built_pre["mean"][1]["name"] == "behav_pre_mean"
 
 
 def test_build_behavioral_rdm_rejects_unknown_aggregation(patched_behavioral):
@@ -299,20 +306,20 @@ def test_build_behavioral_rdm_rejects_unknown_aggregation(patched_behavioral):
 # future *drift*, not to re-derive them by hand.
 # ---------------------------------------------------------------------------
 
-def test_build_behavioral_rdm_mean_matches_expected(patched_behavioral):
-    condensed = behavioral.build_behavioral_rdm("pre_shine", cache_dir="unused", aggregation="mean")
+def test_build_behavioral_rdm_mean_matches_expected(built_pre):
+    condensed, _ = built_pre["mean"]
     expected = [0.1, 0.2, np.nan, 0.3, 0.41, 0.49]
     np.testing.assert_allclose(condensed, expected, rtol=1e-9, atol=1e-12, equal_nan=True)
 
 
-def test_build_behavioral_rdm_evidence_matches_expected(patched_behavioral):
-    condensed = behavioral.build_behavioral_rdm("pre_shine", cache_dir="unused", aggregation="evidence")
+def test_build_behavioral_rdm_evidence_matches_expected(built_pre):
+    condensed, _ = built_pre["evidence"]
     expected = [0.135387114, 0.270774228, np.nan, 0.4070538003, 0.554730821, 0.6615233623]
     np.testing.assert_allclose(condensed, expected, rtol=1e-8, atol=1e-10, equal_nan=True)
 
 
-def test_build_behavioral_rdm_simple_matches_expected(patched_behavioral):
-    condensed = behavioral.build_behavioral_rdm("pre_shine", cache_dir="unused", aggregation="simple")
+def test_build_behavioral_rdm_simple_matches_expected(built_pre):
+    condensed, _ = built_pre["simple"]
     expected = [0.1350432326, 0.2700864653, np.nan, 0.4048221759, 0.5537341126, 0.6613756875]
     np.testing.assert_allclose(condensed, expected, rtol=1e-8, atol=1e-10, equal_nan=True)
 
@@ -325,7 +332,7 @@ def test_build_behavioral_rdm_post_shine_uses_own_prefix(patched_behavioral, mon
     ])
     post_trials = pd.DataFrame([{
         "participant_id": "q1", "is_catch": False, "block_type": "experimental",
-        "pairwise_distances": _pairwise_json(
+        "pairwise_distances": pairwise_json(
             {("img0.png", "img1.png"): 0.15, ("img0.png", "img2.png"): 0.25,
              ("img1.png", "img2.png"): 0.35},
             "post_shine",

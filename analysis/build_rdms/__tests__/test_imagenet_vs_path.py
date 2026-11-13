@@ -118,7 +118,7 @@ class TestSummaries:
 
 
 class TestDisagreement:
-    @pytest.fixture()
+    @pytest.fixture(scope="module")
     def toy(self):
         return pd.DataFrame({
             "curated_path": [
@@ -131,25 +131,29 @@ class TestDisagreement:
             "manifest_synset": ["woman.n.01", "duck.n.01", "basketball.n.01", "leaf.n.01"],
         })
 
-    def test_detail_lists_only_scorable_disagreements(self, toy):
-        d = ivp.disagreement_detail(toy)
+    @pytest.fixture(scope="module")
+    def detail(self, toy):
+        return ivp.disagreement_detail(toy)  # WordNet-distance lookups run once
+
+    def test_detail_lists_only_scorable_disagreements(self, detail):
+        d = detail
         assert len(d) == 2
         assert "duck1.png" not in " ".join(d["curated_path"])       # agreed
         assert "red_leaf1.png" not in " ".join(d["curated_path"])   # unscorable
 
-    def test_detail_flags_polysemy_vs_different_word(self, toy):
-        d = ivp.disagreement_detail(toy).set_index("best_path_synset")
+    def test_detail_flags_polysemy_vs_different_word(self, detail):
+        d = detail.set_index("best_path_synset")
         # basketball.n.01/n.02 share the lemma "basketball"; female/woman do not.
         assert bool(d.loc["basketball.n.02", "same_lemma"]) is True
         assert bool(d.loc["female.n.01", "same_lemma"]) is False
 
-    def test_detail_measures_the_gap(self, toy):
-        d = ivp.disagreement_detail(toy).set_index("best_path_synset")
+    def test_detail_measures_the_gap(self, detail):
+        d = detail.set_index("best_path_synset")
         assert d.loc["basketball.n.02", "wn_distance"] > 0
         assert d.loc["female.n.01", "wn_distance"] > 0
 
-    def test_detail_marks_human_images(self, toy):
-        d = ivp.disagreement_detail(toy).set_index("best_path_synset")
+    def test_detail_marks_human_images(self, detail):
+        d = detail.set_index("best_path_synset")
         assert bool(d.loc["female.n.01", "is_human"]) is True
         assert bool(d.loc["basketball.n.02", "is_human"]) is False
 

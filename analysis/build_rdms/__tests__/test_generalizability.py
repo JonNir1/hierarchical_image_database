@@ -18,24 +18,15 @@ in this repo.
 """
 from __future__ import annotations
 
-import json
-
 import numpy as np
 import pandas as pd
 import pytest
+from _rdm_helpers import pairwise_json, synthetic_manifest
 
 import analysis.build_rdms.behavior.generalizability as generalizability
 
 # 6 synthetic images -> C(6,2) = 15 pairs
 _IMAGES = ["img0.png", "img1.png", "img2.png", "img3.png", "img4.png", "img5.png"]
-
-
-def _pairwise_json(pairs: dict[tuple[str, str], float], variant_dir: str) -> str:
-    items = [
-        {"src1": f"./images/{variant_dir}/{a}", "src2": f"./images/{variant_dir}/{b}", "distance": d}
-        for (a, b), d in pairs.items()
-    ]
-    return json.dumps(items)
 
 
 def _full_pairs(base: float, rng: np.random.Generator) -> dict[tuple[str, str], float]:
@@ -47,7 +38,7 @@ def _full_pairs(base: float, rng: np.random.Generator) -> dict[tuple[str, str], 
 
 
 def _synthetic_manifest() -> pd.DataFrame:
-    return pd.DataFrame({"curated_path": _IMAGES})
+    return synthetic_manifest(_IMAGES)
 
 
 def _synthetic_participants() -> pd.DataFrame:
@@ -81,7 +72,7 @@ def _synthetic_trials() -> pd.DataFrame:
     ]:
         rows.append({
             "participant_id": pid, "is_catch": False, "block_type": "experimental",
-            "pairwise_distances": _pairwise_json(_full_pairs(base, rng), variant_dir),
+            "pairwise_distances": pairwise_json(_full_pairs(base, rng), variant_dir),
         })
     return pd.DataFrame(rows)
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from _rdm_helpers import patch_common_results
 from scipy.spatial.distance import pdist
 
 import analysis.build_rdms.common as common
@@ -22,9 +23,7 @@ def patched_results(tmp_path, monkeypatch):
     don't need a real 725-image dataset. validate_rdms.py imports RESULTS_DIR,
     _EXPECTED_LEN, and _EXPECTED_N directly from common, binding its own
     module-level names -- both modules' copies must be patched."""
-    monkeypatch.setattr(common, "RESULTS_DIR", tmp_path)
-    monkeypatch.setattr(common, "_EXPECTED_LEN", _LEN)
-    monkeypatch.setattr(common, "_EXPECTED_N", _N)
+    patch_common_results(monkeypatch, tmp_path, _N)
     monkeypatch.setattr(vr, "RESULTS_DIR", tmp_path)
     monkeypatch.setattr(vr, "_EXPECTED_LEN", _LEN)
     monkeypatch.setattr(vr, "_N", _N)
