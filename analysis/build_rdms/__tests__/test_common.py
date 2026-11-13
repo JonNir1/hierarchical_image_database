@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from PIL import Image
-from scipy.spatial.distance import pdist, squareform
+from scipy.spatial.distance import pdist
 
 import analysis.build_rdms.common as common
 
@@ -397,21 +397,6 @@ def test_distances_save_result_records_metric_and_extra(patched_results):
     assert r["variant"] == "pre_shine"
 
 
-# ---------------------------------------------------------------------------
-# squareform round-trip invariants
-# ---------------------------------------------------------------------------
-
-def test_squareform_symmetric_zero_diagonal(patched_results):
-    """Loaded condensed vector round-trips to symmetric zero-diagonal square matrix."""
-    condensed = np.abs(np.random.rand(_LEN))
-    common.save_rdm("sq", condensed, metric="euclidean", source="tests")
-    loaded = common.load_rdm("sq")
-    sq = squareform(loaded)
-    assert sq.shape == (_N, _N)
-    np.testing.assert_array_almost_equal(sq, sq.T)
-    np.testing.assert_array_equal(np.diag(sq), 0.0)
-
-
 def test_load_rdm_missing_metadata_raises(patched_results):
     """load_rdm raises RuntimeError when metadata.json is absent (not via save_rdm)."""
     condensed = np.abs(np.random.rand(_LEN))
@@ -524,19 +509,6 @@ def test_build_km_rdm_cross_top_level(patched_km):
 def test_build_km_rdm_condensed_length(patched_km):
     condensed = km.build_km_rdm()
     assert len(condensed) == 4 * 3 // 2  # 6 pairs
-
-
-def test_build_km_rdm_zero_diagonal(patched_km):
-    """squareform of result has zero diagonal."""
-    condensed = km.build_km_rdm()
-    sq = squareform(condensed)
-    np.testing.assert_array_equal(np.diag(sq), 0.0)
-
-
-def test_build_km_rdm_symmetric(patched_km):
-    condensed = km.build_km_rdm()
-    sq = squareform(condensed)
-    np.testing.assert_array_equal(sq, sq.T)
 
 
 # ---------------------------------------------------------------------------

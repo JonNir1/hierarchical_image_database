@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from scipy.cluster.hierarchy import cophenet, is_valid_linkage
-from scipy.spatial.distance import pdist
+from scipy.spatial.distance import pdist, squareform
 
 import analysis.build_rdms.hierarchical_clustering as hcl
 from analysis.build_rdms.hierarchy_comparison import lca_depth_condensed
@@ -43,9 +43,14 @@ def test_gt_tree_agrees_perfectly_with_itself():
 
 
 def test_shuffled_leaf_order_gives_same_cophenetic_structure():
-    z = hcl.path_tree_to_linkage(_PARTS)
-    z_reordered = hcl.path_tree_to_linkage(list(_PARTS))
-    assert np.allclose(cophenet(z), cophenet(z_reordered))
+    perm = np.random.default_rng(0).permutation(_N)
+    assert not np.array_equal(perm, np.arange(_N))
+    shuffled = [_PARTS[j] for j in perm]  # leaf k of the shuffled tree is original image perm[k]
+    cophenetic = squareform(cophenet(hcl.path_tree_to_linkage(_PARTS)))
+    cophenetic_shuffled = squareform(cophenet(hcl.path_tree_to_linkage(shuffled)))
+    mapped_back = np.empty_like(cophenetic_shuffled)
+    mapped_back[np.ix_(perm, perm)] = cophenetic_shuffled
+    assert np.allclose(cophenetic, mapped_back)
 
 
 def test_km_level_labels_excludes_shallow_images():

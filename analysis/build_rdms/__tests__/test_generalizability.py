@@ -165,20 +165,7 @@ def test_build_oos_rdm_save_false_does_not_save(patched_generalizability):
 # compare_generalizability / run_generalizability_comparison
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("aggregation", ["mean", "simple", "evidence"])
-def test_compare_generalizability_returns_merged_dict(patched_generalizability, aggregation):
-    result = generalizability.compare_generalizability(
-        "pre_shine", aggregation, cache_dir="unused", min_overlap=3, save_oos=False,
-    )
-    assert result["cohort"] == "pre"
-    assert result["aggregation"] == aggregation
-    assert result["n_oos_participants"] == 3
-    assert not result["underpowered"]
-    assert -1.0 <= result["kendall"] <= 1.0
-    assert -1.0 <= result["spearman"] <= 1.0
-
-
-def test_run_generalizability_comparison_shape(patched_generalizability, monkeypatch):
+def test_run_generalizability_comparison_shape(patched_generalizability):
     # run_generalizability_comparison() hardcodes _DEFAULT_MIN_OVERLAP=20 unless overridden;
     # this synthetic fixture only has 15 possible pairs, so pass a small min_overlap.
     df = generalizability.run_generalizability_comparison(cache_dir="unused", min_overlap=3, save_oos=False)
@@ -188,3 +175,5 @@ def test_run_generalizability_comparison_shape(patched_generalizability, monkeyp
     assert set(df["aggregation"]) == {"mean", "simple", "evidence"}
     assert set(df["metric"]) == {"kendall", "spearman"}
     assert not df["underpowered"].any()
+    assert (df["n_oos_participants"] == 3).all()
+    assert df["value"].between(-1.0, 1.0).all()

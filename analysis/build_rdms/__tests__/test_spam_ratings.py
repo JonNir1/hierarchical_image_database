@@ -259,12 +259,6 @@ def test_build_behavioral_rdm_covered_pairs_are_finite_and_nonneg(patched_behavi
     assert sq[i1, i2] >= 0
 
 
-def test_build_behavioral_rdm_symmetric(patched_behavioral):
-    condensed = behavioral.build_behavioral_rdm("pre_shine", cache_dir="unused")
-    sq = squareform(condensed)
-    assert np.allclose(sq, sq.T, equal_nan=True)
-
-
 def test_build_behavioral_rdm_excludes_screened_out_and_catch_and_other_variant(patched_behavioral):
     """n_participants must be 2 (p1, p2 only) -- p3 is screened out, p4 is the
     wrong shine_variant, p5 is below the min task_version, and p1's catch trial
