@@ -23,6 +23,7 @@ def _make_params(**overrides):
     return TaskV2_4ExperimentParameters(**fields)
 
 
+@pytest.mark.legacy
 class TestTrialTestRetest:
     def test_identical_vectors_give_one(self):
         v = np.array([1.0, 3.0, 2.0, 5.0])
@@ -37,6 +38,7 @@ class TestTrialTestRetest:
         assert _trial_test_retest(a, b) < 1.0
 
 
+@pytest.mark.legacy
 class TestSimulateTaskV2_4SingleSubject:
     def _design(self, t=10, k=20, r=0.0, fr=0.3):
         t_distinct = distinct_trial_count(t, fr)
@@ -107,6 +109,7 @@ class TestSimulateTaskV2_4SingleSubject:
 
 
 class TestSimulateTaskV2_4Experiment:
+    @pytest.mark.legacy
     def test_reproducible_from_seed_only(self):
         sim = Simulation.make(200, 4, seed=10)
         params = _make_params()
@@ -129,6 +132,7 @@ class TestSimulateTaskV2_4Experiment:
         assert res.subject_snr.shape == (9,)
         assert res.subject_test_retest.shape == (9,)
 
+    @pytest.mark.legacy
     def test_bit_exact_to_v2_3_when_frac_trials_repeated_zero(self):
         # frac_trials_repeated=0 consumes no extra RNG and runs no repeat trials, so the v2.4
         # simulation must reproduce v2.3 exactly (distances, observations, noises, SNR), and the
@@ -147,6 +151,7 @@ class TestSimulateTaskV2_4Experiment:
                                       np.nan_to_num(r4.subject_snr, nan=-1))
         assert np.all(np.isnan(r4.subject_test_retest))
 
+    @pytest.mark.legacy
     def test_noiseless_experiment_has_unit_reliability(self):
         sim = Simulation.make(200, 4, seed=12)
         params = _make_params(num_subjects=6, subjects_noise_scale=0.0, frac_trials_repeated=0.3)
@@ -161,12 +166,14 @@ class TestSimulateTaskV2_4Experiment:
         dict(frac_trials_repeated=1.0),
         dict(frac_trials_repeated=-0.1),
     ])
+    @pytest.mark.legacy
     def test_rejects_invalid_parameters(self, overrides):
         sim = Simulation.make(200, 4, seed=14)
         params = _make_params(**overrides)
         with pytest.raises(AssertionError):
             simulate_task_v2_4_experiment(params, sim.gt_distances, np.random.default_rng(1), verbose=False)
 
+    @pytest.mark.legacy
     def test_infeasible_repeat_pool_raises(self):
         # frac_images_repeated=1/3 saturates the trials with doubled images, so no singles-only
         # trial is left to repeat: select_repeat_trials must raise (matching the JS task).
@@ -175,6 +182,7 @@ class TestSimulateTaskV2_4Experiment:
         with pytest.raises(RuntimeError):
             simulate_task_v2_4_experiment(params, sim.gt_distances, np.random.default_rng(1), verbose=False)
 
+    @pytest.mark.legacy
     def test_mean_reliability_decreases_with_noise_scale(self):
         """Statistical sanity check (not bit-exact): more subject noise should yield a lower
         mean test-retest reliability, averaged over several repetitions to smooth sampling noise."""

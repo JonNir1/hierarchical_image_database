@@ -31,6 +31,7 @@ def _mean_observed(res):
     return res.distances[mask] / res.num_obs[mask], mask
 
 
+@pytest.mark.legacy
 class TestBuildGroundTruth:
     def test_shape_dtype(self):
         emb = build_ground_truth_embeddings(200, 6, seed=1)
@@ -63,6 +64,7 @@ class TestBuildGroundTruth:
             build_ground_truth_embeddings(50, 4, **bad)
 
 
+@pytest.mark.legacy
 class TestProject2D:
     def test_output_shape(self):
         Y = project_2d(np.random.default_rng(0).normal(size=(15, 7)))
@@ -78,6 +80,7 @@ class TestProject2D:
         assert Y.shape == (8, 2) and np.allclose(Y[:, 1], 0.0)
 
 
+@pytest.mark.legacy
 class TestPerspectiveWeights:
     def test_zero_dispersion_is_identity(self):
         assert np.array_equal(_draw_perspective_weights(6, 0.0, np.random.default_rng(0)), np.ones(6))
@@ -87,6 +90,7 @@ class TestPerspectiveWeights:
         assert np.all(w > 0) and w.std() > 0
 
 
+@pytest.mark.legacy
 class TestTrialTestRetest:
     def test_identical_gives_one(self):
         v = np.array([1.0, 3.0, 2.0, 5.0])
@@ -96,6 +100,7 @@ class TestTrialTestRetest:
         assert np.isnan(_trial_test_retest(np.ones(4), np.array([1.0, 2.0, 3.0, 4.0])))
 
 
+@pytest.mark.legacy
 class TestSingleSubject:
     def test_output_shapes(self):
         emb = build_ground_truth_embeddings(120, 5, seed=1)
@@ -126,6 +131,7 @@ class TestSimulateExperiment:
         assert np.array_equal(np.nan_to_num(r1.distances), np.nan_to_num(r2.distances))
         assert np.array_equal(r1.num_obs, r2.num_obs)
 
+    @pytest.mark.legacy
     def test_unmeasured_pairs_are_nan(self):
         emb = build_ground_truth_embeddings(120, 5, seed=1)
         _, res = simulate_task_v3_experiment(_make_params(num_subjects=3), emb,
@@ -133,6 +139,7 @@ class TestSimulateExperiment:
         assert np.all(np.isnan(res.distances[res.num_obs == 0]))
         assert np.all(~np.isnan(res.distances[res.num_obs > 0]))
 
+    @pytest.mark.legacy
     def test_pool_too_small_raises(self):
         emb = build_ground_truth_embeddings(30, 4, seed=1)  # t_distinct*k = 8*10 = 80 > 30
         with pytest.raises(AssertionError):
@@ -140,6 +147,7 @@ class TestSimulateExperiment:
                                         np.random.default_rng(0), verbose=False)
 
 
+@pytest.mark.legacy
 class TestScientificValidity:
     def test_loss_free_recovery_when_gt_is_2d(self):
         """D<=2, zero noise, zero dispersion -> observed distances exactly equal GT."""
@@ -159,22 +167,24 @@ class TestScientificValidity:
         mean_obs, mask = _mean_observed(res)
         assert np.abs(mean_obs - pdist(emb)[mask]).mean() > 0.1
 
-    def test_noise_lowers_test_retest(self):
+    @pytest.fixture(scope="class")
+    def low_high_noise(self) -> tuple:
+        """Low- and high-noise results on one ground truth (read-only, shared by two tests)."""
         emb = build_ground_truth_embeddings(120, 5, seed=1)
         _, lo = simulate_task_v3_experiment(_make_params(subjects_noise_scale=0.1), emb,
                                             np.random.default_rng(0), verbose=False)
         _, hi = simulate_task_v3_experiment(_make_params(subjects_noise_scale=1.0), emb,
                                             np.random.default_rng(0), verbose=False)
+        return lo, hi
+
+    def test_noise_lowers_test_retest(self, low_high_noise):
+        lo, hi = low_high_noise
         assert np.nanmean(lo.subject_test_retest) > np.nanmean(hi.subject_test_retest)
 
-    def test_procrustes_retest_rises_with_noise(self):
+    def test_procrustes_retest_rises_with_noise(self, low_high_noise):
         """Procrustes M^2 test-retest is a disparity (lower=better), so MORE noise -> HIGHER M^2,
         and it stays within [0, 1]."""
-        emb = build_ground_truth_embeddings(120, 5, seed=1)
-        _, lo = simulate_task_v3_experiment(_make_params(subjects_noise_scale=0.1), emb,
-                                            np.random.default_rng(0), verbose=False)
-        _, hi = simulate_task_v3_experiment(_make_params(subjects_noise_scale=1.0), emb,
-                                            np.random.default_rng(0), verbose=False)
+        lo, hi = low_high_noise
         m2_lo, m2_hi = np.nanmean(lo.subject_test_retest_procrustes), np.nanmean(hi.subject_test_retest_procrustes)
         assert 0.0 <= m2_lo <= 1.0 and 0.0 <= m2_hi <= 1.0
         assert m2_hi > m2_lo                       # opposite direction to the Spearman test-retest

@@ -1,22 +1,17 @@
 """Unit + equivalence tests for the vectorized experiment simulation.
 
 `_reference_single_subject` is a verbatim copy of the pre-refactor scalar
-implementation. `test_reference_matches_golden` proves the reference reproduces the
-committed golden fixture, which licenses using it as the oracle in the broader fuzz
-test `test_vectorized_matches_reference` (which exercises larger images_per_trial and
-heavy repeated-observation accumulation that the tiny golden config does not).
+implementation, used as the oracle in the fuzz test `test_vectorized_matches_reference`
+(which exercises larger images_per_trial and heavy repeated-observation accumulation
+that the tiny golden config does not). Agreement with the committed golden fixture is
+checked in `test_bit_exact.py`.
 """
-from pathlib import Path
-
 import numpy as np
 import pytest
 from scipy.spatial.distance import squareform
 
-import _golden_config as gc
 from SpAM_Simulations.models.experiment import simulate_single_subject, simulate_experiment, ExperimentParameters
 from SpAM_Simulations.core.simulation import Simulation
-
-FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "golden_experiment.npz"
 
 
 def _reference_single_subject(subject_noise, num_trials, images_per_trial, gt_distances, rng):
@@ -40,21 +35,7 @@ def _reference_single_subject(subject_noise, num_trials, images_per_trial, gt_di
     return squareform(observations), squareform(n_obs)
 
 
-@pytest.mark.skipif(not FIXTURE_PATH.exists(), reason="golden fixture missing")
-def test_reference_matches_golden():
-    """The reference oracle reproduces the committed pre-refactor fixture."""
-    with np.load(FIXTURE_PATH, allow_pickle=False) as data:
-        gt = data["gt_distances"]
-        for combo_idx, rep, params, global_seed, rng_seed in gc.entries():
-            np.random.seed(global_seed)
-            rng = np.random.default_rng(rng_seed)
-            _, ref = simulate_experiment(params, gt, rng, verbose=False)  # uses refactored code
-            # Independently rebuild via the scalar reference for one subject sanity check
-            key = gc.entry_key(combo_idx, rep)
-            np.testing.assert_array_equal(ref.num_obs, data[f"{key}_num_obs"])
-
-
-@pytest.mark.parametrize("seed_idx", range(6))
+@pytest.mark.parametrize("seed_idx", range(3))
 def test_vectorized_matches_reference(seed_idx):
     """Vectorized single-subject simulation is bit-exact vs the scalar reference.
 

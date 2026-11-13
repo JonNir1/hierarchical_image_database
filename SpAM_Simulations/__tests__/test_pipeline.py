@@ -1,9 +1,12 @@
 """Tests for the non-MDS pipeline functions (no R required)."""
+from typing import Callable, NamedTuple, Tuple
+
 import numpy as np
 import pytest
 
 from SpAM_Simulations.core.config import (
-    SimulationConfig, TaskV2_3SimulationConfig, TaskV2_4SimulationConfig, TaskV3SimulationConfig
+    SimulationConfig, TaskV2_3SimulationConfig, TaskV2_4SimulationConfig, TaskV3SimulationConfig,
+    TaskV4SimulationConfig, MDSSweepConfig
 )
 from SpAM_Simulations.core import pipeline
 
@@ -24,6 +27,16 @@ def _task_v3_config(**over):
                 use_isotropic=True, reps=3, seed=7)
     base.update(over)
     return TaskV3SimulationConfig(**base)
+
+
+def _task_v4_config(**over):
+    base = dict(n_images=120, n_dims=4, num_subjects=[15], trials_per_subject=[8],
+                images_per_trial=[6], subjects_noise_scale=[0.5], subjects_noise_df=[1],
+                frac_trials_repeated=[0.0, 0.25], perspective_dispersion=[0.3],
+                screening_trials=[3], screening_repeats=[1], screening_min_reliability=[-1.0, 0.0],
+                use_isotropic=True, reps=2, seed=7)
+    base.update(over)
+    return TaskV4SimulationConfig(**base)
 
 
 def _config(**over):
@@ -52,52 +65,141 @@ def _task_v2_4_config(**over):
     return TaskV2_4SimulationConfig(**base)
 
 
-def test_generate_simulation_reproducible():
-    a = pipeline.generate_simulation(_config(), verbose=False)
-    b = pipeline.generate_simulation(_config(), verbose=False)
+class Variant(NamedTuple):
+    """One model version: how to configure and generate it, and what is specific to its outputs."""
+    config: Callable
+    generate: Callable
+    extra_fields: Tuple[str, ...]     # per-experiment result fields that must also reproduce
+    coverage_cols: Tuple[str, ...]    # columns its coverage table must have (beyond the common ones)
+    coverage_absent: Tuple[str, ...]  # columns its coverage table must NOT have
+    sweep_overrides: dict             # small config for the MDS-sweep test
+    meta_in: Tuple[str, ...]          # store metadata columns that must exist
+    meta_out: Tuple[str, ...]         # store metadata columns that must not exist
+
+
+_V01 = Variant(
+    _config, pipeline.generate_simulation, (),
+    ("num_images", "num_connected_components"), (),
+    dict(n_images=30, n_dims=3, num_subjects=[10], trials_per_subject=[5], images_per_trial=[6],
+         subjects_noise_scale=[0.5], subjects_noise_df=[1], reps=2, seed=1),
+    (), ())
+_V2_3 = Variant(
+    _task_v2_3_config, pipeline.generate_task_v2_3_simulation,
+    ("subject_snr",), ("mean_snr", "median_snr", "frac_nan_snr"), (),
+    dict(n_images=30, n_dims=3, num_subjects=[10], trials_per_subject=[5], images_per_trial=[6],
+         subjects_noise_scale=[0.5], subjects_noise_df=[1], frac_images_repeated=[1 / 3],
+         reps=2, seed=1),
+    ("frac_images_repeated",), ())
+_V2_4 = Variant(
+    _task_v2_4_config, pipeline.generate_task_v2_4_simulation,
+    ("subject_test_retest",),
+    ("mean_snr", "frac_nan_snr", "mean_test_retest", "median_test_retest", "frac_nan_test_retest"), (),
+    dict(n_images=60, n_dims=3, num_subjects=[10], trials_per_subject=[8], images_per_trial=[6],
+         subjects_noise_scale=[0.5], subjects_noise_df=[1], frac_images_repeated=[0.0],
+         frac_trials_repeated=[0.0, 0.25], reps=2, seed=1),
+    ("frac_trials_repeated",), ())
+_V3 = Variant(
+    _task_v3_config, pipeline.generate_task_v3_simulation,
+    ("subject_test_retest",),
+    ("perspective_dispersion", "mean_test_retest", "frac_nan_test_retest"),
+    ("mean_snr",),    # v3 drops the doubled-image SNR diagnostic
+    dict(n_images=60, n_dims=3, num_subjects=[10], trials_per_subject=[8], images_per_trial=[6],
+         subjects_noise_scale=[0.5], subjects_noise_df=[1], frac_trials_repeated=[0.0, 0.25],
+         perspective_dispersion=[0.3], reps=2, seed=1),
+    ("perspective_dispersion",), ("frac_images_repeated",))
+_V4 = Variant(
+    _task_v4_config, pipeline.generate_task_v4_simulation,
+    ("subject_test_retest", "subject_noises", "n_candidates_screened"),
+    ("perspective_dispersion", "mean_test_retest", "n_candidates_screened", "screening_pass_rate",
+     "mean_subject_noise"),
+    ("mean_snr",),
+    dict(n_images=60, n_dims=3, num_subjects=[10], trials_per_subject=[8], images_per_trial=[6],
+         subjects_noise_scale=[0.5], subjects_noise_df=[1], frac_trials_repeated=[0.0, 0.25],
+         perspective_dispersion=[0.3], screening_trials=[3], screening_repeats=[1],
+         screening_min_reliability=[-1.0], reps=2, seed=1),
+    ("screening_trials", "screening_min_reliability"), ("frac_images_repeated",))
+
+legacy = pytest.mark.legacy   # superseded models, kept for the ec2 scripts and notebooks
+VARIANTS = [
+    pytest.param(_V01, id="v0.1", marks=legacy),
+    pytest.param(_V2_3, id="v2.3", marks=legacy),
+    pytest.param(_V2_4, id="v2.4", marks=legacy),
+    pytest.param(_V3, id="v3", marks=legacy),
+    pytest.param(_V4, id="v4"),
+]
+
+
+@pytest.fixture(scope="module")
+def default_sim():
+    """Each variant's default-config simulation, generated once per module (read-only)."""
+    cache: dict = {}
+
+    def get(variant: Variant):
+        if id(variant) not in cache:
+            cache[id(variant)] = variant.generate(variant.config(), verbose=False)
+        return cache[id(variant)]
+
+    return get
+
+
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_generate_simulation_reproducible(variant):
+    a = variant.generate(variant.config(), verbose=False)
+    b = variant.generate(variant.config(), verbose=False)
     # same seed -> identical results across the whole grid
     for params in a._results:
         for ra, rb in zip(a._results[params], b._results[params]):
-            np.testing.assert_array_equal(ra.distances, rb.distances)
+            np.testing.assert_array_equal(np.nan_to_num(ra.distances), np.nan_to_num(rb.distances))
             np.testing.assert_array_equal(ra.num_obs, rb.num_obs)
+            for name in variant.extra_fields:
+                np.testing.assert_array_equal(getattr(ra, name), getattr(rb, name))
 
 
-def test_generate_simulation_grid_and_reps():
-    cfg = _config()
-    sim = pipeline.generate_simulation(cfg, verbose=False)
-    assert len(sim._results) == len(cfg.param_grid())  # 2 configurations
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_generate_simulation_grid_and_reps(variant, default_sim):
+    cfg = variant.config()
+    sim = default_sim(variant)
+    assert len(sim._results) == len(cfg.param_grid())
     assert all(len(v) == cfg.reps for v in sim._results.values())
 
 
-def test_generate_simulation_from_embeddings():
-    emb = np.random.default_rng(0).random((20, 3)).astype(np.float32)
-    cfg = SimulationConfig(gt_embeddings=emb, num_subjects=[10], trials_per_subject=[5],
-                           images_per_trial=[5], subjects_noise_scale=[0.3], subjects_noise_df=[1],
-                           reps=2, seed=1)
-    sim = pipeline.generate_simulation(cfg, verbose=False)
-    assert sim.num_images == 20 and sim.gt_dimensions == 3
-
-
-def test_coverage_table_shape_and_columns():
-    cfg = _config()
-    sim = pipeline.generate_simulation(cfg, verbose=False)
-    df = pipeline.compute_coverage_table(sim)
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_coverage_table_shape_and_columns(variant, default_sim):
+    cfg = variant.config()
+    df = pipeline.compute_coverage_table(default_sim(variant))
     assert len(df) == len(cfg.param_grid()) * cfg.reps  # one row per (config, rep)
-    for col in ["num_subjects", "rep", "num_images", "pair_coverage", "num_connected_components"]:
+    for col in ["num_subjects", "rep", "pair_coverage", *variant.coverage_cols]:
         assert col in df.columns
+    for col in variant.coverage_absent:
+        assert col not in df.columns
 
 
-def test_run_mds_sweep_streams_payloads_lazily(tmp_path, monkeypatch):
+def test_task_v0_1_coverage_table_lacks_snr_and_test_retest_columns():
+    df = pipeline.compute_coverage_table(pipeline.generate_simulation(_config(), verbose=False))
+    assert "mean_snr" not in df.columns and "mean_test_retest" not in df.columns
+
+
+@pytest.mark.parametrize("variant", [
+    pytest.param(_V2_4, id="v2.4", marks=legacy), pytest.param(_V3, id="v3", marks=legacy)])
+def test_coverage_table_reliability_undefined_without_repeats(variant, default_sim):
+    df = pipeline.compute_coverage_table(default_sim(variant))
+    no_repeat = df[df["frac_trials_repeated"] == 0.0]
+    assert (no_repeat["frac_nan_test_retest"] == 1.0).all()
+
+
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_run_mds_sweep_streams_lazily_and_roundtrips_store(variant, tmp_path, monkeypatch):
     """Payloads (each a full dists+weights pair) must be built on demand and interleaved with
-    execution - not all materialised up front, which for a large sweep would need tens of GB."""
-    from SpAM_Simulations.core.config import MDSSweepConfig
-    cfg = SimulationConfig(n_images=30, n_dims=3, num_subjects=[10], trials_per_subject=[5],
-                           images_per_trial=[6], subjects_noise_scale=[0.5], subjects_noise_df=[1],
-                           reps=3, seed=1)
-    sim = pipeline.generate_simulation(cfg, verbose=False)
+    execution, not all materialised up front, which for a large sweep would need tens of GB.
+
+    Metadata columns and the completed-key roundtrip are derived from the params type, so this
+    also checks each version's extra fields survive the store (and that resuming skips all work).
+    """
+    cfg = variant.config(**variant.sweep_overrides)
+    sim = variant.generate(cfg, verbose=False)
     sweep = MDSSweepConfig(ndims=[2, 3])
     L = sim.num_images * (sim.num_images - 1) // 2
-    n_tasks = 1 * 3 * 2  # 1 config * 3 reps * 2 dims
+    n_tasks = len(cfg.param_grid()) * cfg.reps * 2
 
     events = []
     real_build = pipeline._build_mds_payload
@@ -121,6 +223,21 @@ def test_run_mds_sweep_streams_payloads_lazily(tmp_path, monkeypatch):
     # streaming => build/exec alternate; the eager-list bug would emit all builds before any exec
     assert events[:4] == ["build", "exec", "build", "exec"]
     assert len(store) == n_tasks
+    cols = store.metadata().columns
+    assert all(c in cols for c in variant.meta_in)
+    assert not any(c in cols for c in variant.meta_out)
+    # resuming finds every task already complete (the key roundtrips through the store)
+    store2 = pipeline.run_mds_sweep(sim, sweep, tmp_path / "s", verbose=False)
+    assert len(store2) == n_tasks
+
+
+def test_generate_simulation_from_embeddings():
+    emb = np.random.default_rng(0).random((20, 3)).astype(np.float32)
+    cfg = SimulationConfig(gt_embeddings=emb, num_subjects=[10], trials_per_subject=[5],
+                           images_per_trial=[5], subjects_noise_scale=[0.3], subjects_noise_df=[1],
+                           reps=2, seed=1)
+    sim = pipeline.generate_simulation(cfg, verbose=False)
+    assert sim.num_images == 20 and sim.gt_dimensions == 3
 
 
 def test_stability_table_pairs():
@@ -133,166 +250,6 @@ def test_stability_table_pairs():
     # noisy configs should have finite, high correlations
     noisy = df[df["subjects_noise_scale"] == 0.5]["spearman"].dropna()
     assert (noisy > 0.5).all()
-
-
-# --------------------------------------------------------------------- task-v2.3 simulation
-def test_generate_task_v2_3_simulation_reproducible():
-    a = pipeline.generate_task_v2_3_simulation(_task_v2_3_config(), verbose=False)
-    b = pipeline.generate_task_v2_3_simulation(_task_v2_3_config(), verbose=False)
-    for params in a._results:
-        for ra, rb in zip(a._results[params], b._results[params]):
-            np.testing.assert_array_equal(ra.distances, rb.distances)
-            np.testing.assert_array_equal(ra.num_obs, rb.num_obs)
-            np.testing.assert_array_equal(ra.subject_snr, rb.subject_snr)
-
-
-def test_generate_task_v2_3_simulation_grid_and_reps():
-    cfg = _task_v2_3_config()
-    sim = pipeline.generate_task_v2_3_simulation(cfg, verbose=False)
-    assert len(sim._results) == len(cfg.param_grid())  # 2 configurations
-    assert all(len(v) == cfg.reps for v in sim._results.values())
-
-
-def test_task_v2_3_coverage_table_includes_snr_columns():
-    cfg = _task_v2_3_config()
-    sim = pipeline.generate_task_v2_3_simulation(cfg, verbose=False)
-    df = pipeline.compute_coverage_table(sim)
-    assert len(df) == len(cfg.param_grid()) * cfg.reps
-    for col in ["num_subjects", "rep", "pair_coverage", "mean_snr", "median_snr", "frac_nan_snr"]:
-        assert col in df.columns
-    # the task-v0.1 coverage table must not gain these columns
-    old_df = pipeline.compute_coverage_table(pipeline.generate_simulation(_config(), verbose=False))
-    assert "mean_snr" not in old_df.columns
-
-
-def test_task_v2_3_run_mds_sweep_streams_payloads_lazily(tmp_path, monkeypatch):
-    """Same lazy-streaming contract as the task-v0.1 simulation, but exercising the dynamically
-    derived (rather than hardcoded) parameter fields used to build/read the store."""
-    from SpAM_Simulations.core.config import MDSSweepConfig
-    cfg = _task_v2_3_config(n_images=30, n_dims=3, num_subjects=[10], trials_per_subject=[5],
-                             images_per_trial=[6], subjects_noise_scale=[0.5],
-                             subjects_noise_df=[1], frac_images_repeated=[1 / 3], reps=3, seed=1)
-    sim = pipeline.generate_task_v2_3_simulation(cfg, verbose=False)
-    sweep = MDSSweepConfig(ndims=[2, 3])
-    L = sim.num_images * (sim.num_images - 1) // 2
-    n_tasks = 1 * 3 * 2  # 1 config * 3 reps * 2 dims
-
-    events = []
-    real_build = pipeline._build_mds_payload
-
-    def spy_build(task, sweep_config):
-        events.append("build")
-        return real_build(task, sweep_config)
-
-    def fake_exec(payload):
-        events.append("exec")
-        meta = {**payload[0], "niter": 1.0, "stress": 0.0, "status": "success"}
-        return meta, np.zeros(L, np.float32), _fake_conf(sim, payload)
-
-    monkeypatch.setattr(pipeline, "_build_mds_payload", spy_build)
-    monkeypatch.setattr(pipeline, "_execute_mds_payload", fake_exec)
-
-    store = pipeline.run_mds_sweep(sim, sweep, tmp_path / "s", verbose=False)
-
-    assert events.count("build") == n_tasks
-    assert events.count("exec") == n_tasks
-    assert events[:4] == ["build", "exec", "build", "exec"]
-    assert len(store) == n_tasks
-    # the task-v2.3 params' fields (including frac_images_repeated) must be in the metadata
-    assert "frac_images_repeated" in store.metadata().columns
-
-
-# --------------------------------------------------------------------- task-v2.4 simulation
-def test_generate_task_v2_4_simulation_reproducible():
-    a = pipeline.generate_task_v2_4_simulation(_task_v2_4_config(), verbose=False)
-    b = pipeline.generate_task_v2_4_simulation(_task_v2_4_config(), verbose=False)
-    for params in a._results:
-        for ra, rb in zip(a._results[params], b._results[params]):
-            np.testing.assert_array_equal(ra.distances, rb.distances)
-            np.testing.assert_array_equal(ra.num_obs, rb.num_obs)
-            np.testing.assert_array_equal(ra.subject_test_retest, rb.subject_test_retest)
-
-
-def test_generate_task_v2_4_simulation_grid_and_reps():
-    cfg = _task_v2_4_config()
-    sim = pipeline.generate_task_v2_4_simulation(cfg, verbose=False)
-    assert len(sim._results) == len(cfg.param_grid())  # 4 configurations
-    assert all(len(v) == cfg.reps for v in sim._results.values())
-
-
-def test_task_v2_4_coverage_table_includes_snr_and_test_retest_columns():
-    cfg = _task_v2_4_config()
-    sim = pipeline.generate_task_v2_4_simulation(cfg, verbose=False)
-    df = pipeline.compute_coverage_table(sim)
-    assert len(df) == len(cfg.param_grid()) * cfg.reps
-    for col in ["num_subjects", "rep", "pair_coverage",
-                "mean_snr", "frac_nan_snr",
-                "mean_test_retest", "median_test_retest", "frac_nan_test_retest"]:
-        assert col in df.columns
-    # the frac_trials_repeated == 0 slice has no repeats -> reliability undefined for all subjects
-    no_repeat = df[df["frac_trials_repeated"] == 0.0]
-    assert (no_repeat["frac_nan_test_retest"] == 1.0).all()
-    # the task-v0.1 coverage table must not gain the test-retest columns
-    old_df = pipeline.compute_coverage_table(pipeline.generate_simulation(_config(), verbose=False))
-    assert "mean_test_retest" not in old_df.columns
-
-
-def test_task_v2_4_run_mds_sweep_store_roundtrips_seven_field_params(tmp_path, monkeypatch):
-    """The store's metadata columns and completed-key roundtrip are derived from the params
-    type, so they must handle the task-v2.4 tuple's extra frac_trials_repeated field."""
-    from SpAM_Simulations.core.config import MDSSweepConfig
-    cfg = _task_v2_4_config(n_images=60, n_dims=3, num_subjects=[10], trials_per_subject=[8],
-                            images_per_trial=[6], subjects_noise_scale=[0.5], subjects_noise_df=[1],
-                            frac_images_repeated=[0.0], frac_trials_repeated=[0.0, 0.25], reps=2, seed=1)
-    sim = pipeline.generate_task_v2_4_simulation(cfg, verbose=False)
-    sweep = MDSSweepConfig(ndims=[2, 3])
-    L = sim.num_images * (sim.num_images - 1) // 2
-    n_tasks = 2 * 2 * 2  # 2 configs * 2 reps * 2 dims
-
-    def fake_exec(payload):
-        meta = {**payload[0], "niter": 1.0, "stress": 0.0, "status": "success"}
-        return meta, np.zeros(L, np.float32), _fake_conf(sim, payload)
-
-    monkeypatch.setattr(pipeline, "_execute_mds_payload", fake_exec)
-
-    store = pipeline.run_mds_sweep(sim, sweep, tmp_path / "s", verbose=False)
-    assert len(store) == n_tasks
-    assert "frac_trials_repeated" in store.metadata().columns
-    # resuming finds every task already complete (the 7-field key roundtrips through the store)
-    store2 = pipeline.run_mds_sweep(sim, sweep, tmp_path / "s", verbose=False)
-    assert len(store2) == n_tasks
-
-
-# --------------------------------------------------------------------- task-v3 simulation
-def test_generate_task_v3_simulation_reproducible():
-    a = pipeline.generate_task_v3_simulation(_task_v3_config(), verbose=False)
-    b = pipeline.generate_task_v3_simulation(_task_v3_config(), verbose=False)
-    for params in a._results:
-        for ra, rb in zip(a._results[params], b._results[params]):
-            np.testing.assert_array_equal(np.nan_to_num(ra.distances), np.nan_to_num(rb.distances))
-            np.testing.assert_array_equal(ra.num_obs, rb.num_obs)
-            np.testing.assert_array_equal(ra.subject_test_retest, rb.subject_test_retest)
-
-
-def test_generate_task_v3_simulation_grid_and_reps():
-    cfg = _task_v3_config()
-    sim = pipeline.generate_task_v3_simulation(cfg, verbose=False)
-    assert len(sim._results) == len(cfg.param_grid())  # 2*2 = 4 configurations
-    assert all(len(v) == cfg.reps for v in sim._results.values())
-
-
-def test_task_v3_coverage_table_has_test_retest_not_snr():
-    cfg = _task_v3_config()
-    sim = pipeline.generate_task_v3_simulation(cfg, verbose=False)
-    df = pipeline.compute_coverage_table(sim)
-    assert len(df) == len(cfg.param_grid()) * cfg.reps
-    for col in ["num_subjects", "perspective_dispersion", "pair_coverage",
-                "mean_test_retest", "frac_nan_test_retest"]:
-        assert col in df.columns
-    assert "mean_snr" not in df.columns  # v3 drops the doubled-image SNR diagnostic
-    # frac_trials_repeated == 0 -> no repeats -> reliability undefined for every subject
-    no_repeat = df[df["frac_trials_repeated"] == 0.0]
-    assert (no_repeat["frac_nan_test_retest"] == 1.0).all()
 
 
 def test_task_v3_config_accepts_supplied_embeddings_and_pipeline_uses_them():
@@ -317,30 +274,6 @@ def test_task_v3_config_still_requires_one_gt_source():
             subjects_noise_scale=[0.5], subjects_noise_df=[1],
             frac_trials_repeated=[0.0], perspective_dispersion=[0.0],
         )
-
-
-def test_task_v3_run_mds_sweep_store_roundtrips_seven_field_params(tmp_path, monkeypatch):
-    """The store derives its metadata columns from the params type, so it must handle the v3
-    tuple's perspective_dispersion field (and not the dropped frac_images_repeated)."""
-    from SpAM_Simulations.core.config import MDSSweepConfig
-    cfg = _task_v3_config(n_images=60, n_dims=3, num_subjects=[10], trials_per_subject=[8],
-                          images_per_trial=[6], subjects_noise_scale=[0.5], subjects_noise_df=[1],
-                          frac_trials_repeated=[0.0, 0.25], perspective_dispersion=[0.3], reps=2, seed=1)
-    sim = pipeline.generate_task_v3_simulation(cfg, verbose=False)
-    sweep = MDSSweepConfig(ndims=[2, 3])
-    L = sim.num_images * (sim.num_images - 1) // 2
-    n_tasks = 2 * 2 * 2  # 2 configs * 2 reps * 2 dims
-
-    def fake_exec(payload):
-        meta = {**payload[0], "niter": 1.0, "stress": 0.0, "status": "success"}
-        return meta, np.zeros(L, np.float32), _fake_conf(sim, payload)
-
-    monkeypatch.setattr(pipeline, "_execute_mds_payload", fake_exec)
-
-    store = pipeline.run_mds_sweep(sim, sweep, tmp_path / "s", verbose=False)
-    assert len(store) == n_tasks
-    cols = store.metadata().columns
-    assert "perspective_dispersion" in cols and "frac_images_repeated" not in cols
 
 
 # ------------------------------------------------------- configuration-space generalizability

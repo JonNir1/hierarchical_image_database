@@ -25,6 +25,7 @@ def _make_params(**overrides):
     return TaskV2_3ExperimentParameters(**fields)
 
 
+@pytest.mark.legacy
 class TestFindCandidateRepeatedPairs:
     def test_finds_pairs_sharing_both_trials(self):
         N = 10
@@ -54,6 +55,7 @@ class TestFindCandidateRepeatedPairs:
         assert candidates.size == 0
 
 
+@pytest.mark.legacy
 class TestComputeSubjectSnr:
     def test_nan_without_repeated_pairs(self):
         obs = np.array([1.0, 2.0, 0.0])
@@ -81,6 +83,7 @@ class TestComputeSubjectSnr:
             _compute_subject_snr(obs, n_obs, {0: [1.0, 1.5, 2.0]})
 
 
+@pytest.mark.legacy
 class TestSimulateTaskV2_3SingleSubject:
     def test_output_shapes_match_condensed_gt(self):
         sim = Simulation.make(200, 4, seed=1)
@@ -137,6 +140,7 @@ class TestSimulateTaskV2_3SingleSubject:
 
 
 class TestSimulateTaskV2_3Experiment:
+    @pytest.mark.legacy
     def test_reproducible_from_seed_only(self):
         sim = Simulation.make(200, 4, seed=10)
         params = _make_params()
@@ -163,12 +167,14 @@ class TestSimulateTaskV2_3Experiment:
         assert res.subject_noises.shape == (9,)
         assert res.subject_snr.shape == (9,)
 
+    @pytest.mark.legacy
     def test_unmeasured_pairs_are_nan(self):
         sim = Simulation.make(200, 4, seed=12)
         params = _make_params(num_subjects=3)
         _, res = simulate_task_v2_3_experiment(params, sim.gt_distances, np.random.default_rng(1), verbose=False)
         assert np.isnan(res.distances).any()  # 3 subjects can't cover every pair of 200 images
 
+    @pytest.mark.legacy
     def test_rejects_n_unique_exceeding_pool(self):
         sim = Simulation.make(20, 4, seed=13)  # pool too small for the default design
         params = _make_params()
@@ -181,12 +187,14 @@ class TestSimulateTaskV2_3Experiment:
         dict(subjects_noise_scale=-0.1),
         dict(subjects_noise_df=0),
     ])
+    @pytest.mark.legacy
     def test_rejects_invalid_parameters(self, overrides):
         sim = Simulation.make(200, 4, seed=14)
         params = _make_params(**overrides)
         with pytest.raises(AssertionError):
             simulate_task_v2_3_experiment(params, sim.gt_distances, np.random.default_rng(1), verbose=False)
 
+    @pytest.mark.legacy
     def test_mean_snr_decreases_with_noise_scale(self):
         """Statistical sanity check (not bit-exact): more subject noise should yield a
         lower mean SNR, averaged over several repetitions to smooth out sampling noise."""
