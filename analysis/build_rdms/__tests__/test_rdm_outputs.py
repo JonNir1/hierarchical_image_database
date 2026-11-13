@@ -44,7 +44,7 @@ def _require(name: str):
     if err is not None:
         pytest.fail(f"D_{name}.npy exists but failed to load: {err}")
     if d is None:
-        pytest.skip(f"D_{name}.npy not found — run build_all first")
+        pytest.skip(f"D_{name}.npy not found: run build_all first")
     return d
 
 

@@ -152,7 +152,7 @@ def test_load_image_rgb_background_color_invariant(tmp_path):
     for pixels that are transparent in both images.
     """
     size = 4
-    # Top-left 2x2: red foreground (alpha=255) — identical in both images
+    # Top-left 2x2: red foreground (alpha=255): identical in both images
     # Bottom-right 2x2: background (alpha=0) with different stored RGB
     def make_rgba(bg_rgb: tuple) -> Image.Image:
         arr = np.zeros((size, size, 4), dtype=np.uint8)
@@ -283,7 +283,7 @@ def test_save_load_embeddings_roundtrip(patched_results):
     E = np.random.rand(_N, 8)
     common.save_embeddings("rt", E, source="tests")
     loaded = common.load_embeddings("rt")
-    # save_embeddings casts to float32 — compare with reduced precision
+    # save_embeddings casts to float32: compare with reduced precision
     np.testing.assert_array_almost_equal(E, loaded, decimal=5)
 
 
@@ -327,7 +327,7 @@ def test_euclidean_distances_identical_rows_zero(patched_results):
 
 
 def test_distances_default_does_not_save(patched_results):
-    """save_result defaults to False — no D_*.npy written, no name/source required."""
+    """save_result defaults to False: no D_*.npy written, no name/source required."""
     E = np.random.rand(_N, 5)
     common.euclidean_distances(E)
     common.cosine_distances(E)
@@ -412,7 +412,7 @@ def patched_km(tmp_path, monkeypatch):
 def test_build_km_rdm_same_leaf_distance_1(patched_km):
     """Two images in the same leaf folder must have distance 1 (not 0)."""
     condensed = km.build_km_rdm()
-    # pair (0,1): chick1 vs chick2 — same leaf "bird"
+    # pair (0,1): chick1 vs chick2: same leaf "bird"
     assert condensed[0] == 1.0
 
 
