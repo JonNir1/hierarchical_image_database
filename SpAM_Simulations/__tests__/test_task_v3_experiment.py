@@ -1,5 +1,9 @@
 """Tests for the task-v3 generative (coordinate-space) simulation.
 
+The v3 building blocks (ground truth, 2-D projection, perspective weights, trial test-retest,
+single subject) are reused by v4/v5, so their classes stay in the default run; only the
+whole-model v3 checks are marked legacy.
+
 These also encode the scientific-validity checks from the plan: the 2-D projection is loss-free
 only when the ground truth already fits in 2-D, projection loss appears for higher-D ground truth,
 per-subject perspective is a stable trait, and the aggregate is full-rank (not secretly rank-2).
@@ -31,7 +35,6 @@ def _mean_observed(res):
     return res.distances[mask] / res.num_obs[mask], mask
 
 
-@pytest.mark.legacy
 class TestBuildGroundTruth:
     def test_shape_dtype(self):
         emb = build_ground_truth_embeddings(200, 6, seed=1)
@@ -64,7 +67,6 @@ class TestBuildGroundTruth:
             build_ground_truth_embeddings(50, 4, **bad)
 
 
-@pytest.mark.legacy
 class TestProject2D:
     def test_output_shape(self):
         Y = project_2d(np.random.default_rng(0).normal(size=(15, 7)))
@@ -80,7 +82,6 @@ class TestProject2D:
         assert Y.shape == (8, 2) and np.allclose(Y[:, 1], 0.0)
 
 
-@pytest.mark.legacy
 class TestPerspectiveWeights:
     def test_zero_dispersion_is_identity(self):
         assert np.array_equal(_draw_perspective_weights(6, 0.0, np.random.default_rng(0)), np.ones(6))
@@ -90,7 +91,6 @@ class TestPerspectiveWeights:
         assert np.all(w > 0) and w.std() > 0
 
 
-@pytest.mark.legacy
 class TestTrialTestRetest:
     def test_identical_gives_one(self):
         v = np.array([1.0, 3.0, 2.0, 5.0])
@@ -100,7 +100,6 @@ class TestTrialTestRetest:
         assert np.isnan(_trial_test_retest(np.ones(4), np.array([1.0, 2.0, 3.0, 4.0])))
 
 
-@pytest.mark.legacy
 class TestSingleSubject:
     def test_output_shapes(self):
         emb = build_ground_truth_embeddings(120, 5, seed=1)
