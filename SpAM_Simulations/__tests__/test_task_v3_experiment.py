@@ -159,22 +159,24 @@ class TestScientificValidity:
         mean_obs, mask = _mean_observed(res)
         assert np.abs(mean_obs - pdist(emb)[mask]).mean() > 0.1
 
-    def test_noise_lowers_test_retest(self):
+    @pytest.fixture(scope="class")
+    def low_high_noise(self) -> tuple:
+        """Low- and high-noise results on one ground truth (read-only, shared by two tests)."""
         emb = build_ground_truth_embeddings(120, 5, seed=1)
         _, lo = simulate_task_v3_experiment(_make_params(subjects_noise_scale=0.1), emb,
                                             np.random.default_rng(0), verbose=False)
         _, hi = simulate_task_v3_experiment(_make_params(subjects_noise_scale=1.0), emb,
                                             np.random.default_rng(0), verbose=False)
+        return lo, hi
+
+    def test_noise_lowers_test_retest(self, low_high_noise):
+        lo, hi = low_high_noise
         assert np.nanmean(lo.subject_test_retest) > np.nanmean(hi.subject_test_retest)
 
-    def test_procrustes_retest_rises_with_noise(self):
+    def test_procrustes_retest_rises_with_noise(self, low_high_noise):
         """Procrustes M^2 test-retest is a disparity (lower=better), so MORE noise -> HIGHER M^2,
         and it stays within [0, 1]."""
-        emb = build_ground_truth_embeddings(120, 5, seed=1)
-        _, lo = simulate_task_v3_experiment(_make_params(subjects_noise_scale=0.1), emb,
-                                            np.random.default_rng(0), verbose=False)
-        _, hi = simulate_task_v3_experiment(_make_params(subjects_noise_scale=1.0), emb,
-                                            np.random.default_rng(0), verbose=False)
+        lo, hi = low_high_noise
         m2_lo, m2_hi = np.nanmean(lo.subject_test_retest_procrustes), np.nanmean(hi.subject_test_retest_procrustes)
         assert 0.0 <= m2_lo <= 1.0 and 0.0 <= m2_hi <= 1.0
         assert m2_hi > m2_lo                       # opposite direction to the Spearman test-retest
