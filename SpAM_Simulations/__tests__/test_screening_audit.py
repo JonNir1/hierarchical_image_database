@@ -3,6 +3,8 @@
 The cases mirror ``SpAM_Task/__tests__/utils.test.js``'s ``evaluateScreening`` suite one for one,
 using the same thresholds and the same inputs, because the whole value of this module is that it
 decides identically to the browser. Where a case is Python-only it says so.
+
+The last section covers `partition_candidates`, the shared retained / early-fail / false-alarm split.
 """
 import json
 
@@ -150,3 +152,119 @@ def test_trial_sd_matches_a_hand_computation():
     assert sa.trial_sd(_pw([0.1, 0.5, 0.9])) == pytest.approx(np.std([0.1, 0.5, 0.9], ddof=1))
     # Fewer than two pairs is defined as 0, matching the JS guard rather than raising.
     assert sa.trial_sd(_pw([0.4])) == 0.0
+
+
+# --------------------------------------------------------------------- shared partition
+# One implementation, because two of them drift. The v6 calibration gate and the v6 ground-truth
+# rebuild both need this split, and an earlier copy that checked only reliability on the experimental
+# block, not move-ratio, counted 73 retained where every other analysis counted 67.
+
+PARTITION_THRESHOLDS = {
+    "min_move_item_ratio": 1.0,
+    "min_pairwise_distance_sd": 0.01,
+    "move_ratio_max_fail_rate": 0.13,
+    "distance_sd_max_fail_rate": 0.13,
+    "min_reliability": 0.0,
+    "median_reliability": None,
+}
+
+
+def _participants_frame(rows):
+    return pd.DataFrame(rows)
+
+
+def _experimental_block(pid, n=14, *, moves=40, sd=0.3, reliabilities=(0.5, 0.5), block="experimental"):
+    """A parser-style experimental block for one subject, with `reliabilities` on repeat trials."""
+    rows = []
+    for i in range(n):
+        # The parser's own shape: a JSON list of {src1, src2, distance}. A dict of "a|b" keys parses
+        # to zero items and zero spread, which silently fails every subject on distance-SD.
+        pairwise = json.dumps([
+            {"src1": "a", "src2": "b", "distance": sd},
+            {"src1": "a", "src2": "c", "distance": 0.0},
+            {"src1": "b", "src2": "c", "distance": 2 * sd},
+        ])
+        rows.append({
+            "participant_id": pid, "is_catch": False, "block_type": block,
+            "num_moves": moves, "pairwise_distances": pairwise,
+            "reliability": reliabilities[i] if i < len(reliabilities) else np.nan,
+        })
+    return rows
+
+
+@pytest.fixture
+def partition_frames():
+    people = [
+        # clean on both blocks
+        {"participant_id": "keep", "cohort": "production", "status": "full data",
+         "min_reliability": 0.4, "move_ratio_fail_rate": 0.0, "distance_sd_fail_rate": 0.0},
+        # failed the gate in-task
+        {"participant_id": "early", "cohort": "production", "status": "screened out",
+         "min_reliability": -0.2, "move_ratio_fail_rate": 0.0, "distance_sd_fail_rate": 0.0},
+        # cleared the gate, then failed the experimental block on RELIABILITY
+        {"participant_id": "fa_rel", "cohort": "production", "status": "full data",
+         "min_reliability": 0.4, "move_ratio_fail_rate": 0.0, "distance_sd_fail_rate": 0.0},
+        # cleared the gate, then failed the experimental block on MOVE-RATIO only
+        {"participant_id": "fa_move", "cohort": "production", "status": "full data",
+         "min_reliability": 0.4, "move_ratio_fail_rate": 0.0, "distance_sd_fail_rate": 0.0},
+    ]
+    trials = (_experimental_block("keep") + _experimental_block("fa_rel", reliabilities=(0.5, -0.3))
+              + _experimental_block("fa_move", moves=0))
+    return _participants_frame(people), pd.DataFrame(trials)
+
+
+class TestPartition:
+    def test_it_sorts_everyone_into_exactly_one_group(self, partition_frames):
+        part = sa.partition_candidates(*partition_frames, PARTITION_THRESHOLDS)
+        assert part["retained"] == ["keep"]
+        assert part["early_fail"] == ["early"]
+        assert sorted(part["false_alarm"]) == ["fa_move", "fa_rel"]
+
+    def test_move_ratio_failures_in_the_experimental_block_are_false_alarms(self, partition_frames):
+        """The 73-vs-67 bug. Reliability alone would call `fa_move` retained."""
+        part = sa.partition_candidates(*partition_frames, PARTITION_THRESHOLDS)
+        assert "fa_move" not in part["retained"]
+        assert "fa_move" in part["false_alarm"]
+
+    def test_every_candidate_is_accounted_for(self, partition_frames):
+        part = sa.partition_candidates(*partition_frames, PARTITION_THRESHOLDS)
+        assert sum(len(v) for v in part.values()) == 4
+
+    def test_a_stricter_threshold_moves_people_out_of_retained(self, partition_frames):
+        loose = sa.partition_candidates(*partition_frames, PARTITION_THRESHOLDS, threshold=0.0)
+        strict = sa.partition_candidates(*partition_frames, PARTITION_THRESHOLDS, threshold=0.45)
+        assert loose["retained"] == ["keep"]
+        assert strict["retained"] == []
+        assert "keep" in strict["early_fail"]
+
+    def test_non_attempting_statuses_are_excluded(self, partition_frames):
+        """A revoked consent never produced a gate decision; counting it as a clean pass inflates
+        the pass rate, which is a bug this codebase has already had once."""
+        participants, trials = partition_frames
+        participants = pd.concat([participants, _participants_frame([
+            {"participant_id": "ghost", "cohort": "production", "status": "revoked consent",
+             "min_reliability": np.nan, "move_ratio_fail_rate": np.nan,
+             "distance_sd_fail_rate": np.nan}])], ignore_index=True)
+        part = sa.partition_candidates(participants, trials, PARTITION_THRESHOLDS)
+        assert "ghost" not in sum(part.values(), [])
+
+    def test_other_cohorts_are_excluded(self, partition_frames):
+        participants, trials = partition_frames
+        participants = participants.assign(cohort="pilot")
+        part = sa.partition_candidates(participants, trials, PARTITION_THRESHOLDS)
+        assert sum(len(v) for v in part.values()) == 0
+
+    def test_a_passer_with_no_experimental_block_is_an_early_fail(self, partition_frames):
+        """Screened out mid-task at the deployed gate, but clearing a LOWER counterfactual one.
+        They contributed no experimental data, so they cannot be retained."""
+        participants, trials = partition_frames
+        part = sa.partition_candidates(participants, trials, PARTITION_THRESHOLDS, threshold=-1.0)
+        assert "early" in part["early_fail"]
+        assert "early" not in part["retained"]
+
+    def test_a_null_threshold_disables_its_criterion(self, partition_frames):
+        """Mirrors the JS: a null threshold means the criterion is off, not that it always fails."""
+        participants, trials = partition_frames
+        thresholds = {**PARTITION_THRESHOLDS, "move_ratio_max_fail_rate": None}
+        part = sa.partition_candidates(participants, trials, thresholds)
+        assert "fa_move" in part["retained"]

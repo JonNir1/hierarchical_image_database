@@ -162,6 +162,7 @@ def test_lca_agrees_with_kiani():
             assert mine == theirs, f"{a} vs {b}"
 
 
+@pytest.mark.manual
 def test_runs_on_the_real_manifest():
     """725 images -> 262,450 pairs, with every level populated."""
     import json
