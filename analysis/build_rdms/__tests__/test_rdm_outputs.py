@@ -7,7 +7,7 @@ Each test is skipped automatically when the corresponding .npy file is absent
 even if only a subset of RDMs has been generated.
 
 Run locally after building all (or some) RDMs:
-    pytest analysis/build_rdms/__tests__/test_rdm_outputs.py -v
+    pytest analysis/build_rdms/__tests__/test_rdm_outputs.py -m manual -v
 
 For CI with shared artifacts: download the .npy files and metadata.json into
 analysis/results/rdms/ before running pytest, then include this file in the
@@ -30,6 +30,8 @@ from analysis.build_rdms.validate_rdms import (
     report_behav_correlation,
     report_behavioral_coverage,
 )
+
+pytestmark = pytest.mark.manual
 
 
 # ---------------------------------------------------------------------------

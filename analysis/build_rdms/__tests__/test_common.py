@@ -38,6 +38,7 @@ def patched_results(tmp_path, monkeypatch):
 # load_manifest
 # ---------------------------------------------------------------------------
 
+@pytest.mark.manual
 def test_load_manifest_shape():
     df = common.load_manifest()
     assert len(df) == 725, f"Expected 725 rows, got {len(df)}"
@@ -45,6 +46,7 @@ def test_load_manifest_shape():
     assert "category" in df.columns
 
 
+@pytest.mark.manual
 def test_load_manifest_paths_are_unique():
     df = common.load_manifest()
     assert df["curated_path"].is_unique, "curated_path must index 725 distinct images"

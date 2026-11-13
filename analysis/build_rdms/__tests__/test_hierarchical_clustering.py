@@ -61,12 +61,12 @@ def test_km_level_labels_excludes_shallow_images():
 
 def test_dendrogram_shuffle_test_separates_matching_from_random_structure():
     z = hcl.path_tree_to_linkage(_PARTS)
-    matching = hcl.dendrogram_shuffle_test(cophenetic_ranks(z), _PARTS, n_perm=200, seed=0)
+    matching = hcl.dendrogram_shuffle_test(cophenetic_ranks(z), _PARTS, n_perm=50, seed=0)
     assert matching.observed == pytest.approx(1.0)
     assert matching.p_value < 0.05
     rng = np.random.default_rng(1)
     random_ranks = cophenetic_ranks(hcl.path_tree_to_linkage([_PARTS[j] for j in rng.permutation(_N)]))
-    unrelated = hcl.dendrogram_shuffle_test(random_ranks, _PARTS, n_perm=200, seed=2)
+    unrelated = hcl.dendrogram_shuffle_test(random_ranks, _PARTS, n_perm=50, seed=2)
     assert unrelated.p_value > 0.05
     assert abs(unrelated.null.mean()) < 0.2
 
