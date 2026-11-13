@@ -176,6 +176,7 @@ def test_simulate_returns_per_subject_matching_nan_pattern():
     assert -1.0 <= out["mean_agreement"] <= 1.0 and out["n_dyads"] > 0
 
 
+@pytest.mark.slow
 def test_simulated_targets_are_monotone():
     """Validity of the fit direction: more noise -> lower test-retest; more dispersion -> lower agreement."""
     emb = build_ground_truth_embeddings(120, 5, seed=2)
@@ -267,6 +268,7 @@ def test_calibrate_params_from_pilot_raises_without_v3(tmp_path, monkeypatch):
         subjects.calibrate_params_from_pilot("d", "m", verbose=False)
 
 
+@pytest.mark.slow
 def test_calibrate_recovers_known_parameters():
     """Self-consistency: simulate a 'pilot' cohort at known (noise, dispersion), then recover them."""
     emb = build_ground_truth_embeddings(400, 5, seed=3)  # >= t_distinct*k = 17*20 = 340
@@ -285,6 +287,7 @@ def test_calibrate_recovers_known_parameters():
     assert abs(fit_disp - true_disp) <= 0.25
 
 
+@pytest.mark.slow
 class TestDispersionRefit:
     """Dispersion must be re-fitted whenever the noise POPULATION changes, not just its mean."""
 

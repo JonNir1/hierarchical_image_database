@@ -114,6 +114,7 @@ def test_reps_differ_so_the_random_arm_carries_allocation_variance():
 
 # --------------------------------------------------------------------- deployed scale
 
+@pytest.mark.slow
 def test_runs_at_the_deployed_scale():
     """725 images, 20 per trial, 18 distinct trials - the real configuration, one rep per arm.
 

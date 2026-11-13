@@ -281,6 +281,7 @@ def test_build_gt_from_pilot_delegates(monkeypatch):
     assert seen == {"n": 7, "method": "classical"}
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not _MDS_AVAILABLE, reason=_MDS_SKIP)
 def test_smacof_embedding_matches_the_requested_shape():
     subs = _cohort(n_subjects=6, n_images=12)
