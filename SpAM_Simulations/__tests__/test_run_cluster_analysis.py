@@ -46,11 +46,9 @@ def test_run_writes_every_table(tmp_path):
     assert set(frames["cluster_agreement"]["allocation_mode"]) == {0.0, 1.0}
 
 
-def test_k_selection_keeps_the_arms_apart(tmp_path):
+def test_k_selection_keeps_the_arms_apart(planted_frames):
     """Pooling the arms would hide exactly the difference the sweep exists to measure."""
-    frames = rca.run(arms_store(tmp_path), tmp_path / "out", ks=(2, 3, 5),
-                     linkages=("average",), min_cluster_sizes=(3,), verbose=False, n_jobs=1)
-    sel = frames["k_selection"]
+    sel = planted_frames["k_selection"]
     assert set(sel["allocation_mode"]) == {0.0, 1.0}
     assert len(sel) == 2
     for col in ("k_star_vi", "k_star_sil", "is_flat", "is_arbitrary_slicing",

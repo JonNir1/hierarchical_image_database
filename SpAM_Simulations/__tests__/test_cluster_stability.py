@@ -231,15 +231,11 @@ def test_cross_silhouette_is_directional():
 
 # --------------------------------------------------------------------- dendrogram agreement
 
-def test_baker_gamma_is_one_for_identical_trees():
-    z = cs.build_linkage(pdist(blobs(seed=0)), "average")
-    assert cs.baker_gamma(cs.cophenetic_ranks(z), cs.cophenetic_ranks(z)) == pytest.approx(1.0)
-
-
-def test_baker_gamma_is_scale_invariant():
+@pytest.mark.parametrize("scale", [1.0, 37.0], ids=["identical", "rescaled"])
+def test_baker_gamma_is_one_for_identical_and_rescaled_trees(scale):
     """Rank-based, so an arbitrary rescaling of an MDS solution must not move it."""
     d = pdist(blobs(seed=0))
-    za, zb = cs.build_linkage(d, "average"), cs.build_linkage(d * 37.0, "average")
+    za, zb = cs.build_linkage(d, "average"), cs.build_linkage(d * scale, "average")
     assert cs.baker_gamma(cs.cophenetic_ranks(za), cs.cophenetic_ranks(zb)) == pytest.approx(1.0)
 
 
@@ -256,17 +252,16 @@ def test_cophenetic_fidelity_is_high_for_a_clusterable_space():
 
 # --------------------------------------------------------------------- sizes and cutting
 
-def test_cluster_size_summary_describes_a_known_partition():
-    out = cs.cluster_size_summary(np.array([0] * 8 + [1] * 2 + [2]))
-    assert out["n_clusters_realised"] == 3
-    assert out["size_min"] == 1 and out["size_max"] == 8
-    assert out["largest_frac"] == pytest.approx(8 / 11)
-    assert out["frac_singletons"] == pytest.approx(1 / 3)
-
-
-def test_size_entropy_is_one_for_a_balanced_partition():
-    balanced = cs.cluster_size_summary(np.repeat(np.arange(4), 10))
-    assert balanced["size_entropy_norm"] == pytest.approx(1.0)
+@pytest.mark.parametrize("labels, expected", [
+    (np.array([0] * 8 + [1] * 2 + [2]),
+     {"n_clusters_realised": 3, "size_min": 1, "size_max": 8, "largest_frac": 8 / 11,
+      "frac_singletons": 1 / 3}),
+    (np.repeat(np.arange(4), 10), {"size_entropy_norm": 1.0}),
+], ids=["known_partition", "balanced_entropy_is_one"])
+def test_cluster_size_summary_describes_a_known_partition(labels, expected):
+    out = cs.cluster_size_summary(labels)
+    for key, value in expected.items():
+        assert out[key] == pytest.approx(value), key
 
 
 def test_cut_tree_drops_impossible_k_with_a_warning_not_an_error():
@@ -299,6 +294,8 @@ def test_compare_partitions_covers_the_grid():
     for col in ("vi", "vi_norm", "ari", "ami", "sil_cross", "sil_ratio",
                 "jaccard_mean", "baker_gamma", "n_clusters_realised"):
         assert col in df.columns, col
+    # A whole-tree statistic: cutting at different k must not change it within a linkage.
+    assert (df.groupby("linkage")["baker_gamma"].nunique() == 1).all()
 
 
 def test_compare_partitions_scores_a_cohort_against_itself_perfectly():
@@ -316,13 +313,6 @@ def test_compare_partitions_rejects_mismatched_shapes():
         cs.compare_partitions(pdist(blobs(seed=0)), pdist(_continuum(n=30, seed=0)))
 
 
-def test_baker_gamma_is_constant_across_k_within_a_linkage():
-    """It is a whole-tree statistic, so cutting at different k must not change it."""
-    a, b = pdist(blobs(seed=0)), pdist(blobs(seed=1))
-    df = cs.compare_partitions(a, b, ks=(2, 3, 5), linkages=("average",))
-    assert df["baker_gamma"].nunique() == 1
-
-
 # --------------------------------------------------------------------- store-level drivers
 
 @pytest.fixture(scope="module")
@@ -331,7 +321,8 @@ def default_store(tmp_path_factory):
     return conf_store(tmp_path_factory.mktemp("default_store"))
 
 
-def test_cluster_agreement_emits_one_row_per_group_linkage_k(default_store):
+def test_cluster_agreement_emits_one_row_per_group_linkage_k_and_recovers_the_planted_structure(
+        default_store):
     store = default_store
     df = cs.compute_cluster_agreement(store, ks=(2, 3, 5), linkages=("average", "ward"),
                                       verbose=False, n_jobs=1)
@@ -340,13 +331,11 @@ def test_cluster_agreement_emits_one_row_per_group_linkage_k(default_store):
     assert (df["n_pairs"] == 6).all()       # C(4, 2)
     for col in ("mean_vi_norm", "sem_vi_norm", "mean_ari", "mean_sil_cross", "mean_jaccard_mean"):
         assert col in df.columns, col
-
-
-def test_cluster_agreement_recovers_the_planted_structure(default_store):
-    store = default_store
-    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False, n_jobs=1)
-    assert (df["mean_ari"] > 0.9).all()
-    assert (df["mean_vi_norm"] < 0.1).all()
+    # Recovery of the planted structure, at the true k.
+    planted = df[(df["k"] == 3) & (df["linkage"] == "average")]
+    assert len(planted) == 2
+    assert (planted["mean_ari"] > 0.9).all()
+    assert (planted["mean_vi_norm"] < 0.1).all()
 
 
 def test_drivers_exclude_failed_fits(tmp_path):
@@ -420,22 +409,17 @@ def _agreement_frame(vi_by_k, sil=0.6, group="a"):
     ])
 
 
-def test_select_k_prefers_the_smaller_of_two_indistinguishable_granularities():
-    """The one-SE rule again: a flat curve must not drift to fine k on noise."""
-    df = _agreement_frame({3: 0.20, 10: 0.199, 50: 0.198})
-    df["sem_vi_norm"] = 0.05
-    assert cs.select_k(df)["k_star"].iloc[0] == 3
-
-
-def test_select_k_follows_a_real_optimum():
-    df = _agreement_frame({3: 0.60, 10: 0.10, 50: 0.62})
-    assert cs.select_k(df)["k_star"].iloc[0] == 10
-
-
-def test_select_k_respects_vi_being_lower_is_better():
-    """Selecting on VI must not invert: the argmax rule should land on the MINIMUM."""
-    df = _agreement_frame({3: 0.60, 10: 0.10, 50: 0.62})
-    assert cs.select_k(df, rule="argmax")["k_star"].iloc[0] == 10
+@pytest.mark.parametrize("vi_by_k, sem, kwargs, expected_k", [
+    # The one-SE rule: a flat curve must not drift to fine k on noise.
+    ({3: 0.20, 10: 0.199, 50: 0.198}, 0.05, {}, 3),
+    ({3: 0.60, 10: 0.10, 50: 0.62}, 0.001, {}, 10),
+    # Selecting on VI must not invert: the argmax rule should land on the MINIMUM.
+    ({3: 0.60, 10: 0.10, 50: 0.62}, 0.001, {"rule": "argmax"}, 10),
+], ids=["indistinguishable_prefers_smaller", "real_optimum", "argmax_lands_on_minimum"])
+def test_select_k_picks_the_expected_granularity(vi_by_k, sem, kwargs, expected_k):
+    df = _agreement_frame(vi_by_k)
+    df["sem_vi_norm"] = sem
+    assert cs.select_k(df, **kwargs)["k_star"].iloc[0] == expected_k
 
 
 def test_select_k_emits_one_row_per_group():
@@ -451,30 +435,22 @@ def test_select_k_rejects_a_missing_criterion():
         cs.select_k(_agreement_frame({3: 0.5}), criterion="nonsense")
 
 
-def test_diagnostics_flag_a_flat_curve():
-    """No granularity distinguishably better than any other means there is no k* to find."""
-    out = cs.continuum_diagnostics(_agreement_frame({3: 0.400, 10: 0.401, 50: 0.402}))
-    assert out["is_flat"].iloc[0]
-
-
-def test_diagnostics_flag_agreement_without_separation():
-    """The continuum signature: cohorts agree on a cut of a space that has no clusters in it."""
-    out = cs.continuum_diagnostics(_agreement_frame({3: 0.05, 10: 0.40, 50: 0.60}, sil=0.01))
-    assert out["is_arbitrary_slicing"].iloc[0]
-    assert not out["is_flat"].iloc[0], "a real gradient must not be called flat"
-
-
-def test_diagnostics_pass_a_genuinely_clustered_case():
-    out = cs.continuum_diagnostics(_agreement_frame({3: 0.02, 10: 0.40, 50: 0.70}, sil=0.65))
-    assert not out["is_flat"].iloc[0]
-    assert not out["is_arbitrary_slicing"].iloc[0]
-    assert out["k_star"].iloc[0] == 3
-    assert out["vi_norm_at_k_star"].iloc[0] == pytest.approx(0.02)
-
-
-def test_diagnostics_report_the_range_used_for_the_flat_verdict():
-    out = cs.continuum_diagnostics(_agreement_frame({3: 0.10, 10: 0.50}))
-    assert out["vi_norm_range"].iloc[0] == pytest.approx(0.40)
+@pytest.mark.parametrize("vi_by_k, sil, expected", [
+    # No granularity distinguishably better than any other means there is no k* to find.
+    ({3: 0.400, 10: 0.401, 50: 0.402}, 0.6, {"is_flat": True}),
+    # The continuum signature: cohorts agree on a cut of a space that has no clusters in it,
+    # and a real gradient must not be called flat.
+    ({3: 0.05, 10: 0.40, 50: 0.60}, 0.01, {"is_arbitrary_slicing": True, "is_flat": False}),
+    ({3: 0.02, 10: 0.40, 50: 0.70}, 0.65,
+     {"is_flat": False, "is_arbitrary_slicing": False, "k_star": 3, "vi_norm_at_k_star": 0.02}),
+    # The range used for the flat verdict is reported.
+    ({3: 0.10, 10: 0.50}, 0.6, {"vi_norm_range": 0.40}),
+], ids=["flat_curve", "agreement_without_separation", "genuinely_clustered", "reports_range"])
+def test_continuum_diagnostics_verdicts(vi_by_k, sil, expected):
+    out = cs.continuum_diagnostics(_agreement_frame(vi_by_k, sil=sil))
+    for col, value in expected.items():
+        got = out[col].iloc[0]
+        assert got == (value if isinstance(value, (bool, int)) else pytest.approx(value)), col
 
 
 def test_diagnostics_end_to_end_on_a_store(default_store):

@@ -61,38 +61,23 @@ def test_noise_summary_handles_an_all_noise_labelling():
 
 # --------------------------------------------------------------------- noise agreement
 
-def test_noise_agreement_on_identical_labellings():
-    a = np.array([0, 0, 1, -1, -1])
-    out = dc.noise_agreement(a, a.copy())
-    assert out["noise_jaccard"] == 1.0
-    assert out["noise_kappa"] == pytest.approx(1.0)
-    assert out["both_noise_frac"] == pytest.approx(0.4)
-
-
-def test_noise_agreement_on_disjoint_noise_sets():
-    out = dc.noise_agreement(np.array([-1, -1, 0, 0]), np.array([0, 0, -1, -1]))
-    assert out["noise_jaccard"] == 0.0
-    assert out["both_noise_frac"] == 0.0
-    assert out["either_noise_frac"] == 1.0
-
-
-def test_noise_agreement_is_nan_when_neither_cohort_flags_anything():
-    """0/0 is not perfect agreement; reporting 1.0 would assert agreement about nothing."""
-    out = dc.noise_agreement(np.array([0, 0, 1, 1]), np.array([0, 1, 1, 0]))
-    assert np.isnan(out["noise_jaccard"])
-    assert np.isnan(out["noise_kappa"])
-
-
-def test_noise_agreement_rejects_mismatched_lengths():
-    with pytest.raises(ValueError, match="match in length"):
-        dc.noise_agreement(np.zeros(4), np.zeros(5))
-
-
-def test_hand_computed_noise_jaccard():
+@pytest.mark.parametrize("a, b, expected", [
+    (np.array([0, 0, 1, -1, -1]), np.array([0, 0, 1, -1, -1]),
+     {"noise_jaccard": 1.0, "noise_kappa": 1.0, "both_noise_frac": 0.4}),
+    (np.array([-1, -1, 0, 0]), np.array([0, 0, -1, -1]),
+     {"noise_jaccard": 0.0, "both_noise_frac": 0.0, "either_noise_frac": 1.0}),
+    # 0/0 is not perfect agreement; reporting 1.0 would assert agreement about nothing.
+    (np.array([0, 0, 1, 1]), np.array([0, 1, 1, 0]),
+     {"noise_jaccard": np.nan, "noise_kappa": np.nan}),
     # noise sets {0,1,2} and {2,3}: intersection {2}, union {0,1,2,3} -> 1/4
-    a = np.array([-1, -1, -1, 0, 0])
-    b = np.array([0, 0, -1, -1, 0])
-    assert dc.noise_agreement(a, b)["noise_jaccard"] == pytest.approx(0.25)
+    (np.array([-1, -1, -1, 0, 0]), np.array([0, 0, -1, -1, 0]), {"noise_jaccard": 0.25}),
+], ids=["identical", "disjoint", "nan_when_nothing_flagged", "hand_computed_jaccard"])
+def test_noise_agreement_values(a, b, expected):
+    out = dc.noise_agreement(a, b)
+    for key, value in expected.items():
+        assert out[key] == pytest.approx(value, nan_ok=True), key
+
+
 
 
 # --------------------------------------------------------------------- restricted ARI
@@ -148,11 +133,17 @@ def shared_store(tmp_path_factory):
 def test_compute_density_agreement_emits_one_row_per_group_and_setting(shared_store):
     df = dc.compute_density_agreement(shared_store, min_cluster_sizes=(3, 5), verbose=False, n_jobs=1)
     assert len(df) == 2
+    restricted = df[df["min_cluster_size"] == 5]
     assert (df["n_pairs"] == 3).all()          # C(3, 2)
     for col in ("mean_frac_noise", "mean_noise_kappa", "mean_ari_shared_clustered",
                 "mean_n_clusters", "mean_cluster_size"):
         assert col in df.columns, col
     assert "mean_cluster_size_mean" not in df.columns   # the field is renamed, not doubled
+    for col in ("mean_vi_restricted", "sem_vi_restricted", "mean_vi_restricted_norm"):
+        assert col in df.columns, col
+    # Near-identical cohorts: the surviving subset should agree almost perfectly.
+    assert restricted["mean_vi_restricted"].iloc[0] == pytest.approx(0.0, abs=1e-6)
+    assert "mean_n_shared" not in df.columns      # frac_shared_clustered already carries this
 
 
 def test_density_agreement_skips_a_single_rep_group(tmp_path):
@@ -204,9 +195,13 @@ def test_common_clustered_mask_intersects_every_labelling():
                                   np.array([True, False, False, True, False]))
 
 
-def test_common_clustered_mask_rejects_mismatched_lengths():
+@pytest.mark.parametrize("call", [
+    lambda: dc.noise_agreement(np.zeros(4), np.zeros(5)),
+    lambda: dc.common_clustered_mask([np.zeros(4), np.zeros(5)]),
+], ids=["noise_agreement", "common_clustered_mask"])
+def test_mismatched_label_lengths_are_rejected(call):
     with pytest.raises(ValueError, match="match in length"):
-        dc.common_clustered_mask([np.zeros(4), np.zeros(5)])
+        call()
 
 
 def test_restricted_vi_is_zero_for_labellings_that_agree_where_both_clustered():
@@ -285,12 +280,3 @@ def test_pairwise_restricted_vi_uses_one_ground_set_not_per_pair_intersections()
 def test_pairwise_restricted_vi_rejects_a_name_count_mismatch():
     with pytest.raises(ValueError, match="names for"):
         dc.pairwise_restricted_vi([np.zeros(3, int), np.zeros(3, int)], names=["only-one"])
-
-
-def test_density_agreement_reports_restricted_vi(shared_store):
-    df = dc.compute_density_agreement(shared_store, min_cluster_sizes=(5,), verbose=False, n_jobs=1)
-    for col in ("mean_vi_restricted", "sem_vi_restricted", "mean_vi_restricted_norm"):
-        assert col in df.columns, col
-    # Near-identical cohorts: the surviving subset should agree almost perfectly.
-    assert df["mean_vi_restricted"].iloc[0] == pytest.approx(0.0, abs=1e-6)
-    assert "mean_n_shared" not in df.columns      # frac_shared_clustered already carries this
