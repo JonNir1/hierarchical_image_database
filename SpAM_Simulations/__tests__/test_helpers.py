@@ -26,23 +26,14 @@ def test_square_input_condensed():
     np.testing.assert_array_equal(convert_to_condensed(sq), cond)
 
 
-def test_invalid_condensed_length_raises():
+@pytest.mark.parametrize("bad", [
+    pytest.param(np.zeros(4), id="length-4-is-not-triangular"),
+    pytest.param(np.array([[0.0, np.nan], [1.0, 0.0]]), id="nan-on-one-side-only"),
+    pytest.param(np.array([[0.0, 1.0], [2.0, 0.0]]), id="finite-asymmetric"),
+])
+def test_invalid_input_to_convert_to_condensed_raises(bad):
     with pytest.raises(ValueError):
-        convert_to_condensed(np.zeros(4))  # 4 is not a triangular number
-
-
-def test_nan_asymmetric_square_raises():
-    # a NaN present on one side of the diagonal but not the other is rejected
-    m = np.array([[0.0, np.nan], [1.0, 0.0]])
-    with pytest.raises(ValueError):
-        convert_to_condensed(m)
-
-
-def test_finite_asymmetric_square_raises():
-    # a finite but non-symmetric matrix must be rejected (no NaNs to mask the asymmetry)
-    m = np.array([[0.0, 1.0], [2.0, 0.0]])
-    with pytest.raises(ValueError):
-        convert_to_condensed(m)
+        convert_to_condensed(bad)
 
 
 def test_symmetric_nan_square_passes():
@@ -69,18 +60,15 @@ def test_condensed_pair_indices_match_squareform(N):
     np.testing.assert_array_equal(cond_vec[idx], [sq[i, j] for i, j in zip(a, b)])
 
 
-def test_condensed_rdm_to_weighted_dists_replaces_nan_and_marks_weight():
-    condensed = np.array([1.0, np.nan, 3.0, np.nan, 5.0])
-    dists, weights = condensed_rdm_to_weighted_dists(condensed)
-    np.testing.assert_array_equal(dists, [1.0, 0.0, 3.0, 0.0, 5.0])
-    np.testing.assert_array_equal(weights, [1.0, 0.0, 1.0, 0.0, 1.0])
-
-
-def test_condensed_rdm_to_weighted_dists_fully_observed():
-    condensed = np.array([1.0, 2.0, 3.0])
-    dists, weights = condensed_rdm_to_weighted_dists(condensed)
-    np.testing.assert_array_equal(dists, condensed)
-    np.testing.assert_array_equal(weights, [1.0, 1.0, 1.0])
+@pytest.mark.parametrize("condensed,expected_dists,expected_weights", [
+    pytest.param([1.0, np.nan, 3.0, np.nan, 5.0], [1.0, 0.0, 3.0, 0.0, 5.0],
+                 [1.0, 0.0, 1.0, 0.0, 1.0], id="nan-replaced-and-weight-zero"),
+    pytest.param([1.0, 2.0, 3.0], [1.0, 2.0, 3.0], [1.0, 1.0, 1.0], id="fully-observed"),
+])
+def test_condensed_rdm_to_weighted_dists(condensed, expected_dists, expected_weights):
+    dists, weights = condensed_rdm_to_weighted_dists(np.array(condensed))
+    np.testing.assert_array_equal(dists, expected_dists)
+    np.testing.assert_array_equal(weights, expected_weights)
 
 
 def test_procrustes_m2_identical_configs_is_zero():
