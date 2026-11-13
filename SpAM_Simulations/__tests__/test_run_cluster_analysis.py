@@ -8,42 +8,34 @@ through it unchanged.
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.spatial.distance import pdist
 
 from SpAM_Simulations.cli import run_cluster_analysis as rca
 from SpAM_Simulations.core.storage import ResultStore
+from _store_helpers import ARMS_N_IMAGES as N_IMAGES, arms_store
 
-N_IMAGES, MAX_NDIM = 45, 4
-META = ["num_subjects", "allocation_mode", "rep", "ndim", "niter", "stress", "status"]
 OUTPUTS = ("cluster_agreement.csv", "dendrogram_agreement.csv", "cluster_sizes.csv",
            "k_selection.csv", "density_agreement.csv", "isolated_images.csv")
 
 
-def _blobs(n_per, k, sd, seed, ndim):
-    rng = np.random.default_rng(seed)
-    centres = rng.normal(0, 6, size=(k, ndim))
-    return np.vstack([c + rng.normal(0, sd, size=(n_per, ndim)) for c in centres]).astype(np.float32)
+@pytest.fixture(scope="module")
+def planted_frames(tmp_path_factory):
+    """One run on well-separated planted blobs, shared by the tests that only read its tables."""
+    root = tmp_path_factory.mktemp("planted")
+    return rca.run(arms_store(root, sd=0.2), root / "out", ks=(2, 3, 5, 8),
+                   linkages=("average",), min_cluster_sizes=(3,), verbose=False, n_jobs=1)
 
 
-def _store(tmp_path, *, n_reps=3, arms=(0.0, 1.0), sd=0.25, seed=0):
-    """A two-arm store of noisy realisations of the same three planted blobs."""
-    rng = np.random.default_rng(seed)
-    truth = _blobs(N_IMAGES // 3, 3, sd, seed, MAX_NDIM)
-    store = ResultStore.create(tmp_path / "s", confdist_len=N_IMAGES * (N_IMAGES - 1) // 2,
-                               meta_columns=META, n_images=N_IMAGES, max_ndim=MAX_NDIM)
-    for arm in arms:
-        for rep in range(n_reps):
-            coords = (truth + rng.normal(0, 0.1, truth.shape)).astype(np.float32)
-            store.append({"num_subjects": 50, "allocation_mode": arm, "rep": rep,
-                          "ndim": MAX_NDIM, "niter": 10, "stress": 0.1, "status": "success"},
-                         confdist=pdist(coords).astype(np.float32), conf=coords)
-    store.close()
-    return tmp_path / "s"
+@pytest.fixture(scope="module")
+def density_frames(tmp_path_factory):
+    """One run with two density settings, shared by the density-pass and isolated-image tests."""
+    root = tmp_path_factory.mktemp("density")
+    return rca.run(arms_store(root), root / "out", ks=(2, 3), linkages=("average",),
+                   min_cluster_sizes=(3, 5), density_mcs=3, verbose=False, n_jobs=1)
 
 
 def test_run_writes_every_table(tmp_path):
     out = tmp_path / "out"
-    frames = rca.run(_store(tmp_path), out, ks=(2, 3, 5), linkages=("average", "ward"),
+    frames = rca.run(arms_store(tmp_path), out, ks=(2, 3, 5), linkages=("average", "ward"),
                      min_cluster_sizes=(3,), verbose=False, n_jobs=1)
     for name in OUTPUTS:
         assert (out / name).is_file(), name
@@ -56,7 +48,7 @@ def test_run_writes_every_table(tmp_path):
 
 def test_k_selection_keeps_the_arms_apart(tmp_path):
     """Pooling the arms would hide exactly the difference the sweep exists to measure."""
-    frames = rca.run(_store(tmp_path), tmp_path / "out", ks=(2, 3, 5),
+    frames = rca.run(arms_store(tmp_path), tmp_path / "out", ks=(2, 3, 5),
                      linkages=("average",), min_cluster_sizes=(3,), verbose=False, n_jobs=1)
     sel = frames["k_selection"]
     assert set(sel["allocation_mode"]) == {0.0, 1.0}
@@ -66,17 +58,16 @@ def test_k_selection_keeps_the_arms_apart(tmp_path):
         assert col in sel.columns
 
 
-def test_planted_blobs_are_not_flagged_as_a_continuum(tmp_path):
+def test_planted_blobs_are_not_flagged_as_a_continuum(planted_frames):
     """The positive control: separated blobs give high agreement, high silhouette, no verdict."""
-    frames = rca.run(_store(tmp_path, sd=0.2), tmp_path / "out", ks=(2, 3, 5, 8),
-                     linkages=("average",), min_cluster_sizes=(3,), verbose=False, n_jobs=1)
+    frames = planted_frames
     sel = frames["k_selection"]
     assert not sel["is_flat"].any()
     assert not sel["is_arbitrary_slicing"].any()
     assert (sel["sil_cross_at_k_star_vi"] > 0.5).all()
 
 
-def test_vi_does_not_identify_the_number_of_clusters_but_silhouette_does(tmp_path):
+def test_vi_does_not_identify_the_number_of_clusters_but_silhouette_does(planted_frames):
     """The reason `k_star_vi` and `k_star_sil` are both reported.
 
     VI measures *reproducibility*, not correctness of granularity. On three well-separated planted
@@ -85,8 +76,7 @@ def test_vi_does_not_identify_the_number_of_clusters_but_silhouette_does(tmp_pat
     silhouette is what separates the two: it peaks at 3. Reading k* off VI alone would systematically
     under-report the granularity the data actually supports.
     """
-    frames = rca.run(_store(tmp_path, sd=0.2), tmp_path / "out", ks=(2, 3, 5, 8),
-                     linkages=("average",), min_cluster_sizes=(3,), verbose=False, n_jobs=1)
+    frames = planted_frames
     agreement = frames["cluster_agreement"]
     one_arm = agreement[agreement["allocation_mode"] == 0.0].set_index("k")
     assert one_arm.loc[2, "mean_vi_norm"] == pytest.approx(0.0, abs=1e-9)
@@ -98,15 +88,14 @@ def test_vi_does_not_identify_the_number_of_clusters_but_silhouette_does(tmp_pat
     assert (sel["k_star_sil"] == 3).all()      # the true planted structure
 
 
-def test_both_granularities_are_scored_at_both_k(tmp_path):
+def test_both_granularities_are_scored_at_both_k(planted_frames):
     """Each k* carries all three metrics, so the trade is readable in either direction.
 
     On planted blobs the finer `k_star_sil` costs *nothing* in reproducibility (VI is 0 at both)
     while nearly doubling the separation. With only the VI-side columns you could see that the two
     k* differ but not whether taking the finer one was free or expensive.
     """
-    frames = rca.run(_store(tmp_path, sd=0.2), tmp_path / "out", ks=(2, 3, 5, 8),
-                     linkages=("average",), min_cluster_sizes=(3,), verbose=False, n_jobs=1)
+    frames = planted_frames
     sel = frames["k_selection"]
     for metric in rca.AT_K_METRICS:
         for suffix in ("vi", "sil"):
@@ -153,7 +142,7 @@ def test_runs_on_a_conf_only_store(tmp_path):
     Every distance here is recomputed as ``pdist(conf)``, which is what the stored row held anyway,
     so dropping the large file changes the results by nothing at all.
     """
-    path = _store(tmp_path)
+    path = arms_store(tmp_path)
     full = rca.run(path, tmp_path / "out_full", ks=(2, 3), linkages=("average",), min_cluster_sizes=(3,), verbose=False, n_jobs=1)
 
     (path / "confdists.f32").unlink()
@@ -169,7 +158,7 @@ def test_runs_on_a_conf_only_store(tmp_path):
 
 
 def test_main_parses_arguments_and_writes_output(tmp_path):
-    path = _store(tmp_path, n_reps=2, arms=(0.0,))
+    path = arms_store(tmp_path, n_reps=2, arms=(0.0,))
     rc = rca.main(["--store", str(path), "--out", str(tmp_path / "cli"),
                    "--ks", "2,3", "--linkages", "average", "--n-jobs", "1", "--quiet"])
     assert rc == 0
@@ -204,10 +193,9 @@ def test_main_requires_store_and_out(missing):
         rca.main([f"--{k}" for pair in args.items() for k in pair])
 
 
-def test_the_density_pass_is_reported_and_kept_out_of_the_vi_tables(tmp_path):
+def test_the_density_pass_is_reported_and_kept_out_of_the_vi_tables(density_frames):
     """HDBSCAN runs alongside AC, but its noise-class scores must not leak into the VI frame."""
-    frames = rca.run(_store(tmp_path), tmp_path / "out", ks=(2, 3), linkages=("average",),
-                     min_cluster_sizes=(3, 5), verbose=False, n_jobs=1)
+    frames = density_frames
     density = frames["density_agreement"]
     # One row per (arm, min_cluster_size): the arm stays a group here too, for the same reason it
     # does in the VI tables - the arms might differ and pooling would hide it.
@@ -223,9 +211,8 @@ def test_the_density_pass_is_reported_and_kept_out_of_the_vi_tables(tmp_path):
         assert not {c for c in cols if "noise" in c or "min_cluster_size" in c}, frame_name
 
 
-def test_isolated_images_table_is_per_image(tmp_path):
-    frames = rca.run(_store(tmp_path), tmp_path / "out", ks=(2, 3), linkages=("average",),
-                     min_cluster_sizes=(3,), density_mcs=3, verbose=False, n_jobs=1)
+def test_isolated_images_table_is_per_image(density_frames):
+    frames = density_frames
     iso = frames["isolated_images"]
     assert set(iso["image"]) == set(range(N_IMAGES))
     assert (iso["min_cluster_size"] == 3).all()
