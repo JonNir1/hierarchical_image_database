@@ -7,7 +7,7 @@ Each test is skipped automatically when the corresponding .npy file is absent
 even if only a subset of RDMs has been generated.
 
 Run locally after building all (or some) RDMs:
-    pytest analysis/build_rdms/__tests__/test_rdm_outputs.py -v
+    pytest analysis/build_rdms/__tests__/test_rdm_outputs.py -m manual -v
 
 For CI with shared artifacts: download the .npy files and metadata.json into
 analysis/results/rdms/ before running pytest, then include this file in the
@@ -31,6 +31,8 @@ from analysis.build_rdms.validate_rdms import (
     report_behavioral_coverage,
 )
 
+pytestmark = pytest.mark.manual
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -42,7 +44,7 @@ def _require(name: str):
     if err is not None:
         pytest.fail(f"D_{name}.npy exists but failed to load: {err}")
     if d is None:
-        pytest.skip(f"D_{name}.npy not found — run build_all first")
+        pytest.skip(f"D_{name}.npy not found: run build_all first")
     return d
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from _rdm_helpers import patch_common_results
 from scipy.spatial.distance import pdist
 
 import analysis.build_rdms.common as common
@@ -22,9 +23,7 @@ def patched_results(tmp_path, monkeypatch):
     don't need a real 725-image dataset. validate_rdms.py imports RESULTS_DIR,
     _EXPECTED_LEN, and _EXPECTED_N directly from common, binding its own
     module-level names -- both modules' copies must be patched."""
-    monkeypatch.setattr(common, "RESULTS_DIR", tmp_path)
-    monkeypatch.setattr(common, "_EXPECTED_LEN", _LEN)
-    monkeypatch.setattr(common, "_EXPECTED_N", _N)
+    patch_common_results(monkeypatch, tmp_path, _N)
     monkeypatch.setattr(vr, "RESULTS_DIR", tmp_path)
     monkeypatch.setattr(vr, "_EXPECTED_LEN", _LEN)
     monkeypatch.setattr(vr, "_N", _N)
@@ -46,131 +45,82 @@ def _valid_condensed() -> np.ndarray:
 # check_universal
 # ---------------------------------------------------------------------------
 
+def _with_first_value(value: float) -> np.ndarray:
+    d = _valid_condensed()
+    d[0] = value
+    return d
+
+
+@pytest.fixture()
+def small_n(monkeypatch):
+    monkeypatch.setattr(vr, "_EXPECTED_LEN", _LEN)
+    monkeypatch.setattr(vr, "_N", _N)
+
+
 class TestCheckUniversal:
-    def test_valid_condensed_array_passes(self, monkeypatch):
-        monkeypatch.setattr(vr, "_EXPECTED_LEN", _LEN)
-        monkeypatch.setattr(vr, "_N", _N)
+    def test_valid_condensed_array_passes(self, small_n):
         vr.check_universal("test", _valid_condensed())  # should not raise
 
-    def test_wrong_length_raises(self, monkeypatch):
-        monkeypatch.setattr(vr, "_EXPECTED_LEN", _LEN)
-        with pytest.raises(vr.CheckFailed, match="expected length"):
-            vr.check_universal("test", np.abs(np.random.rand(_LEN - 1)))
-
-    def test_nan_raises(self, monkeypatch):
-        monkeypatch.setattr(vr, "_EXPECTED_LEN", _LEN)
-        monkeypatch.setattr(vr, "_N", _N)
-        d = _valid_condensed()
-        d[0] = np.nan
-        with pytest.raises(vr.CheckFailed, match="NaN"):
-            vr.check_universal("test", d)
-
-    def test_inf_raises(self, monkeypatch):
-        monkeypatch.setattr(vr, "_EXPECTED_LEN", _LEN)
-        monkeypatch.setattr(vr, "_N", _N)
-        d = _valid_condensed()
-        d[0] = np.inf
-        with pytest.raises(vr.CheckFailed, match="Inf"):
-            vr.check_universal("test", d)
-
-    def test_negative_value_raises(self, monkeypatch):
-        monkeypatch.setattr(vr, "_EXPECTED_LEN", _LEN)
-        monkeypatch.setattr(vr, "_N", _N)
-        d = _valid_condensed()
-        d[0] = -1.0
-        with pytest.raises(vr.CheckFailed, match="negative"):
-            vr.check_universal("test", d)
+    @pytest.mark.parametrize("make_array, match", [
+        pytest.param(lambda: np.abs(np.random.rand(_LEN - 1)), "expected length", id="wrong_length"),
+        pytest.param(lambda: _with_first_value(np.nan), "NaN", id="nan"),
+        pytest.param(lambda: _with_first_value(np.inf), "Inf", id="inf"),
+        pytest.param(lambda: _with_first_value(-1.0), "negative", id="negative"),
+    ])
+    def test_invalid_array_raises(self, small_n, make_array, match):
+        with pytest.raises(vr.CheckFailed, match=match):
+            vr.check_universal("test", make_array())
 
 
 # ---------------------------------------------------------------------------
-# check_sens / check_sens_correlation
+# Single-array checks: check_sens, check_sem_km, check_sem_wn, check_clip
 # ---------------------------------------------------------------------------
 
-class TestCheckSens:
-    def test_positive_distances_pass(self):
-        vr.check_sens(np.array([0.0, 1.0, 2.0]))  # should not raise
-
-    def test_all_zero_raises(self):
-        with pytest.raises(vr.CheckFailed, match="zero"):
-            vr.check_sens(np.zeros(5))
-
-
-class TestCheckSensCorrelation:
-    def test_correlated_passes(self):
-        d = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
-        vr.check_sens_correlation(d, d)  # rho == 1.0, should not raise
-
-    def test_anticorrelated_raises(self):
-        d_pre = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
-        d_post = d_pre[::-1]
-        with pytest.raises(vr.CheckFailed, match="Spearman rho"):
-            vr.check_sens_correlation(d_pre, d_post)
+@pytest.mark.parametrize("check, d", [
+    pytest.param(vr.check_sens, np.array([0.0, 1.0, 2.0]), id="sens"),
+    pytest.param(vr.check_sem_km, np.array([1.0, 2.0, 3.0, 4.0]), id="sem_km_integers"),
+    pytest.param(vr.check_sem_wn, np.concatenate([np.full(19, 5.0), np.array([vr._WN_FALLBACK])]),
+                 id="sem_wn_low_fallback_fraction"),
+    pytest.param(vr.check_clip, np.array([0.0, 1.0, 2.0]), id="clip"),
+])
+def test_single_array_check_passes(check, d):
+    check(d)  # should not raise
 
 
-# ---------------------------------------------------------------------------
-# check_sem_km
-# ---------------------------------------------------------------------------
-
-class TestCheckSemKm:
-    def test_valid_integer_distances_pass(self):
-        vr.check_sem_km(np.array([1.0, 2.0, 3.0, 4.0]))  # should not raise
-
-    def test_non_integer_raises(self):
-        with pytest.raises(vr.CheckFailed, match="not all integers"):
-            vr.check_sem_km(np.array([1.0, 2.5, 3.0]))
-
-    def test_min_below_one_raises(self):
-        with pytest.raises(vr.CheckFailed, match="minimum off-diagonal KM distance"):
-            vr.check_sem_km(np.array([0.0, 2.0, 3.0]))
-
-    def test_max_above_bound_raises(self):
-        with pytest.raises(vr.CheckFailed, match="max KM distance"):
-            vr.check_sem_km(np.array([1.0, 2.0, 20.0]))
+@pytest.mark.parametrize("check, d, match", [
+    pytest.param(vr.check_sens, np.zeros(5), "zero", id="sens_all_zero"),
+    pytest.param(vr.check_sem_km, np.array([1.0, 2.5, 3.0]), "not all integers", id="sem_km_non_integer"),
+    pytest.param(vr.check_sem_km, np.array([0.0, 2.0, 3.0]), "minimum off-diagonal KM distance",
+                 id="sem_km_min_below_one"),
+    pytest.param(vr.check_sem_km, np.array([1.0, 2.0, 20.0]), "max KM distance", id="sem_km_max_above_bound"),
+    pytest.param(vr.check_sem_wn, np.array([1.0, vr._WN_FALLBACK + 5.0]), "max WN distance",
+                 id="sem_wn_max_above_fallback"),
+    pytest.param(vr.check_sem_wn, np.concatenate([np.full(5, vr._WN_FALLBACK), np.full(5, 1.0)]),
+                 "use fallback distance", id="sem_wn_high_fallback_fraction"),
+    pytest.param(vr.check_clip, np.array([1.0, 2.5]), "max CLIP cosine distance", id="clip_above_bound"),
+])
+def test_single_array_check_raises(check, d, match):
+    with pytest.raises(vr.CheckFailed, match=match):
+        check(d)
 
 
 # ---------------------------------------------------------------------------
-# check_sem_wn
+# check_sens_correlation / check_clip_correlation (identical contract)
 # ---------------------------------------------------------------------------
 
-class TestCheckSemWn:
-    def test_valid_range_and_low_fallback_fraction_passes(self):
-        d = np.concatenate([np.full(19, 5.0), np.array([vr._WN_FALLBACK])])
-        vr.check_sem_wn(d)  # should not raise
-
-    def test_max_above_fallback_raises(self):
-        with pytest.raises(vr.CheckFailed, match="max WN distance"):
-            vr.check_sem_wn(np.array([1.0, vr._WN_FALLBACK + 5.0]))
-
-    def test_high_fallback_fraction_raises(self):
-        d = np.concatenate([np.full(5, vr._WN_FALLBACK), np.full(5, 1.0)])
-        with pytest.raises(vr.CheckFailed, match="use fallback distance"):
-            vr.check_sem_wn(d)
+_CORRELATION_CHECKS = [vr.check_sens_correlation, vr.check_clip_correlation]
+_RAMP = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
 
 
-# ---------------------------------------------------------------------------
-# check_clip / check_clip_correlation
-# ---------------------------------------------------------------------------
-
-class TestCheckClip:
-    def test_valid_range_passes(self):
-        vr.check_clip(np.array([0.0, 1.0, 2.0]))  # should not raise
-
-    def test_above_bound_raises(self):
-        with pytest.raises(vr.CheckFailed, match="max CLIP cosine distance"):
-            vr.check_clip(np.array([1.0, 2.5]))
+@pytest.mark.parametrize("check", _CORRELATION_CHECKS)
+def test_correlated_pair_passes(check):
+    check(_RAMP, _RAMP)  # rho == 1.0, should not raise
 
 
-class TestCheckClipCorrelation:
-    def test_correlated_passes(self):
-        d = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
-        vr.check_clip_correlation(d, d)  # rho == 1.0, should not raise
-
-    def test_anticorrelated_raises(self):
-        d_pre = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
-        d_post = d_pre[::-1]
-        with pytest.raises(vr.CheckFailed, match="Spearman rho"):
-            vr.check_clip_correlation(d_pre, d_post)
-
+@pytest.mark.parametrize("check", _CORRELATION_CHECKS)
+def test_anticorrelated_pair_raises(check):
+    with pytest.raises(vr.CheckFailed, match="Spearman rho"):
+        check(_RAMP, _RAMP[::-1])
 
 # ---------------------------------------------------------------------------
 # check_manifest_matches_disk
