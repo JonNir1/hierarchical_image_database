@@ -1,4 +1,4 @@
-"""Tests for analysis.behavioral.cohort_quality's pure data helpers (the fig_*
+"""Tests for analysis.behavioral.data_quality.subject_repeat_slope (the fig_*
 builders follow this repo's convention of being checked by notebook execution)."""
 from __future__ import annotations
 
