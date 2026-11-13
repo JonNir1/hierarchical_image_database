@@ -6,7 +6,7 @@ block, the recruit-until-N loop, the pooling of screening data into the analysed
 a regression guard that v4 without screening still reproduces v3 exactly.
 """
 import numpy as np
-from typing import NamedTuple
+from typing import Any, Callable, NamedTuple
 import pytest
 
 from SpAM_Simulations.core.simulation import build_ground_truth_embeddings
@@ -37,6 +37,34 @@ def _run(seed=0, **overrides):
     _, res = simulate_task_v4_experiment(_params(**overrides), GT,
                                          np.random.default_rng(seed), verbose=False)
     return res
+
+
+def _run_with_field(field: str, value: float, seed: int = 0, **overrides: Any) -> Any:
+    """v4 params extended with a v5-only attribute, as v5's tuple would carry it (read defensively)."""
+    base = _params(**overrides)
+    fields = list(base._fields) + [field]
+    Extended = NamedTuple("Extended", [(f, float) for f in fields])
+    params = Extended(*[getattr(base, f) for f in base._fields], float(value))
+    _, res = simulate_task_v4_experiment(params, GT, np.random.default_rng(seed), verbose=False)
+    return res
+
+
+@pytest.fixture(scope="module")
+def run() -> Callable[..., Any]:
+    """`_run` / `_run_with_field` memoised for the module: identical calls simulate once.
+
+    Results are shared between tests, so they must be treated as read-only.
+    """
+    cache: dict = {}
+
+    def memoised(seed: int = 0, field: str | None = None, value: float = 0.0, **overrides: Any) -> Any:
+        key = (seed, field, value, tuple(sorted(overrides.items())))
+        if key not in cache:
+            cache[key] = (_run(seed, **overrides) if field is None
+                          else _run_with_field(field, value, seed, **overrides))
+        return cache[key]
+
+    return memoised
 
 
 class TestEquivalenceToTaskV3:
@@ -115,36 +143,36 @@ class TestScreeningRule:
 
 
 class TestScreeningEffect:
-    def test_stricter_threshold_rejects_more_candidates(self):
-        rates = [_run(screening_min_reliability=t).screening_pass_rate
+    def test_stricter_threshold_rejects_more_candidates(self, run):
+        rates = [run(screening_min_reliability=t).screening_pass_rate
                  for t in (-1.0, 0.2, 0.5)]
         assert rates[0] == 1.0
         assert rates[0] > rates[1] > rates[2]
 
-    def test_stricter_threshold_retains_more_precise_subjects(self):
-        noises = [_run(screening_min_reliability=t).subject_noises.mean()
+    def test_stricter_threshold_retains_more_precise_subjects(self, run):
+        noises = [run(screening_min_reliability=t).subject_noises.mean()
                   for t in (-1.0, 0.2, 0.5)]
         assert noises[0] > noises[1] > noises[2]
 
-    def test_stricter_threshold_raises_retained_reliability(self):
-        rs = [np.nanmean(_run(screening_min_reliability=t).subject_test_retest)
+    def test_stricter_threshold_raises_retained_reliability(self, run):
+        rs = [np.nanmean(run(screening_min_reliability=t).subject_test_retest)
               for t in (-1.0, 0.2, 0.5)]
         assert rs[0] < rs[1] < rs[2]
 
-    def test_screening_truncates_the_heavy_tail(self):
+    def test_screening_truncates_the_heavy_tail(self, run):
         """Screening's mechanism is removing the worst subjects, not shifting everyone."""
-        assert _run(screening_min_reliability=0.5).subject_noises.max() < \
-               _run(screening_min_reliability=-1.0).subject_noises.max()
+        assert run(screening_min_reliability=0.5).subject_noises.max() < \
+               run(screening_min_reliability=-1.0).subject_noises.max()
 
-    def test_retained_cohort_is_always_exactly_num_subjects(self):
+    def test_retained_cohort_is_always_exactly_num_subjects(self, run):
         """Recruit-until-N: the analysed cohort size is fixed, the recruitment cost varies."""
         for thr in (-1.0, 0.0, 0.3, 0.6):
-            res = _run(screening_min_reliability=thr)
+            res = run(screening_min_reliability=thr)
             assert res.subject_noises.size == 20
             assert res.n_candidates_screened >= 20
 
-    def test_pass_rate_matches_the_candidate_count(self):
-        res = _run(screening_min_reliability=0.4)
+    def test_pass_rate_matches_the_candidate_count(self, run):
+        res = run(screening_min_reliability=0.4)
         assert res.screening_pass_rate == pytest.approx(20 / res.n_candidates_screened)
 
 
@@ -157,17 +185,17 @@ class TestScreeningFalsePositives:
     all, since simulated subjects arrange every image and so can never fail the move-ratio check.
     """
 
-    def test_rate_is_a_proportion_of_the_retained_cohort(self):
-        res = _run(screening_min_reliability=0.0)
+    def test_rate_is_a_proportion_of_the_retained_cohort(self, run):
+        res = run(screening_min_reliability=0.0)
         assert 0.0 <= res.screening_false_positive_rate <= 1.0
 
-    def test_nobody_is_removed_for_being_a_false_positive(self):
+    def test_nobody_is_removed_for_being_a_false_positive(self, run):
         """Diagnostic only: the deployed task does not drop them, so neither may the model."""
-        res = _run(screening_min_reliability=0.3)
+        res = run(screening_min_reliability=0.3)
         assert res.subject_noises.size == 20
         assert res.screening_false_positive_rate > 0  # and yet the cohort is still full
 
-    def test_a_stricter_gate_leaves_MORE_false_positives(self):
+    def test_a_stricter_gate_leaves_MORE_false_positives(self, run):
         """Regression to the mean, and it runs against intuition.
 
         The gate selects on one noisy estimate of reliability. The higher the bar, the more of the
@@ -176,30 +204,30 @@ class TestScreeningFalsePositives:
         larger share of survivors who do not hold up - which is exactly the quantity the deployed
         task is blind to.
         """
-        lenient = np.mean([_run(seed=s, screening_min_reliability=0.0)
+        lenient = np.mean([run(seed=s, screening_min_reliability=0.0)
                            .screening_false_positive_rate for s in range(4)])
-        strict = np.mean([_run(seed=s, screening_min_reliability=0.5)
+        strict = np.mean([run(seed=s, screening_min_reliability=0.5)
                           .screening_false_positive_rate for s in range(4)])
         assert strict > lenient
 
-    def test_no_gate_means_no_false_positives_by_definition(self):
+    def test_no_gate_means_no_false_positives_by_definition(self, run):
         """A false positive is defined against the gate's own rule, and -1.0 excludes nobody."""
-        res = _run(screening_min_reliability=-1.0)
+        res = run(screening_min_reliability=-1.0)
         assert res.screening_pass_rate == 1.0
         assert res.screening_false_positive_rate == 0.0
 
 
 class TestScreeningDataIsAnalysed:
-    def test_screening_trials_add_observations(self):
+    def test_screening_trials_add_observations(self, run):
         """A retained subject's screening trials are data, so they must reach the aggregate."""
-        without = _run(screening_trials=0, screening_repeats=0)
-        with_screening = _run(screening_trials=4, screening_repeats=1)
+        without = run(screening_trials=0, screening_repeats=0)
+        with_screening = run(screening_trials=4, screening_repeats=1)
         assert with_screening.num_obs.sum() > without.num_obs.sum()
 
-    def test_screening_repeats_feed_the_test_retest_summary(self):
+    def test_screening_repeats_feed_the_test_retest_summary(self, run):
         """Pooling both stages' repeats is why the per-subject values are returned unaggregated."""
-        one_repeat = _run(screening_trials=4, screening_repeats=1)
-        no_screening = _run(screening_trials=0, screening_repeats=0)
+        one_repeat = run(screening_trials=4, screening_repeats=1)
+        no_screening = run(screening_trials=0, screening_repeats=0)
         assert np.isfinite(one_repeat.subject_test_retest).all()
         assert np.isfinite(no_screening.subject_test_retest).all()
 
@@ -329,17 +357,17 @@ class TestNoisePopulationFamily:
     span that range.
     """
 
-    def test_sigma_zero_is_the_historical_t_family(self):
+    def test_sigma_zero_is_the_historical_t_family(self, run):
         """The 0.0 sentinel must reproduce |t(df)| exactly, so old parameter tuples keep meaning."""
-        a = _run(seed=5, subjects_noise_lognormal_sigma=0.0)
-        b = _run(seed=5, subjects_noise_lognormal_sigma=0.0, subjects_noise_df=3)
+        a = run(seed=5, subjects_noise_lognormal_sigma=0.0)
+        b = run(seed=5, subjects_noise_lognormal_sigma=0.0, subjects_noise_df=3)
         assert not np.array_equal(a.subject_noises, b.subject_noises)   # df still matters
-        c = _run(seed=5, subjects_noise_lognormal_sigma=0.0)
+        c = _run(seed=5, subjects_noise_lognormal_sigma=0.0)   # fresh run: a real determinism check
         np.testing.assert_array_equal(a.subject_noises, c.subject_noises)
 
-    def test_lognormal_sigma_controls_dispersion(self):
-        lo = _run(seed=5, subjects_noise_lognormal_sigma=0.2).subject_noises
-        hi = _run(seed=5, subjects_noise_lognormal_sigma=0.9).subject_noises
+    def test_lognormal_sigma_controls_dispersion(self, run):
+        lo = run(seed=5, subjects_noise_lognormal_sigma=0.2).subject_noises
+        hi = run(seed=5, subjects_noise_lognormal_sigma=0.9).subject_noises
         assert np.std(lo) / np.mean(lo) < np.std(hi) / np.mean(hi)
 
     def test_lognormal_reaches_below_the_t_family_floor(self):
@@ -350,10 +378,10 @@ class TestNoisePopulationFamily:
         assert population_cv("lognormal", 0.45) < 0.6           # comfortably below it
         assert population_cv("lognormal", 0.15) < 0.2           # near-homogeneous is reachable
 
-    def test_mean_scale_is_preserved_across_families(self):
+    def test_mean_scale_is_preserved_across_families(self, run):
         """`subjects_noise_scale` keeps its meaning (and its calibration) when the shape changes."""
         for sigma in (0.0, 0.3, 0.7):
-            r = _run(seed=5, screening_min_reliability=-1.0, subjects_noise_lognormal_sigma=sigma)
+            r = run(seed=5, screening_min_reliability=-1.0, subjects_noise_lognormal_sigma=sigma)
             assert r.subject_noises.mean() == pytest.approx(0.6, rel=1e-6)
 
     def test_negative_sigma_rejected(self):
@@ -369,44 +397,35 @@ class TestExcludeFalsePositives:
     stand-in params object rather than the v5 tuple, to keep the v4 suite independent of v5.
     """
 
-    def _run_with_flag(self, flag, seed=0, **overrides):
-        """v4 params carrying an `exclude_false_positives` attribute, as v5's tuple would."""
-        base = _params(**overrides)
-        fields = list(base._fields) + ["exclude_false_positives"]
-        Extended = NamedTuple("Extended", [(f, float) for f in fields])
-        params = Extended(*[getattr(base, f) for f in base._fields], float(flag))
-        _, res = simulate_task_v4_experiment(params, GT, np.random.default_rng(seed), verbose=False)
-        return res
-
-    def test_default_is_a_no_op(self):
+    def test_default_is_a_no_op(self, run):
         """The v4 tuple has no such field at all, so the getattr default must keep v5 behaviour."""
-        plain = _run(seed=3, screening_min_reliability=0.2)
-        flagged = self._run_with_flag(0.0, seed=3, screening_min_reliability=0.2)
+        plain = run(3, screening_min_reliability=0.2)
+        flagged = run(3, "exclude_false_positives", 0.0, screening_min_reliability=0.2)
         assert flagged.n_candidates_screened == plain.n_candidates_screened
         assert flagged.n_false_positives_discarded == 0
         np.testing.assert_array_equal(flagged.subject_noises, plain.subject_noises)
 
-    def test_excluding_them_still_returns_exactly_num_subjects(self):
-        res = self._run_with_flag(1.0, seed=3, screening_min_reliability=0.2)
+    def test_excluding_them_still_returns_exactly_num_subjects(self, run):
+        res = run(3, "exclude_false_positives", 1.0, screening_min_reliability=0.2)
         assert res.subject_noises.size == 20
         assert res.subject_test_retest.size == 20
 
-    def test_excluding_them_costs_extra_candidates(self):
+    def test_excluding_them_costs_extra_candidates(self, run):
         """Every discarded false positive has to be replaced, so recruitment rises."""
-        keep = self._run_with_flag(0.0, seed=3, screening_min_reliability=0.2)
-        drop = self._run_with_flag(1.0, seed=3, screening_min_reliability=0.2)
+        keep = run(3, "exclude_false_positives", 0.0, screening_min_reliability=0.2)
+        drop = run(3, "exclude_false_positives", 1.0, screening_min_reliability=0.2)
         assert drop.n_false_positives_discarded > 0
         assert drop.n_candidates_screened > keep.n_candidates_screened
 
-    def test_the_retained_cohort_is_cleaner(self):
+    def test_the_retained_cohort_is_cleaner(self, run):
         """That is the entire point of paying for the replacements."""
-        keep = self._run_with_flag(0.0, seed=3, screening_min_reliability=0.2)
-        drop = self._run_with_flag(1.0, seed=3, screening_min_reliability=0.2)
+        keep = run(3, "exclude_false_positives", 0.0, screening_min_reliability=0.2)
+        drop = run(3, "exclude_false_positives", 1.0, screening_min_reliability=0.2)
         assert np.nanmean(drop.subject_test_retest) > np.nanmean(keep.subject_test_retest)
 
-    def test_discarded_subjects_are_counted_separately_from_early_fails(self):
+    def test_discarded_subjects_are_counted_separately_from_early_fails(self, run):
         """They are paid the FULL rate, unlike a screening rejection, so cost needs both counts."""
-        res = self._run_with_flag(1.0, seed=3, screening_min_reliability=0.2)
+        res = run(3, "exclude_false_positives", 1.0, screening_min_reliability=0.2)
         early_fails = res.n_candidates_screened - 20 - res.n_false_positives_discarded
         assert early_fails >= 0
         assert res.n_candidates_screened == 20 + early_fails + res.n_false_positives_discarded
@@ -421,42 +440,34 @@ class TestWithinSessionDrift:
     `exclude_false_positives`, the field lives on the v5 tuple and v4 reads it defensively.
     """
 
-    def _run_with_drift(self, drift, seed=0, **overrides):
-        base = _params(**overrides)
-        fields = list(base._fields) + ["within_session_drift"]
-        Extended = NamedTuple("Extended", [(f, float) for f in fields])
-        params = Extended(*[getattr(base, f) for f in base._fields], float(drift))
-        _, res = simulate_task_v4_experiment(params, GT, np.random.default_rng(seed), verbose=False)
-        return res
-
-    def test_one_is_a_no_op(self):
+    def test_one_is_a_no_op(self, run):
         """The v4 tuple has no such field, so the getattr default must reproduce v4 exactly."""
-        plain = _run(seed=3, screening_min_reliability=0.1)
-        same = self._run_with_drift(1.0, seed=3, screening_min_reliability=0.1)
+        plain = run(3, screening_min_reliability=0.1)
+        same = run(3, "within_session_drift", 1.0, screening_min_reliability=0.1)
         np.testing.assert_array_equal(same.subject_noises, plain.subject_noises)
         np.testing.assert_allclose(same.subject_test_retest, plain.subject_test_retest)
 
-    def test_drift_lowers_retained_reliability(self):
+    def test_drift_lowers_retained_reliability(self, run):
         """The analysed block is the drifted one, so the cohort the analysis sees is noisier."""
-        none = self._run_with_drift(1.0, seed=3, screening_min_reliability=0.1)
-        lots = self._run_with_drift(2.0, seed=3, screening_min_reliability=0.1)
+        none = run(3, "within_session_drift", 1.0, screening_min_reliability=0.1)
+        lots = run(3, "within_session_drift", 2.0, screening_min_reliability=0.1)
         assert np.nanmean(lots.subject_test_retest) < np.nanmean(none.subject_test_retest)
 
-    def test_drift_raises_the_false_positive_rate(self):
+    def test_drift_raises_the_false_positive_rate(self, run):
         """This is what the parameter exists to reproduce: the gate reads a cleaner person than
         the analysis gets, so more survivors fail the same rule on the experimental block."""
-        none = self._run_with_drift(1.0, seed=3, screening_min_reliability=0.1)
-        lots = self._run_with_drift(2.0, seed=3, screening_min_reliability=0.1)
+        none = run(3, "within_session_drift", 1.0, screening_min_reliability=0.1)
+        lots = run(3, "within_session_drift", 2.0, screening_min_reliability=0.1)
         assert lots.screening_false_positive_rate > none.screening_false_positive_rate
 
-    def test_drift_leaves_the_screening_pass_rate_alone(self):
+    def test_drift_leaves_the_screening_pass_rate_alone(self, run):
         """It scales the experimental block only, so the gate itself must be unaffected. Without
         this the parameter would be a second, confounded way of changing the noise scale."""
-        none = self._run_with_drift(1.0, seed=3, screening_min_reliability=0.1)
-        lots = self._run_with_drift(2.0, seed=3, screening_min_reliability=0.1)
+        none = run(3, "within_session_drift", 1.0, screening_min_reliability=0.1)
+        lots = run(3, "within_session_drift", 2.0, screening_min_reliability=0.1)
         assert lots.n_candidates_screened - lots.n_false_positives_discarded == \
                none.n_candidates_screened - none.n_false_positives_discarded
 
     def test_non_positive_drift_rejected(self):
         with pytest.raises(AssertionError, match="within_session_drift"):
-            self._run_with_drift(0.0, seed=3)
+            _run_with_field("within_session_drift", 0.0, seed=3)
