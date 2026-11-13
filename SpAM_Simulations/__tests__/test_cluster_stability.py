@@ -358,7 +358,7 @@ def _conf_store(tmp_path, n_reps=4, num_subjects=(20, 50), ndim=3, statuses=None
 def test_cluster_agreement_emits_one_row_per_group_linkage_k(tmp_path):
     store = _conf_store(tmp_path)
     df = cs.compute_cluster_agreement(store, ks=(2, 3, 5), linkages=("average", "ward"),
-                                      verbose=False)
+                                      verbose=False, n_jobs=1)
     assert len(df) == 2 * 2 * 3            # 2 num_subjects x 2 linkages x 3 k
     assert set(df["num_subjects"]) == {20, 50}
     assert (df["n_pairs"] == 6).all()       # C(4, 2)
@@ -368,7 +368,7 @@ def test_cluster_agreement_emits_one_row_per_group_linkage_k(tmp_path):
 
 def test_cluster_agreement_recovers_the_planted_structure(tmp_path):
     store = _conf_store(tmp_path)
-    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False)
+    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False, n_jobs=1)
     assert (df["mean_ari"] > 0.9).all()
     assert (df["mean_vi_norm"] < 0.1).all()
 
@@ -377,13 +377,13 @@ def test_drivers_exclude_failed_fits(tmp_path):
     """Only successful, confdist-bearing rows may be compared."""
     store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,),
                         statuses={(20, 0): "error", (20, 1): "disconnected"})
-    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False)
+    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False, n_jobs=1)
     assert df["n_reps"].iloc[0] == 2 and df["n_pairs"].iloc[0] == 1
 
 
 def test_a_group_with_one_usable_rep_is_skipped_not_crashed(tmp_path):
     store = _conf_store(tmp_path, n_reps=2, num_subjects=(20,), statuses={(20, 0): "error"})
-    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False)
+    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False, n_jobs=1)
     assert df.empty
 
 
@@ -394,12 +394,12 @@ def test_drivers_reject_a_store_without_configurations(tmp_path):
                   "status": "success"}, confdist=np.zeros(10, dtype=np.float32))
     store.close()
     with pytest.raises(ValueError, match="cannot be clustered"):
-        cs.compute_cluster_agreement(ResultStore.open(tmp_path / "nc"), verbose=False)
+        cs.compute_cluster_agreement(ResultStore.open(tmp_path / "nc"), verbose=False, n_jobs=1)
 
 
 def test_dendrogram_agreement_is_k_free(tmp_path):
     store = _conf_store(tmp_path)
-    df = cs.compute_dendrogram_agreement(store, linkages=("average", "complete"), verbose=False)
+    df = cs.compute_dendrogram_agreement(store, linkages=("average", "complete"), verbose=False, n_jobs=1)
     assert "k" not in df.columns
     assert len(df) == 2 * 2                 # 2 num_subjects x 2 linkages
     assert (df["mean_baker_gamma"] > 0.5).all()
@@ -408,7 +408,7 @@ def test_dendrogram_agreement_is_k_free(tmp_path):
 
 def test_cluster_sizes_describe_the_discovered_partition(tmp_path):
     store = _conf_store(tmp_path)
-    df = cs.compute_cluster_sizes(store, ks=(3,), linkages=("average",), verbose=False)
+    df = cs.compute_cluster_sizes(store, ks=(3,), linkages=("average",), verbose=False, n_jobs=1)
     assert (df["mean_n_clusters_realised"] == 3).all()
     assert (df["mean_size_max"] <= N_IMAGES).all()
     assert "mean_size_entropy_norm" in df.columns
@@ -421,14 +421,14 @@ def test_drivers_read_conf_not_confdist(tmp_path):
     from SpAM_Simulations.core.storage import ResultStore
     reopened = ResultStore.open(store.path)
     assert not reopened.has_confdists
-    df = cs.compute_cluster_agreement(reopened, ks=(3,), linkages=("average",), verbose=False)
+    df = cs.compute_cluster_agreement(reopened, ks=(3,), linkages=("average",), verbose=False, n_jobs=1)
     assert len(df) == 2 and df["mean_ari"].notna().all()
 
 
 def test_padded_conf_rows_are_trimmed_to_ndim(tmp_path):
     """Rows are stored zero-padded to max_ndim; clustering must use only the fit's own ndim."""
     store = _conf_store(tmp_path, ndim=2)
-    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False)
+    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False, n_jobs=1)
     assert df["mean_ari"].notna().all(), "padding columns would make every point coincide"
 
 
@@ -504,7 +504,7 @@ def test_diagnostics_report_the_range_used_for_the_flat_verdict():
 def test_diagnostics_end_to_end_on_a_store(tmp_path):
     store = _conf_store(tmp_path)
     agreement = cs.compute_cluster_agreement(store, ks=(2, 3, 5), linkages=("average",),
-                                             verbose=False)
+                                             verbose=False, n_jobs=1)
     out = cs.continuum_diagnostics(agreement)
     assert len(out) == 2                      # one row per num_subjects
     for col in ("k_star", "vi_norm_range", "sil_cross_at_k_star", "is_flat",
@@ -541,28 +541,20 @@ def test_every_linkage_and_k_in_a_group_sees_the_same_pairs(tmp_path):
 
 # --------------------------------------------------------------------- parallelism
 
-def test_parallel_matches_serial(tmp_path):
+@pytest.mark.slow
+@pytest.mark.parametrize("driver, kw", [
+    ("compute_cluster_agreement",
+     dict(ks=(2, 3), linkages=("average",), verbose=False, max_pairs=None)),
+    ("compute_dendrogram_agreement",
+     dict(linkages=("average",), verbose=False, max_pairs=None)),
+    ("compute_cluster_sizes", dict(ks=(2, 3), linkages=("average",), verbose=False)),
+])
+def test_parallel_matches_serial(tmp_path, driver, kw):
     """The parallel path must be an optimisation, not a different computation."""
     store = _conf_store(tmp_path, n_reps=4)
-    kw = dict(ks=(2, 3), linkages=("average",), verbose=False, max_pairs=None)
-    serial = cs.compute_cluster_agreement(store, n_jobs=1, **kw)
-    parallel = cs.compute_cluster_agreement(store, n_jobs=2, **kw)
-    pd.testing.assert_frame_equal(serial.sort_index(axis=1), parallel.sort_index(axis=1))
-
-
-def test_parallel_dendrogram_matches_serial(tmp_path):
-    store = _conf_store(tmp_path, n_reps=4)
-    kw = dict(linkages=("average",), verbose=False, max_pairs=None)
-    pd.testing.assert_frame_equal(
-        cs.compute_dendrogram_agreement(store, n_jobs=1, **kw),
-        cs.compute_dendrogram_agreement(store, n_jobs=2, **kw))
-
-
-def test_parallel_sizes_matches_serial(tmp_path):
-    store = _conf_store(tmp_path, n_reps=3)
-    kw = dict(ks=(2, 3), linkages=("average",), verbose=False)
-    pd.testing.assert_frame_equal(cs.compute_cluster_sizes(store, n_jobs=1, **kw),
-                                  cs.compute_cluster_sizes(store, n_jobs=2, **kw))
+    fn = getattr(cs, driver)
+    pd.testing.assert_frame_equal(fn(store, n_jobs=1, **kw).sort_index(axis=1),
+                                  fn(store, n_jobs=2, **kw).sort_index(axis=1))
 
 
 def test_high_k_threshold_sits_inside_the_default_grid():
@@ -651,6 +643,7 @@ def test_merged_traversal_matches_under_pair_sampling(tmp_path):
     assert merged["dendrogram"]["n_pairs"].iloc[0] == 5
 
 
+@pytest.mark.slow
 def test_merged_traversal_parallel_matches_serial(tmp_path):
     store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,))
     kw = dict(ks=(2, 3), linkages=("average",), verbose=False, max_pairs=None)

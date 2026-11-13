@@ -44,7 +44,7 @@ def _store(tmp_path, *, n_reps=3, arms=(0.0, 1.0), sd=0.25, seed=0):
 def test_run_writes_every_table(tmp_path):
     out = tmp_path / "out"
     frames = rca.run(_store(tmp_path), out, ks=(2, 3, 5), linkages=("average", "ward"),
-                     min_cluster_sizes=(3,), verbose=False)
+                     min_cluster_sizes=(3,), verbose=False, n_jobs=1)
     for name in OUTPUTS:
         assert (out / name).is_file(), name
     assert set(frames) == {"cluster_agreement", "dendrogram_agreement", "cluster_sizes",
@@ -57,7 +57,7 @@ def test_run_writes_every_table(tmp_path):
 def test_k_selection_keeps_the_arms_apart(tmp_path):
     """Pooling the arms would hide exactly the difference the sweep exists to measure."""
     frames = rca.run(_store(tmp_path), tmp_path / "out", ks=(2, 3, 5),
-                     linkages=("average",), min_cluster_sizes=(3,), verbose=False)
+                     linkages=("average",), min_cluster_sizes=(3,), verbose=False, n_jobs=1)
     sel = frames["k_selection"]
     assert set(sel["allocation_mode"]) == {0.0, 1.0}
     assert len(sel) == 2
@@ -69,7 +69,7 @@ def test_k_selection_keeps_the_arms_apart(tmp_path):
 def test_planted_blobs_are_not_flagged_as_a_continuum(tmp_path):
     """The positive control: separated blobs give high agreement, high silhouette, no verdict."""
     frames = rca.run(_store(tmp_path, sd=0.2), tmp_path / "out", ks=(2, 3, 5, 8),
-                     linkages=("average",), min_cluster_sizes=(3,), verbose=False)
+                     linkages=("average",), min_cluster_sizes=(3,), verbose=False, n_jobs=1)
     sel = frames["k_selection"]
     assert not sel["is_flat"].any()
     assert not sel["is_arbitrary_slicing"].any()
@@ -86,7 +86,7 @@ def test_vi_does_not_identify_the_number_of_clusters_but_silhouette_does(tmp_pat
     under-report the granularity the data actually supports.
     """
     frames = rca.run(_store(tmp_path, sd=0.2), tmp_path / "out", ks=(2, 3, 5, 8),
-                     linkages=("average",), min_cluster_sizes=(3,), verbose=False)
+                     linkages=("average",), min_cluster_sizes=(3,), verbose=False, n_jobs=1)
     agreement = frames["cluster_agreement"]
     one_arm = agreement[agreement["allocation_mode"] == 0.0].set_index("k")
     assert one_arm.loc[2, "mean_vi_norm"] == pytest.approx(0.0, abs=1e-9)
@@ -106,7 +106,7 @@ def test_both_granularities_are_scored_at_both_k(tmp_path):
     k* differ but not whether taking the finer one was free or expensive.
     """
     frames = rca.run(_store(tmp_path, sd=0.2), tmp_path / "out", ks=(2, 3, 5, 8),
-                     linkages=("average",), min_cluster_sizes=(3,), verbose=False)
+                     linkages=("average",), min_cluster_sizes=(3,), verbose=False, n_jobs=1)
     sel = frames["k_selection"]
     for metric in rca.AT_K_METRICS:
         for suffix in ("vi", "sil"):
@@ -154,13 +154,13 @@ def test_runs_on_a_conf_only_store(tmp_path):
     so dropping the large file changes the results by nothing at all.
     """
     path = _store(tmp_path)
-    full = rca.run(path, tmp_path / "out_full", ks=(2, 3), linkages=("average",), min_cluster_sizes=(3,), verbose=False)
+    full = rca.run(path, tmp_path / "out_full", ks=(2, 3), linkages=("average",), min_cluster_sizes=(3,), verbose=False, n_jobs=1)
 
     (path / "confdists.f32").unlink()
     reopened = ResultStore.open(path)
     assert not reopened.has_confdists
     partial = rca.run(path, tmp_path / "out_partial", ks=(2, 3), linkages=("average",),
-                      min_cluster_sizes=(3,), verbose=False)
+                      min_cluster_sizes=(3,), verbose=False, n_jobs=1)
 
     for name in OUTPUTS:
         assert (tmp_path / "out_partial" / name).is_file(), name
@@ -171,7 +171,7 @@ def test_runs_on_a_conf_only_store(tmp_path):
 def test_main_parses_arguments_and_writes_output(tmp_path):
     path = _store(tmp_path, n_reps=2, arms=(0.0,))
     rc = rca.main(["--store", str(path), "--out", str(tmp_path / "cli"),
-                   "--ks", "2,3", "--linkages", "average", "--quiet"])
+                   "--ks", "2,3", "--linkages", "average", "--n-jobs", "1", "--quiet"])
     assert rc == 0
     assert (tmp_path / "cli" / "cluster_agreement.csv").is_file()
 
@@ -207,7 +207,7 @@ def test_main_requires_store_and_out(missing):
 def test_the_density_pass_is_reported_and_kept_out_of_the_vi_tables(tmp_path):
     """HDBSCAN runs alongside AC, but its noise-class scores must not leak into the VI frame."""
     frames = rca.run(_store(tmp_path), tmp_path / "out", ks=(2, 3), linkages=("average",),
-                     min_cluster_sizes=(3, 5), verbose=False)
+                     min_cluster_sizes=(3, 5), verbose=False, n_jobs=1)
     density = frames["density_agreement"]
     # One row per (arm, min_cluster_size): the arm stays a group here too, for the same reason it
     # does in the VI tables - the arms might differ and pooling would hide it.
@@ -225,7 +225,7 @@ def test_the_density_pass_is_reported_and_kept_out_of_the_vi_tables(tmp_path):
 
 def test_isolated_images_table_is_per_image(tmp_path):
     frames = rca.run(_store(tmp_path), tmp_path / "out", ks=(2, 3), linkages=("average",),
-                     min_cluster_sizes=(3,), density_mcs=3, verbose=False)
+                     min_cluster_sizes=(3,), density_mcs=3, verbose=False, n_jobs=1)
     iso = frames["isolated_images"]
     assert set(iso["image"]) == set(range(N_IMAGES))
     assert (iso["min_cluster_size"] == 3).all()

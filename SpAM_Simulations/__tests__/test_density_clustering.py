@@ -166,7 +166,7 @@ def _store(tmp_path, n_reps=3, seed=0):
 
 
 def test_compute_density_agreement_emits_one_row_per_group_and_setting(tmp_path):
-    df = dc.compute_density_agreement(_store(tmp_path), min_cluster_sizes=(3, 5), verbose=False)
+    df = dc.compute_density_agreement(_store(tmp_path), min_cluster_sizes=(3, 5), verbose=False, n_jobs=1)
     assert len(df) == 2
     assert (df["n_pairs"] == 3).all()          # C(3, 2)
     for col in ("mean_frac_noise", "mean_noise_kappa", "mean_ari_shared_clustered",
@@ -177,7 +177,7 @@ def test_compute_density_agreement_emits_one_row_per_group_and_setting(tmp_path)
 
 def test_density_agreement_skips_a_single_rep_group(tmp_path):
     df = dc.compute_density_agreement(_store(tmp_path, n_reps=1), min_cluster_sizes=(5,),
-                                      verbose=False)
+                                      verbose=False, n_jobs=1)
     assert df.empty
 
 
@@ -188,11 +188,11 @@ def test_density_agreement_needs_configurations(tmp_path):
                   "status": "success"}, confdist=np.zeros(10, dtype=np.float32))
     store.close()
     with pytest.raises(ValueError, match="cannot be clustered"):
-        dc.compute_density_agreement(ResultStore.open(tmp_path / "nc"), verbose=False)
+        dc.compute_density_agreement(ResultStore.open(tmp_path / "nc"), verbose=False, n_jobs=1)
 
 
 def test_isolated_images_is_per_image_and_flags_the_planted_outliers(tmp_path):
-    df = dc.isolated_images(_store(tmp_path), min_cluster_size=5, verbose=False)
+    df = dc.isolated_images(_store(tmp_path), min_cluster_size=5, verbose=False, n_jobs=1)
     assert len(df) == N_IMAGES
     assert set(df["image"]) == set(range(N_IMAGES))
     assert df["frac_cohorts_noise"].between(0, 1).all()
@@ -308,7 +308,7 @@ def test_pairwise_restricted_vi_rejects_a_name_count_mismatch():
 
 
 def test_density_agreement_reports_restricted_vi(tmp_path):
-    df = dc.compute_density_agreement(_store(tmp_path), min_cluster_sizes=(5,), verbose=False)
+    df = dc.compute_density_agreement(_store(tmp_path), min_cluster_sizes=(5,), verbose=False, n_jobs=1)
     for col in ("mean_vi_restricted", "sem_vi_restricted", "mean_vi_restricted_norm"):
         assert col in df.columns, col
     # Near-identical cohorts: the surviving subset should agree almost perfectly.
