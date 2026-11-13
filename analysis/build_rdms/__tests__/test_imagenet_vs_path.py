@@ -8,7 +8,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import analysis.build_rdms.imagenet_vs_path as ivp
+pytest.importorskip("torchvision", reason="imagenet_vs_path imports torch/torchvision at module level")
+
+import analysis.build_rdms.imagenet_vs_path as ivp  # noqa: E402
 
 # ImageNet class indices with stable, well-known synsets.
 _COCK = 7        # cock.n.05
