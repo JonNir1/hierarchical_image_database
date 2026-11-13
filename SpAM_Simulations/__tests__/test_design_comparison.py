@@ -39,25 +39,27 @@ def test_only_the_unconstrained_arm_repeats_images_within_a_session():
 
 # --------------------------------------------------------------------- headline claim
 
-def test_designed_covers_more_pairs_than_random_at_matched_cost():
-    """The whole point of Stage 2a."""
+@pytest.fixture(scope="module")
+def headline_reports() -> tuple[dict, dict]:
     kw = dict(n_images=80, k=5, trials_per_session=6, n_sessions=10)
     d = dc.design_report(dc.build_sessions("designed", rng=_rng(1), **kw), 80)
     r = dc.design_report(dc.build_sessions("random", rng=_rng(1), **kw), 80)
+    return d, r
+
+
+def test_designed_covers_more_pairs_than_random_at_matched_cost(headline_reports):
+    """The whole point of Stage 2a."""
+    d, r = headline_reports
     assert d["frac_pairs_covered"] > r["frac_pairs_covered"]
 
 
-def test_designed_balances_image_replication_better_than_random():
-    kw = dict(n_images=80, k=5, trials_per_session=6, n_sessions=10)
-    d = dc.design_report(dc.build_sessions("designed", rng=_rng(1), **kw), 80)
-    r = dc.design_report(dc.build_sessions("random", rng=_rng(1), **kw), 80)
+def test_designed_balances_image_replication_better_than_random(headline_reports):
+    d, r = headline_reports
     assert d["reps_per_image_sd"] < r["reps_per_image_sd"]
 
 
-def test_designed_wastes_fewer_observations_on_already_covered_pairs():
-    kw = dict(n_images=80, k=5, trials_per_session=6, n_sessions=10)
-    d = dc.design_report(dc.build_sessions("designed", rng=_rng(1), **kw), 80)
-    r = dc.design_report(dc.build_sessions("random", rng=_rng(1), **kw), 80)
+def test_designed_wastes_fewer_observations_on_already_covered_pairs(headline_reports):
+    d, r = headline_reports
     assert d["wasted_frac"] < r["wasted_frac"]
 
 

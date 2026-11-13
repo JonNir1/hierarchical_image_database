@@ -288,43 +288,39 @@ def test_calibrate_recovers_known_parameters():
 class TestDispersionRefit:
     """Dispersion must be re-fitted whenever the noise POPULATION changes, not just its mean."""
 
-    GT = None
+    @pytest.fixture(scope="class")
+    def gt(self) -> np.ndarray:
+        return build_ground_truth_embeddings(90, 4, seed=2)
 
-    def _gt(self):
-        from SpAM_Simulations.core.simulation import build_ground_truth_embeddings
-        if TestDispersionRefit.GT is None:
-            TestDispersionRefit.GT = build_ground_truth_embeddings(90, 4, seed=2)
-        return TestDispersionRefit.GT
-
-    def test_agreement_depends_on_the_noise_shape_not_only_its_mean(self):
+    def test_agreement_depends_on_the_noise_shape_not_only_its_mean(self, gt):
         """The reason a shape refit invalidates the old dispersion calibration.
 
         Same mean noise, same dispersion, different noise SHAPE -> different between-subject
         agreement. If this were not so, dispersion could be calibrated once and reused.
         """
         from SpAM_Simulations.empirical.subjects import _simulated_targets
-        common = dict(gt_embeddings=self._gt(), noise_scale=0.8, dispersion=0.3, num_subjects=25,
+        common = dict(gt_embeddings=gt, noise_scale=0.8, dispersion=0.3, num_subjects=25,
                       trials_per_subject=8, images_per_trial=8, frac_trials_repeated=0.25,
                       reps=2, seed=0, min_overlap=3)
         concentrated = _simulated_targets(**common, noise_df=5, lognormal_sigma=0.15)[1]
         dispersed = _simulated_targets(**common, noise_df=5, lognormal_sigma=1.0)[1]
         assert abs(concentrated - dispersed) > 0.01
 
-    def test_sigma_zero_keeps_the_historical_t_family_path(self):
+    def test_sigma_zero_keeps_the_historical_t_family_path(self, gt):
         """Back-compat: the default routes through |t(df)|, so old calibrations still reproduce."""
         from SpAM_Simulations.empirical.subjects import _simulated_targets
-        common = dict(gt_embeddings=self._gt(), noise_scale=0.8, dispersion=0.3, num_subjects=20,
+        common = dict(gt_embeddings=gt, noise_scale=0.8, dispersion=0.3, num_subjects=20,
                       trials_per_subject=8, images_per_trial=8, frac_trials_repeated=0.25,
                       reps=1, seed=0, min_overlap=3, noise_df=5)
         a = _simulated_targets(**common)
         b = _simulated_targets(**common, lognormal_sigma=0.0)
         assert a == b
 
-    def test_fit_returns_a_grid_value_and_its_achieved_agreement(self):
+    def test_fit_returns_a_grid_value_and_its_achieved_agreement(self, gt):
         from SpAM_Simulations.empirical.subjects import fit_dispersion_for_agreement
         grid = (0.0, 0.2, 0.4)
         disp, ach = fit_dispersion_for_agreement(
-            self._gt(), 0.5, noise_scale=0.8, noise_df=5, dispersion_grid=grid,
+            gt, 0.5, noise_scale=0.8, noise_df=5, dispersion_grid=grid,
             num_subjects=20, trials_per_subject=8, images_per_trial=8,
             frac_trials_repeated=0.25, reps=1, min_overlap=3)
         assert disp in grid and np.isfinite(ach)
@@ -538,41 +534,44 @@ class TestReliabilityStatistic:
     tail a non-zero threshold cuts. This cost a full recalibration round to find.
     """
 
-    @staticmethod
-    def _coords():
+    @pytest.fixture(scope="class")
+    def coords(self) -> np.ndarray:
         return build_ground_truth_embeddings(60, 4, seed=11)
 
-    def _sample(self, statistic):
+    @staticmethod
+    def _draw(coords: np.ndarray, **kw) -> np.ndarray:
         from SpAM_Simulations.empirical.subjects import simulate_reliability_sample
         return simulate_reliability_sample(
-            self._coords(), 0.3, n_subjects=25, n_repeats=2, images_per_trial=10, reps=1, seed=0,
-            statistic=statistic)
+            coords, 0.3, n_subjects=25, n_repeats=2, images_per_trial=10, reps=1, seed=0, **kw)
 
-    def test_min_is_never_above_mean(self):
-        lo, mid = self._sample("min"), self._sample("mean")
+    @pytest.fixture(scope="class")
+    def lo(self, coords: np.ndarray) -> np.ndarray:
+        return self._draw(coords, statistic="min")
+
+    @pytest.fixture(scope="class")
+    def mid(self, coords: np.ndarray) -> np.ndarray:
+        return self._draw(coords, statistic="mean")
+
+    def test_min_is_never_above_mean(self, lo, mid):
         assert lo.size == mid.size
         assert np.all(lo <= mid + 1e-12)
 
-    def test_min_shifts_the_lower_tail_down_materially(self):
+    def test_min_shifts_the_lower_tail_down_materially(self, lo, mid):
         """Not a rounding difference: this is the whole reason the parameter exists."""
-        lo, mid = self._sample("min"), self._sample("mean")
         assert np.median(mid) - np.median(lo) > 0.02
 
-    def test_default_is_the_mean(self):
-        from SpAM_Simulations.empirical.subjects import simulate_reliability_sample
-        default = simulate_reliability_sample(
-            self._coords(), 0.3, n_subjects=25, n_repeats=2, images_per_trial=10, reps=1, seed=0)
-        np.testing.assert_array_equal(default, self._sample("mean"))
+    def test_default_is_the_mean(self, coords, mid):
+        np.testing.assert_array_equal(self._draw(coords), mid)
 
-    def test_an_unknown_statistic_raises(self):
+    def test_an_unknown_statistic_raises(self, coords):
         with pytest.raises(ValueError, match="statistic"):
-            self._sample("mode")
+            self._draw(coords, statistic="mode")
 
-    def test_the_fit_passes_it_through(self):
+    def test_the_fit_passes_it_through(self, coords):
         """A `statistic` that stopped at `fit_noise_population` would silently fit the default."""
         from SpAM_Simulations.empirical.subjects import fit_noise_population
         out = fit_noise_population(
-            self._coords(), np.linspace(0.05, 0.5, 20), families=("lognormal",),
+            coords, np.linspace(0.05, 0.5, 20), families=("lognormal",),
             lognormal_shapes=(0.25,), noise_grid=(0.2, 0.4), n_subjects=15, n_repeats=2,
             images_per_trial=10, reps=1, verbose=False, statistic="min")
         assert out["best"]["statistic"] == "min"
