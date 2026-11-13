@@ -152,8 +152,9 @@ def fig_distance_vs_null(
     distance from null as two split violins (pre left, post right): Wasserstein
     on the left y-axis (primary, see trial_wasserstein_distance()) and KS on
     the right y-axis (secondary/shape-robustness check); bottom-middle =
-    density difference between cohorts (KDE_pre - KDE_post); bottom-right =
-    per-cohort deviation from null (KDE_cohort - KDE_null). Adapted from
+    per-cohort deviation from null (KDE_cohort - KDE_null); bottom-right =
+    density difference between cohorts (KDE_pre - KDE_post). The legend sits
+    inside the top-right corner of the top panel. Adapted from
     analysis/pilot/figures.py's fig_pairwise_distance_distribution, grouped by
     SHINE cohort instead of task version."""
     x = np.linspace(0.0, 1.0, 500)
@@ -167,8 +168,8 @@ def fig_distance_vs_null(
         subplot_titles=[
             f"Pairwise SpAM distance distribution (n={total_obs:,} pair observations)",
             "Distance from null per subject",
-            "Δ density pre - post",
             "Δ density vs. null",
+            "Δ density pre - post",
         ],
         row_heights=[0.42, 0.58], vertical_spacing=0.18, horizontal_spacing=0.1,
     )
@@ -192,13 +193,13 @@ def fig_distance_vs_null(
             fill="tozeroy", fillcolor=cc["violin"],
             line={"color": cc["main"], "width": 1.5},
             name=cohort_label(cohort), legendgroup=cohort, showlegend=False,
-        ), row=2, col=3)
+        ), row=2, col=2)
     fig.add_trace(go.Scatter(
         x=x.tolist(), y=(cohort_kde["pre"] - cohort_kde["post"]).tolist(),
         fill="tozeroy", fillcolor="rgba(90,90,90,0.30)",
         line={"color": "rgba(60,60,60,0.9)", "width": 1.5},
         name="Pre - post", showlegend=False,
-    ), row=2, col=2)
+    ), row=2, col=3)
     for col_idx in (2, 3):
         fig.add_trace(go.Scatter(
             x=[0.0, 1.0], y=[0.0, 0.0],
@@ -217,13 +218,13 @@ def fig_distance_vs_null(
     fig.update_yaxes(title_text="Density", row=1, col=1)
     fig.update_xaxes(title_text="Normalised distance", row=1, col=1)
     fig.update_xaxes(
-        tickvals=[0.0, 1.0], ticktext=["Wasserstein (primary)", "KS (secondary)"], range=[-0.6, 1.6], row=2, col=1,
+        tickvals=[0.0, 1.0], ticktext=["Wasserstein", "KS Divergence"], range=[-0.6, 1.6], row=2, col=1,
     )
-    fig.update_yaxes(title_text="Wasserstein distance (vs. null)", rangemode="tozero", secondary_y=False, row=2, col=1)
-    fig.update_yaxes(title_text="KS D (vs. null)", rangemode="tozero", secondary_y=True, row=2, col=1)
-    fig.update_yaxes(title_text="Δ density pre - post", row=2, col=2)
+    fig.update_yaxes(title_text="Distance from Null", rangemode="tozero", secondary_y=False, row=2, col=1)
+    fig.update_yaxes(title_text="Distance from Null", rangemode="tozero", secondary_y=True, row=2, col=1)
+    fig.update_yaxes(title_text="Δ density vs null", row=2, col=2)
     fig.update_xaxes(title_text="Normalised distance", row=2, col=2)
-    fig.update_yaxes(title_text="Δ density vs null", row=2, col=3)
+    fig.update_yaxes(title_text="Δ density pre - post", row=2, col=3)
     fig.update_xaxes(title_text="Normalised distance", row=2, col=3)
 
     fig.update_layout(
@@ -231,5 +232,9 @@ def fig_distance_vs_null(
         height=680, width=1200,
         margin={"l": 80, "r": 40, "t": 60, "b": 60},
         showlegend=True,
+        legend={
+            "x": 0.99, "y": 0.99, "xanchor": "right", "yanchor": "top",
+            "bgcolor": "rgba(255,255,255,0.8)", "bordercolor": "rgba(0,0,0,0.15)", "borderwidth": 1,
+        },
     )
     return fig
