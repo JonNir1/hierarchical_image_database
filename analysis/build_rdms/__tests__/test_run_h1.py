@@ -1,21 +1,14 @@
 """Test for analysis.build_rdms.run_h1.family_fdr, the confirmatory H1 multiplicity correction."""
 from __future__ import annotations
 
-import importlib
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 from statsmodels.stats.multitest import multipletests
 
-import analysis.behavioral.demographics_and_behavior as demographics
+from analysis.build_rdms.run_h1 import family_fdr
 
 
-def test_family_fdr_is_bh_within_each_cohort_without_leaking_across_cohorts(monkeypatch):
-    # run_h1 imports MDS_CACHE_DIR from demographics_and_behavior, but it now lives in
-    # cohort_structure; stub it so the import succeeds. Remove once run_h1 is fixed.
-    monkeypatch.setattr(demographics, "MDS_CACHE_DIR", Path("."), raising=False)
-    family_fdr = importlib.import_module("analysis.build_rdms.run_h1").family_fdr
+def test_family_fdr_is_bh_within_each_cohort_without_leaking_across_cohorts():
     permutation = pd.DataFrame({
         "cohort": ["pre", "pre", "post", "post"],
         "statistic": ["kendall_a", "spearman", "kendall_a", "spearman"],  # only tau-a is confirmatory
