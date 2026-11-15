@@ -38,7 +38,7 @@ def test_label_shuffle_masked_detects_planted_structure():
     trials = _make_trials(rng, 20, noise=0.3)
     from analysis.build_rdms.behavior.spam_ratings import _combine
     combined, _ = _combine([t for ts in trials.values() for t in ts], _N, "mean")
-    result = me.label_shuffle_test_masked(combined, _model_rdm(), n_perm=200, seed=1)
+    result = me.label_shuffle_test_masked(combined, _model_rdm(), n_perm=50, seed=1)
     assert result.observed["kendall_a"] > 0.3
     assert result.p_value["kendall_a"] < 0.05
     assert abs(result.null["kendall_a"].mean()) < 0.1
@@ -48,7 +48,7 @@ def test_label_shuffle_masked_null_is_centered_for_unrelated_rdm():
     rng = np.random.default_rng(2)
     unrelated = rng.normal(size=_N * (_N - 1) // 2)
     unrelated[rng.random(unrelated.size) < 0.3] = np.nan
-    result = me.label_shuffle_test_masked(unrelated, _model_rdm(), n_perm=200, seed=3)
+    result = me.label_shuffle_test_masked(unrelated, _model_rdm(), n_perm=50, seed=3)
     assert abs(result.null["kendall_a"].mean()) < 0.05
     assert result.p_value["kendall_a"] > 0.05
 

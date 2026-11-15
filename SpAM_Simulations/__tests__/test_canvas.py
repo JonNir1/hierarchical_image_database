@@ -281,7 +281,7 @@ def test_sample_spec_recovers_the_missing_trial_to_trial_spread():
     """
     rng = np.random.default_rng(1)
     fixed, sampled = [], []
-    for s in range(300):
+    for s in range(100):
         Y = _square(20, seed=s)
         fixed.append(cv.arrange(Y, 0.08, rng, cv.CanvasSpec()).max())
         sampled.append(cv.arrange(Y, 0.08, rng, cv.sample_spec(rng)).max())

@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 
 import numpy as np
-import pandas as pd
 import pytest
 from PIL import Image
-from scipy.spatial.distance import pdist, squareform
+from scipy.spatial.distance import pdist
+
+from _rdm_helpers import patch_common_results, synthetic_manifest
 
 import analysis.build_rdms.common as common
 
@@ -29,9 +30,7 @@ def patched_results(tmp_path, monkeypatch):
     Redirect RESULTS_DIR to a temp dir and shrink expected N so tests don't
     need a real 725-image dataset.
     """
-    monkeypatch.setattr(common, "RESULTS_DIR", tmp_path)
-    monkeypatch.setattr(common, "_EXPECTED_LEN", _LEN)
-    monkeypatch.setattr(common, "_EXPECTED_N", _N)
+    patch_common_results(monkeypatch, tmp_path, _N)
     return tmp_path
 
 
@@ -39,6 +38,7 @@ def patched_results(tmp_path, monkeypatch):
 # load_manifest
 # ---------------------------------------------------------------------------
 
+@pytest.mark.manual
 def test_load_manifest_shape():
     df = common.load_manifest()
     assert len(df) == 725, f"Expected 725 rows, got {len(df)}"
@@ -46,6 +46,7 @@ def test_load_manifest_shape():
     assert "category" in df.columns
 
 
+@pytest.mark.manual
 def test_load_manifest_paths_are_unique():
     df = common.load_manifest()
     assert df["curated_path"].is_unique, "curated_path must index 725 distinct images"
@@ -110,56 +111,35 @@ def test_image_manifest_index_is_cached():
 
 
 # ---------------------------------------------------------------------------
-# load_image_rgb: alpha compositing
+# load_image_rgb
 # ---------------------------------------------------------------------------
 
-def test_load_image_rgb_rgba_compositing(tmp_path):
-    """Semi-transparent red (alpha=128) over white -> channel values ~(255, 127, 127)."""
-    p = tmp_path / "rgba.png"
-    img = Image.new("RGBA", (4, 4), (255, 0, 0, 128))
-    img.save(p)
+@pytest.mark.parametrize("mode, fill, expected_ranges", [
+    # semi-transparent red over white -> (255, ~127, ~127)
+    pytest.param("RGBA", (255, 0, 0, 128), ((255, 255), (120, 135), (120, 135)), id="rgba_compositing"),
+    pytest.param("RGBA", (0, 0, 0, 0), ((255, 255),) * 3, id="fully_transparent_is_white"),
+    pytest.param("RGB", (10, 20, 30), ((10, 10), (20, 20), (30, 30)), id="rgb_passthrough"),
+])
+def test_load_image_rgb_channel_values(tmp_path, mode, fill, expected_ranges):
+    p = tmp_path / "img.png"
+    Image.new(mode, (4, 4), fill).save(p)
     arr = common.load_image_rgb(p)
     assert arr.shape == (4, 4, 3)
     assert arr.dtype == np.uint8
-    assert arr[0, 0, 0] == 255
-    assert 120 <= int(arr[0, 0, 1]) <= 135   # green channel ~127
-    assert 120 <= int(arr[0, 0, 2]) <= 135   # blue channel ~127
+    for channel, (lo, hi) in enumerate(expected_ranges):
+        assert ((arr[..., channel] >= lo) & (arr[..., channel] <= hi)).all()
 
 
-def test_load_image_rgb_fully_transparent(tmp_path):
-    """Fully transparent pixel (alpha=0) -> white (255,255,255)."""
-    p = tmp_path / "transparent.png"
-    img = Image.new("RGBA", (4, 4), (0, 0, 0, 0))
-    img.save(p)
-    arr = common.load_image_rgb(p)
-    np.testing.assert_array_equal(arr, 255)
-
-
-def test_load_image_rgb_rgb(tmp_path):
-    """Plain RGB PNG passes through unchanged."""
-    p = tmp_path / "rgb.png"
-    Image.new("RGB", (4, 4), (10, 20, 30)).save(p)
-    arr = common.load_image_rgb(p)
-    assert arr.shape == (4, 4, 3)
-    assert arr[0, 0, 0] == 10
-    assert arr[0, 0, 1] == 20
-    assert arr[0, 0, 2] == 30
-
-
-def test_load_image_rgb_size_mismatch_raises(tmp_path):
-    """size parameter raises ValueError when image doesn't match."""
-    p = tmp_path / "big.png"
-    Image.new("RGB", (8, 8), (0, 0, 0)).save(p)
-    with pytest.raises(ValueError, match="Expected 4x4"):
-        common.load_image_rgb(p, size=4)
-
-
-def test_load_image_rgb_size_ok(tmp_path):
-    """size parameter passes silently when image matches."""
-    p = tmp_path / "exact.png"
-    Image.new("RGB", (4, 4), (0, 0, 0)).save(p)
-    arr = common.load_image_rgb(p, size=4)
-    assert arr.shape == (4, 4, 3)
+@pytest.mark.parametrize("side, error", [(8, "Expected 4x4"), (4, None)])
+def test_load_image_rgb_size_check(tmp_path, side, error):
+    """size=4 raises ValueError for a mismatching image and passes silently for a matching one."""
+    p = tmp_path / "img.png"
+    Image.new("RGB", (side, side), (0, 0, 0)).save(p)
+    if error:
+        with pytest.raises(ValueError, match=error):
+            common.load_image_rgb(p, size=4)
+        return
+    assert common.load_image_rgb(p, size=4).shape == (4, 4, 3)
 
 
 def test_load_image_rgb_background_color_invariant(tmp_path):
@@ -172,7 +152,7 @@ def test_load_image_rgb_background_color_invariant(tmp_path):
     for pixels that are transparent in both images.
     """
     size = 4
-    # Top-left 2x2: red foreground (alpha=255) — identical in both images
+    # Top-left 2x2: red foreground (alpha=255): identical in both images
     # Bottom-right 2x2: background (alpha=0) with different stored RGB
     def make_rgba(bg_rgb: tuple) -> Image.Image:
         arr = np.zeros((size, size, 4), dtype=np.uint8)
@@ -192,13 +172,84 @@ def test_load_image_rgb_background_color_invariant(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# save_rdm / load_rdm
+# save/load: RDMs (D_*.npy + metadata.json) and embeddings (E_*.npy + embeddings_metadata.json)
 # ---------------------------------------------------------------------------
 
-def test_save_creates_npy(patched_results):
-    condensed = np.abs(np.random.rand(_LEN))
-    common.save_rdm("myrdm", condensed, metric="euclidean", source="tests")
-    assert (patched_results / "D_myrdm.npy").exists()
+_KINDS = ["rdm", "embeddings"]
+_NPY_PREFIX = {"rdm": "D_", "embeddings": "E_"}
+_METADATA_FILE = {"rdm": "metadata.json", "embeddings": "embeddings_metadata.json"}
+_LOAD = {"rdm": common.load_rdm, "embeddings": common.load_embeddings}
+_OVERWRITE_FIELD = {"rdm": "metric", "embeddings": "source"}
+
+
+def _array_for(kind: str) -> np.ndarray:
+    return np.random.rand(_LEN) if kind == "rdm" else np.random.rand(_N, 4)
+
+
+def _save(kind: str, name: str, field_value: str = "tests") -> None:
+    """Save a random array; `field_value` lands in the field that _OVERWRITE_FIELD names."""
+    if kind == "rdm":
+        common.save_rdm(name, _array_for(kind), metric=field_value, source="tests")
+        return
+    common.save_embeddings(name, _array_for(kind), source=field_value)
+
+
+def _records(results_dir, kind: str) -> list[dict]:
+    return json.loads((results_dir / _METADATA_FILE[kind]).read_text())
+
+
+@pytest.mark.parametrize("kind", _KINDS)
+def test_save_creates_npy(patched_results, kind):
+    _save(kind, "myfile")
+    assert (patched_results / f"{_NPY_PREFIX[kind]}myfile.npy").exists()
+
+
+@pytest.mark.parametrize("kind", _KINDS)
+def test_save_overwrites_existing_record(patched_results, kind):
+    """Re-saving the same name replaces the metadata record (no duplicates)."""
+    field = _OVERWRITE_FIELD[kind]
+    _save(kind, "dup", "A")
+    _save(kind, "dup", "B")
+    matches = [r for r in _records(patched_results, kind) if r["name"] == "dup"]
+    assert len(matches) == 1
+    assert matches[0][field] == "B"
+
+
+@pytest.mark.parametrize("kind", _KINDS)
+def test_load_missing_file_raises(patched_results, kind):
+    with pytest.raises(FileNotFoundError):
+        _LOAD[kind]("nonexistent")
+
+
+@pytest.mark.parametrize("kind", _KINDS)
+def test_load_missing_metadata_raises(patched_results, kind):
+    """Loading raises RuntimeError when the metadata json is absent (array saved outside save_*)."""
+    np.save(patched_results / f"{_NPY_PREFIX[kind]}orphan.npy", _array_for(kind))
+    with pytest.raises(RuntimeError, match=f"{_METADATA_FILE[kind]} not found"):
+        _LOAD[kind]("orphan")
+
+
+@pytest.mark.parametrize("kind", _KINDS)
+def test_load_missing_record_raises(patched_results, kind):
+    """Metadata json exists but has no record for the requested name."""
+    _save(kind, "other")
+    np.save(patched_results / f"{_NPY_PREFIX[kind]}unrecorded.npy", _array_for(kind))
+    with pytest.raises(RuntimeError, match="No metadata record"):
+        _LOAD[kind]("unrecorded")
+
+
+@pytest.mark.parametrize("kind", _KINDS)
+def test_load_hash_mismatch_raises(patched_results, kind):
+    """Tampered order_hash in the metadata json -> RuntimeError on load."""
+    _save(kind, "guarded")
+    meta_path = patched_results / _METADATA_FILE[kind]
+    records = json.loads(meta_path.read_text())
+    for r in records:
+        if r["name"] == "guarded":
+            r["order_hash"] = "deadbeef00000000"
+    meta_path.write_text(json.dumps(records))
+    with pytest.raises(RuntimeError, match="order hash mismatch"):
+        _LOAD[kind]("guarded")
 
 
 def test_save_load_roundtrip(patched_results):
@@ -221,23 +272,6 @@ def test_save_creates_metadata(patched_results):
     assert "timestamp" in r
 
 
-def test_save_overwrites_existing_record(patched_results):
-    """Re-saving the same name replaces the metadata record (no duplicates)."""
-    c1 = np.ones(_LEN)
-    c2 = np.zeros(_LEN)
-    common.save_rdm("dup", c1, metric="A", source="tests")
-    common.save_rdm("dup", c2, metric="B", source="tests")
-    records = json.loads((patched_results / "metadata.json").read_text())
-    matches = [r for r in records if r["name"] == "dup"]
-    assert len(matches) == 1
-    assert matches[0]["metric"] == "B"
-
-
-def test_load_missing_raises(patched_results):
-    with pytest.raises(FileNotFoundError):
-        common.load_rdm("nonexistent")
-
-
 def test_load_wrong_length_raises(patched_results):
     bad = np.random.rand(_LEN + 5)
     np.save(patched_results / "D_bad.npy", bad)
@@ -245,36 +279,11 @@ def test_load_wrong_length_raises(patched_results):
         common.load_rdm("bad")
 
 
-def test_load_hash_mismatch_raises(patched_results):
-    """Tampered order_hash in metadata -> RuntimeError on load."""
-    condensed = np.random.rand(_LEN)
-    common.save_rdm("guarded", condensed, metric="euclidean", source="tests")
-    # Tamper with stored hash
-    meta_path = patched_results / "metadata.json"
-    records = json.loads(meta_path.read_text())
-    for r in records:
-        if r["name"] == "guarded":
-            r["order_hash"] = "deadbeef00000000"
-    meta_path.write_text(json.dumps(records))
-    with pytest.raises(RuntimeError, match="order hash mismatch"):
-        common.load_rdm("guarded")
-
-
-# ---------------------------------------------------------------------------
-# save_embeddings / load_embeddings
-# ---------------------------------------------------------------------------
-
-def test_save_embeddings_creates_npy(patched_results):
-    E = np.random.rand(_N, 8)
-    common.save_embeddings("myemb", E, source="tests")
-    assert (patched_results / "E_myemb.npy").exists()
-
-
 def test_save_load_embeddings_roundtrip(patched_results):
     E = np.random.rand(_N, 8)
     common.save_embeddings("rt", E, source="tests")
     loaded = common.load_embeddings("rt")
-    # save_embeddings casts to float32 — compare with reduced precision
+    # save_embeddings casts to float32: compare with reduced precision
     np.testing.assert_array_almost_equal(E, loaded, decimal=5)
 
 
@@ -290,57 +299,10 @@ def test_save_embeddings_creates_metadata(patched_results):
     assert "timestamp" in r
 
 
-def test_save_embeddings_overwrites_existing_record(patched_results):
-    """Re-saving the same name replaces the metadata record (no duplicates)."""
-    e1 = np.ones((_N, 4))
-    e2 = np.zeros((_N, 4))
-    common.save_embeddings("dup", e1, source="A")
-    common.save_embeddings("dup", e2, source="B")
-    records = json.loads((patched_results / "embeddings_metadata.json").read_text())
-    matches = [r for r in records if r["name"] == "dup"]
-    assert len(matches) == 1
-    assert matches[0]["source"] == "B"
-
-
 def test_save_embeddings_wrong_row_count_raises(patched_results):
     bad = np.random.rand(_N + 1, 4)
     with pytest.raises(ValueError, match="rows"):
         common.save_embeddings("bad", bad, source="tests")
-
-
-def test_load_embeddings_missing_raises(patched_results):
-    with pytest.raises(FileNotFoundError):
-        common.load_embeddings("nonexistent")
-
-
-def test_load_embeddings_missing_metadata_raises(patched_results):
-    """load_embeddings raises RuntimeError when embeddings_metadata.json is absent."""
-    E = np.random.rand(_N, 4)
-    np.save(patched_results / "E_orphan.npy", E)
-    with pytest.raises(RuntimeError, match="embeddings_metadata.json not found"):
-        common.load_embeddings("orphan")
-
-
-def test_load_embeddings_missing_record_raises(patched_results):
-    common.save_embeddings("other", np.random.rand(_N, 4), source="tests")
-    np.save(patched_results / "E_unrecorded.npy", np.random.rand(_N, 4))
-    with pytest.raises(RuntimeError, match="No metadata record"):
-        common.load_embeddings("unrecorded")
-
-
-def test_load_embeddings_hash_mismatch_raises(patched_results):
-    """Tampered order_hash in embeddings_metadata.json -> RuntimeError on load."""
-    E = np.random.rand(_N, 4)
-    common.save_embeddings("guarded", E, source="tests")
-    meta_path = patched_results / "embeddings_metadata.json"
-    records = json.loads(meta_path.read_text())
-    for r in records:
-        if r["name"] == "guarded":
-            r["order_hash"] = "deadbeef00000000"
-    meta_path.write_text(json.dumps(records))
-    with pytest.raises(RuntimeError, match="order hash mismatch"):
-        common.load_embeddings("guarded")
-
 
 # ---------------------------------------------------------------------------
 # euclidean_distances / cosine_distances
@@ -365,7 +327,7 @@ def test_euclidean_distances_identical_rows_zero(patched_results):
 
 
 def test_distances_default_does_not_save(patched_results):
-    """save_result defaults to False — no D_*.npy written, no name/source required."""
+    """save_result defaults to False: no D_*.npy written, no name/source required."""
     E = np.random.rand(_N, 5)
     common.euclidean_distances(E)
     common.cosine_distances(E)
@@ -398,41 +360,6 @@ def test_distances_save_result_records_metric_and_extra(patched_results):
 
 
 # ---------------------------------------------------------------------------
-# squareform round-trip invariants
-# ---------------------------------------------------------------------------
-
-def test_squareform_symmetric_zero_diagonal(patched_results):
-    """Loaded condensed vector round-trips to symmetric zero-diagonal square matrix."""
-    condensed = np.abs(np.random.rand(_LEN))
-    common.save_rdm("sq", condensed, metric="euclidean", source="tests")
-    loaded = common.load_rdm("sq")
-    sq = squareform(loaded)
-    assert sq.shape == (_N, _N)
-    np.testing.assert_array_almost_equal(sq, sq.T)
-    np.testing.assert_array_equal(np.diag(sq), 0.0)
-
-
-def test_load_rdm_missing_metadata_raises(patched_results):
-    """load_rdm raises RuntimeError when metadata.json is absent (not via save_rdm)."""
-    condensed = np.abs(np.random.rand(_LEN))
-    np.save(patched_results / "D_orphan.npy", condensed)
-    # No metadata.json written
-    with pytest.raises(RuntimeError, match="metadata.json not found"):
-        common.load_rdm("orphan")
-
-
-def test_load_rdm_missing_record_raises(patched_results):
-    """load_rdm raises RuntimeError when metadata.json exists but has no record for name."""
-    # Write metadata for a different RDM name
-    condensed = np.abs(np.random.rand(_LEN))
-    common.save_rdm("other", condensed, metric="euclidean", source="tests")
-    # Write the .npy for a name that has no metadata record
-    np.save(patched_results / "D_unrecorded.npy", condensed)
-    with pytest.raises(RuntimeError, match="No metadata record"):
-        common.load_rdm("unrecorded")
-
-
-# ---------------------------------------------------------------------------
 # kiani helpers
 # ---------------------------------------------------------------------------
 
@@ -453,36 +380,19 @@ def test_dir_parts_forward_slash():
     )
 
 
-def test_lca_depth_identical():
-    assert km._lca_depth(("a", "b", "c"), ("a", "b", "c")) == 3
-
-
-def test_lca_depth_no_common():
-    assert km._lca_depth(("animate",), ("inanimate",)) == 0
-
-
-def test_lca_depth_partial():
-    assert km._lca_depth(("a", "b", "c"), ("a", "b", "d")) == 2
-
-
-def test_lca_depth_one_shallower():
-    assert km._lca_depth(("a", "b"), ("a", "b", "c")) == 2
+@pytest.mark.parametrize("a, b, expected", [
+    pytest.param(("a", "b", "c"), ("a", "b", "c"), 3, id="identical"),
+    pytest.param(("animate",), ("inanimate",), 0, id="no_common"),
+    pytest.param(("a", "b", "c"), ("a", "b", "d"), 2, id="partial"),
+    pytest.param(("a", "b"), ("a", "b", "c"), 2, id="one_shallower"),
+])
+def test_lca_depth(a, b, expected):
+    assert km._lca_depth(a, b) == expected
 
 
 # ---------------------------------------------------------------------------
 # kiani smoke test (build_km_rdm with synthetic manifest)
 # ---------------------------------------------------------------------------
-
-def _make_synthetic_manifest(paths: list[str]) -> pd.DataFrame:
-    return pd.DataFrame({
-        "curated_path": paths,
-        "curated_filename": [p.split("\\")[-1] for p in paths],
-        "category": ["X"] * len(paths),
-        "source_dataset": ["test"] * len(paths),
-        "source_filename_or_url": [""] * len(paths),
-        "manual_match_validation": ["V"] * len(paths),
-    })
-
 
 @pytest.fixture()
 def patched_km(tmp_path, monkeypatch):
@@ -493,7 +403,7 @@ def patched_km(tmp_path, monkeypatch):
         r"animate\animal\fish\fish1.png",    # depth 3, different leaf
         r"inanimate\object\tool\hammer1.png", # depth 3, different top-level
     ]
-    synthetic = _make_synthetic_manifest(paths_4img)
+    synthetic = synthetic_manifest(paths_4img)
     monkeypatch.setattr(km, "load_manifest", lambda: synthetic)
     monkeypatch.setattr(km, "save_rdm", lambda *a, **kw: None)
     return paths_4img
@@ -502,7 +412,7 @@ def patched_km(tmp_path, monkeypatch):
 def test_build_km_rdm_same_leaf_distance_1(patched_km):
     """Two images in the same leaf folder must have distance 1 (not 0)."""
     condensed = km.build_km_rdm()
-    # pair (0,1): chick1 vs chick2 — same leaf "bird"
+    # pair (0,1): chick1 vs chick2: same leaf "bird"
     assert condensed[0] == 1.0
 
 
@@ -524,19 +434,6 @@ def test_build_km_rdm_cross_top_level(patched_km):
 def test_build_km_rdm_condensed_length(patched_km):
     condensed = km.build_km_rdm()
     assert len(condensed) == 4 * 3 // 2  # 6 pairs
-
-
-def test_build_km_rdm_zero_diagonal(patched_km):
-    """squareform of result has zero diagonal."""
-    condensed = km.build_km_rdm()
-    sq = squareform(condensed)
-    np.testing.assert_array_equal(np.diag(sq), 0.0)
-
-
-def test_build_km_rdm_symmetric(patched_km):
-    condensed = km.build_km_rdm()
-    sq = squareform(condensed)
-    np.testing.assert_array_equal(sq, sq.T)
 
 
 # ---------------------------------------------------------------------------

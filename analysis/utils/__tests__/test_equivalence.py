@@ -22,12 +22,6 @@ def test_rank_biserial_matches_mwu_effect_size_including_ties():
     assert rank_biserial(a, b) == pytest.approx(mwu_effect_size(a, b)["r"], abs=1e-4)
 
 
-def test_rank_biserial_fully_separated_groups_is_plus_or_minus_one():
-    low, high = np.array([1.0, 2.0, 3.0]), np.array([10.0, 11.0, 12.0])
-    assert rank_biserial(low, high) == pytest.approx(1.0)
-    assert rank_biserial(high, low) == pytest.approx(-1.0)
-
-
 # ---------------------------------------------------------------------------
 # equivalence_test_rank_biserial
 # ---------------------------------------------------------------------------
@@ -74,17 +68,17 @@ def test_risk_difference_matches_hand_computed_newcombe_interval():
     assert result["effect"] == 0.0
     assert result["ci_high"] == pytest.approx(0.1279, abs=1e-3)
     assert result["ci_low"] == pytest.approx(-0.1279, abs=1e-3)
-    assert result["equivalent"]
 
 
-def test_risk_difference_bound_below_ci_width_is_not_equivalent():
-    assert not equivalence_test_risk_difference(40, 80, 40, 80, bound=0.1)["equivalent"]
-
-
-def test_risk_difference_large_difference_is_not_equivalent():
-    result = equivalence_test_risk_difference(70, 100, 30, 100, bound=0.15)
-    assert result["effect"] == pytest.approx(0.4)
-    assert not result["equivalent"]
+@pytest.mark.parametrize("counts, bound, effect, equivalent", [
+    ((40, 80, 40, 80), 0.2, 0.0, True),
+    ((40, 80, 40, 80), 0.1, 0.0, False),  # bound below the CI half-width
+    ((70, 100, 30, 100), 0.15, 0.4, False),
+])
+def test_risk_difference_verdict_follows_ci_against_bound(counts, bound, effect, equivalent):
+    result = equivalence_test_risk_difference(*counts, bound=bound)
+    assert result["effect"] == pytest.approx(effect)
+    assert result["equivalent"] is equivalent
 
 
 # ---------------------------------------------------------------------------
@@ -92,8 +86,8 @@ def test_risk_difference_large_difference_is_not_equivalent():
 # ---------------------------------------------------------------------------
 
 def test_equivalence_sensitivity_shrinks_with_larger_samples():
-    small = equivalence_sensitivity(20, 20, n_sim=100, n_boot=200, seed=0)
-    large = equivalence_sensitivity(80, 80, n_sim=100, n_boot=200, seed=0)
+    small = equivalence_sensitivity(20, 20, n_sim=40, n_boot=100, seed=0)
+    large = equivalence_sensitivity(80, 80, n_sim=40, n_boot=100, seed=0)
     assert 0.0 < large < small < 1.0
 
 

@@ -50,6 +50,47 @@ def _trial_row(trial_type, pairs=_IMAGES_A, **overrides) -> dict:
     return row
 
 
+def _screening_eval_row(pid: str, passed: bool, **overrides: str) -> dict:
+    row = {
+        "participant_id": pid, "trial_type": "screening_eval", "task_version": "4.0",
+        "deployment_mode": "pilot", "pass": str(passed).lower(), "reasons": "[]",
+        "move_ratio_fail_rate": "0.0", "distance_sd_fail_rate": "0.0",
+        "min_reliability": "0.5", "median_reliability": "0.5",
+        "sort_area_width": "1000", "sort_area_height": "800", "shine_variant": "pre",
+    }
+    row.update(overrides)
+    return row
+
+
+@pytest.fixture(scope="module")
+def status_session_parse(tmp_path_factory: pytest.TempPathFactory) -> dict[str, pd.DataFrame]:
+    """One parse covering every participant status; shared by the status and diagnostics tests."""
+    data_dir = tmp_path_factory.mktemp("status_sessions")
+    write_demographics_csv(data_dir, [
+        _demo_row(**{"Submission id": "s1", "Participant id": "p1"}),  # full data, pre-v4, no screening_eval row
+        _demo_row(**{"Submission id": "s2", "Participant id": "p2", "Status": "RETURNED"}),  # revoked consent
+        _demo_row(**{"Submission id": "s3", "Participant id": "p3"}),  # missing data (no file)
+        _demo_row(**{"Submission id": "s4", "Participant id": "p4"}),  # screened out, has diagnostics
+        _demo_row(**{"Submission id": "s5", "Participant id": "p5"}),  # passed screening, fails full-session recheck
+    ])
+    write_session_csv(data_dir, [_trial_row("trial_1", **{"participant_id": "p1"}, task_version="1.0")],
+                      "session_p1.csv")
+    write_session_csv(data_dir, [
+        _trial_row("trial_1", **{"participant_id": "p4"}),
+        _screening_eval_row("p4", passed=False, reasons='["move-ratio fail rate 0.5"]',
+                            move_ratio_fail_rate="0.5", min_reliability="-0.1", median_reliability="0.1"),
+    ], "session_p4.csv")
+    enough_moves = '[{"x":1,"y":1},{"x":2,"y":2},{"x":3,"y":3}]'  # 3 items x 0.65 ratio needs >= 2 moves
+    reversed_rank_order = [("a.png", "b.png", 0.9), ("a.png", "c.png", 0.5), ("b.png", "c.png", 0.1)]
+    write_session_csv(data_dir, [
+        _trial_row("trial_1", **{"participant_id": "p5"}, moves=enough_moves),
+        _trial_row("trial_2", pairs=reversed_rank_order, **{"participant_id": "p5"}, moves=enough_moves,
+                   is_trial_repeat="true", repeat_of_trial_number="1"),  # reliability -1 over the full session
+        _screening_eval_row("p5", passed=True),
+    ], "session_p5.csv")
+    return parse_raw_data(data_dir)
+
+
 class TestParseRawData:
     def test_practice_trials_excluded_and_trial_id_continuous(self, tmp_path):
         write_demographics_csv(tmp_path, [_demo_row()])
@@ -147,62 +188,26 @@ class TestParseRawData:
         assert data["participants"].iloc[0]["status"] == "missing data"
         assert data["trials"].empty
 
-    def test_all_four_status_values(self, tmp_path):
-        write_demographics_csv(tmp_path, [
-            _demo_row(**{"Submission id": "s1", "Participant id": "p1"}),  # full data
-            _demo_row(**{"Submission id": "s2", "Participant id": "p2", "Status": "RETURNED"}),  # revoked
-            _demo_row(**{"Submission id": "s3", "Participant id": "p3"}),  # missing data (no file)
-            _demo_row(**{"Submission id": "s4", "Participant id": "p4"}),  # screened out
-        ])
-        write_session_csv(tmp_path, [_trial_row("trial_1", **{"participant_id": "p1"})], "session_p1.csv")
-        write_session_csv(tmp_path, [
-            {**_trial_row("trial_1", **{"participant_id": "p4"}), "trial_type": "trial_1"},
-            {
-                "participant_id": "p4", "trial_type": "screening_eval", "task_version": "4.0",
-                "deployment_mode": "pilot", "pass": "false", "reasons": "[]",
-                "move_ratio_fail_rate": "0.5", "distance_sd_fail_rate": "0.0",
-                "min_reliability": "-0.1", "median_reliability": "0.1",
-                "sort_area_width": "1000", "sort_area_height": "800", "shine_variant": "pre",
-            },
-        ], "session_p4.csv")
-
-        data = parse_raw_data(tmp_path)
-        status_by_pid = data["participants"].set_index("participant_id")["status"]
+    def test_all_five_status_values(self, status_session_parse):
+        status_by_pid = status_session_parse["participants"].set_index("participant_id")["status"]
         assert status_by_pid["p1"] == "full data"
         assert status_by_pid["p2"] == "revoked consent"
         assert status_by_pid["p3"] == "missing data"
         assert status_by_pid["p4"] == "screened out"
+        assert status_by_pid["p5"] == "false_positive"
 
-    def test_screening_eval_diagnostics_preserved_and_absent_when_no_row(self, tmp_path):
-        write_demographics_csv(tmp_path, [
-            _demo_row(**{"Submission id": "s1", "Participant id": "p1"}),  # screened out, has diagnostics
-            _demo_row(**{"Submission id": "s2", "Participant id": "p2"}),  # full data, pre-v4, no screening_eval row
-        ])
-        write_session_csv(tmp_path, [
-            {**_trial_row("trial_1", **{"participant_id": "p1"}), "trial_type": "trial_1"},
-            {
-                "participant_id": "p1", "trial_type": "screening_eval", "task_version": "4.0",
-                "deployment_mode": "pilot", "pass": "false", "reasons": '["move-ratio fail rate 0.5"]',
-                "move_ratio_fail_rate": "0.5", "distance_sd_fail_rate": "0.0",
-                "min_reliability": "-0.1", "median_reliability": "0.1",
-                "sort_area_width": "1000", "sort_area_height": "800", "shine_variant": "pre",
-            },
-        ], "session_p1.csv")
-        write_session_csv(tmp_path, [_trial_row("trial_1", **{"participant_id": "p2"}, task_version="1.0")],
-                           "session_p2.csv")
+    def test_screening_eval_diagnostics_preserved_and_absent_when_no_row(self, status_session_parse):
+        by_pid = status_session_parse["participants"].set_index("participant_id")
 
-        data = parse_raw_data(tmp_path)
-        by_pid = data["participants"].set_index("participant_id")
+        assert by_pid.loc["p4", "reasons"] == '["move-ratio fail rate 0.5"]'
+        assert by_pid.loc["p4", "move_ratio_fail_rate"] == pytest.approx(0.5)
+        assert by_pid.loc["p4", "distance_sd_fail_rate"] == pytest.approx(0.0)
+        assert by_pid.loc["p4", "min_reliability"] == pytest.approx(-0.1)
+        assert by_pid.loc["p4", "median_reliability"] == pytest.approx(0.1)
 
-        assert by_pid.loc["p1", "reasons"] == '["move-ratio fail rate 0.5"]'
-        assert by_pid.loc["p1", "move_ratio_fail_rate"] == pytest.approx(0.5)
-        assert by_pid.loc["p1", "distance_sd_fail_rate"] == pytest.approx(0.0)
-        assert by_pid.loc["p1", "min_reliability"] == pytest.approx(-0.1)
-        assert by_pid.loc["p1", "median_reliability"] == pytest.approx(0.1)
-
-        assert pd.isna(by_pid.loc["p2", "min_reliability"])
-        assert pd.isna(by_pid.loc["p2", "median_reliability"])
-        assert pd.isna(by_pid.loc["p2", "reasons"])
+        assert pd.isna(by_pid.loc["p1", "min_reliability"])
+        assert pd.isna(by_pid.loc["p1", "median_reliability"])
+        assert pd.isna(by_pid.loc["p1", "reasons"])
 
     def test_cohort_raw_passthrough_and_prefix_fallback(self, tmp_path):
         write_demographics_csv(tmp_path, [
@@ -282,10 +287,6 @@ class TestParseRawData:
 
 # ---------------------------------------------------------------------------
 # Shared trial/demographics helpers
-#
-# Moved here with the helpers themselves when they migrated out of analysis.utils.parser,
-# so their coverage survives that module's retirement. Behaviour is unchanged; only the
-# import location moved.
 # ---------------------------------------------------------------------------
 
 class TestNormaliseLocations:
@@ -293,30 +294,24 @@ class TestNormaliseLocations:
         result = _normalise_locations('[{"x":100,"y":200}]', canvas_w=1000, canvas_h=800)
         assert json.loads(result) == [{"x": 0.1, "y": 0.25}]
 
-    def test_empty_string_passthrough(self):
-        assert _normalise_locations("", canvas_w=1000, canvas_h=800) == ""
-
-    def test_nan_passthrough(self):
-        result = _normalise_locations(float("nan"), canvas_w=1000, canvas_h=800)
-        assert math.isnan(result)
-
-    def test_malformed_json_passthrough(self):
-        malformed = '{"not": "a list"'
-        assert _normalise_locations(malformed, canvas_w=1000, canvas_h=800) == malformed
+    @pytest.mark.parametrize("value", ["", float("nan"), '{"not": "a list"'], ids=["empty", "nan", "malformed"])
+    def test_non_normalisable_input_passes_through(self, value):
+        result = _normalise_locations(value, canvas_w=1000, canvas_h=800)
+        if isinstance(value, float):
+            assert math.isnan(result)
+            return
+        assert result == value
 
 
 class TestCountMoves:
-    def test_counts_entries(self):
-        assert _count_moves('[{"x":1,"y":1},{"x":2,"y":2}]') == 2
-
-    def test_empty_string_is_zero(self):
-        assert _count_moves("") == 0
-
-    def test_nan_is_zero(self):
-        assert _count_moves(float("nan")) == 0
-
-    def test_malformed_json_is_zero(self):
-        assert _count_moves("not json") == 0
+    @pytest.mark.parametrize("moves_json, expected", [
+        ('[{"x":1,"y":1},{"x":2,"y":2}]', 2),
+        ("", 0),
+        (float("nan"), 0),
+        ("not json", 0),
+    ], ids=["entries", "empty", "nan", "malformed"])
+    def test_counts_entries_or_zero(self, moves_json, expected):
+        assert _count_moves(moves_json) == expected
 
 
 class TestParsePairwiseDistances:
@@ -324,14 +319,9 @@ class TestParsePairwiseDistances:
         result = parse_pairwise_distances('[{"src1":"b.png","src2":"a.png","distance":3.5}]')
         assert result == {("a.png", "b.png"): 3.5}
 
-    def test_empty_string_is_empty_dict(self):
-        assert parse_pairwise_distances("") == {}
-
-    def test_nan_is_empty_dict(self):
-        assert parse_pairwise_distances(float("nan")) == {}
-
-    def test_malformed_json_is_empty_dict(self):
-        assert parse_pairwise_distances("not json") == {}
+    @pytest.mark.parametrize("value", ["", float("nan"), "not json"], ids=["empty", "nan", "malformed"])
+    def test_unparseable_input_is_empty_dict(self, value):
+        assert parse_pairwise_distances(value) == {}
 
     def test_trial_image_set_is_union_of_all_pairs(self):
         pw_json = '[{"src1":"a.png","src2":"b.png","distance":1},{"src1":"b.png","src2":"c.png","distance":2}]'

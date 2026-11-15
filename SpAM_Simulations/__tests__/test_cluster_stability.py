@@ -16,16 +16,11 @@ from scipy.cluster.hierarchy import fcluster
 from scipy.spatial.distance import pdist, squareform
 
 from SpAM_Simulations.measures import cluster_stability as cs
+from _store_helpers import (CLUSTER_N_IMAGES as N_IMAGES, META, append_duplicate_reps,
+                            blobs, conf_store)
 
 
 # --------------------------------------------------------------------- factories
-
-def _blobs(n_per=20, k=3, sd=0.25, seed=0, ndim=3):
-    """`k` well-separated Gaussian blobs; the planted structure the metrics should recover."""
-    rng = np.random.default_rng(seed)
-    centres = rng.normal(0, 10, (k, ndim))
-    return np.vstack([c + rng.normal(0, sd, (n_per, ndim)) for c in centres])
-
 
 def _continuum(n=60, ndim=3, seed=0):
     """Uniform points in a box: no cluster structure to find, at any granularity."""
@@ -105,7 +100,7 @@ class TestPartitionAgreement:
 @pytest.mark.parametrize("method", cs.DEFAULT_LINKAGES)
 def test_two_noisy_views_of_planted_blobs_agree(method):
     """Three well-separated blobs, two independent noisy realisations, cut at the true k."""
-    truth = _blobs(n_per=20, k=3, sd=0.25, seed=0)
+    truth = blobs(n_per=20, k=3, sd=0.25, seed=0)
     a, b = pdist(_noisy(truth, 0.1, 1)), pdist(_noisy(truth, 0.1, 2))
     la = cs.cut_tree(cs.build_linkage(a, method), [3], 60)[3]
     lb = cs.cut_tree(cs.build_linkage(b, method), [3], 60)[3]
@@ -115,7 +110,7 @@ def test_two_noisy_views_of_planted_blobs_agree(method):
 
 
 def test_planted_blobs_have_high_cross_cohort_silhouette():
-    truth = _blobs(n_per=20, k=3, sd=0.25, seed=0)
+    truth = blobs(n_per=20, k=3, sd=0.25, seed=0)
     a, b = pdist(_noisy(truth, 0.1, 1)), pdist(_noisy(truth, 0.1, 2))
     la = cs.cut_tree(cs.build_linkage(a, "average"), [3], 60)[3]
     lb = cs.cut_tree(cs.build_linkage(b, "average"), [3], 60)[3]
@@ -151,7 +146,7 @@ def test_separation_distinguishes_blobs_from_a_continuum():
         la = cs.cut_tree(cs.build_linkage(a, "average"), [3], len(coords))[3]
         lb = cs.cut_tree(cs.build_linkage(b, "average"), [3], len(coords))[3]
         return cs.silhouette_pair(squareform(a), squareform(b), la, lb)["sil_cross"]
-    assert cross_sil(_blobs(n_per=20, k=3, sd=0.25, seed=0)) > 0.7
+    assert cross_sil(blobs(n_per=20, k=3, sd=0.25, seed=0)) > 0.7
     assert cross_sil(_continuum(n=60, seed=0)) < 0.5
 
 
@@ -225,7 +220,7 @@ def test_silhouette_ratio_is_nan_when_the_denominator_is_negative():
 
 
 def test_cross_silhouette_is_directional():
-    a, b = _blobs(seed=0), _blobs(seed=1)
+    a, b = blobs(seed=0), blobs(seed=1)
     da, db = squareform(pdist(a)), squareform(pdist(b))
     la = cs.cut_tree(cs.build_linkage(pdist(a), "average"), [3], 60)[3]
     lb = cs.cut_tree(cs.build_linkage(pdist(b), "average"), [3], 60)[3]
@@ -236,46 +231,41 @@ def test_cross_silhouette_is_directional():
 
 # --------------------------------------------------------------------- dendrogram agreement
 
-def test_baker_gamma_is_one_for_identical_trees():
-    z = cs.build_linkage(pdist(_blobs(seed=0)), "average")
-    assert cs.baker_gamma(cs.cophenetic_ranks(z), cs.cophenetic_ranks(z)) == pytest.approx(1.0)
-
-
-def test_baker_gamma_is_scale_invariant():
+@pytest.mark.parametrize("scale", [1.0, 37.0], ids=["identical", "rescaled"])
+def test_baker_gamma_is_one_for_identical_and_rescaled_trees(scale):
     """Rank-based, so an arbitrary rescaling of an MDS solution must not move it."""
-    d = pdist(_blobs(seed=0))
-    za, zb = cs.build_linkage(d, "average"), cs.build_linkage(d * 37.0, "average")
+    d = pdist(blobs(seed=0))
+    za, zb = cs.build_linkage(d, "average"), cs.build_linkage(d * scale, "average")
     assert cs.baker_gamma(cs.cophenetic_ranks(za), cs.cophenetic_ranks(zb)) == pytest.approx(1.0)
 
 
 def test_baker_gamma_falls_for_unrelated_trees():
-    za = cs.build_linkage(pdist(_blobs(seed=0)), "average")
+    za = cs.build_linkage(pdist(blobs(seed=0)), "average")
     zb = cs.build_linkage(pdist(_continuum(n=60, seed=1)), "average")
     assert cs.baker_gamma(cs.cophenetic_ranks(za), cs.cophenetic_ranks(zb)) < 0.8
 
 
 def test_cophenetic_fidelity_is_high_for_a_clusterable_space():
-    d = pdist(_blobs(n_per=20, k=3, sd=0.2, seed=0))
+    d = pdist(blobs(n_per=20, k=3, sd=0.2, seed=0))
     assert cs.cophenetic_fidelity(cs.build_linkage(d, "average"), d) > 0.8
 
 
 # --------------------------------------------------------------------- sizes and cutting
 
-def test_cluster_size_summary_describes_a_known_partition():
-    out = cs.cluster_size_summary(np.array([0] * 8 + [1] * 2 + [2]))
-    assert out["n_clusters_realised"] == 3
-    assert out["size_min"] == 1 and out["size_max"] == 8
-    assert out["largest_frac"] == pytest.approx(8 / 11)
-    assert out["frac_singletons"] == pytest.approx(1 / 3)
-
-
-def test_size_entropy_is_one_for_a_balanced_partition():
-    balanced = cs.cluster_size_summary(np.repeat(np.arange(4), 10))
-    assert balanced["size_entropy_norm"] == pytest.approx(1.0)
+@pytest.mark.parametrize("labels, expected", [
+    (np.array([0] * 8 + [1] * 2 + [2]),
+     {"n_clusters_realised": 3, "size_min": 1, "size_max": 8, "largest_frac": 8 / 11,
+      "frac_singletons": 1 / 3}),
+    (np.repeat(np.arange(4), 10), {"size_entropy_norm": 1.0}),
+], ids=["known_partition", "balanced_entropy_is_one"])
+def test_cluster_size_summary_describes_a_known_partition(labels, expected):
+    out = cs.cluster_size_summary(labels)
+    for key, value in expected.items():
+        assert out[key] == pytest.approx(value), key
 
 
 def test_cut_tree_drops_impossible_k_with_a_warning_not_an_error():
-    z = cs.build_linkage(pdist(_blobs(n_per=5, k=2, seed=0)), "average")
+    z = cs.build_linkage(pdist(blobs(n_per=5, k=2, seed=0)), "average")
     with pytest.warns(UserWarning, match="exceeding n_items"):
         cuts = cs.cut_tree(z, [2, 5, 500], n=10)
     assert set(cuts) == {2, 5}
@@ -283,20 +273,20 @@ def test_cut_tree_drops_impossible_k_with_a_warning_not_an_error():
 
 def test_realised_cluster_count_is_recorded_not_assumed():
     """maxclust can return fewer than k under merge-height ties, so k is a request, not a promise."""
-    z = cs.build_linkage(pdist(_blobs(n_per=20, k=3, sd=0.05, seed=0)), "average")
+    z = cs.build_linkage(pdist(blobs(n_per=20, k=3, sd=0.05, seed=0)), "average")
     for k, labels in cs.cut_tree(z, [2, 3, 5], 60).items():
         assert np.unique(labels).size <= k
 
 
 def test_unknown_linkage_is_rejected():
     with pytest.raises(ValueError, match="method must be one of"):
-        cs.build_linkage(pdist(_blobs(seed=0)), "nonsense")
+        cs.build_linkage(pdist(blobs(seed=0)), "nonsense")
 
 
 # --------------------------------------------------------------------- the pair-level entry point
 
 def test_compare_partitions_covers_the_grid():
-    a, b = pdist(_blobs(seed=0)), pdist(_blobs(seed=1))
+    a, b = pdist(blobs(seed=0)), pdist(blobs(seed=1))
     df = cs.compare_partitions(a, b, ks=(2, 3, 5), linkages=("average", "ward"))
     assert len(df) == 6
     assert set(df["linkage"]) == {"average", "ward"}
@@ -304,10 +294,12 @@ def test_compare_partitions_covers_the_grid():
     for col in ("vi", "vi_norm", "ari", "ami", "sil_cross", "sil_ratio",
                 "jaccard_mean", "baker_gamma", "n_clusters_realised"):
         assert col in df.columns, col
+    # A whole-tree statistic: cutting at different k must not change it within a linkage.
+    assert (df.groupby("linkage")["baker_gamma"].nunique() == 1).all()
 
 
 def test_compare_partitions_scores_a_cohort_against_itself_perfectly():
-    d = pdist(_blobs(seed=0))
+    d = pdist(blobs(seed=0))
     df = cs.compare_partitions(d, d.copy(), ks=(3,), linkages=("average",))
     row = df.iloc[0]
     assert row["vi"] == 0.0 and row["ari"] == pytest.approx(1.0)
@@ -318,72 +310,45 @@ def test_compare_partitions_scores_a_cohort_against_itself_perfectly():
 
 def test_compare_partitions_rejects_mismatched_shapes():
     with pytest.raises(ValueError, match="shape mismatch"):
-        cs.compare_partitions(pdist(_blobs(seed=0)), pdist(_continuum(n=30, seed=0)))
-
-
-def test_baker_gamma_is_constant_across_k_within_a_linkage():
-    """It is a whole-tree statistic, so cutting at different k must not change it."""
-    a, b = pdist(_blobs(seed=0)), pdist(_blobs(seed=1))
-    df = cs.compare_partitions(a, b, ks=(2, 3, 5), linkages=("average",))
-    assert df["baker_gamma"].nunique() == 1
+        cs.compare_partitions(pdist(blobs(seed=0)), pdist(_continuum(n=30, seed=0)))
 
 
 # --------------------------------------------------------------------- store-level drivers
 
-N_IMAGES, MAX_NDIM = 30, 4
-META = ["num_subjects", "rep", "ndim", "niter", "stress", "status"]
+@pytest.fixture(scope="module")
+def default_store(tmp_path_factory):
+    """The standard 2-cohort store; drivers only read it, so one build serves every test."""
+    return conf_store(tmp_path_factory.mktemp("default_store"))
 
 
-def _conf_store(tmp_path, n_reps=4, num_subjects=(20, 50), ndim=3, statuses=None, seed=0):
-    """A store whose cohorts are noisy views of one planted 3-blob structure."""
-    from SpAM_Simulations.core.storage import ResultStore
-    rng = np.random.default_rng(seed)
-    truth = _blobs(n_per=N_IMAGES // 3, k=3, sd=0.25, seed=seed, ndim=MAX_NDIM)
-    store = ResultStore.create(tmp_path / "s", confdist_len=N_IMAGES * (N_IMAGES - 1) // 2,
-                               meta_columns=META, n_images=N_IMAGES, max_ndim=MAX_NDIM)
-    for ns in num_subjects:
-        for rep in range(n_reps):
-            status = (statuses or {}).get((ns, rep), "success")
-            meta = {"num_subjects": ns, "rep": rep, "ndim": ndim, "niter": 10,
-                    "stress": 0.1, "status": status}
-            if status not in ("success", "max_iters"):
-                store.append(meta)
-                continue
-            coords = (truth + rng.normal(0, 0.1, truth.shape)).astype(np.float32)
-            store.append(meta, confdist=pdist(coords).astype(np.float32), conf=coords)
-    store.close()
-    return ResultStore.open(tmp_path / "s")
-
-
-def test_cluster_agreement_emits_one_row_per_group_linkage_k(tmp_path):
-    store = _conf_store(tmp_path)
+def test_cluster_agreement_emits_one_row_per_group_linkage_k_and_recovers_the_planted_structure(
+        default_store):
+    store = default_store
     df = cs.compute_cluster_agreement(store, ks=(2, 3, 5), linkages=("average", "ward"),
-                                      verbose=False)
+                                      verbose=False, n_jobs=1)
     assert len(df) == 2 * 2 * 3            # 2 num_subjects x 2 linkages x 3 k
     assert set(df["num_subjects"]) == {20, 50}
     assert (df["n_pairs"] == 6).all()       # C(4, 2)
     for col in ("mean_vi_norm", "sem_vi_norm", "mean_ari", "mean_sil_cross", "mean_jaccard_mean"):
         assert col in df.columns, col
-
-
-def test_cluster_agreement_recovers_the_planted_structure(tmp_path):
-    store = _conf_store(tmp_path)
-    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False)
-    assert (df["mean_ari"] > 0.9).all()
-    assert (df["mean_vi_norm"] < 0.1).all()
+    # Recovery of the planted structure, at the true k.
+    planted = df[(df["k"] == 3) & (df["linkage"] == "average")]
+    assert len(planted) == 2
+    assert (planted["mean_ari"] > 0.9).all()
+    assert (planted["mean_vi_norm"] < 0.1).all()
 
 
 def test_drivers_exclude_failed_fits(tmp_path):
     """Only successful, confdist-bearing rows may be compared."""
-    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,),
-                        statuses={(20, 0): "error", (20, 1): "disconnected"})
-    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False)
+    store = conf_store(tmp_path, n_reps=4, num_subjects=(20,),
+                        statuses={(0, 0): "error", (0, 1): "disconnected"})
+    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False, n_jobs=1)
     assert df["n_reps"].iloc[0] == 2 and df["n_pairs"].iloc[0] == 1
 
 
 def test_a_group_with_one_usable_rep_is_skipped_not_crashed(tmp_path):
-    store = _conf_store(tmp_path, n_reps=2, num_subjects=(20,), statuses={(20, 0): "error"})
-    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False)
+    store = conf_store(tmp_path, n_reps=2, num_subjects=(20,), statuses={(0, 0): "error"})
+    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False, n_jobs=1)
     assert df.empty
 
 
@@ -394,21 +359,21 @@ def test_drivers_reject_a_store_without_configurations(tmp_path):
                   "status": "success"}, confdist=np.zeros(10, dtype=np.float32))
     store.close()
     with pytest.raises(ValueError, match="cannot be clustered"):
-        cs.compute_cluster_agreement(ResultStore.open(tmp_path / "nc"), verbose=False)
+        cs.compute_cluster_agreement(ResultStore.open(tmp_path / "nc"), verbose=False, n_jobs=1)
 
 
-def test_dendrogram_agreement_is_k_free(tmp_path):
-    store = _conf_store(tmp_path)
-    df = cs.compute_dendrogram_agreement(store, linkages=("average", "complete"), verbose=False)
+def test_dendrogram_agreement_is_k_free(default_store):
+    store = default_store
+    df = cs.compute_dendrogram_agreement(store, linkages=("average", "complete"), verbose=False, n_jobs=1)
     assert "k" not in df.columns
     assert len(df) == 2 * 2                 # 2 num_subjects x 2 linkages
     assert (df["mean_baker_gamma"] > 0.5).all()
     assert "mean_cophenetic_fidelity" in df.columns
 
 
-def test_cluster_sizes_describe_the_discovered_partition(tmp_path):
-    store = _conf_store(tmp_path)
-    df = cs.compute_cluster_sizes(store, ks=(3,), linkages=("average",), verbose=False)
+def test_cluster_sizes_describe_the_discovered_partition(default_store):
+    store = default_store
+    df = cs.compute_cluster_sizes(store, ks=(3,), linkages=("average",), verbose=False, n_jobs=1)
     assert (df["mean_n_clusters_realised"] == 3).all()
     assert (df["mean_size_max"] <= N_IMAGES).all()
     assert "mean_size_entropy_norm" in df.columns
@@ -416,19 +381,19 @@ def test_cluster_sizes_describe_the_discovered_partition(tmp_path):
 
 def test_drivers_read_conf_not_confdist(tmp_path):
     """The whole point of the conf-only download: clustering must not touch confdists.f32."""
-    store = _conf_store(tmp_path)
+    store = conf_store(tmp_path)
     (store.path / "confdists.f32").unlink()
     from SpAM_Simulations.core.storage import ResultStore
     reopened = ResultStore.open(store.path)
     assert not reopened.has_confdists
-    df = cs.compute_cluster_agreement(reopened, ks=(3,), linkages=("average",), verbose=False)
+    df = cs.compute_cluster_agreement(reopened, ks=(3,), linkages=("average",), verbose=False, n_jobs=1)
     assert len(df) == 2 and df["mean_ari"].notna().all()
 
 
 def test_padded_conf_rows_are_trimmed_to_ndim(tmp_path):
     """Rows are stored zero-padded to max_ndim; clustering must use only the fit's own ndim."""
-    store = _conf_store(tmp_path, ndim=2)
-    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False)
+    store = conf_store(tmp_path, ndim=2)
+    df = cs.compute_cluster_agreement(store, ks=(3,), linkages=("average",), verbose=False, n_jobs=1)
     assert df["mean_ari"].notna().all(), "padding columns would make every point coincide"
 
 
@@ -444,22 +409,17 @@ def _agreement_frame(vi_by_k, sil=0.6, group="a"):
     ])
 
 
-def test_select_k_prefers_the_smaller_of_two_indistinguishable_granularities():
-    """The one-SE rule again: a flat curve must not drift to fine k on noise."""
-    df = _agreement_frame({3: 0.20, 10: 0.199, 50: 0.198})
-    df["sem_vi_norm"] = 0.05
-    assert cs.select_k(df)["k_star"].iloc[0] == 3
-
-
-def test_select_k_follows_a_real_optimum():
-    df = _agreement_frame({3: 0.60, 10: 0.10, 50: 0.62})
-    assert cs.select_k(df)["k_star"].iloc[0] == 10
-
-
-def test_select_k_respects_vi_being_lower_is_better():
-    """Selecting on VI must not invert: the argmax rule should land on the MINIMUM."""
-    df = _agreement_frame({3: 0.60, 10: 0.10, 50: 0.62})
-    assert cs.select_k(df, rule="argmax")["k_star"].iloc[0] == 10
+@pytest.mark.parametrize("vi_by_k, sem, kwargs, expected_k", [
+    # The one-SE rule: a flat curve must not drift to fine k on noise.
+    ({3: 0.20, 10: 0.199, 50: 0.198}, 0.05, {}, 3),
+    ({3: 0.60, 10: 0.10, 50: 0.62}, 0.001, {}, 10),
+    # Selecting on VI must not invert: the argmax rule should land on the MINIMUM.
+    ({3: 0.60, 10: 0.10, 50: 0.62}, 0.001, {"rule": "argmax"}, 10),
+], ids=["indistinguishable_prefers_smaller", "real_optimum", "argmax_lands_on_minimum"])
+def test_select_k_picks_the_expected_granularity(vi_by_k, sem, kwargs, expected_k):
+    df = _agreement_frame(vi_by_k)
+    df["sem_vi_norm"] = sem
+    assert cs.select_k(df, **kwargs)["k_star"].iloc[0] == expected_k
 
 
 def test_select_k_emits_one_row_per_group():
@@ -475,36 +435,28 @@ def test_select_k_rejects_a_missing_criterion():
         cs.select_k(_agreement_frame({3: 0.5}), criterion="nonsense")
 
 
-def test_diagnostics_flag_a_flat_curve():
-    """No granularity distinguishably better than any other means there is no k* to find."""
-    out = cs.continuum_diagnostics(_agreement_frame({3: 0.400, 10: 0.401, 50: 0.402}))
-    assert out["is_flat"].iloc[0]
+@pytest.mark.parametrize("vi_by_k, sil, expected", [
+    # No granularity distinguishably better than any other means there is no k* to find.
+    ({3: 0.400, 10: 0.401, 50: 0.402}, 0.6, {"is_flat": True}),
+    # The continuum signature: cohorts agree on a cut of a space that has no clusters in it,
+    # and a real gradient must not be called flat.
+    ({3: 0.05, 10: 0.40, 50: 0.60}, 0.01, {"is_arbitrary_slicing": True, "is_flat": False}),
+    ({3: 0.02, 10: 0.40, 50: 0.70}, 0.65,
+     {"is_flat": False, "is_arbitrary_slicing": False, "k_star": 3, "vi_norm_at_k_star": 0.02}),
+    # The range used for the flat verdict is reported.
+    ({3: 0.10, 10: 0.50}, 0.6, {"vi_norm_range": 0.40}),
+], ids=["flat_curve", "agreement_without_separation", "genuinely_clustered", "reports_range"])
+def test_continuum_diagnostics_verdicts(vi_by_k, sil, expected):
+    out = cs.continuum_diagnostics(_agreement_frame(vi_by_k, sil=sil))
+    for col, value in expected.items():
+        got = out[col].iloc[0]
+        assert got == (value if isinstance(value, (bool, int)) else pytest.approx(value)), col
 
 
-def test_diagnostics_flag_agreement_without_separation():
-    """The continuum signature: cohorts agree on a cut of a space that has no clusters in it."""
-    out = cs.continuum_diagnostics(_agreement_frame({3: 0.05, 10: 0.40, 50: 0.60}, sil=0.01))
-    assert out["is_arbitrary_slicing"].iloc[0]
-    assert not out["is_flat"].iloc[0], "a real gradient must not be called flat"
-
-
-def test_diagnostics_pass_a_genuinely_clustered_case():
-    out = cs.continuum_diagnostics(_agreement_frame({3: 0.02, 10: 0.40, 50: 0.70}, sil=0.65))
-    assert not out["is_flat"].iloc[0]
-    assert not out["is_arbitrary_slicing"].iloc[0]
-    assert out["k_star"].iloc[0] == 3
-    assert out["vi_norm_at_k_star"].iloc[0] == pytest.approx(0.02)
-
-
-def test_diagnostics_report_the_range_used_for_the_flat_verdict():
-    out = cs.continuum_diagnostics(_agreement_frame({3: 0.10, 10: 0.50}))
-    assert out["vi_norm_range"].iloc[0] == pytest.approx(0.40)
-
-
-def test_diagnostics_end_to_end_on_a_store(tmp_path):
-    store = _conf_store(tmp_path)
+def test_diagnostics_end_to_end_on_a_store(default_store):
+    store = default_store
     agreement = cs.compute_cluster_agreement(store, ks=(2, 3, 5), linkages=("average",),
-                                             verbose=False)
+                                             verbose=False, n_jobs=1)
     out = cs.continuum_diagnostics(agreement)
     assert len(out) == 2                      # one row per num_subjects
     for col in ("k_star", "vi_norm_range", "sil_cross_at_k_star", "is_flat",
@@ -533,7 +485,7 @@ def test_a_different_seed_draws_a_different_subset():
 
 def test_every_linkage_and_k_in_a_group_sees_the_same_pairs(tmp_path):
     """Otherwise metrics within a group would be computed on different cohorts and not comparable."""
-    store = _conf_store(tmp_path, n_reps=6)
+    store = conf_store(tmp_path, n_reps=6)
     df = cs.compute_cluster_agreement(store, ks=(2, 3, 5), linkages=("average", "ward"),
                                       verbose=False, n_jobs=1, max_pairs=4)
     assert (df["n_pairs"] == 4).all()
@@ -541,28 +493,20 @@ def test_every_linkage_and_k_in_a_group_sees_the_same_pairs(tmp_path):
 
 # --------------------------------------------------------------------- parallelism
 
-def test_parallel_matches_serial(tmp_path):
+@pytest.mark.slow
+@pytest.mark.parametrize("driver, kw", [
+    ("compute_cluster_agreement",
+     dict(ks=(2, 3), linkages=("average",), verbose=False, max_pairs=None)),
+    ("compute_dendrogram_agreement",
+     dict(linkages=("average",), verbose=False, max_pairs=None)),
+    ("compute_cluster_sizes", dict(ks=(2, 3), linkages=("average",), verbose=False)),
+])
+def test_parallel_matches_serial(default_store, driver, kw):
     """The parallel path must be an optimisation, not a different computation."""
-    store = _conf_store(tmp_path, n_reps=4)
-    kw = dict(ks=(2, 3), linkages=("average",), verbose=False, max_pairs=None)
-    serial = cs.compute_cluster_agreement(store, n_jobs=1, **kw)
-    parallel = cs.compute_cluster_agreement(store, n_jobs=2, **kw)
-    pd.testing.assert_frame_equal(serial.sort_index(axis=1), parallel.sort_index(axis=1))
-
-
-def test_parallel_dendrogram_matches_serial(tmp_path):
-    store = _conf_store(tmp_path, n_reps=4)
-    kw = dict(linkages=("average",), verbose=False, max_pairs=None)
-    pd.testing.assert_frame_equal(
-        cs.compute_dendrogram_agreement(store, n_jobs=1, **kw),
-        cs.compute_dendrogram_agreement(store, n_jobs=2, **kw))
-
-
-def test_parallel_sizes_matches_serial(tmp_path):
-    store = _conf_store(tmp_path, n_reps=3)
-    kw = dict(ks=(2, 3), linkages=("average",), verbose=False)
-    pd.testing.assert_frame_equal(cs.compute_cluster_sizes(store, n_jobs=1, **kw),
-                                  cs.compute_cluster_sizes(store, n_jobs=2, **kw))
+    fn = getattr(cs, driver)
+    store = default_store
+    pd.testing.assert_frame_equal(fn(store, n_jobs=1, **kw).sort_index(axis=1),
+                                  fn(store, n_jobs=2, **kw).sort_index(axis=1))
 
 
 def test_high_k_threshold_sits_inside_the_default_grid():
@@ -575,22 +519,6 @@ def test_high_k_threshold_sits_inside_the_default_grid():
 
 # --------------------------------------------------------------------- duplicate reps
 
-def _append_duplicate_reps(store_path, n_reps, num_subjects, ndim=3, seed=99):
-    """Re-append a second copy of every fit, as a resume that lost track of completed work does."""
-    from SpAM_Simulations.core.storage import ResultStore
-    rng = np.random.default_rng(seed)
-    truth = _blobs(n_per=N_IMAGES // 3, k=3, sd=0.25, seed=0, ndim=MAX_NDIM)
-    store = ResultStore.open(store_path)
-    for ns in num_subjects:
-        for rep in range(n_reps):
-            coords = (truth + rng.normal(0, 0.1, truth.shape)).astype(np.float32)
-            store.append({"num_subjects": ns, "rep": rep, "ndim": ndim, "niter": 10,
-                          "stress": 0.1, "status": "success"},
-                         confdist=pdist(coords).astype(np.float32), conf=coords)
-    store.close()
-    return ResultStore.open(store_path)
-
-
 def test_duplicate_reps_are_dropped_before_grouping(tmp_path):
     """An append-only store that was resumed badly holds two copies of a fit; only one may count.
 
@@ -600,22 +528,22 @@ def test_duplicate_reps_are_dropped_before_grouping(tmp_path):
     """
     from SpAM_Simulations.core.pipeline import _grouped_successful
 
-    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,))
+    store = conf_store(tmp_path, n_reps=4, num_subjects=(20,))
     grouped, _ = _grouped_successful(store, None)
     assert grouped.size().tolist() == [4]
 
-    doubled = _append_duplicate_reps(store.path, n_reps=4, num_subjects=(20,))
+    doubled = append_duplicate_reps(store.path, n_reps=4, num_subjects=(20,))
     assert len(doubled) == 8, "the store really does hold both copies"
     grouped, _ = _grouped_successful(doubled, None)
     assert grouped.size().tolist() == [4], "grouping must see each rep once"
 
 
 def test_duplicate_reps_do_not_inflate_agreement(tmp_path):
-    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,))
+    store = conf_store(tmp_path, n_reps=4, num_subjects=(20,))
     kw = dict(ks=(3,), linkages=("average",), verbose=False, n_jobs=1, max_pairs=None)
     clean = cs.compute_cluster_agreement(store, **kw)
     doubled = cs.compute_cluster_agreement(
-        _append_duplicate_reps(store.path, n_reps=4, num_subjects=(20,)), **kw)
+        append_duplicate_reps(store.path, n_reps=4, num_subjects=(20,)), **kw)
     assert doubled["n_pairs"].iloc[0] == clean["n_pairs"].iloc[0] == 6
     np.testing.assert_allclose(doubled["mean_vi_norm"], clean["mean_vi_norm"])
 
@@ -628,7 +556,7 @@ def test_merged_traversal_matches_the_separate_passes(tmp_path):
     It exists because the three passes each rebuilt the same linkage trees, cuts and cophenetic
     rankings - three times the dominant cost on a 17,729-fit store.
     """
-    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20, 50))
+    store = conf_store(tmp_path, n_reps=4, num_subjects=(20, 50))
     kw = dict(ks=(2, 3, 5), linkages=("average", "ward"), verbose=False, n_jobs=1)
     merged = cs.compute_agglomerative_tables(store, max_pairs=None, **kw)
 
@@ -643,7 +571,7 @@ def test_merged_traversal_matches_the_separate_passes(tmp_path):
 
 def test_merged_traversal_matches_under_pair_sampling(tmp_path):
     """Sampling must draw the same pairs in the merged path as in the separate ones."""
-    store = _conf_store(tmp_path, n_reps=6, num_subjects=(20,))
+    store = conf_store(tmp_path, n_reps=6, num_subjects=(20,))
     kw = dict(ks=(3,), linkages=("average",), verbose=False, n_jobs=1, max_pairs=5)
     merged = cs.compute_agglomerative_tables(store, **kw)
     pd.testing.assert_frame_equal(merged["agreement"], cs.compute_cluster_agreement(store, **kw))
@@ -651,8 +579,9 @@ def test_merged_traversal_matches_under_pair_sampling(tmp_path):
     assert merged["dendrogram"]["n_pairs"].iloc[0] == 5
 
 
+@pytest.mark.slow
 def test_merged_traversal_parallel_matches_serial(tmp_path):
-    store = _conf_store(tmp_path, n_reps=4, num_subjects=(20,))
+    store = conf_store(tmp_path, n_reps=4, num_subjects=(20,))
     kw = dict(ks=(2, 3), linkages=("average",), verbose=False, max_pairs=None)
     a = cs.compute_agglomerative_tables(store, n_jobs=1, **kw)
     b = cs.compute_agglomerative_tables(store, n_jobs=2, **kw)
@@ -662,7 +591,7 @@ def test_merged_traversal_parallel_matches_serial(tmp_path):
 
 def test_a_lone_rep_still_gets_sizes_but_no_pair_metrics(tmp_path):
     """Sizes are per-fit, so a group of one is meaningful there and nowhere else."""
-    store = _conf_store(tmp_path, n_reps=1, num_subjects=(20,))
+    store = conf_store(tmp_path, n_reps=1, num_subjects=(20,))
     merged = cs.compute_agglomerative_tables(store, ks=(3,), linkages=("average",), verbose=False,
                                              n_jobs=1)
     assert not merged["sizes"].empty
@@ -674,7 +603,7 @@ def test_a_lone_rep_still_gets_sizes_but_no_pair_metrics(tmp_path):
 def test_cached_within_silhouette_matches_recomputing_it(tmp_path):
     """The cache must not change a single reported number."""
     rng = np.random.default_rng(0)
-    a = _blobs(n_per=8, k=3, sd=0.3, seed=1, ndim=3)
+    a = blobs(n_per=8, k=3, sd=0.3, seed=1, ndim=3)
     b = a + rng.normal(0, 0.1, a.shape)
     sq_a, sq_b = squareform(pdist(a)), squareform(pdist(b))
     la = fcluster(cs.build_linkage(pdist(a), "average"), t=3, criterion="maxclust")
@@ -688,7 +617,7 @@ def test_cached_within_silhouette_matches_recomputing_it(tmp_path):
 
 
 def test_prepared_fit_caches_one_within_value_per_linkage_and_k():
-    fit = cs._PreparedFit(pdist(_blobs(n_per=8, k=3, sd=0.3, seed=2, ndim=3)),
+    fit = cs._PreparedFit(pdist(blobs(n_per=8, k=3, sd=0.3, seed=2, ndim=3)),
                           ks=(2, 3, 5), linkages=("average", "ward"))
     assert set(fit.within) == {(m, k) for m in ("average", "ward") for k in (2, 3, 5)}
     assert fit.within[("average", 3)] == cs.safe_silhouette(fit.square, fit.labels["average"][3])

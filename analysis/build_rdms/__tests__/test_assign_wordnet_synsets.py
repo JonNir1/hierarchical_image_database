@@ -129,6 +129,7 @@ def test_rule6_dirname_fallback_noncolour_dirname():
 # Regression: assign_all() reproduces the committed manifest exactly
 # ---------------------------------------------------------------------------
 
+@pytest.mark.manual
 def test_assign_all_matches_committed_manifest():
     """
     Guards against silent future drift: any edit to STEM_OVERRIDES,

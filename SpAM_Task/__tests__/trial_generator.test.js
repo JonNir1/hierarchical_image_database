@@ -1,58 +1,27 @@
 // Run: node --test SpAM_Task/__tests__/trial_generator.test.js
 'use strict';
 
-const { describe, it } = require('node:test');
+const { describe, it, before } = require('node:test');
 const assert = require('node:assert/strict');
-const vm     = require('node:vm');
-const fs     = require('node:fs');
-const path   = require('node:path');
+const { load, makeRng, ALL_IMAGES, CONFIG } = require('./helpers');
 
 // Load globals in dependency order (mirrors <script> tags).
-const load = f => vm.runInThisContext(fs.readFileSync(path.resolve(__dirname, f), 'utf8'));
 load('../js/utils.js');
 load('../js/trial_generator.js');
 
-const makeRng = (seed = 42) => {
-    let s = seed >>> 0;
-    return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0x100000000; };
-};
-
-const ALL_IMAGES = Array.from({ length: 754 }, (_, i) => `img_${i}.png`);
-const CONFIG = {
-    experimental_trials: {
-        images_per_trial: 20,
-    },
-    screening_block: {
-        enabled: true,
-        num_experimental_trials: 5,
-        num_repeat_trials:       0,
-        min_repeat_separation:   2,
-        num_catch_trials:        1,
-    },
-    experimental_block: {
-        num_experimental_trials: 5,
-        num_repeat_trials:       0,
-        min_repeat_separation:   2,
-        num_catch_trials:        1,
-    },
-    catch_trials: {
-        images_per_trial: 10,
-    },
-};
-
 // ── buildTrialLists ───────────────────────────────────────────────────────────
 describe('buildTrialLists', () => {
+    let trials;
+    before(() => { trials = buildTrialLists(ALL_IMAGES, CONFIG, makeRng()); });
+
     it('returns the sum of both stages\' num_experimental_trials, each with exactly images_per_trial images', () => {
-        const trials = buildTrialLists(ALL_IMAGES, CONFIG, makeRng());
         assert.equal(trials.length, 10); // 5 (screening) + 5 (experimental)
         trials.forEach(t => assert.equal(t.length, 20));
     });
     it('no duplicates within a single trial', () => {
-        buildTrialLists(ALL_IMAGES, CONFIG, makeRng())
-            .forEach(t => assert.equal(new Set(t).size, t.length));
+        trials.forEach(t => assert.equal(new Set(t).size, t.length));
     });
     it('every image appears in at most one distinct trial', () => {
-        const trials = buildTrialLists(ALL_IMAGES, CONFIG, makeRng());
         const counts = {};
         trials.flat().forEach(img => { counts[img] = (counts[img] || 0) + 1; });
         assert.ok(Object.values(counts).every(c => c === 1));
@@ -125,8 +94,10 @@ describe('partitionIntoStages', () => {
 
 // ── insertTrialRepeats ────────────────────────────────────────────────────────
 describe('insertTrialRepeats', () => {
+    let trials;
+    before(() => { trials = buildTrialLists(ALL_IMAGES, CONFIG, makeRng()).slice(0, 5); }); // 5 distinct
+
     it('returns trials unchanged (wrapped) when numRepeats is 0', () => {
-        const trials = buildTrialLists(ALL_IMAGES, CONFIG, makeRng()).slice(0, 5);
         const result = insertTrialRepeats(trials, 0, 2, 'screening', makeRng());
         assert.equal(result.length, 5);
         result.forEach((r, i) => {
@@ -138,7 +109,6 @@ describe('insertTrialRepeats', () => {
     });
 
     it('produces exactly numRepeats repeat entries with matching image sets', () => {
-        const trials = buildTrialLists(ALL_IMAGES, CONFIG, makeRng()).slice(0, 5); // 5 distinct
         const result = insertTrialRepeats(trials, 3, 2, 'screening', makeRng()); // 5 distinct + 3 repeats
 
         assert.equal(result.length, 8);

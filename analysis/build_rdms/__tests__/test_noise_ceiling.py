@@ -15,8 +15,6 @@ tests, alongside the shared function noise_ceiling.py now calls.
 """
 from __future__ import annotations
 
-import json
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -26,14 +24,6 @@ import analysis.build_rdms.behavior.noise_ceiling as noise_ceiling
 # 6 synthetic images -> C(6,2) = 15 pairs
 _IMAGES = ["img0.png", "img1.png", "img2.png", "img3.png", "img4.png", "img5.png"]
 _N_PARTICIPANTS = 8
-
-
-def _pairwise_json(pairs: dict[tuple[str, str], float]) -> str:
-    items = [
-        {"src1": f"./images/pre_shine/{a}", "src2": f"./images/pre_shine/{b}", "distance": d}
-        for (a, b), d in pairs.items()
-    ]
-    return json.dumps(items)
 
 
 def _image_to_idx() -> dict[str, int]:
@@ -82,7 +72,7 @@ def _synthetic_trials_by_participant() -> dict[str, list[tuple[np.ndarray, np.nd
     return out
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def trials_by_participant():
     return _synthetic_trials_by_participant()
 

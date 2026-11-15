@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from _rdm_helpers import synthetic_manifest
 from scipy.spatial.distance import squareform
 
 import analysis.build_rdms.common as common
@@ -25,19 +26,10 @@ _TOY_PATHS = [
 _TOY_N = len(_TOY_PATHS)
 
 
-def _toy_manifest(paths: list[str]) -> pd.DataFrame:
-    return pd.DataFrame({
-        "curated_path": paths,
-        "curated_filename": [p.split(B)[-1] for p in paths],
-        "category": ["X"] * len(paths),
-        "wn_synset_name": ["dog.n.01"] * len(paths),
-    })
-
-
 @pytest.fixture()
 def toy_tree(monkeypatch):
     """Point hierarchy_comparison at the toy tree instead of the real manifest."""
-    df = _toy_manifest(_TOY_PATHS)
+    df = synthetic_manifest(_TOY_PATHS)
     monkeypatch.setattr(hc, "load_manifest", lambda: df)
     monkeypatch.setattr(hc, "_EXPECTED_N", _TOY_N)
     return df
@@ -60,7 +52,7 @@ class TestTreeDerivation:
 
     def test_uniform_tree_not_ragged(self, monkeypatch):
         paths = [f"a{B}b{B}x1.png", f"a{B}c{B}x2.png"]
-        monkeypatch.setattr(hc, "load_manifest", lambda: _toy_manifest(paths))
+        monkeypatch.setattr(hc, "load_manifest", lambda: synthetic_manifest(paths))
         assert hc.depth_is_ragged() is False
 
     def test_lca_depth_values(self, toy_tree):
@@ -97,7 +89,7 @@ class TestReconstruction:
         own LCA implementation precisely so this comparison has teeth, so the two
         must be verified against each other here.
         """
-        monkeypatch.setattr(km, "load_manifest", lambda: _toy_manifest(_TOY_PATHS))
+        monkeypatch.setattr(km, "load_manifest", lambda: synthetic_manifest(_TOY_PATHS))
         monkeypatch.setattr(common, "RESULTS_DIR", tmp_path)
         monkeypatch.setattr(common, "_EXPECTED_N", _TOY_N)
         monkeypatch.setattr(common, "_EXPECTED_LEN", _TOY_N * (_TOY_N - 1) // 2)

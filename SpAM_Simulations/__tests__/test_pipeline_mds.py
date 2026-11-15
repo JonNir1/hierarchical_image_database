@@ -16,7 +16,7 @@ except (ImportError, IndexError, RuntimeError, OSError, AttributeError) as e:
     _MDS_AVAILABLE = False
     _MDS_SKIP_REASON = f"R/rpy2/smacof unavailable: {type(e).__name__}: {e}"
 
-pytestmark = pytest.mark.skipif(not _MDS_AVAILABLE, reason=_MDS_SKIP_REASON)
+pytestmark = [pytest.mark.skipif(not _MDS_AVAILABLE, reason=_MDS_SKIP_REASON), pytest.mark.slow]
 
 from SpAM_Simulations.core.config import SimulationConfig, MDSSweepConfig
 from SpAM_Simulations.core import pipeline
@@ -32,10 +32,18 @@ def _small_sim():
     return pipeline.generate_simulation(cfg, verbose=False), cfg
 
 
-def test_run_mds_sweep_and_metadata(tmp_path):
-    sim, _ = _small_sim()
+@pytest.fixture(scope="module")
+def small_sim():
+    """The small simulation, generated once per module (read-only)."""
+    return _small_sim()[0]
+
+
+@pytest.mark.parametrize("sweep_kwargs", [dict(), dict(parallel=True, n_jobs=2)],
+                         ids=["serial", "parallel"])
+def test_run_mds_sweep_and_metadata(tmp_path, small_sim, sweep_kwargs):
+    sim = small_sim
     sweep = MDSSweepConfig(ndims=[3, 4], max_iters=150, convergence_tol=1e-5, precalc_init=False)
-    store = pipeline.run_mds_sweep(sim, sweep, tmp_path / "store", verbose=False)
+    store = pipeline.run_mds_sweep(sim, sweep, tmp_path / "store", verbose=False, **sweep_kwargs)
 
     df = store.metadata()
     # 1 config * 3 reps * 2 dims = 6 tasks
@@ -49,8 +57,8 @@ def test_run_mds_sweep_and_metadata(tmp_path):
             assert store.confdist(int(row.confdist_row)).shape == (L,)
 
 
-def test_embedding_stability(tmp_path):
-    sim, _ = _small_sim()
+def test_embedding_stability(tmp_path, small_sim):
+    sim = small_sim
     sweep = MDSSweepConfig(ndims=[4], max_iters=200, convergence_tol=1e-5, precalc_init=False)
     store = pipeline.run_mds_sweep(sim, sweep, tmp_path / "store", verbose=False)
     stab = pipeline.compute_embedding_stability(store)
@@ -61,28 +69,19 @@ def test_embedding_stability(tmp_path):
     assert row["mean_spearman"] > 0.5
 
 
-def test_run_mds_sweep_parallel(tmp_path):
-    sim, _ = _small_sim()
-    sweep = MDSSweepConfig(ndims=[3, 4], max_iters=150, convergence_tol=1e-5, precalc_init=False)
-    store = pipeline.run_mds_sweep(sim, sweep, tmp_path / "store", parallel=True, n_jobs=2, verbose=False)
-    df = store.metadata()
-    assert len(df) == 6  # same task set as the serial sweep
-    assert set(df["ndim"]) == {3, 4}
-    assert df["status"].isin(["success", "max_iters"]).all()
-    # every successful run stored a confdist of the right length
-    L = sim.num_images * (sim.num_images - 1) // 2
-    assert all(store.confdist(int(r)).shape == (L,) for r in df["confdist_row"] if r >= 0)
-
-
-def test_sweep_resumes(tmp_path):
-    sim, _ = _small_sim()
+def test_sweep_resumes(tmp_path, small_sim):
     store_path = tmp_path / "store"
-    # first pass: only ndim=3
-    pipeline.run_mds_sweep(sim, MDSSweepConfig(ndims=[3], max_iters=100), store_path, verbose=False)
-    n_after_first = len(ResultStore.open(store_path))
-    assert n_after_first == 3
-    # second pass over a superset (3 and 4): resumes, only adds the 3 new ndim=4 tasks
-    store = pipeline.run_mds_sweep(sim, MDSSweepConfig(ndims=[3, 4], max_iters=100), store_path, verbose=False)
+    # first pass at ndim=4 fixes the store's configuration width at max_ndim=4
+    pipeline.run_mds_sweep(small_sim, MDSSweepConfig(ndims=[4], max_iters=100), store_path, verbose=False)
+    assert len(ResultStore.open(store_path)) == 3
+    # a superset that fits that width resumes, adding only the 3 new ndim=3 tasks
+    store = pipeline.run_mds_sweep(small_sim, MDSSweepConfig(ndims=[3, 4], max_iters=100), store_path,
+                                   verbose=False)
     df = store.metadata()
     assert len(df) == 6
-    assert sorted(df["ndim"]) == [3, 3, 3, 4, 4, 4]  # no duplicate ndim=3 tasks
+    assert sorted(df["ndim"]) == [3, 3, 3, 4, 4, 4]  # no duplicate ndim=4 tasks
+    # a dimension wider than the store is refused before any fit runs
+    with pytest.raises(ValueError, match="max_ndim=4"):
+        pipeline.run_mds_sweep(small_sim, MDSSweepConfig(ndims=[3, 4, 5], max_iters=100), store_path,
+                               verbose=False)
+    assert len(ResultStore.open(store_path)) == 6

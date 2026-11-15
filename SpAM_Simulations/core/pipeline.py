@@ -334,12 +334,21 @@ def run_mds_sweep(
     it costs a few percent of the store's size (see ``storage``). It is ignored when resuming a
     store that was created without configurations, so a resumed pre-existing sweep keeps its
     original format rather than desynchronising mid-run.
+
+    A resumed configuration-storing store has fixed-width ``max_ndim`` rows, so a sweep that fits a
+    larger dimension than the store was created for raises ``ValueError`` before any fit runs.
     """
     store_path = Path(store_path)
     confdist_len = sim.num_images * (sim.num_images - 1) // 2
     param_type = _param_type(sim)
     if (store_path / "store_info.json").exists() and not overwrite:
         store = ResultStore.open(store_path)
+        sweep_max_ndim = max(sweep_config.target_dims(sim.gt_dimensions))
+        if store.stores_conf and sweep_max_ndim > store.max_ndim:
+            store.close()
+            raise ValueError(
+                f"cannot resume {store_path}: its configuration rows hold max_ndim={store.max_ndim}, "
+                f"but this sweep fits up to ndim={sweep_max_ndim}; use a new store or overwrite=True")
         completed = _completed_keys(store, param_type)
     else:
         meta_columns = list(param_type._fields) + ["rep", "ndim", "niter", "stress", "status"]

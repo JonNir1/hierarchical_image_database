@@ -70,20 +70,14 @@ def test_effective_rank_threshold():
 # classify_mds_agreement / compare_mds_configs
 # ---------------------------------------------------------------------------
 
-def test_classify_mds_agreement_equivalent():
-    assert classify_mds_agreement(1e-4, 0.9999) == "EQUIVALENT"
-
-
-def test_classify_mds_agreement_different_by_disparity():
-    assert classify_mds_agreement(0.1, 0.999) == "DIFFERENT"
-
-
-def test_classify_mds_agreement_different_by_corr():
-    assert classify_mds_agreement(1e-4, 0.5) == "DIFFERENT"
-
-
-def test_classify_mds_agreement_ambiguous():
-    assert classify_mds_agreement(0.01, 0.97) == "ambiguous"
+@pytest.mark.parametrize("disparity, corr, verdict", [
+    pytest.param(1e-4, 0.9999, "EQUIVALENT", id="equivalent"),
+    pytest.param(0.1, 0.999, "DIFFERENT", id="different_by_disparity"),
+    pytest.param(1e-4, 0.5, "DIFFERENT", id="different_by_corr"),
+    pytest.param(0.01, 0.97, "ambiguous", id="ambiguous"),
+])
+def test_classify_mds_agreement(disparity, corr, verdict):
+    assert classify_mds_agreement(disparity, corr) == verdict
 
 
 def test_compare_mds_configs_identical():

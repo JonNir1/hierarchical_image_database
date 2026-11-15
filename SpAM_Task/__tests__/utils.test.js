@@ -3,28 +3,19 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const vm     = require('node:vm');
-const fs     = require('node:fs');
-const path   = require('node:path');
+const { load, makeRng } = require('./helpers');
 
-// Load utils.js as globals (mirrors <script> loading in the browser).
-vm.runInThisContext(fs.readFileSync(path.resolve(__dirname, '../js/utils.js'), 'utf8'));
-
-// Simple deterministic LCG used as a stand-in for seedrandom.
-const makeRng = (seed = 42) => {
-    let s = seed >>> 0;
-    return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0x100000000; };
-};
+load('../js/utils.js');
 
 // ── hashString ────────────────────────────────────────────────────────────────
 describe('hashString', () => {
-    it('returns a non-negative integer', () => {
-        const h = hashString('hello');
-        assert.ok(Number.isInteger(h) && h >= 0);
-    });
-    it('is deterministic', () => {
-        assert.equal(hashString('abc'), hashString('abc'));
-    });
+    for (const input of ['', 'hello', 'abc']) {
+        it(`returns a deterministic non-negative integer for ${JSON.stringify(input)}`, () => {
+            const h = hashString(input);
+            assert.ok(Number.isInteger(h) && h >= 0);
+            assert.equal(hashString(input), h);
+        });
+    }
     it('empty string returns 5381 (djb2 initial value)', () => {
         assert.equal(hashString(''), 5381);
     });
@@ -50,8 +41,17 @@ describe('seededShuffle', () => {
 
 // ── roundTo ───────────────────────────────────────────────────────────────────
 describe('roundTo', () => {
-    it('rounds to 10 decimal places by default', () => {
-        assert.equal(roundTo(1 / 3), 0.3333333333);
+    const cases = [
+        ['rounds to 10 decimal places by default', [1 / 3], 0.3333333333],
+        ['supports a custom decimals argument', [1 / 3, 2], 0.33],
+        ['passes Infinity through unchanged', [Infinity], Infinity],
+        ['leaves already-short values unchanged', [0.5], 0.5],
+    ];
+    for (const [name, args, expected] of cases) {
+        it(name, () => assert.equal(roundTo(...args), expected));
+    }
+    it('passes NaN through unchanged', () => {
+        assert.ok(Number.isNaN(roundTo(NaN)));
     });
     it('never leaves more than 10 significant decimal digits', () => {
         const raw = Math.sqrt(2) / 3; // long irrational tail
@@ -59,25 +59,17 @@ describe('roundTo', () => {
         const decimals = (String(rounded).split('.')[1] || '').length;
         assert.ok(decimals <= 10, `expected <=10 decimals, got ${decimals} (${rounded})`);
     });
-    it('supports a custom decimals argument', () => {
-        assert.equal(roundTo(1 / 3, 2), 0.33);
-    });
-    it('passes NaN through unchanged', () => {
-        assert.ok(Number.isNaN(roundTo(NaN)));
-    });
-    it('passes Infinity through unchanged', () => {
-        assert.equal(roundTo(Infinity), Infinity);
-    });
-    it('leaves already-short values unchanged', () => {
-        assert.equal(roundTo(0.5), 0.5);
-    });
 });
 
 // ── computePairwiseDistances ──────────────────────────────────────────────────
 describe('computePairwiseDistances', () => {
-    it('returns n*(n-1)/2 pairs', () => {
+    it('returns one {src1, src2, distance} entry per unordered pair (n*(n-1)/2), the keys analysis/utils/parser.py reads', () => {
         const locs = [{src:'a',x:0,y:0},{src:'b',x:1,y:0},{src:'c',x:0,y:1},{src:'d',x:1,y:1}];
-        assert.equal(computePairwiseDistances(locs, 900, 700).length, 6);
+        const pairs = computePairwiseDistances(locs, 900, 700);
+        assert.equal(pairs.length, 6);
+        pairs.forEach(p => assert.deepEqual(Object.keys(p).sort(), ['distance', 'src1', 'src2']));
+        const unorderedKeys = pairs.map(p => [p.src1, p.src2].sort().join('|')).sort();
+        assert.deepEqual(unorderedKeys, ['a|b', 'a|c', 'a|d', 'b|c', 'b|d', 'c|d']);
     });
     it('normalises by the diagonal (3-4-5 triangle)', () => {
         const locs = [{src:'a',x:0,y:0},{src:'b',x:300,y:400}];
@@ -107,18 +99,15 @@ describe('computeSD', () => {
 
 // ── canSatisfyTrialRepeatSeparation ────────────────────────────────────────────
 describe('canSatisfyTrialRepeatSeparation', () => {
-    it('is always satisfiable with 0 repeats', () => {
-        assert.equal(canSatisfyTrialRepeatSeparation(10, 0, 1000), true);
-    });
-    it('is satisfiable for a small separation', () => {
-        assert.equal(canSatisfyTrialRepeatSeparation(10, 2, 2), true);
-    });
-    it('is unsatisfiable once separation exceeds t', () => {
-        assert.equal(canSatisfyTrialRepeatSeparation(10, 2, 10), false);
-    });
-    it('matches the known-infeasible case from insertTrialRepeats tests (t=4, numRepeats=2, minSep=3)', () => {
-        assert.equal(canSatisfyTrialRepeatSeparation(4, 2, 3), false);
-    });
+    const cases = [
+        ['is always satisfiable with 0 repeats', [10, 0, 1000], true],
+        ['is satisfiable for a small separation', [10, 2, 2], true],
+        ['is unsatisfiable once separation exceeds t', [10, 2, 10], false],
+        ['matches the known-infeasible case from insertTrialRepeats tests (t=4, numRepeats=2, minSep=3)', [4, 2, 3], false],
+    ];
+    for (const [name, args, expected] of cases) {
+        it(name, () => assert.equal(canSatisfyTrialRepeatSeparation(...args), expected));
+    }
 });
 
 // ── verifyConfig ──────────────────────────────────────────────────────────────
@@ -228,32 +217,19 @@ describe('verifyConfig', () => {
         );
     });
 
-    it('throws on missing experimental_trials.min_move_item_ratio', () => {
-        const cfg = validConfig();
-        delete cfg.experimental_trials.min_move_item_ratio;
-        assert.throws(
-            () => verifyConfig(cfg),
-            { message: /missing required key "experimental_trials\.min_move_item_ratio"/ },
-        );
-    });
-
-    it('throws when experimental_trials.min_move_item_ratio is out of range (> 1)', () => {
-        const cfg = validConfig();
-        cfg.experimental_trials.min_move_item_ratio = 1.5;
-        assert.throws(
-            () => verifyConfig(cfg),
-            { message: /"experimental_trials\.min_move_item_ratio" must be in \(0, 1\]/ },
-        );
-    });
-
-    it('throws when experimental_trials.min_move_item_ratio is 0', () => {
-        const cfg = validConfig();
-        cfg.experimental_trials.min_move_item_ratio = 0;
-        assert.throws(
-            () => verifyConfig(cfg),
-            { message: /"experimental_trials\.min_move_item_ratio" must be in \(0, 1\]/ },
-        );
-    });
+    const moveRatioCases = [
+        ['is missing', undefined, /missing required key "experimental_trials\.min_move_item_ratio"/],
+        ['is out of range (> 1)', 1.5, /"experimental_trials\.min_move_item_ratio" must be in \(0, 1\]/],
+        ['is 0', 0, /"experimental_trials\.min_move_item_ratio" must be in \(0, 1\]/],
+    ];
+    for (const [name, value, message] of moveRatioCases) {
+        it(`throws when experimental_trials.min_move_item_ratio ${name}`, () => {
+            const cfg = validConfig();
+            if (value === undefined) delete cfg.experimental_trials.min_move_item_ratio;
+            else cfg.experimental_trials.min_move_item_ratio = value;
+            assert.throws(() => verifyConfig(cfg), { message });
+        });
+    }
 
     for (const stageName of ['screening_block', 'experimental_block']) {
         it(`throws when ${stageName}.num_repeat_trials is out of range (negative)`, () => {
@@ -404,33 +380,18 @@ describe('computeMainQcFlag', () => {
         experimental_trials: { min_pairwise_distance_sd: 0.04, min_move_item_ratio: 0.75 },
     };
 
-    it('passes when sd is high enough and moves are sufficient', () => {
-        assert.equal(computeMainQcFlag(0.10, 15, 20, cfg), false);
-    });
-
-    it('flags when sd is below threshold (pile-up)', () => {
-        assert.equal(computeMainQcFlag(0.02, 15, 20, cfg), true);
-    });
-
-    it('flags when moves are below ratio threshold', () => {
-        // 0.75 * 20 = 15; 14 moves → flag
-        assert.equal(computeMainQcFlag(0.10, 14, 20, cfg), true);
-    });
-
-    it('passes at exactly the move threshold', () => {
-        // 0.75 * 20 = 15; exactly 15 moves → pass
-        assert.equal(computeMainQcFlag(0.10, 15, 20, cfg), false);
-    });
-
-    it('flags when both sd and moves fail', () => {
-        assert.equal(computeMainQcFlag(0.02, 5, 20, cfg), true);
-    });
-
-    it('catches threshold scales with numItems (catch trial size)', () => {
-        // 0.75 * 10 = 7.5; 7 moves → flag, 8 moves → pass
-        assert.equal(computeMainQcFlag(0.10, 7, 10, cfg), true);
-        assert.equal(computeMainQcFlag(0.10, 8, 10, cfg), false);
-    });
+    // [name, sd, numMoves, numItems, expectedFlag]; the move threshold is 0.75 * numItems
+    const cases = [
+        ['passes when sd is high enough and moves are sufficient, including exactly at the move threshold (0.75 * 20 = 15)', 0.10, 15, 20, false],
+        ['flags when sd is below threshold (pile-up)', 0.02, 15, 20, true],
+        ['flags when moves are below ratio threshold (14 < 15)', 0.10, 14, 20, true],
+        ['flags when both sd and moves fail', 0.02, 5, 20, true],
+        ['threshold scales with numItems (catch trial size): 7 of 10 moves flags', 0.10, 7, 10, true],
+        ['threshold scales with numItems (catch trial size): 8 of 10 moves passes', 0.10, 8, 10, false],
+    ];
+    for (const [name, sd, moves, items, expected] of cases) {
+        it(name, () => assert.equal(computeMainQcFlag(sd, moves, items, cfg), expected));
+    }
 });
 
 // ── computeLayout ─────────────────────────────────────────────────────────────
@@ -569,14 +530,6 @@ describe('evaluateScreening', () => {
         assert.equal(result.pass, true);
     });
 
-    it('fails on the MINIMUM reliability, not an average/median — one bad repeat is enough', () => {
-        // Median/mean of these would be well above threshold (0.3); the min (0.05) is not.
-        const result = evaluateScreening({ mainTrials: [], reliabilities: [0.9, 0.95, 0.05] }, cfg);
-        assert.equal(result.stats.minReliability, 0.05);
-        assert.equal(result.pass, false);
-        assert.ok(result.reasons.some(r => /minimum reliability/.test(r)));
-    });
-
     it('median_reliability is independent of min_reliability — fails on median even when min passes threshold, and vice versa', () => {
         // min=0.05 fails min_reliability(0.30); median=0.9 passes median_reliability(0.30).
         const onlyMinFails = evaluateScreening({ mainTrials: [], reliabilities: [0.05, 0.9, 0.95] }, cfg);
@@ -601,44 +554,50 @@ describe('evaluateScreening', () => {
         assert.equal(result.reasons.length, 0);
     });
 
-    it('passes when every individual reliability is at or above the threshold', () => {
-        const result = evaluateScreening({ mainTrials: [], reliabilities: [0.9, 0.5, 0.30] }, cfg);
-        assert.equal(result.stats.minReliability, 0.30);
-        assert.equal(result.pass, true); // exactly-at-threshold passes (strict inequality)
-    });
-
-    it('passes when the fail-rate is exactly at the threshold (strict inequality)', () => {
-        // 3/10 = 0.30 exactly equals move_ratio_max_fail_rate -> should pass
-        const mainTrials = [
-            ...Array.from({ length: 3 }, () => ({ numMoves: 1, numItems: 20, sd: 0.1 })), // fail move ratio
-            ...Array.from({ length: 7 }, () => ({ numMoves: 20, numItems: 20, sd: 0.1 })),
-        ];
-        const result = evaluateScreening({ mainTrials, reliabilities: [] }, cfg);
-        assert.equal(result.stats.moveRatioFailRate, 0.3);
-        assert.equal(result.pass, true);
-    });
-
-    it('fails when exactly one criterion is violated', () => {
-        const mainTrials = Array.from({ length: 10 }, () => ({ numMoves: 1, numItems: 20, sd: 0.1 })); // all fail move ratio
-        const result = evaluateScreening({ mainTrials, reliabilities: [] }, cfg);
-        assert.equal(result.pass, false);
-        assert.equal(result.reasons.length, 1);
-        assert.ok(/move-ratio/.test(result.reasons[0]));
-    });
-
-    it('fails with multiple reasons when multiple criteria are violated', () => {
-        const mainTrials = Array.from({ length: 10 }, () => ({ numMoves: 1, numItems: 20, sd: 0.01 })); // fail both
-        const result = evaluateScreening({ mainTrials, reliabilities: [0.1, 0.05] }, cfg); // also fail both reliability criteria
-        assert.equal(result.pass, false);
-        assert.equal(result.reasons.length, 4);
-    });
-
-    it('does not divide by zero with an empty mainTrials array', () => {
-        const result = evaluateScreening({ mainTrials: [], reliabilities: [] }, cfg);
-        assert.equal(result.stats.moveRatioFailRate, 0);
-        assert.equal(result.stats.distanceSdFailRate, 0);
-        assert.equal(result.pass, true);
-    });
+    const mainTrial = (numMoves, sd) => ({ numMoves, numItems: 20, sd });
+    const repeated = (n, trial) => Array.from({ length: n }, () => trial);
+    const scenarios = [
+        {
+            name: 'fails on the MINIMUM reliability, not an average/median: one bad repeat is enough',
+            // Median/mean of these would be well above threshold (0.3); the min (0.05) is not.
+            mainTrials: [], reliabilities: [0.9, 0.95, 0.05],
+            pass: false, stats: { minReliability: 0.05 }, reasonMatches: [/minimum reliability/],
+        },
+        {
+            name: 'passes when every individual reliability is at or above the threshold (exactly-at-threshold passes)',
+            mainTrials: [], reliabilities: [0.9, 0.5, 0.30],
+            pass: true, stats: { minReliability: 0.30 },
+        },
+        {
+            name: 'passes when the fail-rate is exactly at the threshold (3/10 = 0.30; strict inequality)',
+            mainTrials: [...repeated(3, mainTrial(1, 0.1)), ...repeated(7, mainTrial(20, 0.1))], reliabilities: [],
+            pass: true, stats: { moveRatioFailRate: 0.3 },
+        },
+        {
+            name: 'fails when exactly one criterion is violated',
+            mainTrials: repeated(10, mainTrial(1, 0.1)), reliabilities: [], // all fail move ratio
+            pass: false, reasonCount: 1, reasonMatches: [/move-ratio/],
+        },
+        {
+            name: 'fails with multiple reasons when multiple criteria are violated',
+            mainTrials: repeated(10, mainTrial(1, 0.01)), reliabilities: [0.1, 0.05], // both rates and both reliabilities fail
+            pass: false, reasonCount: 4,
+        },
+        {
+            name: 'does not divide by zero with an empty mainTrials array',
+            mainTrials: [], reliabilities: [],
+            pass: true, stats: { moveRatioFailRate: 0, distanceSdFailRate: 0 },
+        },
+    ];
+    for (const { name, mainTrials, reliabilities, pass, stats = {}, reasonCount, reasonMatches = [] } of scenarios) {
+        it(name, () => {
+            const result = evaluateScreening({ mainTrials, reliabilities }, cfg);
+            assert.equal(result.pass, pass);
+            for (const [key, value] of Object.entries(stats)) assert.equal(result.stats[key], value);
+            if (reasonCount !== undefined) assert.equal(result.reasons.length, reasonCount);
+            for (const pattern of reasonMatches) assert.ok(result.reasons.some(r => pattern.test(r)));
+        });
+    }
 
     it('rounds fail-rate and reliability stats to at most 10 decimal places', () => {
         // 1/3 and 2/3 both have long repeating decimal expansions.
