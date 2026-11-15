@@ -8,7 +8,7 @@ from typing import NamedTuple
 import numpy as np
 import pytest
 
-from analysis.behavioral.cohort_structure import (
+from analysis.pre_vs_post_shine.geometry import (
     equivalence_test_cohort_agreement, permutation_test_cohort_agreement, rdm_from_subject_trials,
 )
 

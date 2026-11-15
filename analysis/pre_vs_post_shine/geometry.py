@@ -29,7 +29,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.stats import norm
 
-from analysis.behavioral.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
+from analysis.pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
 from analysis.build_rdms.behavior.noise_ceiling import _parse_trials_by_participant
 from analysis.build_rdms.behavior.spam_ratings import _combine
 from analysis.build_rdms.common import REPO_ROOT, image_manifest_index

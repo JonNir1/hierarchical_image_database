@@ -19,7 +19,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.stats import gaussian_kde, wasserstein_distance
 
-from analysis.behavioral.demographics_and_behavior import COHORT_COLORS, COHORT_LABEL, COHORTS, cohort_colors, cohort_label
+from analysis.pre_vs_post_shine.demographics_and_behavior import COHORT_COLORS, COHORT_LABEL, COHORTS, cohort_colors, cohort_label
 from analysis.pilot.figures import trial_ks_distance
 from analysis.utils.parser import parse_pairwise_distances
 from analysis.utils.plotting import add_progression_panel, add_split_violin

@@ -7,11 +7,11 @@ Retained subjects: N=79 pre-SHINE, N=76 post-SHINE. Tests are two-sided Mann-Whi
 
 Three notebooks, one question each. Effect signs: positive means the pre-SHINE cohort tends to be lower.
 
-- **Caveat, equivalence tests and the permutation test:** there is no pre-defined smallest effect size of interest. Every equivalence bound is the smallest bound with 80% power at these sample sizes (simulated, `analysis/utils/equivalence.py`), rounded up, so a bound says what the sample can resolve, not that the difference is negligible. Equivalence is TOST in its 90%-CI form. The permutation and equivalence tests on RDM agreement assume subjects are exchangeable across cohorts apart from SHINE.
+- **Caveat, equivalence tests and the permutation test:** there is no pre-defined smallest effect size of interest. Every equivalence bound is the smallest bound with 80% power at these sample sizes (simulated, `../utils/equivalence.py`), rounded up, so a bound says what the sample can resolve, not that the difference is negligible. Equivalence is TOST in its 90%-CI form. The permutation and equivalence tests on RDM agreement assume subjects are exchangeable across cohorts apart from SHINE.
 
 ### Do the cohorts behave the same?
 
-Notebook: [`behavioral/1_demographics_and_behavior.ipynb`](behavioral/1_demographics_and_behavior.ipynb) (commit `b6747fc`)
+Notebook: [`pre_vs_post_shine`](1_demographics_and_behavior.ipynb) (commit `b6747fc`)
 
 - **Coverage:** 64.6% (pre) and 63.1% (post) of the 262,450 image pairs were rated at least once, at about 1.9 ratings per rated pair.
 - **Trial time and moves:** duration (86.9 s pre, 84.2 s post, p=0.76) and moves (27.1 vs 27.3, p=0.25) do not differ. Moves and duration correlate across subjects in pre (rho=0.31, p=0.006) but not in post (rho=0.14, p=0.23).
@@ -21,7 +21,7 @@ Notebook: [`behavioral/1_demographics_and_behavior.ipynb`](behavioral/1_demograp
 
 ### Is the data equally good?
 
-Notebook: [`behavioral/2_data_quality.ipynb`](behavioral/2_data_quality.ipynb) (commit `5d1be86`)
+Notebook: [`pre_vs_post_shine`](2_data_quality.ipynb) (commit `5d1be86`)
 
 - **Within-subject reliability:** median Spearman r is 0.276 (pre) and 0.291 (post); the cohorts do not differ (p=0.71, r=0.03).
 - **Reliability over repeat index:** every retained subject has 4 verbatim repeats, at fixed session positions (about 16%, 28%, 64% and 84% of the trials), so repeat index and session position are the same variable. Mean reliability is flat in both cohorts (0.30 to 0.33). Per-subject slopes do not differ from 0 (p=0.95 pre, p=0.31 post) or between cohorts (p=0.42, r=0.075).
@@ -30,7 +30,7 @@ Notebook: [`behavioral/2_data_quality.ipynb`](behavioral/2_data_quality.ipynb) (
 
 ### Do they give the same similarity structure?
 
-Notebook: [`behavioral/3_geometry.ipynb`](behavioral/3_geometry.ipynb) (commit `5d1be86`)
+Notebook: [`pre_vs_post_shine`](3_geometry.ipynb) (commit `5d1be86`)
 
 - **Structural agreement, pre vs post:** on the raw RDMs (107,040 jointly rated pairs) Kendall tau is 0.15 and Spearman rho 0.22. After SMACOF embedding, agreement is much higher (d=2: tau 0.50, rho 0.69). Rank correlation dips to about 0.40 at d=4-6 and recovers to 0.47/0.65 at d=15, while Procrustes m^2 worsens overall (0.31 at d=2 to 0.56 at d=15).
 - **Label permutation:** the raw pre-post agreement (tau 0.148, rho 0.220) is no lower than for shuffled cohort labels (null mean 0.148 and 0.220, one-sided p=0.43 for both, 250 permutations). There is no detectable cohort effect on the similarity structure.
@@ -39,7 +39,7 @@ Notebook: [`behavioral/3_geometry.ipynb`](behavioral/3_geometry.ipynb) (commit `
 
 ## Choice of RDM aggregation method
 
-Notebook: [`build_rdms/behavior/aggregation_comparison.ipynb`](build_rdms/behavior/aggregation_comparison.ipynb) (commit `8a2b898`)
+Notebook: [`../build_rdms/behavior/aggregation_comparison.ipynb`](../build_rdms/behavior/aggregation_comparison.ipynb) (commit `8a2b898`)
 
 - **Noise-ceiling reliability:** "simple" > "mean" > "evidence" in both cohorts. Split-half Kendall tau (simple / mean / evidence): 0.132 / 0.129 / 0.110 (pre), 0.140 / 0.139 / 0.119 (post). Evidence vs mean: p<1e-12, |effect size| >= 0.95 in every cell.
 - **Full-sample noise ceiling:** the Spearman-Brown-projected ceiling for "simple" is about 0.33 (pre) and 0.35 (post).

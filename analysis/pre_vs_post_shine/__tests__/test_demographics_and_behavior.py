@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from analysis.behavioral.demographics_and_behavior import retained_participants
+from analysis.pre_vs_post_shine.demographics_and_behavior import retained_participants
 
 
 def test_retained_participants_applies_every_exclusion_and_rejects_unknown_cohort():
