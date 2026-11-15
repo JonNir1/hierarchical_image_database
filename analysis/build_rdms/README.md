@@ -9,6 +9,7 @@ build_rdms/
                          embeddings, the order_hash alignment contract
   build_all.py           CLI to build any or all reference RDMs
   validate_rdms.py       invariant checks over whatever has been built
+  KEY_FINDINGS.md        findings about the builders (currently: which aggregation to use)
   __tests__/             all tests for this package, flat (see note below)
 
   behavior/   spam_ratings.py     SpAM trials -> 725x725 RDM (3 aggregations)
