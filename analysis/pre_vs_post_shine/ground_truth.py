@@ -250,7 +250,7 @@ def calibrate_equivalence_bound(
     *, n_splits: int = 10, n_boot: int = 200, seed: int = 100, cache_path: Path | None = None,
 ) -> pd.DataFrame:
     """The equivalence procedure applied to random halves of ONE cohort, where the true difference is
-    zero by construction: how often does the project's bound rule declare equivalence (target 80%)?
+    zero by construction: how often does the bound rule declare equivalence (expected about 60%, see equivalence_test_bootstrap_effect)?
 
     Halves have about half the participants, so their SE and bound are larger than in the real
     comparison; this checks the rule, not the real bound. Returns the equivalence table with a `split` column."""

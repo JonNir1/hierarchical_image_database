@@ -151,9 +151,10 @@ def equivalence_test_bootstrap_effect(
     (e.g. a difference of two cohorts' RDM-vs-target correlations): the (1 - 2*alpha) percentile CI
     of the draws must lie inside +/- bound.
 
-    The bound follows the project rule: the smallest bound at which a true effect of 0 is declared
-    equivalent with probability `power`, (z_(1-alpha) + z_power) * SE with SE the bootstrap SD,
-    rounded up to a multiple of `step` (in the effect's own units). `min_bound` is the smallest
+    The bound is (z_(1-alpha) + z_power) * SE with SE the bootstrap SD, rounded up to a multiple of
+    `step` (in the effect's own units). Each one-sided test then has `power` at the bound's edge,
+    but both must pass, so a true effect of 0 is declared equivalent with probability
+    2 * Phi(z_power) - 1 (about 0.60 at power 0.8), not `power`. `min_bound` is the smallest
     bound at which this CI would pass, i.e. what the data alone can exclude."""
     draws = np.asarray(boot_effects, dtype=float)
     draws = draws[np.isfinite(draws)]
