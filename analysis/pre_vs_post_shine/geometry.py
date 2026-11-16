@@ -37,8 +37,9 @@ from analysis.utils.disk_cache import cached_array
 from analysis.utils.equivalence import resolvable_bound
 from analysis.utils.stats import masked_rank_correlation
 
-MDS_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "behavioral" / "mds_cache"
-PERMUTATION_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "behavioral" / "permutation_cache"
+RESULTS_DIR = REPO_ROOT / "analysis" / "results" / "pre_vs_post_shine"
+MDS_CACHE_DIR = RESULTS_DIR / "mds_cache"
+PERMUTATION_CACHE_DIR = RESULTS_DIR / "permutation_cache"
 
 RdmBuilder = Callable[[Sequence[str]], np.ndarray]
 
