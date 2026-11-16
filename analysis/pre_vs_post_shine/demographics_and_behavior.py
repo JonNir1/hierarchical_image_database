@@ -1,7 +1,7 @@
 """
 Pre- vs post-SHINE cohort comparison, shared layer: cohort labels/colours, the
 retained-subject loader, and the data-prep and figure helpers for the "do the
-cohorts behave the same?" notebook (analysis/behavioral/1_demographics_and_behavior.ipynb).
+cohorts behave the same?" notebook (analysis/pre_vs_post_shine/1_demographics_and_behavior.ipynb).
 Retained subjects are production, task_version>=4.0, status=="full data" -- the
 same definition analysis.build_rdms.behavior.spam_ratings.build_behavioral_rdm() uses.
 
@@ -16,7 +16,7 @@ General statistical helpers live in analysis/utils/stats.py and
 analysis/utils/equivalence.py.
 
 Usage (from repo root):
-    from analysis.behavioral.cohort_comparison import (
+    from analysis.pre_vs_post_shine.demographics_and_behavior import (
         COHORTS, COHORT_LABEL, COHORT_COLORS, load_retained_cohorts,
         retained_participants, pair_coverage, main_trials, subject_trial_stats,
         fig_trial_time_moves, fig_trial_progression, fig_demographics, fig_retention_status,

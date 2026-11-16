@@ -39,16 +39,14 @@ its module.
 The following are inference / hypothesis-testing or diagnostics. They live here
 only for historical reasons and should move once there is a home for them
 (`analysis/inference/`, or per-question folders). Left in place deliberately, so
-the move is one decision rather than several:
+the move is one decision rather than several. (The Q1 cohort-vs-hierarchy and
+cohort-vs-ground-truth analyses that used to be listed here now live in
+`analysis/pre_vs_post_shine/`, notebooks 4 and 5.)
 
 | file | what it is |
 |---|---|
-| `run_h1.py` | driver for Q1 analysis 1, both cohorts |
-| `model_evaluation.py` | model vs behavioral RDM, Q1 analysis 1a |
-| `hierarchical_clustering.py` | perceptual vs KM-tree agreement, Q1 analysis 1b |
 | `hierarchy_comparison.py` | reference-RDM diagnostics against the path hierarchy |
 | `imagenet_vs_path.py` | ImageNet vs path-derived concept distance (+ its `imagenet_class_index.json`) |
-| `h1_inference.ipynb` | plots Q1 analysis 1 results |
 | `compare_to_hierarchy.ipynb` | reference RDMs vs the curated hierarchy |
 
 `imagenet_class_index.json` is `imagenet_vs_path.py`'s own data file, loaded via

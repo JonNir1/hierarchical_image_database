@@ -1,5 +1,5 @@
 """
-Pre- vs post-SHINE cohort comparison, structure layer (analysis/behavioral/
+Pre- vs post-SHINE cohort comparison, structure layer (analysis/pre_vs_post_shine/
 3_geometry.ipynb): MDS-based structural comparison of the two cohorts'
 behavioral RDMs (weighted-SMACOF stress, embedding eigenvalue spectra, cross-cohort
 agreement), the cohort-label permutation test of pre-vs-post RDM agreement, and
@@ -10,7 +10,7 @@ MDS-embedding logic itself (embedding eigenspectrum, cached SMACOF sweep,
 cross-embedding comparison) lives in analysis/build_rdms/behavior/mds.py.
 
 Usage (from repo root):
-    from analysis.behavioral.cohort_structure import (
+    from analysis.pre_vs_post_shine.geometry import (
         MDS_CACHE_DIR, PERMUTATION_CACHE_DIR, fig_stress_scree, fig_embedding_spectrum,
         fig_cross_cohort_agreement, permutation_test_cohort_agreement, fig_permutation_null,
         equivalence_test_cohort_agreement,

@@ -1,11 +1,11 @@
 """
-Pre- vs post-SHINE cohort comparison, data-quality layer (analysis/behavioral/
+Pre- vs post-SHINE cohort comparison, data-quality layer (analysis/pre_vs_post_shine/
 2_data_quality.ipynb): within-subject test-retest reliability (overall and
 over repeat index) and pairwise-distance distributions vs the random-placement
 null (Wasserstein primary, KS secondary).
 
 Usage (from repo root):
-    from analysis.behavioral.cohort_quality import (
+    from analysis.pre_vs_post_shine.data_quality import (
         subject_reliability, subject_repeat_slope, pairwise_distance_values,
         subject_wasserstein_distance, subject_ks_distance, fig_reliability,
         fig_repeat_reliability, fig_distance_vs_null,

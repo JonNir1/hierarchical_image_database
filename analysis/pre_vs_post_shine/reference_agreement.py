@@ -41,11 +41,13 @@ from scipy.spatial.distance import squareform
 from statsmodels.stats.multitest import multipletests
 
 from analysis.build_rdms.behavior.spam_ratings import _combine, _mean_combine
-from analysis.build_rdms.common import subset_condensed
+from analysis.build_rdms.common import REPO_ROOT, subset_condensed
 from analysis.pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
 from analysis.utils.disk_cache import cached_array, cached_frame, fingerprint
 from analysis.utils.equivalence import equivalence_test_bootstrap_effect
 from analysis.utils.stats import masked_rank_correlation
+
+REFERENCE_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "pre_vs_post_shine" / "reference_cache"
 
 TrialsByParticipant = dict[str, list[tuple[np.ndarray, np.ndarray]]]
 
@@ -341,10 +343,10 @@ def fig_fit_vs_lower_bound(loo_by_cohort: dict[str, pd.DataFrame]) -> go.Figure:
     for cohort in COHORTS:
         data = loo_by_cohort[cohort].dropna(subset=["model_kendall_a", "lower_kendall_a"])
         color = cohort_colors(cohort)["violin_line"]
-        for label, column, dash in (("reference", "model_kendall_a", None), ("lower bound", "lower_kendall_a", "dash")):
+        for label, column, opacity in (("reference", "model_kendall_a", 0.85), ("lower bound", "lower_kendall_a", 0.35)):
             fig.add_trace(go.Violin(
                 y=data[column], x=[f"{cohort_label(cohort)}: {label}"] * len(data), name=label, box_visible=True,
-                points="all", line_color=color, line_dash=dash, opacity=0.8, showlegend=False,
+                points="all", line_color=color, opacity=opacity, showlegend=False,
             ))
     fig.update_layout(template=_TEMPLATE, height=460, yaxis_title="per-participant Kendall tau-a")
     return fig
