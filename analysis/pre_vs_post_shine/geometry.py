@@ -1,5 +1,5 @@
 """
-Pre- vs post-SHINE cohort comparison, structure layer (analysis/behavioral/
+Pre- vs post-SHINE cohort comparison, structure layer (analysis/pre_vs_post_shine/
 3_geometry.ipynb): MDS-based structural comparison of the two cohorts'
 behavioral RDMs (weighted-SMACOF stress, embedding eigenvalue spectra, cross-cohort
 agreement), the cohort-label permutation test of pre-vs-post RDM agreement, and
@@ -10,7 +10,7 @@ MDS-embedding logic itself (embedding eigenspectrum, cached SMACOF sweep,
 cross-embedding comparison) lives in analysis/build_rdms/behavior/mds.py.
 
 Usage (from repo root):
-    from analysis.behavioral.cohort_structure import (
+    from analysis.pre_vs_post_shine.geometry import (
         MDS_CACHE_DIR, PERMUTATION_CACHE_DIR, fig_stress_scree, fig_embedding_spectrum,
         fig_cross_cohort_agreement, permutation_test_cohort_agreement, fig_permutation_null,
         equivalence_test_cohort_agreement,
@@ -33,11 +33,13 @@ from analysis.pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort
 from analysis.build_rdms.behavior.noise_ceiling import _parse_trials_by_participant
 from analysis.build_rdms.behavior.spam_ratings import _combine
 from analysis.build_rdms.common import REPO_ROOT, image_manifest_index
+from analysis.utils.disk_cache import cached_array
 from analysis.utils.equivalence import resolvable_bound
 from analysis.utils.stats import masked_rank_correlation
 
-MDS_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "behavioral" / "mds_cache"
-PERMUTATION_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "behavioral" / "permutation_cache"
+RESULTS_DIR = REPO_ROOT / "analysis" / "results" / "pre_vs_post_shine"
+MDS_CACHE_DIR = RESULTS_DIR / "mds_cache"
+PERMUTATION_CACHE_DIR = RESULTS_DIR / "permutation_cache"
 
 RdmBuilder = Callable[[Sequence[str]], np.ndarray]
 
@@ -172,22 +174,6 @@ def _fingerprint(ids_a: Sequence[str], ids_b: Sequence[str], design: int | str, 
     return hashlib.sha1(payload.encode()).hexdigest()
 
 
-def _load_cached_null(cache_path: Path | None, fingerprint: str) -> np.ndarray | None:
-    if cache_path is None or not Path(cache_path).exists():
-        return None
-    with np.load(cache_path) as cached:
-        if str(cached["fingerprint"]) != fingerprint:
-            return None
-        return cached["null"]
-
-
-def _save_cached_null(cache_path: Path | None, fingerprint: str, null: np.ndarray) -> None:
-    if cache_path is None:
-        return
-    Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
-    np.savez(cache_path, null=null, fingerprint=fingerprint)
-
-
 def _run_tasks(func: Callable, tasks: list, rdm_builder: RdmBuilder, n_jobs: int) -> np.ndarray:
     if n_jobs == 1:
         _init_worker(rdm_builder)
@@ -230,12 +216,11 @@ def permutation_test_cohort_agreement(
 
     Returns {"kendall"/"spearman": {observed, null_mean, null_low, null_high, p},
     "null": (n_perm, 2) array of [kendall, spearman] draws, "n_perm", "seed"}."""
-    fingerprint = _fingerprint(ids_a, ids_b, n_perm, seed)
-    null = _load_cached_null(cache_path, fingerprint)
     observed = masked_rank_correlation(rdm_builder(list(ids_a)), rdm_builder(list(ids_b)))
-    if null is None:
-        null = _draw_null(rdm_builder, list(ids_a), list(ids_b), n_perm, seed, n_jobs)
-        _save_cached_null(cache_path, fingerprint, null)
+    null = cached_array(
+        cache_path, _fingerprint(ids_a, ids_b, n_perm, seed),
+        lambda: _draw_null(rdm_builder, list(ids_a), list(ids_b), n_perm, seed, n_jobs),
+    )
 
     result = {"n_perm": n_perm, "seed": seed, "null": null}
     for column, key in enumerate(("kendall", "spearman")):
@@ -309,9 +294,8 @@ def equivalence_test_cohort_agreement(
     analysis.utils.equivalence's tests (effect, ci_low, ci_high, bound,
     equivalent), plus "se" and "sensitivity"."""
     ids_a, ids_b = list(ids_a), list(ids_b)
-    fingerprint = _fingerprint(ids_a, ids_b, f"jackknife{n_groups}x{n_null}", seed)
-    replicates = _load_cached_null(cache_path, fingerprint)
-    if replicates is None:
+
+    def jackknife_deviations() -> np.ndarray:
         rng = np.random.default_rng(seed)
         groups_a = np.array_split(rng.permutation(ids_a), n_groups)
         groups_b = np.array_split(rng.permutation(ids_b), n_groups)
@@ -320,8 +304,11 @@ def equivalence_test_cohort_agreement(
             kept_a = [i for h, group in enumerate(groups_a) if h != g for i in group.tolist()]
             kept_b = [i for h, group in enumerate(groups_b) if h != g for i in group.tolist()]
             tasks.append((kept_a, kept_b, _random_splits(kept_a + kept_b, len(kept_a), n_null, rng)))
-        replicates = _run_tasks(_deviation_from_exchangeable, tasks, rdm_builder, n_jobs)
-        _save_cached_null(cache_path, fingerprint, replicates)
+        return _run_tasks(_deviation_from_exchangeable, tasks, rdm_builder, n_jobs)
+
+    replicates = cached_array(
+        cache_path, _fingerprint(ids_a, ids_b, f"jackknife{n_groups}x{n_null}", seed), jackknife_deviations,
+    )
 
     z_ci, z_power = float(norm.ppf(1 - alpha)), float(norm.ppf(power))
     results = {}

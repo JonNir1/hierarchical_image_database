@@ -64,7 +64,7 @@ from analysis.utils.stats import masked_rank_correlation
 
 _VALID_VARIANTS = ("pre_shine", "post_shine")
 _DEFAULT_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "parsed_data"
-RESULTS_DIR = REPO_ROOT / "analysis" / "results" / "behavioral"
+RESULTS_DIR = REPO_ROOT / "analysis" / "results" / "build_rdms"
 _DEFAULT_MIN_OVERLAP = 20
 _DEFAULT_N_SPLITS = 100
 

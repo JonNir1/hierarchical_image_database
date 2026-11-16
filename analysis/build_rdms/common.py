@@ -27,7 +27,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from PIL import Image
-from scipy.spatial.distance import pdist
+from scipy.spatial.distance import pdist, squareform
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -287,6 +287,12 @@ def load_rdm(name: str) -> np.ndarray:
         )
 
     return condensed
+
+
+def subset_condensed(full: np.ndarray, indices: np.ndarray) -> np.ndarray:
+    """Condensed RDM of the images at `indices`, in that order (NaNs preserved)."""
+    square = squareform(full, checks=False)
+    return squareform(square[np.ix_(indices, indices)], checks=False)
 
 
 # ---------------------------------------------------------------------------

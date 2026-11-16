@@ -1,4 +1,4 @@
-"""Tests for analysis.behavioral.cohort_structure's cohort-label permutation test,
+"""Tests for analysis.pre_vs_post_shine.geometry's cohort-label permutation and equivalence tests,
 using a cheap synthetic RDM builder (mean of per-subject vectors) in place of the
 real trial-aggregating builder."""
 from __future__ import annotations
@@ -63,54 +63,22 @@ def different_cohorts() -> _Cohorts:
     return _cohorts(same_structure=False)
 
 
-def test_exchangeable_cohorts_give_a_non_small_p(exchangeable_cohorts):
-    result = exchangeable_cohorts.permutation
-    assert result["spearman"]["p"] > 0.05
-    assert result["null"].shape == (100, 2)
-
-
-def test_cohorts_with_different_structure_give_a_small_p(different_cohorts):
-    result = different_cohorts.permutation
-    assert result["spearman"]["p"] == pytest.approx(1 / 101)
-    assert result["spearman"]["observed"] < result["spearman"]["null_low"]
-
-
-def test_cache_round_trip_and_fingerprint_invalidation(tmp_path):
-    subject_rdms, ids_a, ids_b = _subjects(6, same_structure=True)
-    cache = tmp_path / "null.npz"
-    first = permutation_test_cohort_agreement(
-        _MeanBuilder(subject_rdms), ids_a, ids_b, n_perm=20, seed=3, cache_path=cache,
-    )
-    assert cache.exists()
-
-    counting = _MeanBuilder(subject_rdms)
-    second = permutation_test_cohort_agreement(counting, ids_a, ids_b, n_perm=20, seed=3, cache_path=cache)
-    assert counting.calls == 2  # observed cohorts only, no permutation draws
-    np.testing.assert_array_equal(first["null"], second["null"])
-
-    other_seed = permutation_test_cohort_agreement(
-        _MeanBuilder(subject_rdms), ids_a, ids_b, n_perm=20, seed=4, cache_path=cache,
-    )
-    assert not np.array_equal(first["null"], other_seed["null"])
-
-
 def _equivalence(cohorts: _Cohorts) -> dict:
     return equivalence_test_cohort_agreement(
         cohorts.builder, cohorts.ids_a, cohorts.ids_b, cohorts.permutation, n_groups=5, n_null=5, seed=1,
     )["spearman"]
 
 
-def test_equivalence_exchangeable_cohorts_are_equivalent_within_the_resolvable_bound(exchangeable_cohorts):
-    result = _equivalence(exchangeable_cohorts)
-    assert result["ci_low"] < result["effect"] < result["ci_high"]
-    assert result["bound"] >= result["sensitivity"]
-    assert result["equivalent"]
+def test_cohort_label_tests_tell_exchangeable_cohorts_from_different_ones(exchangeable_cohorts, different_cohorts):
+    same, different = exchangeable_cohorts.permutation, different_cohorts.permutation
+    assert same["spearman"]["p"] > 0.05 and same["null"].shape == (100, 2)
+    assert different["spearman"]["p"] == pytest.approx(1 / 101)
+    assert different["spearman"]["observed"] < different["spearman"]["null_low"]
 
-
-def test_equivalence_cohorts_with_different_structure_are_not_equivalent(different_cohorts):
-    result = _equivalence(different_cohorts)
-    assert result["effect"] < -0.1
-    assert not result["equivalent"]
+    equivalent, not_equivalent = _equivalence(exchangeable_cohorts), _equivalence(different_cohorts)
+    assert equivalent["ci_low"] < equivalent["effect"] < equivalent["ci_high"]
+    assert equivalent["bound"] >= equivalent["sensitivity"] and equivalent["equivalent"]
+    assert not_equivalent["effect"] < -0.1 and not not_equivalent["equivalent"]
 
 
 def test_rdm_from_subject_trials_pools_selected_subjects_with_simple_rescaling():

@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 
 from analysis.utils.equivalence import (
-    equivalence_sensitivity, equivalence_sensitivity_risk_difference, equivalence_test_rank_biserial,
+    equivalence_sensitivity, equivalence_sensitivity_risk_difference, equivalence_test_bootstrap_effect,
+    equivalence_test_rank_biserial,
     equivalence_test_risk_difference, print_equivalence_line, resolvable_bound,
 )
 from analysis.utils.stats import mwu_effect_size, rank_biserial
@@ -115,3 +116,18 @@ def test_equivalence_sensitivity_risk_difference_shrinks_with_n_and_peaks_near_h
 ])
 def test_resolvable_bound_rounds_up_to_the_step(sensitivity, step, expected):
     assert resolvable_bound(sensitivity, step=step) == pytest.approx(expected)
+
+
+# ---------------------------------------------------------------------------
+# equivalence_test_bootstrap_effect
+# ---------------------------------------------------------------------------
+
+def test_bootstrap_effect_equivalence_follows_the_80_percent_power_bound_rule():
+    rng = np.random.default_rng(0)
+    tight = equivalence_test_bootstrap_effect(0.0, rng.normal(0.0, 0.02, size=2000), label="d")
+    assert tight["equivalent"] and tight["min_bound"] < tight["bound"]
+    assert tight["bound"] == resolvable_bound((1.6449 + 0.8416) * 0.02, step=0.01)
+    assert 0 <= tight["bound"] - tight["sensitivity"] < 0.01 + 1e-9  # rounded up, never tighter
+
+    shifted = equivalence_test_bootstrap_effect(0.15, rng.normal(0.15, 0.02, size=2000))
+    assert not shifted["equivalent"] and shifted["ci_low"] > 0.1
