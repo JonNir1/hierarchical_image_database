@@ -34,7 +34,7 @@ from analysis.build_rdms.behavior.noise_ceiling import _parse_trials_by_particip
 from analysis.build_rdms.behavior.spam_ratings import _combine
 from analysis.build_rdms.common import REPO_ROOT, image_manifest_index
 from analysis.utils.disk_cache import cached_array
-from analysis.utils.equivalence import resolvable_bound
+from analysis.utils.equivalence import resolvable_bound, tost_bound_multiplier
 from analysis.utils.stats import masked_rank_correlation
 
 RESULTS_DIR = REPO_ROOT / "analysis" / "results" / "pre_vs_post_shine"
@@ -287,7 +287,7 @@ def equivalence_test_cohort_agreement(
 
     The bound follows the project rule: the smallest bound at which a true
     D = 0 is declared equivalent with probability `power`,
-    (z_(1-alpha) + z_power) * SE, rounded up to a multiple of `step` (in
+    tost_bound_multiplier(alpha, power) * SE (z_(1-alpha) + z_((1+power)/2)), rounded up to a multiple of `step` (in
     tau/rho units).
 
     Returns {"kendall"/"spearman": result dict} in the format of
@@ -310,14 +310,14 @@ def equivalence_test_cohort_agreement(
         cache_path, _fingerprint(ids_a, ids_b, f"jackknife{n_groups}x{n_null}", seed), jackknife_deviations,
     )
 
-    z_ci, z_power = float(norm.ppf(1 - alpha)), float(norm.ppf(power))
+    z_ci = float(norm.ppf(1 - alpha))
     results = {}
     for column, key in enumerate(("kendall", "spearman")):
         effect = permutation_result[key]["observed"] - permutation_result[key]["null_mean"]
         deviations = replicates[:, column]
         se = float(np.sqrt((n_groups - 1) / n_groups * np.sum((deviations - deviations.mean()) ** 2)))
         low, high = effect - z_ci * se, effect + z_ci * se
-        sensitivity = (z_ci + z_power) * se
+        sensitivity = tost_bound_multiplier(alpha, power) * se
         bound = resolvable_bound(sensitivity, step=step)
         results[key] = {
             "comparison": f"observed - exchangeable expectation ({key})", "n (A)": len(ids_a), "n (B)": len(ids_b),

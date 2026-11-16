@@ -38,6 +38,7 @@ from analysis.pre_vs_post_shine.reference_agreement import (
     TrialsByParticipant, bootstrap_cohort_difference, cohort_difference_equivalence, observed_cohort_fit,
 )
 from analysis.utils.disk_cache import cached_frame, fingerprint
+from analysis.utils.equivalence import tost_bound_multiplier
 from analysis.utils.stats import masked_rank_correlation
 
 EXTERNAL_DIR = REPO_ROOT / "analysis" / "data" / "external" / "kriegeskorte2008"
@@ -250,10 +251,12 @@ def calibrate_equivalence_bound(
     *, n_splits: int = 10, n_boot: int = 200, seed: int = 100, cache_path: Path | None = None,
 ) -> pd.DataFrame:
     """The equivalence procedure applied to random halves of ONE cohort, where the true difference is
-    zero by construction: how often does the bound rule declare equivalence (expected about 60%, see equivalence_test_bootstrap_effect)?
+    zero by construction: how often does the bound rule declare equivalence (the rule targets 80%)?
 
     Halves have about half the participants, so their SE and bound are larger than in the real
-    comparison; this checks the rule, not the real bound. Returns the equivalence table with a `split` column."""
+    comparison; this checks the rule, not the real bound. Returns the equivalence table with a `split` column.
+    The cached table's fingerprint includes the bound multiplier, so changing the rule recomputes only the
+    verdicts (each split's bootstrap draws are cached separately)."""
     def run() -> pd.DataFrame:
         ids = list(trials)
         rng = np.random.default_rng(seed)
@@ -268,6 +271,7 @@ def calibrate_equivalence_bound(
             )
             boots = bootstrap_cohort_difference(
                 half_a, half_b, references, n_conds, n_boot=n_boot, seed=seed + split + 1, subset=rows,
+                cache_path=None if cache_path is None else cache_path.with_name(f"{cache_path.stem}_split{split}_boot.pkl"),
             )
             table = cohort_difference_equivalence(
                 {"own": observed_cohort_fit(rdm_a, rdm_b, references)}, boots, len(half_a), len(half_b),
@@ -275,7 +279,8 @@ def calibrate_equivalence_bound(
             out.append(table.assign(split=split))
         return pd.concat(out, ignore_index=True)
 
-    key = fingerprint(list(trials), list(references), *references.values(), n_conds, rows, n_splits, n_boot, seed)
+    key = fingerprint(list(trials), list(references), *references.values(), n_conds, rows, n_splits, n_boot, seed,
+                      tost_bound_multiplier())
     return cached_frame(cache_path, key, run)
 
 

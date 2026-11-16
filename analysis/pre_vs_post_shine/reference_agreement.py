@@ -16,7 +16,7 @@ primary statistic (the reference RDMs are heavily tied), Spearman rho the second
   loo_model_fit -- Nili et al. (2014) style: each left-out participant's own RDM scored against the
       reference, next to the same participant's lower-bound score against the combined others.
   bootstrap_cohort_difference + cohort_difference_equivalence -- pre minus post fit, with a TOST
-      (analysis.utils.equivalence.equivalence_test_bootstrap_effect, the project's 80%-power bound).
+      (analysis.utils.equivalence.equivalence_test_bootstrap_effect, the project's 80%-power bound, closed form).
   bh_within_cohort -- Benjamini-Hochberg within each cohort, never pooled across cohorts.
 
 Every expensive call takes `cache_path` (analysis.utils.disk_cache): results are reused only under a

@@ -16,7 +16,7 @@ Usage (from repo root):
     from analysis.utils.equivalence import (
         equivalence_test_rank_biserial, equivalence_test_risk_difference,
         equivalence_sensitivity, equivalence_sensitivity_risk_difference,
-        resolvable_bound, print_equivalence_line, equivalence_test_bootstrap_effect,
+        resolvable_bound, print_equivalence_line, equivalence_test_bootstrap_effect, tost_bound_multiplier,
     )
 """
 from __future__ import annotations
@@ -143,6 +143,15 @@ def resolvable_bound(sensitivity: float, *, step: float = 0.05) -> float:
     return round(float(np.ceil(round(sensitivity / step, 9)) * step), 10)
 
 
+def tost_bound_multiplier(alpha: float = 0.05, power: float = 0.8) -> float:
+    """Multiple of the SE that gives a TOST (90% CI inside +/- bound) probability `power` of declaring
+    equivalence when the true effect is 0: z_(1-alpha) + z_((1+power)/2). The CI must clear the bound
+    on both sides, so P(equivalent) = P(|Z| < b/SE - z_(1-alpha)) and this multiplier makes that
+    exactly `power`. (z_(1-alpha) + z_power) would give each one-sided test `power`, but only
+    2 * Phi(z_power) - 1 (about 0.60 at power 0.8) for the pair."""
+    return float(norm.ppf(1 - alpha) + norm.ppf((1 + power) / 2))
+
+
 def equivalence_test_bootstrap_effect(
     effect: float, boot_effects, *, label: str = "effect", alpha: float = 0.05, power: float = 0.8,
     step: float = 0.01, n_a: int | None = None, n_b: int | None = None,
@@ -151,16 +160,16 @@ def equivalence_test_bootstrap_effect(
     (e.g. a difference of two cohorts' RDM-vs-target correlations): the (1 - 2*alpha) percentile CI
     of the draws must lie inside +/- bound.
 
-    The bound is (z_(1-alpha) + z_power) * SE with SE the bootstrap SD, rounded up to a multiple of
-    `step` (in the effect's own units). Each one-sided test then has `power` at the bound's edge,
-    but both must pass, so a true effect of 0 is declared equivalent with probability
-    2 * Phi(z_power) - 1 (about 0.60 at power 0.8), not `power`. `min_bound` is the smallest
-    bound at which this CI would pass, i.e. what the data alone can exclude."""
+    The bound is the smallest at which a true effect of 0 is declared equivalent with probability
+    `power`: tost_bound_multiplier(alpha, power) * SE with SE the bootstrap SD, rounded up to a
+    multiple of `step` (in the effect's own units), the same rule as the simulated
+    equivalence_sensitivity(). `min_bound` is the smallest bound at which this CI would pass,
+    i.e. what the data alone can exclude."""
     draws = np.asarray(boot_effects, dtype=float)
     draws = draws[np.isfinite(draws)]
     se = float(draws.std(ddof=1))
     low, high = (float(q) for q in np.quantile(draws, [alpha, 1 - alpha]))
-    sensitivity = float(norm.ppf(1 - alpha) + norm.ppf(power)) * se
+    sensitivity = tost_bound_multiplier(alpha, power) * se
     bound = resolvable_bound(sensitivity, step=step)
     return {
         "comparison": label, "n (A)": n_a, "n (B)": n_b,

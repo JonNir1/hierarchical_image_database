@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from scipy.stats import norm
 
 from analysis.utils.equivalence import (
     equivalence_sensitivity, equivalence_sensitivity_risk_difference, equivalence_test_bootstrap_effect,
     equivalence_test_rank_biserial,
-    equivalence_test_risk_difference, print_equivalence_line, resolvable_bound,
+    equivalence_test_risk_difference, print_equivalence_line, resolvable_bound, tost_bound_multiplier,
 )
 from analysis.utils.stats import mwu_effect_size, rank_biserial
 
@@ -126,7 +127,9 @@ def test_bootstrap_effect_equivalence_follows_the_80_percent_power_bound_rule():
     rng = np.random.default_rng(0)
     tight = equivalence_test_bootstrap_effect(0.0, rng.normal(0.0, 0.02, size=2000), label="d")
     assert tight["equivalent"] and tight["min_bound"] < tight["bound"]
-    assert tight["bound"] == resolvable_bound((1.6449 + 0.8416) * 0.02, step=0.01)
+    multiplier = tost_bound_multiplier()
+    assert 2 * norm.cdf(multiplier - norm.ppf(0.95)) - 1 == pytest.approx(0.8)  # P(CI inside bound | true 0) = power
+    assert tight["bound"] == resolvable_bound(multiplier * 0.02, step=0.01)
     assert 0 <= tight["bound"] - tight["sensitivity"] < 0.01 + 1e-9  # rounded up, never tighter
 
     shifted = equivalence_test_bootstrap_effect(0.15, rng.normal(0.15, 0.02, size=2000))
