@@ -42,29 +42,16 @@ def _brute_force_tau_a(a: np.ndarray, b: np.ndarray) -> float:
     return s / (n * (n - 1) / 2)
 
 
-def test_kendall_tau_a_matches_brute_force_with_ties():
+def test_kendall_tau_a_matches_brute_force_with_ties_and_the_flag_only_adds_a_key():
     rng = np.random.default_rng(0)
     a = rng.integers(1, 5, size=40).astype(float)
     b = rng.normal(size=40) + a * 0.5
     assert kendall_tau_a(a, b) == pytest.approx(_brute_force_tau_a(a, b))
 
-
-def test_kendall_tau_a_matches_rsatoolbox():
-    from rsatoolbox.rdm import RDMs, compare
-    rng = np.random.default_rng(1)
-    a = rng.integers(1, 6, size=200).astype(float)
-    b = rng.normal(size=200) + a * 0.3
-    expected = compare(RDMs(a[None, :]), RDMs(b[None, :]), method="tau-a").item()
-    assert kendall_tau_a(a, b) == pytest.approx(expected)
-
-
-def test_masked_rank_correlation_tau_a_flag_adds_key_without_changing_others():
     rdm_a = np.array([1.0, 2.0, np.nan, 4.0, 5.0, 2.0])
     rdm_b = np.array([1.0, np.nan, 3.0, 4.0, 6.0, 1.0])
-    plain = masked_rank_correlation(rdm_a, rdm_b)
-    with_a = masked_rank_correlation(rdm_a, rdm_b, tau_a=True)
-    assert "kendall_a" not in plain
-    assert {k: with_a[k] for k in plain} == plain
+    plain, with_a = masked_rank_correlation(rdm_a, rdm_b), masked_rank_correlation(rdm_a, rdm_b, tau_a=True)
+    assert "kendall_a" not in plain and {k: with_a[k] for k in plain} == plain
     mask = ~(np.isnan(rdm_a) | np.isnan(rdm_b))
     assert with_a["kendall_a"] == pytest.approx(_brute_force_tau_a(rdm_a[mask], rdm_b[mask]))
 

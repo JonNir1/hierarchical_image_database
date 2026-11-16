@@ -1,4 +1,4 @@
-"""Tests for analysis.behavioral.demographics_and_behavior's participant filter."""
+"""Tests for analysis.pre_vs_post_shine.demographics_and_behavior's participant filter."""
 from __future__ import annotations
 
 import pandas as pd

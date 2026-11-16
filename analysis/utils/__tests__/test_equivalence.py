@@ -122,23 +122,12 @@ def test_resolvable_bound_rounds_up_to_the_step(sensitivity, step, expected):
 # equivalence_test_bootstrap_effect
 # ---------------------------------------------------------------------------
 
-def test_bootstrap_effect_declares_equivalence_for_tight_null_distribution():
-    draws = np.random.default_rng(0).normal(0.0, 0.02, size=2000)
-    result = equivalence_test_bootstrap_effect(0.0, draws, label="d")
-    assert result["equivalent"]
-    assert result["bound"] == resolvable_bound((1.6449 + 0.8416) * 0.02, step=0.01)
-    assert result["min_bound"] < result["bound"]
+def test_bootstrap_effect_equivalence_follows_the_80_percent_power_bound_rule():
+    rng = np.random.default_rng(0)
+    tight = equivalence_test_bootstrap_effect(0.0, rng.normal(0.0, 0.02, size=2000), label="d")
+    assert tight["equivalent"] and tight["min_bound"] < tight["bound"]
+    assert tight["bound"] == resolvable_bound((1.6449 + 0.8416) * 0.02, step=0.01)
+    assert 0 <= tight["bound"] - tight["sensitivity"] < 0.01 + 1e-9  # rounded up, never tighter
 
-
-def test_bootstrap_effect_rejects_equivalence_for_shifted_distribution():
-    draws = np.random.default_rng(1).normal(0.15, 0.02, size=2000)
-    result = equivalence_test_bootstrap_effect(0.15, draws)
-    assert not result["equivalent"]
-    assert result["ci_low"] > 0.1
-
-
-def test_bootstrap_effect_bound_is_never_tighter_than_the_ci_at_true_zero_power_rule():
-    draws = np.random.default_rng(2).normal(0.0, 0.05, size=4000)
-    result = equivalence_test_bootstrap_effect(0.0, draws)
-    assert result["bound"] >= result["sensitivity"]
-    assert result["bound"] - result["sensitivity"] < 0.01 + 1e-9
+    shifted = equivalence_test_bootstrap_effect(0.15, rng.normal(0.15, 0.02, size=2000))
+    assert not shifted["equivalent"] and shifted["ci_low"] > 0.1
