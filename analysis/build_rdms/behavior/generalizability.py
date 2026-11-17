@@ -79,7 +79,7 @@ import numpy as np
 import pandas as pd
 
 from analysis.build_rdms.behavior.noise_ceiling import (
-    _DEFAULT_CACHE_DIR, _DEFAULT_MIN_OVERLAP, RESULTS_DIR, _VALID_VARIANTS, _cohort_name,
+    _DEFAULT_CACHE_DIR, _DEFAULT_MIN_OVERLAP, CSV_CACHE_DIR, _VALID_VARIANTS, _cohort_name,
 )
 from analysis.build_rdms.behavior.spam_ratings import (
     _AGGREGATIONS, _build_trials, _combine, _select_participants, build_behavioral_rdm,
@@ -288,15 +288,15 @@ def main() -> None:
     parser.add_argument("--dims", type=int, nargs="+", default=list(_DEFAULT_DIMS))
     args = parser.parse_args()
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    CSV_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     raw = run_generalizability_comparison(cache_dir=args.cache_dir, min_overlap=args.min_overlap)
-    raw_path = RESULTS_DIR / "generalizability.csv"
+    raw_path = CSV_CACHE_DIR / "generalizability.csv"
     raw.to_csv(raw_path, index=False)
     print(f"[generalizability] Saved {len(raw)} rows to {raw_path}")
 
     if args.mds:
         mds = run_generalizability_mds_comparison(dims=tuple(args.dims), cache_dir=args.cache_dir)
-        mds_path = RESULTS_DIR / "generalizability_mds.csv"
+        mds_path = CSV_CACHE_DIR / "generalizability_mds.csv"
         mds.to_csv(mds_path, index=False)
         print(f"[generalizability] Saved {len(mds)} rows to {mds_path}")
 
