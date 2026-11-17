@@ -32,18 +32,6 @@ def _trials(rng: np.random.Generator, n_participants: int, noise: float) -> ra.T
     return out
 
 
-def test_masked_permutation_detects_planted_structure_and_is_centred_for_unrelated_rdms():
-    rng = np.random.default_rng(0)
-    combined, _ = _combine([t for ts in _trials(rng, 20, 0.3).values() for t in ts], _N, "mean")
-    planted = ra.label_shuffle_test_masked(combined, _reference(), n_perm=200, seed=1)
-    assert planted.observed["kendall_a"] > 0.3 and planted.p_value["kendall_a"] < 0.05
-
-    unrelated = rng.normal(size=len(_reference()))
-    unrelated[rng.random(unrelated.size) < 0.3] = np.nan
-    null = ra.label_shuffle_test_masked(unrelated, _reference(), n_perm=200, seed=3)
-    assert abs(null.null["kendall_a"].mean()) < 0.05 and null.p_value["kendall_a"] > 0.05
-
-
 def test_cohort_difference_bootstrap_invariants():
     rng = np.random.default_rng(11)
     same_a, same_b, noisy_b = _trials(rng, 12, 0.3), _trials(rng, 12, 0.3), _trials(rng, 12, 6.0)

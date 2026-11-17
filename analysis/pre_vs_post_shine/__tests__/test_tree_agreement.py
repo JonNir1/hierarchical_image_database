@@ -6,7 +6,7 @@ import pytest
 from scipy.cluster.hierarchy import cophenet, is_valid_linkage
 from scipy.spatial.distance import pdist
 
-from analysis.build_rdms.hierarchy_comparison import lca_depth_condensed
+from analysis.utils.hierarchy import lca_depth_condensed
 from analysis.pre_vs_post_shine import tree_agreement as ta
 from SpAM_Simulations.measures.cluster_stability import baker_gamma, cophenetic_ranks
 

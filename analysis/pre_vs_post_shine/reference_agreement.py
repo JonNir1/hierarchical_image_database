@@ -10,8 +10,8 @@ Why not rsatoolbox.inference.eval_bootstrap_rdm(): each participant's own RDM co
 RDMs, so it raises on this data. The same quantities are computed here directly. Kendall tau-a is the
 primary statistic (the reference RDMs are heavily tied), Spearman rho the secondary one.
 
-  label_shuffle_test_masked -- image-relabeling permutation null restricted to the pairs the
-      behavioral RDM observed (the repo's valid-p-value convention for RDM correlations).
+  (The image-relabeling permutation test, restricted to the pairs the behavioral RDM observed, is the
+      shared analysis.utils.stats.label_shuffle_test.)
   bootstrap_combined_fit_multi -- participant bootstrap of the combined RDM's fit to several references.
   loo_model_fit -- Nili et al. (2014) style: each left-out participant's own RDM scored against the
       reference, next to the same participant's lower-bound score against the combined others.
@@ -24,26 +24,24 @@ matching fingerprint of the inputs, n and seed.
 
 Usage (from repo root):
     from analysis.pre_vs_post_shine.reference_agreement import (
-        label_shuffle_test_masked, bootstrap_combined_fit_multi, loo_model_fit,
+        bootstrap_combined_fit_multi, loo_model_fit,
         bootstrap_cohort_difference, cohort_difference_equivalence, bh_within_cohort,
     )
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from scipy.spatial.distance import squareform
 from statsmodels.stats.multitest import multipletests
 
 from analysis.build_rdms.behavior.spam_ratings import _combine, _mean_combine
 from analysis.build_rdms.common import REPO_ROOT, subset_condensed
 from analysis.pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
-from analysis.utils.disk_cache import cached_array, cached_frame, fingerprint
+from analysis.utils.disk_cache import cached_frame, fingerprint
 from analysis.utils.equivalence import equivalence_test_bootstrap_effect
 from analysis.utils.stats import masked_rank_correlation
 
@@ -70,57 +68,6 @@ def _digest(trials: TrialsByParticipant) -> list[tuple]:
 def _stats(perceptual: np.ndarray, reference: np.ndarray) -> dict[str, float]:
     result = masked_rank_correlation(perceptual, reference, tau_a=True)
     return {"kendall_a": result["kendall_a"], "spearman": result["spearman"], "n_overlap": result["n_overlap"]}
-
-
-# ---------------------------------------------------------------------------
-# Permutation test
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class MaskedShuffleResult:
-    observed: dict[str, float]
-    null: dict[str, np.ndarray]
-    p_value: dict[str, float]
-
-    def summary(self) -> pd.DataFrame:
-        rows = [
-            {"statistic": k, "observed": self.observed[k], "null_mean": float(self.null[k].mean()),
-             "null_sd": float(self.null[k].std()), "p_value": self.p_value[k]}
-            for k in _STAT_KEYS
-        ]
-        return pd.DataFrame(rows).set_index("statistic")
-
-
-def label_shuffle_test_masked(
-    perceptual: np.ndarray, reference: np.ndarray, *, n_perm: int = 1000, seed: int = 0,
-    cache_path: Path | None = None,
-) -> MaskedShuffleResult:
-    """One-sided image-relabeling permutation test of the perceptual-vs-reference rank correlation.
-
-    Image identity of the fully-observed `reference` RDM is permuted (rows and columns together, so
-    its internal dependence structure survives); the statistic is recomputed over the pairs the
-    perceptual RDM observed. p = (#null >= observed + 1) / (n_perm + 1).
-    """
-    n = squareform(reference, checks=False).shape[0]
-    observed_pairs = ~np.isnan(perceptual)
-    perceptual_obs = perceptual[observed_pairs]
-
-    def draw_null() -> np.ndarray:
-        rng = np.random.default_rng(seed)
-        square = squareform(reference)
-        draws = np.empty((n_perm, len(_STAT_KEYS)))
-        for i in range(n_perm):
-            p = rng.permutation(n)
-            stats = _stats(perceptual_obs, squareform(square[np.ix_(p, p)], checks=False)[observed_pairs])
-            draws[i] = [stats[k] for k in _STAT_KEYS]
-        return draws
-
-    draws = cached_array(cache_path, fingerprint(perceptual, reference, n_perm, seed), draw_null)
-    null = {k: draws[:, j] for j, k in enumerate(_STAT_KEYS)}
-    observed = _stats(perceptual, reference)
-    p_value = {k: (float(np.sum(null[k] >= observed[k])) + 1.0) / (n_perm + 1.0) for k in _STAT_KEYS}
-    return MaskedShuffleResult(observed, null, p_value)
 
 
 # ---------------------------------------------------------------------------
