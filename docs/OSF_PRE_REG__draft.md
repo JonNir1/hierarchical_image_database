@@ -136,7 +136,7 @@ distance, synsets from image category labels) as a registered supplementary spec
 
 *Note on what the WordNet fit does and does not test*: we originally framed this as a
 robustness check on $D_{sem} = D_{KM}$. Pre-data diagnostics on the reference RDMs
-(`analysis/build_rdms/compare_to_hierarchy.ipynb`) show that framing to be wrong.
+(`analysis/build_rdms/rdm_vs_hierarchy.ipynb`) show that framing to be wrong.
 $D_{WN}$ and $D_{CLIP}$ are near-orthogonal to each other (Spearman ρ = 0.05, and
 slightly negative at −0.06 once $D_{KM}$ is held fixed), while each independently tracks
 $D_{KM}$ (ρ = 0.29 and 0.35). Their joint $R^2$ predicting $D_{KM}$ is 0.194, against
@@ -302,7 +302,7 @@ intervals of 5 subjects after reaching N=75).
   The curated `wn_synset_name` column is the reference concept assignment for the dataset;
   all analyses that need a per-image concept read it rather than re-deriving one.
 
-  We since quantified that decision (`analysis/build_rdms/imagenet_vs_path.py`), scoring every
+  We since quantified that decision (`analysis/build_rdms/semantic/imagenet_vs_path.py`), scoring every
   image on a 3×3 grid of WordNet distances between the top-3 ResNet-50 predictions and
   three concepts read off the curated path (filename stem, parent directory, and their
   compound). Of 717 resolvable images, automatic derivation reaches a different synset
