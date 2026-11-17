@@ -51,7 +51,7 @@ has been done and what is pending.
       later analysis needing a per-image concept reads that column; do not re-derive
       concepts from the path or from a classifier. Automatic derivation disagrees with
       it for 376 of 717 resolvable images (median 9 WordNet edges) and drops to 3.7%
-      agreement on the human branch. Evidence: `analysis/build_rdms/imagenet_vs_path.py`.
+      agreement on the human branch. Evidence: `analysis/build_rdms/semantic/imagenet_vs_path.py`.
 - [ ] Visual-semantic RDM (CLIP). `code: analysis/build_rdms/semantic/clip.py`.
       Load OpenAI pretrained CLIP **ViT-B/32** (via `open_clip`), using the
       `ViT-B-32-quickgelu` config — **not** plain `ViT-B-32`, which pairs OpenAI's
@@ -78,7 +78,7 @@ has been done and what is pending.
       RDM, used for both cohorts.
       Out: `E_sem_sgpt.npy`, `D_sem_sgpt.npy`.
 - [ ] Reference-RDM diagnostics vs the curated hierarchy.
-      `code: analysis/build_rdms/hierarchy_comparison.py` + `analysis/build_rdms/compare_to_hierarchy.ipynb`.
+      `code: analysis/build_rdms/rdm_vs_hierarchy.py` + `analysis/build_rdms/rdm_vs_hierarchy.ipynb`.
       Confirms `D_sem_km` reproduces the directory tree exactly (independent
       reimplementation of the LCA computation, so the check is not a tautology),
       then asks how far each non-KM RDM tracks that tree. Two distinct questions,
