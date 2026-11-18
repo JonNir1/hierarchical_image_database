@@ -2,24 +2,29 @@
 General statistical comparison helpers shared across analysis/ subdirectories:
 masked rank correlation between two (possibly incomplete) same-length vectors,
 rank-biserial effect size, independent-samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect
-sizes, and a one-line significance-summary printer. None of this is specific
+sizes, an image-relabeling permutation test for RDM agreement, and a one-line significance-summary printer. None of this is specific
 to RDMs or MDS -- see analysis/build_rdms/behavior/mds.py for that layer.
 
 Usage (from repo root):
     from analysis.utils.stats import (
         masked_rank_correlation, mwu_effect_size, mwu_family,
-        wilcoxon_effect_size, print_comparison_line,
+        wilcoxon_effect_size, print_comparison_line, label_shuffle_test,
     )
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from itertools import combinations
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
 import pandas as pd
+from scipy.spatial.distance import squareform
 from scipy.stats import kendalltau, mannwhitneyu, rankdata, spearmanr, wilcoxon
 from statsmodels.stats.multitest import multipletests
+
+from analysis.utils.disk_cache import cached_array, fingerprint
 
 
 def _tie_pairs(x: np.ndarray) -> float:
@@ -163,3 +168,70 @@ def print_comparison_line(result: dict, *, alpha: float = 0.05, corrected: bool 
     p = result[p_key]
     sig = "significant" if p < alpha else "not significant"
     print(f"  {result['comparison']}: U={result['U']:.1f}  {p_key}={p:.4f} ({sig})  r={result['r']:.3f}")
+
+
+# ---------------------------------------------------------------------------
+# Image-relabeling permutation test for RDM agreement
+# ---------------------------------------------------------------------------
+
+_RDM_STATISTICS: dict[str, Callable[[np.ndarray, np.ndarray], float]] = {
+    "kendall_a": kendall_tau_a,
+    "spearman": lambda a, b: float(spearmanr(a, b).statistic),
+}
+_DEFAULT_STATISTICS = tuple(_RDM_STATISTICS)
+
+
+@dataclass
+class ShuffleResult:
+    """Observed statistics, their permutation nulls and one-sided p-values, keyed by statistic name."""
+    observed: dict[str, float]
+    null: dict[str, np.ndarray]
+    p_value: dict[str, float]
+
+    def summary(self) -> pd.DataFrame:
+        rows = [
+            {"statistic": k, "observed": self.observed[k], "null_mean": float(self.null[k].mean()),
+             "null_sd": float(self.null[k].std()), "p_value": self.p_value[k]}
+            for k in self.observed
+        ]
+        return pd.DataFrame(rows).set_index("statistic")
+
+
+def _rdm_statistic(name: str, a: np.ndarray, b: np.ndarray) -> float:
+    mask = ~(np.isnan(a) | np.isnan(b))
+    return _RDM_STATISTICS[name](a[mask], b[mask])
+
+
+def label_shuffle_test(
+    perceptual: np.ndarray, reference: np.ndarray, *, statistics: tuple[str, ...] = _DEFAULT_STATISTICS,
+    n_perm: int = 1000, seed: int = 0, cache_path: Path | None = None,
+) -> ShuffleResult:
+    """One-sided image-relabeling permutation test of the rank agreement between two condensed RDMs.
+
+    Image identity of the fully observed `reference` RDM is permuted (rows and columns together, so its
+    internal dependence structure survives, which an entry-wise shuffle would not); each statistic
+    ("kendall_a", "spearman") is recomputed over the pairs `perceptual` observed (NaN = unobserved, so
+    incomplete RDMs are supported and complete ones need no special case). p = (#null >= observed + 1)
+    / (n_perm + 1), so its floor is 1 / (n_perm + 1). `cache_path` stores the null draws.
+    """
+    n = squareform(reference, checks=False).shape[0]
+    observed_pairs = ~np.isnan(perceptual)
+    perceptual_obs = perceptual[observed_pairs]
+
+    def draw_null() -> np.ndarray:
+        rng = np.random.default_rng(seed)
+        square = squareform(reference)
+        draws = np.empty((n_perm, len(statistics)))
+        for i in range(n_perm):
+            p = rng.permutation(n)
+            permuted = squareform(square[np.ix_(p, p)], checks=False)[observed_pairs]
+            draws[i] = [_RDM_STATISTICS[k](perceptual_obs, permuted) for k in statistics]
+        return draws
+
+    # the default statistics keep the fingerprint caches written before `statistics` was a parameter used
+    key_parts = (perceptual, reference, n_perm, seed) + (() if statistics == _DEFAULT_STATISTICS else (statistics,))
+    draws = cached_array(cache_path, fingerprint(*key_parts), draw_null)
+    null = {k: draws[:, j] for j, k in enumerate(statistics)}
+    observed = {k: _rdm_statistic(k, perceptual, reference) for k in statistics}
+    p_value = {k: (float(np.sum(null[k] >= observed[k])) + 1.0) / (n_perm + 1.0) for k in statistics}
+    return ShuffleResult(observed, null, p_value)

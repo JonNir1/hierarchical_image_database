@@ -16,7 +16,7 @@ descriptive. The clustering and gamma machinery is reused from SpAM_Simulations.
 
 Usage (from repo root):
     from analysis.pre_vs_post_shine import tree_agreement as ta
-    z_km = ta.path_tree_to_linkage(ta.path_parts())
+    z_km = ta.path_tree_to_linkage(ta.manifest_parts())
 """
 from __future__ import annotations
 
@@ -32,9 +32,10 @@ from scipy.spatial.distance import pdist, squareform
 from scipy.stats import rankdata
 
 from analysis.build_rdms.behavior.mds import run_mds_sweep
-from analysis.build_rdms.hierarchy_comparison import path_parts
+from analysis.build_rdms.common import load_manifest
 from analysis.pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
 from analysis.utils.disk_cache import cached_array, fingerprint
+from analysis.utils.hierarchy import Parts, path_parts
 from SpAM_Simulations.measures.cluster_stability import (
     baker_gamma, build_linkage, cophenetic_fidelity, cophenetic_ranks, variation_of_information,
 )
@@ -42,16 +43,19 @@ from SpAM_Simulations.measures.density_clustering import (
     DEFAULT_MIN_CLUSTER_SIZES, NOISE_LABEL, clustered_ari, hdbscan_labels, noise_summary,
 )
 
-Parts = list[tuple[str, ...]]
-
 LINKAGE = "average"
 MDS_DIMS = (3, 9, 15)
 
 __all__ = [
-    "LINKAGE", "MDS_DIMS", "path_parts", "path_tree_to_linkage", "km_level_labels", "perceptual_embeddings",
+    "LINKAGE", "MDS_DIMS", "manifest_parts", "path_tree_to_linkage", "km_level_labels", "perceptual_embeddings",
     "perceptual_tree", "agglomerative_agreement", "GammaShuffleResult", "dendrogram_shuffle_test",
     "tree_shuffle_test", "hdbscan_level_agreement", "fig_baker_gamma", "fig_hdbscan_agreement",
 ]
+
+
+def manifest_parts() -> Parts:
+    """Directory components of every manifest path, in manifest row order (the Kiani tree)."""
+    return path_parts(load_manifest()["curated_path"])
 
 
 def path_tree_to_linkage(parts: Parts) -> np.ndarray:

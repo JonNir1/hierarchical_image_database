@@ -1,6 +1,6 @@
 """Tests for analysis.utils.stats: masked rank correlation, independent-
-samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect sizes, and the
-one-line significance-summary printer."""
+samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect sizes, the image-relabeling
+permutation test, and the one-line significance-summary printer."""
 from __future__ import annotations
 
 import numpy as np
@@ -9,8 +9,11 @@ import pytest
 from scipy.stats import kendalltau, spearmanr
 from statsmodels.stats.multitest import multipletests
 
+from scipy.spatial.distance import squareform
+
 from analysis.utils.stats import (
-    kendall_tau_a, masked_rank_correlation, mwu_effect_size, mwu_family, print_comparison_line, wilcoxon_effect_size,
+    kendall_tau_a, label_shuffle_test, masked_rank_correlation, mwu_effect_size, mwu_family, print_comparison_line,
+    wilcoxon_effect_size,
 )
 
 # ---------------------------------------------------------------------------
@@ -154,3 +157,47 @@ def test_print_comparison_line_reports_p_or_corrected_p(capsys, result, kwargs, 
     out = capsys.readouterr().out
     for fragment in expected_fragments:
         assert fragment in out
+
+
+# ---------------------------------------------------------------------------
+# label_shuffle_test
+# ---------------------------------------------------------------------------
+
+_N_IMAGES = 16
+
+
+def _grouped_reference() -> np.ndarray:
+    group = np.repeat(np.arange(4), 4)
+    within = group[:, None] == group[None, :]
+    return squareform(np.where(within, 1.0, 3.0) * (1 - np.eye(_N_IMAGES)), checks=False)
+
+
+def test_label_shuffle_test_detects_planted_structure_and_is_centred_for_unrelated_incomplete_rdms():
+    reference = _grouped_reference()
+    rng = np.random.default_rng(0)
+    planted = reference + rng.normal(scale=0.3, size=reference.size)
+    planted[rng.random(planted.size) < 0.3] = np.nan
+    result = label_shuffle_test(planted, reference, n_perm=200, seed=1)
+    assert result.observed["kendall_a"] > 0.3 and result.p_value["kendall_a"] < 0.05
+
+    unrelated = rng.normal(size=reference.size)
+    unrelated[rng.random(unrelated.size) < 0.3] = np.nan
+    null = label_shuffle_test(unrelated, reference, n_perm=200, seed=3)
+    assert abs(null.null["kendall_a"].mean()) < 0.05 and null.p_value["kendall_a"] > 0.05
+
+    complete = label_shuffle_test(reference, reference, n_perm=99)
+    assert complete.observed["spearman"] == pytest.approx(1.0) and complete.p_value["spearman"] == pytest.approx(1 / 100)
+
+
+def test_label_shuffle_test_statistic_subset_matches_the_full_run_and_reuses_its_cache(tmp_path):
+    reference = _grouped_reference()
+    perceptual = reference + np.random.default_rng(2).normal(scale=0.5, size=reference.size)
+    full = label_shuffle_test(perceptual, reference, n_perm=30, seed=4)
+    only = label_shuffle_test(perceptual, reference, statistics=("spearman",), n_perm=30, seed=4)
+    assert list(only.observed) == ["spearman"]
+    np.testing.assert_allclose(only.null["spearman"], full.null["spearman"])
+
+    path = tmp_path / "null.npz"
+    first = label_shuffle_test(perceptual, reference, n_perm=30, seed=4, cache_path=path)
+    again = label_shuffle_test(perceptual, reference, n_perm=30, seed=4, cache_path=path)
+    np.testing.assert_array_equal(first.null["kendall_a"], again.null["kendall_a"])

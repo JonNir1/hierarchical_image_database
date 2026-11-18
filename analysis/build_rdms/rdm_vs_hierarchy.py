@@ -1,5 +1,6 @@
 """
-Diagnostics comparing every reference RDM against the curated directory hierarchy.
+Diagnostics comparing every reference RDM against the curated directory hierarchy
+(rdm_vs_hierarchy.ipynb is the front end).
 
 The directory tree under images/<variant>/ *is* the Kiani-Mur semantic hierarchy:
 `animate/animal/body/bird/duck3.png` encodes domain -> mid-level -> basic level.
@@ -24,21 +25,18 @@ after reading them apart.
 Note on inference: a condensed RDM has N*(N-1)/2 = 262_450 entries derived from
 725 images, so the entries are massively non-independent and the analytic
 p-value of any correlation between two RDMs is meaningless. Use
-label_shuffle_test(), which permutes image identity (rows and columns together)
+analysis.utils.stats.label_shuffle_test(), which permutes image identity (rows and columns together)
 and so respects that dependence structure.
 
-The LCA logic here is deliberately a second implementation, independent of the
-one inside kiani.build_km_rdm(). Sharing it would make
+The LCA logic (analysis.utils.hierarchy) is deliberately a second implementation,
+independent of the one inside kiani.build_km_rdm(). Sharing it would make
 reconstruct_km_from_hierarchy() a tautology instead of a check.
 
-Usage:
-    from analysis.build_rdms import hierarchy_comparison as hc
-    hc.correlation_matrix(["sem_km", "clip_pre"])
+Usage (from repo root):
+    from analysis.build_rdms import rdm_vs_hierarchy as rvh
+    rvh.correlation_matrix(["sem_km", "clip_pre"])
 """
 from __future__ import annotations
-
-from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -46,7 +44,8 @@ import plotly.graph_objects as go
 from scipy.spatial.distance import squareform
 from scipy.stats import rankdata
 
-from analysis.build_rdms.common import _EXPECTED_N, load_manifest, load_rdm
+from analysis.build_rdms.common import load_manifest, load_rdm
+from analysis.utils.hierarchy import Parts, lca_depth_condensed, lca_depth_matrix, path_depths, path_parts
 
 # Directory level -> what that level of the tree encodes.
 LEVEL_NAMES: dict[int, str] = {
@@ -59,51 +58,13 @@ _DEFAULT_RDMS = ["sem_km", "sem_wn", "clip_pre", "clip_post", "sens_pre", "sens_
 
 
 # ---------------------------------------------------------------------------
-# The path hierarchy
+# The path hierarchy (primitives live in analysis/utils/hierarchy.py)
 # ---------------------------------------------------------------------------
 
 
-def path_parts() -> list[tuple[str, ...]]:
+def manifest_parts() -> Parts:
     """Directory components of every manifest path, in manifest row order."""
-    return [
-        tuple(Path(p.replace("\\", "/")).parts[:-1])
-        for p in load_manifest()["curated_path"]
-    ]
-
-
-def path_depths(parts: list[tuple[str, ...]] | None = None) -> np.ndarray:
-    """Number of directory levels below the variant root, per image."""
-    parts = path_parts() if parts is None else parts
-    return np.array([len(p) for p in parts], dtype=np.float64)
-
-
-def lca_depth_matrix(parts: list[tuple[str, ...]] | None = None) -> np.ndarray:
-    """
-    (N, N) depth of each pair's lowest common ancestor directory.
-
-    0 means the two images share no directory at all (they diverge at the root,
-    i.e. animate vs inanimate); a larger value means they stay together deeper
-    into the tree. The diagonal is zeroed, so read it only off-diagonal.
-    """
-    parts = path_parts() if parts is None else parts
-    n = len(parts)
-    lca = np.zeros((n, n), dtype=np.int16)
-    for level in range(1, int(path_depths(parts).max()) + 1):
-        groups: dict[tuple[str, ...], list[int]] = {}
-        for i, p in enumerate(parts):
-            if len(p) >= level:
-                groups.setdefault(p[:level], []).append(i)
-        for members in groups.values():
-            if len(members) > 1:
-                ix = np.array(members)
-                lca[np.ix_(ix, ix)] = level
-    np.fill_diagonal(lca, 0)
-    return lca
-
-
-def lca_depth_condensed(parts: list[tuple[str, ...]] | None = None) -> np.ndarray:
-    """Condensed (upper-triangle) form of lca_depth_matrix()."""
-    return squareform(lca_depth_matrix(parts), checks=False)
+    return path_parts(load_manifest()["curated_path"])
 
 
 def reconstruct_km_from_hierarchy() -> np.ndarray:
@@ -114,7 +75,7 @@ def reconstruct_km_from_hierarchy() -> np.ndarray:
     Compare against load_rdm("sem_km") to confirm the KM RDM is exactly the tree
     and nothing else. Uses an LCA implementation independent of kiani's.
     """
-    parts = path_parts()
+    parts = manifest_parts()
     depths = path_depths(parts)
     lca = lca_depth_matrix(parts).astype(np.float64)
     dist = np.add.outer(depths, depths) - 2.0 * lca
@@ -122,18 +83,6 @@ def reconstruct_km_from_hierarchy() -> np.ndarray:
     dist = np.maximum(dist, 1.0)
     np.fill_diagonal(dist, 0.0)
     return squareform(dist, checks=False)
-
-
-def depth_is_ragged(parts: list[tuple[str, ...]] | None = None) -> bool:
-    """
-    True if leaves sit at more than one depth.
-
-    When the tree is ragged, KM distance is not a function of LCA depth alone:
-    a pair in a finely-subdivided branch is pushed further apart than an equally
-    related pair in a coarse one. That asymmetry propagates into any
-    level-stratified comparison, so it is worth knowing about explicitly.
-    """
-    return len(np.unique(path_depths(parts))) > 1
 
 
 # ---------------------------------------------------------------------------
@@ -162,50 +111,6 @@ def correlation_matrix(
     z = {k: _z_ranks(v) for k, v in rdms.items()}
     m = np.array([[float(np.mean(z[a] * z[b])) for b in keys] for a in keys])
     return pd.DataFrame(m, index=keys, columns=keys)
-
-
-@dataclass
-class ShuffleResult:
-    """Outcome of an image-label shuffle test."""
-    observed: float
-    null_mean: float
-    null_sd: float
-    p_value: float
-
-    @property
-    def z(self) -> float:
-        return (self.observed - self.null_mean) / self.null_sd
-
-    def __str__(self) -> str:
-        return (f"rho={self.observed:+.3f}  null={self.null_mean:+.4f}"
-                f"+/-{self.null_sd:.4f}  z={self.z:.1f}  p={self.p_value:.5f}")
-
-
-def label_shuffle_test(
-    a: np.ndarray, b: np.ndarray, *, n_perm: int = 2000, seed: int = 0,
-) -> ShuffleResult:
-    """
-    Test Spearman rho(a, b) against a null that permutes image identity.
-
-    Permuting rows and columns of one RDM together destroys the correspondence
-    between the two RDMs while preserving each one's internal dependence
-    structure, which a naive entry-wise shuffle would not.
-
-    p is one-sided (P[null >= observed]) with the standard +1 correction, so its
-    floor is 1/(n_perm+1).
-    """
-    rng = np.random.default_rng(seed)
-    n = _EXPECTED_N
-    za = _z_ranks(a)
-    sq = squareform(rankdata(b))
-    null = np.empty(n_perm)
-    for i in range(n_perm):
-        p = rng.permutation(n)
-        r = squareform(sq[np.ix_(p, p)], checks=False)
-        null[i] = float(np.mean(za * ((r - r.mean()) / r.std())))
-    observed = float(np.mean(za * _z_ranks(b)))
-    p_value = (float(np.sum(null >= observed)) + 1.0) / (n_perm + 1.0)
-    return ShuffleResult(observed, float(null.mean()), float(null.std()), p_value)
 
 
 def partial_correlation(a: np.ndarray, b: np.ndarray, control: np.ndarray) -> float:
@@ -260,7 +165,7 @@ def depth_profile(
     separation, which is what "tracks the hierarchy" means.
     """
     rdms = load_rdms(names) if rdms is None else rdms
-    lca = lca_depth_condensed()
+    lca = lca_depth_condensed(manifest_parts())
     depths = sorted(np.unique(lca))
     out = pd.DataFrame(index=pd.Index(depths, name="lca_depth"))
     out["n_pairs"] = [int(np.sum(lca == d)) for d in depths]
@@ -284,7 +189,7 @@ def level_separation(
     hierarchy. Images shallower than `level` are excluded from the contrast.
     """
     rdms = load_rdms(names) if rdms is None else rdms
-    parts = path_parts()
+    parts = manifest_parts()
     valid = np.array([len(p) >= level for p in parts])
     codes = np.array([hash(p[:level]) if len(p) >= level else -1 for p in parts])
     same = squareform((codes[:, None] == codes[None, :]).astype(np.int8),

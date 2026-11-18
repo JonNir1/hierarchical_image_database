@@ -1,4 +1,4 @@
-"""Tests for analysis.build_rdms.imagenet_vs_path: path-concept extraction, the 3x3
+"""Tests for analysis.build_rdms.semantic.imagenet_vs_path: path-concept extraction, the 3x3
 distance grid, and the argmin bookkeeping. No ResNet forward pass is involved;
 classify_top_k() is the only part that needs the model, and it is not exercised
 here."""
@@ -10,7 +10,7 @@ import pytest
 
 pytest.importorskip("torchvision", reason="imagenet_vs_path imports torch/torchvision at module level")
 
-import analysis.build_rdms.imagenet_vs_path as ivp  # noqa: E402
+import analysis.build_rdms.semantic.imagenet_vs_path as ivp  # noqa: E402
 
 # ImageNet class indices with stable, well-known synsets.
 _COCK = 7        # cock.n.05

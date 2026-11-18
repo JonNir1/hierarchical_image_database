@@ -64,7 +64,7 @@ from analysis.utils.stats import masked_rank_correlation
 
 _VALID_VARIANTS = ("pre_shine", "post_shine")
 _DEFAULT_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "parsed_data"
-RESULTS_DIR = REPO_ROOT / "analysis" / "results" / "build_rdms"
+CSV_CACHE_DIR = REPO_ROOT / "analysis" / "build_rdms" / "behavior" / "cache"  # gitignored: fold_id is a participant id
 _DEFAULT_MIN_OVERLAP = 20
 _DEFAULT_N_SPLITS = 100
 
@@ -261,7 +261,7 @@ def main() -> None:
     parser.add_argument("--only", nargs="+", choices=list(_VALID_VARIANTS), default=list(_VALID_VARIANTS))
     args = parser.parse_args()
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    CSV_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     frames = []
     for variant in args.only:
         df = run_comparison(
@@ -270,7 +270,7 @@ def main() -> None:
         )
         frames.append(df)
     result = pd.concat(frames, ignore_index=True)
-    out_path = RESULTS_DIR / "noise_ceiling.csv"
+    out_path = CSV_CACHE_DIR / "noise_ceiling.csv"
     result.to_csv(out_path, index=False)
     print(f"[reliability] Saved {len(result)} rows to {out_path}")
 

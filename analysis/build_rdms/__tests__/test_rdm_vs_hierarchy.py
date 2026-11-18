@@ -1,5 +1,5 @@
-"""Tests for analysis.build_rdms.hierarchy_comparison: tree derivation from manifest
-paths, the KM reconstruction identity, and the statistical helpers."""
+"""Tests for analysis.build_rdms.rdm_vs_hierarchy: the KM reconstruction identity and the
+statistical helpers."""
 from __future__ import annotations
 
 import numpy as np
@@ -9,7 +9,7 @@ from _rdm_helpers import synthetic_manifest
 from scipy.spatial.distance import squareform
 
 import analysis.build_rdms.common as common
-import analysis.build_rdms.hierarchy_comparison as hc
+import analysis.build_rdms.rdm_vs_hierarchy as hc
 import analysis.build_rdms.semantic.kiani as km
 
 B = chr(92)  # backslash, matching the manifest's Windows-style curated_path
@@ -28,53 +28,10 @@ _TOY_N = len(_TOY_PATHS)
 
 @pytest.fixture()
 def toy_tree(monkeypatch):
-    """Point hierarchy_comparison at the toy tree instead of the real manifest."""
+    """Point rdm_vs_hierarchy at the toy tree instead of the real manifest."""
     df = synthetic_manifest(_TOY_PATHS)
     monkeypatch.setattr(hc, "load_manifest", lambda: df)
-    monkeypatch.setattr(hc, "_EXPECTED_N", _TOY_N)
     return df
-
-
-# ---------------------------------------------------------------------------
-# Tree derivation
-# ---------------------------------------------------------------------------
-
-class TestTreeDerivation:
-    def test_path_parts_strips_filename(self, toy_tree):
-        assert hc.path_parts()[0] == ("animate", "bird")
-        assert hc.path_parts()[2] == ("animate", "mammal", "cat")
-
-    def test_path_depths(self, toy_tree):
-        assert list(hc.path_depths()) == [2, 2, 3, 3, 3, 2]
-
-    def test_ragged_detected(self, toy_tree):
-        assert hc.depth_is_ragged() is True
-
-    def test_uniform_tree_not_ragged(self, monkeypatch):
-        paths = [f"a{B}b{B}x1.png", f"a{B}c{B}x2.png"]
-        monkeypatch.setattr(hc, "load_manifest", lambda: synthetic_manifest(paths))
-        assert hc.depth_is_ragged() is False
-
-    def test_lca_depth_values(self, toy_tree):
-        lca = hc.lca_depth_matrix()
-        # the two ducks share animate/bird
-        assert lca[0, 1] == 2
-        # duck vs cat share only animate
-        assert lca[0, 2] == 1
-        # cat vs dog share animate/mammal
-        assert lca[2, 4] == 2
-        # animate vs inanimate share nothing
-        assert lca[0, 5] == 0
-
-    def test_lca_matrix_symmetric_zero_diagonal(self, toy_tree):
-        lca = hc.lca_depth_matrix()
-        assert np.array_equal(lca, lca.T)
-        assert np.all(np.diag(lca) == 0)
-
-    def test_condensed_matches_matrix(self, toy_tree):
-        assert np.array_equal(
-            hc.lca_depth_condensed(), squareform(hc.lca_depth_matrix(), checks=False)
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +42,7 @@ class TestReconstruction:
     def test_matches_kiani_builder(self, toy_tree, monkeypatch, tmp_path):
         """The independent reimplementation must agree with the real builder.
 
-        This is the check the notebook relies on. hierarchy_comparison keeps its
+        This is the check the notebook relies on. rdm_vs_hierarchy keeps its
         own LCA implementation precisely so this comparison has teeth, so the two
         must be verified against each other here.
         """
@@ -120,28 +77,6 @@ class TestCorrelationMatrix:
         a = np.array([1.0, 2, 3, 4, 5, 6])
         corr = hc.correlation_matrix(rdms={"a": a, "rev": a[::-1].copy()})
         assert corr.loc["a", "rev"] == pytest.approx(-1.0)
-
-
-class TestLabelShuffleTest:
-    def test_identical_rdms_hit_significance_floor(self, toy_tree):
-        d = squareform(np.array([
-            [0, 1, 2, 3, 4, 5], [1, 0, 6, 7, 8, 9], [2, 6, 0, 1, 2, 3],
-            [3, 7, 1, 0, 4, 5], [4, 8, 2, 4, 0, 6], [5, 9, 3, 5, 6, 0],
-        ], dtype=float), checks=False)
-        res = hc.label_shuffle_test(d, d, n_perm=99)
-        assert res.observed == pytest.approx(1.0)
-        assert res.p_value == pytest.approx(1 / 100)
-
-    def test_null_is_centred_near_zero(self, toy_tree):
-        rng = np.random.default_rng(1)
-        a = squareform(squareform(rng.random(15)), checks=False)
-        b = squareform(squareform(rng.random(15)), checks=False)
-        res = hc.label_shuffle_test(a, b, n_perm=200)
-        assert abs(res.null_mean) < 0.15
-
-    def test_z_property(self):
-        r = hc.ShuffleResult(observed=0.5, null_mean=0.1, null_sd=0.2, p_value=0.01)
-        assert r.z == pytest.approx(2.0)
 
 
 class TestPartialCorrelation:

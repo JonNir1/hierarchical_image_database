@@ -10,7 +10,7 @@ THIS IS THE REFERENCE CONCEPT ASSIGNMENT FOR THE DATASET.
 concept is this image", and D_sem_wn is built from it (wordnet.py).
 Future analyses needing a per-image concept should read that column rather than
 re-deriving one from the path or from a classifier. Reasons, measured in
-analysis/build_rdms/imagenet_vs_path.py over all 725 images:
+analysis/build_rdms/semantic/imagenet_vs_path.py over all 725 images:
 
   - Automatic path parsing reaches a different synset than this module's
     assignment for 376 of 717 resolvable images, and none of those differences

@@ -1,7 +1,10 @@
 # `build_rdms/`
 
-Code that **builds** the RDMs the analysis consumes. One subfolder per RDM type,
-each holding the builder(s) for that type; shared infrastructure stays at this level.
+Code that **builds** the RDMs the analysis consumes, plus the methodological checks that
+validate them (which aggregation to use, how the reference RDMs relate to the hierarchy, why
+WordNet is built by direct assignment). One subfolder per RDM type, each holding the builder(s)
+for that type; shared infrastructure stays at this level. Cohort comparisons (pre vs post SHINE)
+live in `analysis/pre_vs_post_shine/`, not here.
 
 ```
 build_rdms/
@@ -9,7 +12,10 @@ build_rdms/
                          embeddings, the order_hash alignment contract
   build_all.py           CLI to build any or all reference RDMs
   validate_rdms.py       invariant checks over whatever has been built
-  KEY_FINDINGS.md        findings about the builders (currently: which aggregation to use)
+  rdm_vs_hierarchy.py    how every reference RDM relates to the directory-tree hierarchy
+  rdm_vs_hierarchy.ipynb   (km reconstruction check, rank-correlation matrix, depth profiles,
+                         shuffle null, pixel-confound control, per-level separation)
+  KEY_FINDINGS.md        findings about the builders (aggregation choice, ImageNet vs path)
   __tests__/             all tests for this package, flat (see note below)
 
   behavior/   spam_ratings.py     SpAM trials -> 725x725 RDM (3 aggregations)
@@ -17,11 +23,16 @@ build_rdms/
               noise_ceiling.py    leave-one-out / split-half reliability bounds
               generalizability.py agreement with a held-out-subject RDM
               aggregation_comparison.ipynb   picks the aggregation method
+              cache/              its CSV outputs (gitignored: participant ids)
 
   semantic/   kiani.py                   Kiani-Mur directory-tree path length
               wordnet.py                 WordNet shortest path
               assign_wordnet_synsets.py  the reference concept assignment it reads
               clip.py                    CLIP ViT-B/32 cosine (visual-semantic)
+              imagenet_vs_path.py        ResNet-50 vs path-derived concepts: why WordNet is
+                                         built by direct assignment, not from ImageNet classes
+              imagenet_vs_path.ipynb     its table and plots
+              imagenet_class_index.json  its data file (class index -> wnid)
 
   sensory/    pixels.py           pixel Euclidean, pre and post SHINE
 ```
@@ -33,21 +44,3 @@ pixel-level matrix that SHINE manipulates, which is the contrast H3 is built on.
 Tests are kept flat in `__tests__/` rather than mirrored per subfolder: one
 `conftest.py`, one pytest root, and `test_<module>.py` already maps obviously to
 its module.
-
-## TODO: these are not builders and should move
-
-The following are inference / hypothesis-testing or diagnostics. They live here
-only for historical reasons and should move once there is a home for them
-(`analysis/inference/`, or per-question folders). Left in place deliberately, so
-the move is one decision rather than several. (The Q1 cohort-vs-hierarchy and
-cohort-vs-ground-truth analyses that used to be listed here now live in
-`analysis/pre_vs_post_shine/`, notebooks 4 and 5.)
-
-| file | what it is |
-|---|---|
-| `hierarchy_comparison.py` | reference-RDM diagnostics against the path hierarchy |
-| `imagenet_vs_path.py` | ImageNet vs path-derived concept distance (+ its `imagenet_class_index.json`) |
-| `compare_to_hierarchy.ipynb` | reference RDMs vs the curated hierarchy |
-
-`imagenet_class_index.json` is `imagenet_vs_path.py`'s own data file, loaded via
-`Path(__file__).parent`, so the two move together.
