@@ -465,7 +465,7 @@ def null_distances(num_dots: int = 20, num_trials: int = 2000, seed: int = 42) -
     the unit-square diagonal, which is the same normalisation the deployed task and the v5 canvas
     simulator apply, so the three sources are directly comparable with no rescaling.
     """
-    from analysis.pilot.simulate_null_distances import simulate
+    from analysis._retired.pilot.simulate_null_distances import simulate
     return simulate(num_dots, num_trials, seed=seed)
 
 

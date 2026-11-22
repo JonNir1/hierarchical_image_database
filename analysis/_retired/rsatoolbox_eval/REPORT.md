@@ -2,9 +2,9 @@
 
 Investigation into whether `rsatoolbox`'s MDS embedding step
 (`rsatoolbox.util.weighted_mds`) could replace the R `smacof::mds()` bridge used in
-[`SpAM_Simulations/core/multi_dimensional_scaling.py`](../../SpAM_Simulations/core/multi_dimensional_scaling.py).
+[`../../../SpAM_Simulations/core/multi_dimensional_scaling.py`](../../../SpAM_Simulations/core/multi_dimensional_scaling.py).
 This is a *separate* question from whether `rsatoolbox` is useful for building the
-behavioral RDMs in the first place ([`../0_build_rdms`](../rdms/behavioral.py)) --
+behavioral RDMs in the first place ([`../../0_build_rdms`](../rdms/behavioral.py)) --
 that part of `rsatoolbox` (`rdm.combine.from_partials()`/`rescale()`) has no bugs found
 against it and remains in active use.
 
@@ -28,10 +28,10 @@ upstream with minimal reproductions and proposed fixes:
 
 - **[rsagroup/rsatoolbox#495](https://github.com/rsagroup/rsatoolbox/issues/495)** --
   the weighted update's `V` matrix is built via a Python double loop over every pair,
-  each iteration doing a full `(n, n)` outer product: O(n⁴) overall. It didn't finish
+  each iteration doing a full `(n, n)` outer product: O (n⁴) overall. It didn't finish
   `n=500` within 2+ minutes in testing; this project's real data is `n=725`. Separate
   from the correctness bug above -- pure performance. `V` is exactly the weight
-  matrix's graph Laplacian (`diag(weight.sum(axis=1)) - weight`), computable in O(n²)
+  matrix's graph Laplacian (`diag(weight.sum(axis=1)) - weight`), computable in O (n²)
   with no loop; `mds_rsatoolbox_vectorized.py` here is that fix, verified bit-identical
   to the original at `n=60` (the largest size the original still completes in
   reasonable time).
@@ -46,7 +46,7 @@ with `n`, not shrinks.
 
 ## What's in this directory
 
-- **`mds_rsatoolbox_vectorized.py`** -- the O(n²) fix for issue #495 (graph-Laplacian
+- **`mds_rsatoolbox_vectorized.py`** -- the O (n²) fix for issue #495 (graph-Laplacian
   identity in place of the double loop), verified bit-identical to rsatoolbox's own
   `smacof()` at `n=60`. This is what makes running rsatoolbox's algorithm at this
   project's real `n=725` scale possible at all; used by the other two scripts here.
@@ -72,7 +72,7 @@ with `n`, not shrinks.
   disparity 0.19-0.25, r 0.82-0.91. **This is a real, independent finding for the
   actual behavioral analysis**, unrelated to either rsatoolbox bug: the two
   aggregation methods produce noticeably different *converged* embeddings, more so
-  than their RDM-level correlation (ρ=0.90, computed in `../0_build_rdms`)
+  than their RDM-level correlation (ρ=0.90, computed in `../../0_build_rdms`)
   alone would suggest.
 - **Aggregation effect, rsatoolbox backend** (`mean` vs. `evidence`, both via
   rsatoolbox): looks "similar" by the numbers (disparity ~0.005-0.013, r ~0.96-0.98) --
