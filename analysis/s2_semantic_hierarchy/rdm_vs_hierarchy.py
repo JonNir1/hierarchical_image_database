@@ -39,10 +39,10 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from scipy.spatial.distance import squareform
-from scipy.stats import rankdata
 
 from analysis.s0_build_rdms.common import load_manifest, load_rdm
 from analysis.utils.hierarchy import Parts, lca_depth_condensed, path_parts
+from analysis.utils.stats import z_ranks
 
 # Directory level -> what that level of the tree encodes.
 LEVEL_NAMES: dict[int, str] = {
@@ -69,12 +69,6 @@ def manifest_parts() -> Parts:
 # ---------------------------------------------------------------------------
 
 
-def _z_ranks(d: np.ndarray) -> np.ndarray:
-    """Z-scored ranks, so a dot-product mean is a Spearman correlation."""
-    r = rankdata(d)
-    return (r - r.mean()) / r.std()
-
-
 def load_rdms(names: list[str] | None = None) -> dict[str, np.ndarray]:
     """Load several condensed RDMs by name."""
     return {n: load_rdm(n) for n in (names if names is not None else _DEFAULT_RDMS)}
@@ -87,14 +81,14 @@ def correlation_matrix(
     """Square DataFrame of Spearman rho between every pair of named RDMs."""
     rdms = load_rdms(names) if rdms is None else rdms
     keys = list(rdms)
-    z = {k: _z_ranks(v) for k, v in rdms.items()}
+    z = {k: z_ranks(v) for k, v in rdms.items()}
     m = np.array([[float(np.mean(z[a] * z[b])) for b in keys] for a in keys])
     return pd.DataFrame(m, index=keys, columns=keys)
 
 
 def partial_correlation(a: np.ndarray, b: np.ndarray, control: np.ndarray) -> float:
     """Rank-based partial correlation of a and b, holding `control` fixed."""
-    za, zb, zc = _z_ranks(a), _z_ranks(b), _z_ranks(control)
+    za, zb, zc = z_ranks(a), z_ranks(b), z_ranks(control)
     res_a = za - np.polyval(np.polyfit(zc, za, 1), zc)
     res_b = zb - np.polyval(np.polyfit(zc, zb, 1), zc)
     return float(np.corrcoef(res_a, res_b)[0, 1])
@@ -109,8 +103,8 @@ def incremental_r2(
     If the joint R^2 is close to the sum of the individual ones, the predictors
     carry complementary rather than redundant information about the target.
     """
-    zt = _z_ranks(target)
-    zp = {k: _z_ranks(v) for k, v in predictors.items()}
+    zt = z_ranks(target)
+    zp = {k: z_ranks(v) for k, v in predictors.items()}
     ones = np.ones_like(zt)
 
     def fit(cols: list[str]) -> float:

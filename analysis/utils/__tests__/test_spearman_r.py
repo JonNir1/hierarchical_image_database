@@ -1,6 +1,7 @@
 import json
 
 import pandas as pd
+import pytest
 
 from analysis.utils.spearman_r import distance_dict, pair_spearman_r
 
@@ -38,7 +39,7 @@ def test_pair_spearman_r_perfect_positive():
         {"src1": "b", "src2": "c", "distance": 0.9},
     ])
 
-    assert pair_spearman_r(orig, repeat) == 1.0
+    assert pair_spearman_r(orig, repeat) == pytest.approx(1.0)
 
 
 def test_pair_spearman_r_perfect_negative():
@@ -53,7 +54,7 @@ def test_pair_spearman_r_perfect_negative():
         {"src1": "b", "src2": "c", "distance": 0.1},
     ])
 
-    assert pair_spearman_r(orig, repeat) == -1.0
+    assert pair_spearman_r(orig, repeat) == pytest.approx(-1.0)
 
 
 def test_pair_spearman_r_insufficient_shared_pairs_returns_none():

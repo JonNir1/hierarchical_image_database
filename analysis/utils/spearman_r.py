@@ -12,7 +12,8 @@ from __future__ import annotations
 import json
 
 import pandas as pd
-from scipy.stats import spearmanr
+
+from analysis.utils.stats import spearman_rho
 
 
 def distance_dict(row: pd.Series) -> dict[frozenset, float]:
@@ -30,5 +31,4 @@ def pair_spearman_r(orig_row: pd.Series, repeat_row: pd.Series) -> float | None:
     keys = sorted(d_orig.keys() & d_repeat.keys(), key=lambda k: sorted(k))
     if len(keys) < 2:
         return None
-    r, _p = spearmanr([d_orig[k] for k in keys], [d_repeat[k] for k in keys])
-    return r
+    return spearman_rho([d_orig[k] for k in keys], [d_repeat[k] for k in keys])

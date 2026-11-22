@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 
 from SpAM_Simulations.core.helpers import condensed_rdm_to_weighted_dists, double_centered_gram, procrustes_m2
+from analysis.utils.stats import pearson_r
 
 # ---------------------------------------------------------------------------
 # Classical (Torgerson) eigenspectrum -- qualitative only, see caveat below
@@ -167,5 +168,5 @@ def compare_mds_configs(out_a: dict, out_b: dict, ndim: int) -> dict:
     conf_a = np.asarray(out_a["conf"]).reshape(-1, ndim)
     conf_b = np.asarray(out_b["conf"]).reshape(-1, ndim)
     disparity = procrustes_m2(conf_a, conf_b)
-    corr = float(np.corrcoef(np.asarray(out_a["confdist"]), np.asarray(out_b["confdist"]))[0, 1])
+    corr = pearson_r(np.asarray(out_a["confdist"]), np.asarray(out_b["confdist"]))
     return {"disparity": disparity, "confdist_r": corr, "verdict": classify_mds_agreement(disparity, corr)}
