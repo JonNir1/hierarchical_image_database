@@ -6,7 +6,7 @@ dendrogram)?
 
 Reference: path_tree_to_linkage() turns the directory tree itself into a scipy linkage matrix, exactly
 rather than by clustering an RDM. Perceptual side: the cached MDS embedding of the behavioral RDM
-(analysis.s0_build_rdms.behavior.mds.run_mds_sweep, which handles the missing pairs), clustered
+(analysis.utils.mds.run_mds_sweep, which handles the missing pairs), clustered
 agglomeratively with average linkage. The v5 simulation report (SpAM_Simulations/sim_results/v5/report/
 report_v5.src.html) finds average linkage outperforms ward and complete throughout (Baker's gamma
 0.611 vs 0.579 and 0.471), so it is the only linkage used here. Whole-tree agreement is Baker's gamma of
@@ -31,7 +31,7 @@ from scipy.cluster.hierarchy import cophenet
 from scipy.spatial.distance import pdist, squareform
 from scipy.stats import rankdata
 
-from analysis.s0_build_rdms.behavior.mds import run_mds_sweep
+from analysis.utils.mds import run_mds_sweep
 from analysis.s0_build_rdms.common import load_manifest
 from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
 from analysis.utils.disk_cache import cached_array, fingerprint
