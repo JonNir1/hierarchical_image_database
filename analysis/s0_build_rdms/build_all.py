@@ -12,6 +12,9 @@ Usage (from repo root, with .venv active):
     # Build everything except the slow ones
     python -m analysis.s0_build_rdms.build_all --skip sem_wn clip_pre clip_post
 
+    # Build, then run the invariant checks of validate_rdms.py on what was built
+    python -m analysis.s0_build_rdms.build_all --validate
+
 Available targets:
     sens_pre   -- D_sens_pre.npy   (pixel Euclidean, pre-SHINE)
     sens_post  -- D_sens_post.npy  (pixel Euclidean, post-SHINE)
@@ -67,6 +70,10 @@ def main() -> None:
         "--skip", nargs="+", metavar="NAME",
         help="Build everything except these RDMs.",
     )
+    parser.add_argument(
+        "--validate", action="store_true",
+        help="After building, run validate_rdms on the RDMs that built successfully.",
+    )
     args = parser.parse_args()
 
     # Validate names
@@ -101,9 +108,19 @@ def main() -> None:
     print(f"{'=' * 50}")
     if failures:
         print(f"FAILED ({len(failures)}/{len(targets)}): {', '.join(failures)}")
-        sys.exit(1)
     else:
         print(f"All {len(targets)} builder(s) completed successfully.")
+
+    validated = True
+    built = [t for t in targets if t not in failures]
+    if args.validate and built:
+        from analysis.s0_build_rdms.validate_rdms import run_all_checks
+
+        print(f"\n{'=' * 50}\nValidating: {built}\n{'=' * 50}")
+        validated = run_all_checks(built)
+
+    if failures or not validated:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from analysis.s0_build_rdms.validate_rdms import (
     check_clip,
     check_clip_correlation,
     check_sem_km,
+    check_sem_km_matches_tree,
     check_sem_wn,
     check_sens,
     check_sens_correlation,
@@ -93,6 +94,11 @@ def test_sem_km_integer_distances():
     """KM distances are positive integers bounded by 2 * hierarchy depth."""
     d = _require("sem_km")
     check_sem_km(d)
+
+
+def test_sem_km_is_the_directory_tree():
+    """D_sem_km equals the independent LCA reconstruction from the real manifest's paths."""
+    check_sem_km_matches_tree(_require("sem_km"))
 
 
 # ---------------------------------------------------------------------------

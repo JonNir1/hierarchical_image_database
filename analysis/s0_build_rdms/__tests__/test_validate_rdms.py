@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from _rdm_helpers import patch_common_results
-from scipy.spatial.distance import pdist
+from _rdm_helpers import patch_common_results, synthetic_manifest
+from scipy.spatial.distance import pdist, squareform
 
 import analysis.s0_build_rdms.common as common
+import analysis.s0_build_rdms.semantic.kiani as km
 import analysis.s0_build_rdms.validate_rdms as vr
 
 # ---------------------------------------------------------------------------
@@ -121,6 +122,52 @@ def test_correlated_pair_passes(check):
 def test_anticorrelated_pair_raises(check):
     with pytest.raises(vr.CheckFailed, match="Spearman rho"):
         check(_RAMP, _RAMP[::-1])
+
+# ---------------------------------------------------------------------------
+# check_sem_km_matches_tree: the independent LCA reconstruction of D_sem_km
+# ---------------------------------------------------------------------------
+
+_B = chr(92)  # backslash, matching the manifest's Windows-style curated_path
+# A deliberately ragged toy tree: leaves at depth 2 and depth 3.
+_TOY_PATHS = [
+    f"animate{_B}bird{_B}duck1.png",
+    f"animate{_B}bird{_B}duck2.png",
+    f"animate{_B}mammal{_B}cat{_B}cat1.png",
+    f"animate{_B}mammal{_B}cat{_B}cat2.png",
+    f"animate{_B}mammal{_B}dog{_B}dog1.png",
+    f"inanimate{_B}tool{_B}hammer1.png",
+]
+_TOY_N = len(_TOY_PATHS)
+
+
+@pytest.fixture()
+def toy_tree(monkeypatch, tmp_path):
+    """Point validate_rdms and the KM builder at the toy tree instead of the real manifest."""
+    df = synthetic_manifest(_TOY_PATHS)
+    monkeypatch.setattr(vr, "load_manifest", lambda: df)
+    monkeypatch.setattr(km, "load_manifest", lambda: df)
+    patch_common_results(monkeypatch, tmp_path, _TOY_N)
+    return df
+
+
+class TestSemKmMatchesTree:
+    def test_reconstruction_agrees_with_the_kiani_builder(self, toy_tree):
+        """The two LCA implementations must agree, or check_sem_km_matches_tree() has no teeth."""
+        assert np.array_equal(vr.reconstruct_km_from_hierarchy(), km.build_km_rdm())
+
+    def test_distance_is_floored_at_one_and_grows_with_separation(self, toy_tree):
+        sq = squareform(vr.reconstruct_km_from_hierarchy())
+        assert sq[0, 1] == 1.0  # same leaf folder: raw path length 0, floored to 1
+        assert sq[0, 1] < sq[0, 2] < sq[0, 5]
+
+    def test_check_flags_a_single_differing_pair(self, toy_tree):
+        exact = vr.reconstruct_km_from_hierarchy()
+        vr.check_sem_km_matches_tree(exact)  # should not raise
+        perturbed = exact.copy()
+        perturbed[0] += 1.0
+        with pytest.raises(vr.CheckFailed, match="1 of"):
+            vr.check_sem_km_matches_tree(perturbed)
+
 
 # ---------------------------------------------------------------------------
 # check_manifest_matches_disk

@@ -24,6 +24,7 @@ import json
 from analysis.s0_build_rdms.common import (
     IMAGES_ROOT, RESULTS_DIR, _EXPECTED_LEN, _EXPECTED_N, load_manifest, load_rdm,
 )
+from analysis.utils.hierarchy import lca_depth_matrix, path_depths, path_parts
 from analysis.utils.stats import masked_rank_correlation
 
 _BEHAV_METHODS = ("evidence", "mean")
@@ -138,6 +139,41 @@ def check_sem_km(d: np.ndarray) -> None:
     max_d = float(d.max())
     _check(max_d <= 2 * _KM_MAX_DEPTH,
            f"max KM distance {max_d:.0f} > {2 * _KM_MAX_DEPTH} (2 × max_depth)")
+
+
+def reconstruct_km_from_hierarchy() -> np.ndarray:
+    """
+    Rebuild D_sem_km from the directory tree alone: d(i,j) = depth_i + depth_j - 2*lca(i,j),
+    floored at 1 off-diagonal.
+
+    The LCA logic (analysis.utils.hierarchy) is deliberately a second implementation, independent
+    of the one inside kiani.build_km_rdm(). Sharing it would turn check_sem_km_matches_tree() into
+    a tautology instead of a check.
+    """
+    parts = path_parts(load_manifest()["curated_path"])
+    depths = path_depths(parts)
+    lca = lca_depth_matrix(parts).astype(np.float64)
+    dist = np.add.outer(depths, depths) - 2.0 * lca
+    np.fill_diagonal(dist, 0.0)
+    dist = np.maximum(dist, 1.0)
+    np.fill_diagonal(dist, 0.0)
+    return squareform(dist, checks=False)
+
+
+def check_sem_km_matches_tree(d: np.ndarray) -> None:
+    """D_sem_km must be exactly the directory tree under images/ and nothing else."""
+    rebuilt = reconstruct_km_from_hierarchy()
+    n_diff = int(np.sum(rebuilt != d))
+    _check(n_diff == 0, f"sem_km differs from the directory-tree reconstruction on {n_diff} of {len(d)} pairs")
+
+
+def report_tree_shape() -> str:
+    """Informational (non-pass/fail) leaf-depth breakdown of the directory tree."""
+    depths = path_depths(path_parts(load_manifest()["curated_path"])).astype(int)
+    levels, counts = np.unique(depths, return_counts=True)
+    shape = ", ".join(f"depth {lv}: {n}" for lv, n in zip(levels, counts))
+    kind = "ragged" if len(levels) > 1 else "uniform"
+    return f"directory tree is {kind} ({shape} images)"
 
 
 def check_sem_wn(d: np.ndarray) -> None:
@@ -310,6 +346,7 @@ def run_all_checks(names: list[str] | None = None) -> bool:
             run(f"{name}: pixel distances > 0", check_sens, d)
         elif name == "sem_km":
             run(f"{name}: integer distances, min >= 1, max bounded", check_sem_km, d)
+            run(f"{name}: identical to the directory tree (independent LCA)", check_sem_km_matches_tree, d)
         elif name == "sem_wn":
             run(f"{name}: range [0, {_WN_FALLBACK}], fallback fraction < 10%", check_sem_wn, d)
         elif name in ("clip_pre", "clip_post"):
@@ -329,6 +366,9 @@ def run_all_checks(names: list[str] | None = None) -> bool:
             check_clip_correlation, present["clip_pre"], present["clip_post"])
     elif {"clip_pre", "clip_post"} & set(targets):
         print("  SKIP  clip correlation — need both clip_pre and clip_post")
+
+    print("\n=== Directory tree (informational, not pass/fail) ===")
+    print(f"  {report_tree_shape()}")
 
     print("\n=== Behavioral coverage (informational, not pass/fail) ===")
     for name in _BEHAV_NAMES:
