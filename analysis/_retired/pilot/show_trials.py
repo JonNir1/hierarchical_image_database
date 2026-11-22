@@ -3,35 +3,35 @@ Open per-subject trial arrangement grids in the browser.
 
 Run from repo root:
     # all subjects
-    .venv/Scripts/python analysis/pilot/show_trials.py
+    .venv/Scripts/python analysis/_retired/pilot/show_trials.py
 
     # filter by task version
-    .venv/Scripts/python analysis/pilot/show_trials.py --version 2.0
-    .venv/Scripts/python analysis/pilot/show_trials.py --version 1.0
+    .venv/Scripts/python analysis/_retired/pilot/show_trials.py --version 2.0
+    .venv/Scripts/python analysis/_retired/pilot/show_trials.py --version 1.0
 
     # single subject -- by participant_id (exact or substring match)
-    .venv/Scripts/python analysis/pilot/show_trials.py --participant 6a0f812b04e94d1ec3d4bd0c
-    .venv/Scripts/python analysis/pilot/show_trials.py -p 6a0f812b
+    .venv/Scripts/python analysis/_retired/pilot/show_trials.py --participant 6a0f812b04e94d1ec3d4bd0c
+    .venv/Scripts/python analysis/_retired/pilot/show_trials.py -p 6a0f812b
 
     # single subject -- pass any substring of the session filename
-    .venv/Scripts/python analysis/pilot/show_trials.py 15h45
-    .venv/Scripts/python analysis/pilot/show_trials.py 2026-06-05
+    .venv/Scripts/python analysis/_retired/pilot/show_trials.py 15h45
+    .venv/Scripts/python analysis/_retired/pilot/show_trials.py 2026-06-05
 
     # combine filters (version + participant + filename substring all AND together)
-    .venv/Scripts/python analysis/pilot/show_trials.py --version 2.0 16h22
-    .venv/Scripts/python analysis/pilot/show_trials.py --version 3.0 -p 6a0f812b
+    .venv/Scripts/python analysis/_retired/pilot/show_trials.py --version 2.0 16h22
+    .venv/Scripts/python analysis/_retired/pilot/show_trials.py --version 3.0 -p 6a0f812b
 
     # list available session filenames (with versions and participant_ids) without
     # opening anything
-    .venv/Scripts/python analysis/pilot/show_trials.py --list
-    .venv/Scripts/python analysis/pilot/show_trials.py --version 2.0 --list
+    .venv/Scripts/python analysis/_retired/pilot/show_trials.py --list
+    .venv/Scripts/python analysis/_retired/pilot/show_trials.py --version 2.0 --list
 """
 import sys
 import warnings
 from pathlib import Path
 
 # Ensure repo root is on sys.path regardless of working directory
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import plotly.io as pio
 

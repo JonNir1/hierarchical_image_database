@@ -79,7 +79,7 @@ jobs:
         run: pytest SpAM_Task/__tests__/ -v -m "not manual"
 
   python-analysis-tests:
-    name: Python analysis tests (build_rdms, behavioral, utils)
+    name: Python analysis tests (s0_build_rdms, utils)
     runs-on: ubuntu-latest
 
     steps:
@@ -94,14 +94,14 @@ jobs:
       - name: Install dependencies
         # Everything the analysis suites import except torch/torchvision/open_clip
         # (test_imagenet_vs_path.py skips via importorskip without them). scikit-learn
-        # and joblib come in for the SpAM_Simulations measures that build_rdms reuses;
+        # and joblib come in for the SpAM_Simulations measures that s0_build_rdms reuses;
         # nltk + the WordNet corpus let the synset-assignment tests run.
         run: |
           pip install pytest numpy scipy pandas Pillow plotly tqdm statsmodels rsatoolbox scikit-learn joblib nltk
           python -m nltk.downloader wordnet omw-1.4
 
       - name: Run pytest
-        run: pytest analysis/build_rdms/__tests__/ analysis/behavioral/__tests__/ analysis/utils/__tests__/ -v -m "not manual"
+        run: pytest analysis/s0_build_rdms/__tests__/ analysis/utils/__tests__/ -v -m "not manual"
 
   python-simulations-tests:
     name: Python SpAM-simulations tests

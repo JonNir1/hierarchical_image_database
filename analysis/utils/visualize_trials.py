@@ -1,6 +1,6 @@
 """
 Shared trial-arrangement rendering and visualization, used by both
-analysis/pilot and analysis/prod.
+analysis/_retired/pilot and analysis/prod.
 
 Usage (from repo root):
     from analysis.utils.visualize_trials import render_trial, visualize_trials

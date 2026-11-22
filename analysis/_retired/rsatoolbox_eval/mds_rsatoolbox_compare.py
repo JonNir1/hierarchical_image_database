@@ -41,7 +41,7 @@ quality, not raw agreement.
 
 Usage (from repo root, with the main checkout's .venv active and R_LIBS_USER set
 to the user's R library so the R backend is importable):
-    python -m analysis.rsatoolbox_eval.mds_rsatoolbox_compare
+    python -m analysis._retired.rsatoolbox_eval.mds_rsatoolbox_compare
 """
 from __future__ import annotations
 
@@ -173,7 +173,7 @@ def _real_behavioral_case(variant_name: str):
     """Real behav_pre/behav_post RDM + a coverage-derived weight matrix (0 for
     never-observed pairs). Restricted to a dense, fully-connected sub-block since
     the full RDM (35% uncovered pairs) is not guaranteed connected as-is."""
-    from analysis.build_rdms.common import load_rdm, RESULTS_DIR
+    from analysis.s0_build_rdms.common import load_rdm, RESULTS_DIR
     import json
 
     condensed = load_rdm(variant_name)

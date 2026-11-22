@@ -1,8 +1,8 @@
 """Tests for analysis.utils.plotting: the categorical palette generator and
 the shared panel/figure builders. Light structural checks only (trace counts,
 colors, axis ranges) -- matching this repo's existing convention of not
-deep-testing plotly figure internals (neither analysis/pilot/figures.py nor
-analysis/pre_vs_post_shine/demographics_and_behavior.py have unit tests for their fig_*
+deep-testing plotly figure internals (neither analysis/_retired/pilot/figures.py nor
+analysis/s1_pre_vs_post_shine/demographics_and_behavior.py have unit tests for their fig_*
 functions; notebook execution is the check there)."""
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def test_role_palette_assigns_hues_in_order_and_matches_original_version_palette
     palette = role_palette(["pre", "post"])
     assert palette["pre"]["main"] == "#2a78d6"
     assert palette["post"]["main"] == "#eb6834"
-    # Byte-identical to analysis/pilot/figures.py's former _VERSION_PALETTE[1.0].
+    # Byte-identical to analysis/_retired/pilot/figures.py's former _VERSION_PALETTE[1.0].
     assert palette["pre"] == {
         "main": "#2a78d6",
         "violin": "rgba(42,120,214,0.35)",

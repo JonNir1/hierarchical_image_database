@@ -7,8 +7,8 @@ Distances are normalised by the unit-square diagonal (sqrt(2)) so the output
 is directly comparable to SpAM pairwise_distances (arena-diagonal normalised).
 
 Usage:
-    python analysis/pilot/simulate_null_distances.py --num_dots 20 --num_trials 1000
-    python analysis/pilot/simulate_null_distances.py --num_dots 20 --num_trials 500 --seed 0
+    python analysis/_retired/pilot/simulate_null_distances.py --num_dots 20 --num_trials 1000
+    python analysis/_retired/pilot/simulate_null_distances.py --num_dots 20 --num_trials 500 --seed 0
 """
 import argparse
 import time

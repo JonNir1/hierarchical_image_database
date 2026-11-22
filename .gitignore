@@ -38,10 +38,10 @@ data/
 !SpAM_Task/stimuli_manifest.json
 # Required input, not an output: maps ImageNet class index -> WordNet wnid.
 # torchvision ships class names but not wnids, so without this the ResNet
-# predictions in analysis/build_rdms/semantic/imagenet_vs_path.py cannot be resolved to
+# predictions in analysis/s0_build_rdms/semantic/imagenet_vs_path.py cannot be resolved to
 # synsets at all. Tracked so the mapping is pinned to the ordering the
 # predictions were made under, and so no network fetch is needed to reproduce.
-!analysis/0_build_rdms/semantic/imagenet_class_index.json
+!analysis/s0_build_rdms/semantic/imagenet_class_index.json
 
 # SpAM_Simulations MDS-sweep output store (ResultStore: meta.csv + confdists.f32)
 mds_store/
@@ -68,13 +68,13 @@ SpAM_Simulations/sim_results/v6/report/report_v6.html
 # analysis outputs (RDMs, intermediate results) -- reproducible, not tracked
 analysis/results/
 # aggregation-comparison CSVs: noise_ceiling.csv's fold_id is a participant id, so never track them
-analysis/0_build_rdms/behavior/cache/
+analysis/s0_build_rdms/behavior/cache/
 *.doc
 *.docx
 *.pdf
 *.csv
 !images/manifest.csv
-!analysis/1_pre_vs_post_shine/gt_overlap_matches.csv
+!analysis/s1_pre_vs_post_shine/gt_overlap_matches.csv
 
 # generated figures
 figures/
