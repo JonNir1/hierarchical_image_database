@@ -5,9 +5,18 @@ Retained subjects: N=79 pre-SHINE, N=76 post-SHINE. Tests are two-sided Mann-Whi
 
 ## Pre- vs post-SHINE cohort comparison
 
-Five notebooks, one question each. Effect signs: positive means the pre-SHINE cohort tends to be lower.
+Six notebooks, one question each (`0_` is a stimulus check with no participants). Effect signs: positive means the pre-SHINE cohort tends to be lower.
 
 - **Caveat, equivalence tests and the permutation test:** there is no pre-defined smallest effect size of interest. Every equivalence bound is the smallest bound with 80% power at these sample sizes (simulated, `../utils/equivalence.py`), rounded up, so a bound says what the sample can resolve, not that the difference is negligible (for the bootstrap and jackknife RDM comparisons in notebooks 3 to 5 the equivalent closed form, (z(0.95) + z(0.90)) x SE, is used). Equivalence is TOST in its 90%-CI form. The permutation and equivalence tests on RDM agreement assume subjects are exchangeable across cohorts apart from SHINE.
+
+### Does SHINE change the stimuli's similarity structure?
+
+Notebook: [`0_sensory.ipynb`](0_sensory.ipynb) (no participants and no reference RDM: each feature space's pre-SHINE RDM is compared only with its own post-SHINE RDM; 95% CIs are image bootstraps, 1,000 draws)
+
+- **Pixels (Euclidean):** pre vs post agreement is tau-a 0.534 [0.508, 0.562], rho 0.728 [0.699, 0.758] and Pearson r 0.728 [0.700, 0.756]; SHINE reorganizes the pixel space substantially.
+- **CLIP ViT-B/32 (cosine):** tau-a 0.764 [0.751, 0.777], rho 0.921 [0.912, 0.929], Pearson r 0.933 [0.925, 0.940]. CLIP's neighbourhood structure is clearly more robust to SHINE than pixels (the intervals do not overlap).
+- **Scale:** mean distance post / pre is 1.002 [0.990, 1.013] for pixels and 0.995 [0.989, 1.001] for CLIP, so SHINE does not change the overall scale of either space.
+- **Per image:** median CLIP cosine shift between an image's pre and post embedding is 0.024 (max 0.25, calla_lily1); median row rho (an image's distances to all others, pre vs post) is 0.92 for CLIP (lowest 0.54) and 0.77 for pixels (lowest -0.07, football2 and golf_ball3). A bigger feature shift goes with a worse-preserved neighbourhood (rho -0.34 pixels, -0.42 CLIP), and the images that shift most in pixels also shift most in CLIP (rho +0.67).
 
 ### Do the cohorts behave the same?
 
