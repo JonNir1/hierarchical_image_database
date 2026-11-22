@@ -143,9 +143,78 @@ def test_select_participants_filters_status_variant_and_version():
     assert sorted(selected["participant_id"]) == ["p1", "p2"]
 
 
-def test_select_participants_rejects_variant_without_shine_suffix():
-    with pytest.raises(ValueError, match="must end with '_shine'"):
+def test_select_participants_rejects_unknown_variant():
+    with pytest.raises(ValueError, match="must be one of"):
         behavioral._select_participants(_synthetic_participants(), "pre")
+
+
+# ---------------------------------------------------------------------------
+# joint (cohort-pooled) builds
+# ---------------------------------------------------------------------------
+
+def _joint_trials() -> pd.DataFrame:
+    """_synthetic_trials() plus a post-SHINE trial for p4, covering img0-img3 --
+    the one pair no retained pre-SHINE participant observes."""
+    extra = pd.DataFrame([{
+        "participant_id": "p4", "is_catch": False, "block_type": "experimental",
+        "pairwise_distances": pairwise_json(
+            {("img0.png", "img3.png"): 0.7, ("img0.png", "img1.png"): 0.11,
+             ("img1.png", "img3.png"): 0.45},
+            "post_shine",
+        ),
+    }])
+    return pd.concat([_synthetic_trials(), extra], ignore_index=True)
+
+
+@pytest.fixture()
+def patched_joint(monkeypatch):
+    saved = _patch_behavioral(monkeypatch)
+    monkeypatch.setattr(
+        behavioral, "load_data",
+        lambda cache_dir, prod_only=False: {
+            "participants": _synthetic_participants(), "trials": _joint_trials(),
+        },
+    )
+    return saved
+
+
+def test_curated_path_from_src_joint_accepts_pre_prefix():
+    """The joint build sees both cohorts' trials, so it must strip either prefix."""
+    src = "./images/pre_shine/inanimate/handmade/kitchen/bottle1.png"
+    assert behavioral._curated_path_from_src(src, "joint") == "inanimate/handmade/kitchen/bottle1.png"
+
+
+def test_curated_path_from_src_joint_accepts_post_prefix():
+    """Same pair of images under post_shine must resolve to the same curated_path,
+    which is what makes pooling land both cohorts' judgements on one cell."""
+    src = "./images/post_shine/inanimate/handmade/kitchen/bottle1.png"
+    assert behavioral._curated_path_from_src(src, "joint") == "inanimate/handmade/kitchen/bottle1.png"
+
+
+def test_select_participants_joint_pools_both_cohorts():
+    """Drops only the shine_variant filter: p4 (post) joins p1/p2 (pre), while p3
+    (screened out) and p5 (task_version 3.06) stay excluded."""
+    selected = behavioral._select_participants(_synthetic_participants(), "joint")
+    assert sorted(selected["participant_id"]) == ["p1", "p2", "p4"]
+
+
+def test_build_behavioral_rdm_joint_saves_with_joint_name(patched_joint):
+    """Downstream code loads these by name, so behav_joint_<aggregation> is a contract."""
+    behavioral.build_behavioral_rdm("joint", cache_dir="unused", aggregation="mean")
+    assert patched_joint["name"] == "behav_joint_mean"
+    assert patched_joint["extra"]["n_participants"] == 3
+    assert patched_joint["extra"]["n_participants_per_cohort"] == {"post": 1, "pre": 2}
+
+
+def test_build_behavioral_rdm_joint_covers_pair_only_other_cohort_saw(patched_joint):
+    """The point of pooling: img0-img3 is NaN in the pre-only build (see
+    test_build_behavioral_rdm_excludes_uncovered_pair) and finite here, because
+    p4's post-SHINE trial supplies it."""
+    condensed = behavioral.build_behavioral_rdm("joint", cache_dir="unused", aggregation="mean")
+    sq = squareform(condensed)
+    i0, i3 = _IMAGES.index("img0.png"), _IMAGES.index("img3.png")
+    assert np.isfinite(sq[i0, i3])
+    assert sq[i0, i3] == pytest.approx(0.7)
 
 
 # ---------------------------------------------------------------------------

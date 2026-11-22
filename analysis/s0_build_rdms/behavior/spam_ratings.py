@@ -1,8 +1,8 @@
 """
 Behavioral RDMs: combine raw SpAM (multi-arrangement) trial data -- partial
 pairwise distances covering only the ~20 images shown in each trial -- into one
-full 725x725 RDM per SHINE variant, via THREE independent aggregation methods
-(pass --aggregation, or build all):
+full 725x725 RDM, via THREE independent aggregation methods (pass --aggregation,
+or build all). Built per SHINE variant, or pooled across both (variant='joint').
 
   "evidence" -- iterative per-trial evidence-weighted rescaling before
       averaging (Kriegeskorte & Mur, 2012, https://doi.org/10.3389/fpsyg.2012.00245),
@@ -57,9 +57,29 @@ a dense (n_trials, 262_450) array -- no behavior change, only memory footprint
 (rsatoolbox itself is still a required dependency, used for that equivalence
 check).
 
-Outputs (to analysis/results/rdms/), one pair per aggregation method:
-    D_behav_pre_<aggregation>.npy   -- pre-SHINE
-    D_behav_post_<aggregation>.npy  -- post-SHINE
+Outputs (to analysis/results/rdms/), per aggregation method:
+    D_behav_pre_<aggregation>.npy    -- pre-SHINE cohort only
+    D_behav_post_<aggregation>.npy   -- post-SHINE cohort only
+    D_behav_joint_<aggregation>.npy  -- both cohorts pooled (variant='joint')
+
+The joint RDM applies exactly the same participant filters and the same
+aggregation as the per-cohort ones, minus the shine_variant filter, so it is
+built from roughly twice the participants. Pooling is coherent at the pair level
+because SHINE preserves filenames and directory structure: both variants index
+the same 725 curated_paths, so a pre-SHINE and a post-SHINE judgement of the
+same image pair land on the same cell. Its practical benefit is coverage and
+reliability, since pair coverage is the binding constraint here (each
+participant sees a ~150-image subset, so most of the 262,450 pairs are observed
+by few subjects or none).
+
+What it is NOT for: the joint RDM marginalises the SHINE manipulation away, so
+it cannot speak to any question *about* SHINE. Use the per-cohort RDMs for the
+pre/post contrast (RQ2) and for the decomposition's per-cohort fits (RQ3). The
+joint RDM is for cohort-agnostic questions, where SHINE condition is a nuisance
+rather than the variable of interest, e.g. does the dataset exhibit hierarchical
+structure at all. Treating a joint result as evidence about SHINE, in either
+direction, would be a category error: by construction it averages over the thing
+being manipulated.
 
 Only production-cohort participants with status == "full data" (i.e. passed
 screening, or screening was disabled) and task_version >= 4.0 (the v3.x pilot
@@ -86,7 +106,12 @@ from analysis.s0_build_rdms.common import REPO_ROOT, load_manifest, save_rdm
 from analysis.utils.load_data import load_data
 from analysis.utils.parser import parse_pairwise_distances
 
-_VALID_VARIANTS = ("pre_shine", "post_shine")
+#: The two between-subject SHINE cohorts.
+_SHINE_VARIANTS = ("pre_shine", "post_shine")
+#: Pseudo-variant: pool both cohorts into one RDM, ignoring shine_variant.
+JOINT_VARIANT = "joint"
+_VALID_VARIANTS = (*_SHINE_VARIANTS, JOINT_VARIANT)
+_VARIANT_SHORT = {"pre_shine": "pre", "post_shine": "post", JOINT_VARIANT: "joint"}
 _MIN_TASK_VERSION = 4.0
 
 # Conventional cache location (see analysis/utils/load_data.py). Not present in a
@@ -100,23 +125,40 @@ def _curated_path_from_src(src: str, variant: str) -> str:
 
     src is the image path string jsPsych recorded in pairwise_distances, e.g.
     "./images/pre_shine/inanimate/handmade/kitchen/bottle1.png" -> "inanimate/handmade/kitchen/bottle1.png".
+
+    For variant == JOINT_VARIANT either cohort's prefix is accepted, because a pooled
+    build sees trials from both and each trial's src carries the prefix of whichever
+    variant that participant was shown. The suffix is the same either way: SHINE
+    preserves filenames and directory structure, so the two variants share one
+    curated_path namespace and therefore one canonical image index.
     """
-    marker = f"/{variant}/"
-    idx = src.find(marker)
-    if idx == -1:
-        raise ValueError(f"Could not find {marker!r} in this trial's pairwise_distances src field: {src!r}")
-    return src[idx + len(marker):]
+    candidates = _SHINE_VARIANTS if variant == JOINT_VARIANT else (variant,)
+    for candidate in candidates:
+        marker = f"/{candidate}/"
+        idx = src.find(marker)
+        if idx != -1:
+            return src[idx + len(marker):]
+    looked_for = " or ".join(repr(f"/{c}/") for c in candidates)
+    raise ValueError(
+        f"Could not find {looked_for} in this trial's pairwise_distances src field: {src!r}"
+    )
 
 
 def _select_participants(df_participants: pd.DataFrame, variant: str) -> pd.DataFrame:
-    if not variant.endswith("_shine"):
-        raise ValueError(f"variant must end with '_shine' (e.g. 'pre_shine'), got {variant!r}")
-    shine_value = variant.removesuffix("_shine")  # "pre_shine" -> "pre", "post_shine" -> "post"
+    """Retained participants for one cohort, or for both pooled when variant is JOINT_VARIANT.
+
+    The status and task_version filters apply identically either way; only the
+    shine_variant filter is dropped for a pooled build.
+    """
+    if variant not in _VALID_VARIANTS:
+        raise ValueError(f"variant must be one of {_VALID_VARIANTS}, got {variant!r}")
     mask = (
         (df_participants["status"] == "full data")
-        & (df_participants["shine_variant"] == shine_value)
         & (pd.to_numeric(df_participants["task_version"], errors="coerce") >= _MIN_TASK_VERSION)
     )
+    if variant != JOINT_VARIANT:
+        shine_value = variant.removesuffix("_shine")  # "pre_shine" -> "pre"
+        mask &= df_participants["shine_variant"] == shine_value
     return df_participants[mask]
 
 
@@ -325,7 +367,10 @@ def build_behavioral_rdm(
 
     Parameters
     ----------
-    variant      : 'pre_shine' or 'post_shine'
+    variant      : 'pre_shine', 'post_shine', or 'joint'. 'joint' pools every
+                   retained participant from both cohorts into a single RDM,
+                   ignoring shine_variant. See the note on when that is
+                   appropriate at the end of this docstring.
     cache_dir    : directory containing the cached participants.parquet/trials.parquet
                    (see analysis/utils/load_data.py) -- NOT the raw data/ directory.
                    Defaults to the conventional in-repo location, which is only
@@ -360,14 +405,18 @@ def build_behavioral_rdm(
     pairs never jointly observed in any trial -- see the printed coverage report.
     """
     if variant not in _VALID_VARIANTS:
-        raise ValueError(f"variant must be 'pre_shine' or 'post_shine', got {variant!r}")
+        raise ValueError(f"variant must be one of {_VALID_VARIANTS}, got {variant!r}")
     if aggregation not in _AGGREGATIONS:
         raise ValueError(f"aggregation must be one of {_AGGREGATIONS}, got {aggregation!r}")
 
     data = load_data(cache_dir, prod_only=True)
     participants = _select_participants(data["participants"], variant)
+    per_cohort = participants["shine_variant"].value_counts().to_dict()
+    detail = (f" (pooled across cohorts: "
+              f"{', '.join(f'{k}={v}' for k, v in sorted(per_cohort.items()))})"
+              if variant == JOINT_VARIANT else "")
     print(
-        f"[behavioral] variant={variant!r}: {len(participants)} participants."
+        f"[behavioral] variant={variant!r}: {len(participants)} participants{detail}."
     )
 
     manifest = load_manifest()
@@ -397,7 +446,7 @@ def build_behavioral_rdm(
             f"NaN in the saved RDM -- this is a real coverage gap, not silently interpolated."
         )
 
-    short = f"behav_{'pre' if variant == 'pre_shine' else 'post'}_{aggregation}"
+    short = f"behav_{_VARIANT_SHORT[variant]}_{aggregation}"
     metric = (
         "spam_plain_mean" if aggregation == "mean"
         else f"spam_multi_arrangement_{aggregation}"
@@ -410,6 +459,7 @@ def build_behavioral_rdm(
         extra={
             "variant": variant,
             "n_participants": int(len(participants)),
+            "n_participants_per_cohort": {str(k): int(v) for k, v in sorted(per_cohort.items())},
             "n_trials": int(len(trial_data)),
             "aggregation": aggregation,
             "pct_pairs_covered": pct_covered,
@@ -431,7 +481,11 @@ def main() -> None:
         "--aggregation", nargs="+", default=list(_AGGREGATIONS), choices=list(_AGGREGATIONS),
         help="One or more aggregation methods to build (default: both of %(choices)s)",
     )
-    parser.add_argument("--only", nargs="+", choices=["pre_shine", "post_shine"], default=["pre_shine", "post_shine"])
+    parser.add_argument(
+        "--only", nargs="+", choices=list(_VALID_VARIANTS), default=list(_SHINE_VARIANTS),
+        help="Which RDMs to build. %(default)s by default; pass 'joint' to also (or only) "
+             "build the cohort-pooled RDM.",
+    )
     args = parser.parse_args()
     for variant in args.only:
         for aggregation in args.aggregation:
