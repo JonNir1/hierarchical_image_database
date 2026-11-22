@@ -85,7 +85,7 @@ from analysis.s0_build_rdms.behavior.spam_ratings import (
     _AGGREGATIONS, _build_trials, _combine, _select_participants, build_behavioral_rdm,
 )
 from analysis.s0_build_rdms.common import image_manifest_index, save_rdm
-from analysis.s0_build_rdms.behavior.mds import compare_mds_configs
+from analysis.utils.mds import compare_mds_configs
 from analysis.utils.load_data import load_data
 from analysis.utils.stats import masked_rank_correlation
 from SpAM_Simulations.core.helpers import condensed_rdm_to_weighted_dists

@@ -18,9 +18,9 @@ s0_build_rdms/
   __tests__/             all tests for this package, flat (see note below)
 
   behavior/   spam_ratings.py     SpAM trials -> 725x725 RDM (3 aggregations)
-              mds.py              MDS embedding layer over those RDMs
               noise_ceiling.py    leave-one-out / split-half reliability bounds
-              generalizability.py agreement with a held-out-subject RDM
+              generalizability.py agreement with a held-out-subject RDM (its MDS leg
+                                  uses analysis/utils/mds.py)
               aggregation_comparison.ipynb   picks the aggregation method
               cache/              its CSV outputs (gitignored: participant ids)
 

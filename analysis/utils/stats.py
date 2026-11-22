@@ -3,7 +3,7 @@ General statistical comparison helpers shared across analysis/ subdirectories:
 Pearson r, Spearman rho (vector or row-wise) and Kendall tau-a, masked rank correlation between two (possibly incomplete) same-length vectors,
 rank-biserial effect size, independent-samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect
 sizes, an image-relabeling permutation test for RDM agreement, and a one-line significance-summary printer. None of this is specific
-to RDMs or MDS -- see analysis/s0_build_rdms/behavior/mds.py for that layer.
+to RDMs or MDS -- see analysis/utils/mds.py for that layer.
 
 Usage (from repo root):
     from analysis.utils.stats import (

@@ -7,7 +7,7 @@ its equivalence counterpart (delete-a-group jackknife CI of observed minus the
 exchangeable-null expectation).
 
 MDS-embedding logic itself (embedding eigenspectrum, cached SMACOF sweep,
-cross-embedding comparison) lives in analysis/s0_build_rdms/behavior/mds.py.
+cross-embedding comparison) lives in analysis/utils/mds.py.
 
 Usage (from repo root):
     from analysis.s1_pre_vs_post_shine.geometry import (
@@ -50,7 +50,7 @@ def fig_embedding_spectrum(spectra_by_dim: dict[int, dict[str, np.ndarray]]) -> 
     """One subplot per embedding dimensionality (shared y-axis), each with a
     line+marker eigenvalue spectrum per cohort: the share of variance along
     each principal axis of the fitted SMACOF embedding
-    (analysis.s0_build_rdms.behavior.mds.embedding_eigenspectrum(), normalised)."""
+    (analysis.utils.mds.embedding_eigenspectrum(), normalised)."""
     dims = list(spectra_by_dim)
     fig = make_subplots(
         rows=1, cols=len(dims), shared_yaxes=True, subplot_titles=[f"{d} dimensions" for d in dims],
