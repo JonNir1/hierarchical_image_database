@@ -1,16 +1,12 @@
-"""Tests for analysis.s0_build_rdms.rdm_vs_hierarchy: the KM reconstruction identity and the
-statistical helpers."""
+"""Tests for analysis.s2_semantic_hierarchy.rdm_vs_hierarchy: the statistical helpers and figures."""
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import pytest
-from _rdm_helpers import synthetic_manifest
-from scipy.spatial.distance import squareform
 
-import analysis.s0_build_rdms.common as common
-import analysis.s0_build_rdms.rdm_vs_hierarchy as hc
-import analysis.s0_build_rdms.semantic.kiani as km
+import analysis.s2_semantic_hierarchy.rdm_vs_hierarchy as hc
+from analysis.utils.hierarchy import lca_depth_condensed, path_parts
 
 B = chr(92)  # backslash, matching the manifest's Windows-style curated_path
 
@@ -29,36 +25,9 @@ _TOY_N = len(_TOY_PATHS)
 @pytest.fixture()
 def toy_tree(monkeypatch):
     """Point rdm_vs_hierarchy at the toy tree instead of the real manifest."""
-    df = synthetic_manifest(_TOY_PATHS)
-    monkeypatch.setattr(hc, "load_manifest", lambda: df)
-    return df
-
-
-# ---------------------------------------------------------------------------
-# The reconstruction identity
-# ---------------------------------------------------------------------------
-
-class TestReconstruction:
-    def test_matches_kiani_builder(self, toy_tree, monkeypatch, tmp_path):
-        """The independent reimplementation must agree with the real builder.
-
-        This is the check the notebook relies on. rdm_vs_hierarchy keeps its
-        own LCA implementation precisely so this comparison has teeth, so the two
-        must be verified against each other here.
-        """
-        monkeypatch.setattr(km, "load_manifest", lambda: synthetic_manifest(_TOY_PATHS))
-        monkeypatch.setattr(common, "RESULTS_DIR", tmp_path)
-        monkeypatch.setattr(common, "_EXPECTED_N", _TOY_N)
-        monkeypatch.setattr(common, "_EXPECTED_LEN", _TOY_N * (_TOY_N - 1) // 2)
-        assert np.array_equal(hc.reconstruct_km_from_hierarchy(), km.build_km_rdm())
-
-    def test_off_diagonal_floored_at_one(self, toy_tree):
-        # the two ducks sit in the same leaf folder: raw path length 0, floored to 1
-        assert squareform(hc.reconstruct_km_from_hierarchy())[0, 1] == 1.0
-
-    def test_distance_grows_with_separation(self, toy_tree):
-        sq = squareform(hc.reconstruct_km_from_hierarchy())
-        assert sq[0, 1] < sq[0, 2] < sq[0, 5]
+    parts = path_parts(_TOY_PATHS)
+    monkeypatch.setattr(hc, "manifest_parts", lambda: parts)
+    return parts
 
 
 # ---------------------------------------------------------------------------
@@ -109,8 +78,8 @@ class TestIncrementalR2:
 
 
 class TestLevelSeparation:
-    def test_between_category_exceeds_within_for_km(self, toy_tree):
-        d = hc.reconstruct_km_from_hierarchy()
+    def test_between_category_exceeds_within_for_a_tree_distance(self, toy_tree):
+        d = 8.0 - lca_depth_condensed(toy_tree)
         out = hc.level_separation(1, rdms={"sem_km": d})
         assert out.loc["sem_km", "between"] > out.loc["sem_km", "within"]
         assert out.loc["sem_km", "cohens_d"] > 0

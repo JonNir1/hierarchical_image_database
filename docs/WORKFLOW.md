@@ -78,10 +78,11 @@ has been done and what is pending.
       RDM, used for both cohorts.
       Out: `E_sem_sgpt.npy`, `D_sem_sgpt.npy`.
 - [ ] Reference-RDM diagnostics vs the curated hierarchy.
-      `code: analysis/s0_build_rdms/rdm_vs_hierarchy.py` + `analysis/s0_build_rdms/rdm_vs_hierarchy.ipynb`.
-      Confirms `D_sem_km` reproduces the directory tree exactly (independent
-      reimplementation of the LCA computation, so the check is not a tautology),
-      then asks how far each non-KM RDM tracks that tree. Two distinct questions,
+      `code: analysis/s2_semantic_hierarchy/rdm_vs_hierarchy.py` + `analysis/s2_semantic_hierarchy/rdm_vs_hierarchy.ipynb`.
+      (That `D_sem_km` reproduces the directory tree exactly is an invariant of
+      `analysis/s0_build_rdms/validate_rdms.py`, with an independent LCA implementation
+      so the check is not a tautology.)
+      Asks how far each non-KM RDM tracks that tree. Two distinct questions,
       deliberately plotted as two separate figures: pairwise rank agreement
       (`plot_correlation_matrix`) and distance-vs-hierarchical-depth
       (`plot_depth_profile`). Inference uses image-label shuffling, never analytic

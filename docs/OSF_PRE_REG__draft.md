@@ -136,7 +136,7 @@ distance, synsets from image category labels) as a registered supplementary spec
 
 *Note on what the WordNet fit does and does not test*: we originally framed this as a
 robustness check on $D_{sem} = D_{KM}$. Pre-data diagnostics on the reference RDMs
-(`analysis/s0_build_rdms/rdm_vs_hierarchy.ipynb`) show that framing to be wrong.
+(`analysis/s2_semantic_hierarchy/rdm_vs_hierarchy.ipynb`) show that framing to be wrong.
 $D_{WN}$ and $D_{CLIP}$ are near-orthogonal to each other (Spearman ρ = 0.05, and
 slightly negative at −0.06 once $D_{KM}$ is held fixed), while each independently tracks
 $D_{KM}$ (ρ = 0.29 and 0.35). Their joint $R^2$ predicting $D_{KM}$ is 0.194, against

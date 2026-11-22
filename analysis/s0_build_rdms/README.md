@@ -1,20 +1,19 @@
 # `s0_build_rdms/`
 
 Code that **builds** the RDMs the analysis consumes, plus the methodological checks that
-validate them (which aggregation to use, how the reference RDMs relate to the hierarchy, why
-WordNet is built by direct assignment). One subfolder per RDM type, each holding the builder(s)
-for that type; shared infrastructure stays at this level. Cohort comparisons (pre vs post SHINE)
-live in `analysis/s1_pre_vs_post_shine/`, not here.
+validate them (which aggregation to use, why WordNet is built by direct assignment, that
+`D_sem_km` is exactly the directory tree). One subfolder per RDM type, each holding the
+builder(s) for that type; shared infrastructure stays at this level. Cohort comparisons
+(pre vs post SHINE) live in `analysis/s1_pre_vs_post_shine/` and the reference-RDM-vs-hierarchy
+diagnostics in `analysis/s2_semantic_hierarchy/`, not here.
 
 ```
 s0_build_rdms/
   common.py              paths, manifest loading + guards, save/load RDMs and
                          embeddings, the order_hash alignment contract
-  build_all.py           CLI to build any or all reference RDMs
-  validate_rdms.py       invariant checks over whatever has been built
-  rdm_vs_hierarchy.py    how every reference RDM relates to the directory-tree hierarchy
-  rdm_vs_hierarchy.ipynb   (km reconstruction check, rank-correlation matrix, depth profiles,
-                         shuffle null, pixel-confound control, per-level separation)
+  build_all.py           CLI to build any or all reference RDMs (--validate runs the checks after)
+  validate_rdms.py       invariant checks over whatever has been built, including that
+                         D_sem_km equals the directory tree under an independent LCA
   KEY_FINDINGS.md        findings about the builders (aggregation choice, ImageNet vs path)
   __tests__/             all tests for this package, flat (see note below)
 

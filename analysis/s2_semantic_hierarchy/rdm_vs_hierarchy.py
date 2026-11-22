@@ -4,9 +4,10 @@ Diagnostics comparing every reference RDM against the curated directory hierarch
 
 The directory tree under images/<variant>/ *is* the Kiani-Mur semantic hierarchy:
 `animate/animal/body/bird/duck3.png` encodes domain -> mid-level -> basic level.
-D_sem_km is built from that tree, so it should reproduce it exactly; every other
-RDM (WordNet, CLIP, pixels) is an independent measurement whose agreement with
-the tree is an empirical question.
+D_sem_km is built from that tree and is checked to reproduce it exactly by
+analysis/s0_build_rdms/validate_rdms.py; every other RDM (WordNet, CLIP, pixels)
+is an independent measurement whose agreement with the tree is an empirical
+question, and is what these diagnostics answer.
 
 The two questions these diagnostics answer are distinct, and are plotted
 separately on purpose:
@@ -28,12 +29,8 @@ p-value of any correlation between two RDMs is meaningless. Use
 analysis.utils.stats.label_shuffle_test(), which permutes image identity (rows and columns together)
 and so respects that dependence structure.
 
-The LCA logic (analysis.utils.hierarchy) is deliberately a second implementation,
-independent of the one inside kiani.build_km_rdm(). Sharing it would make
-reconstruct_km_from_hierarchy() a tautology instead of a check.
-
 Usage (from repo root):
-    from analysis.s0_build_rdms import rdm_vs_hierarchy as rvh
+    from analysis.s2_semantic_hierarchy import rdm_vs_hierarchy as rvh
     rvh.correlation_matrix(["sem_km", "clip_pre"])
 """
 from __future__ import annotations
@@ -45,7 +42,7 @@ from scipy.spatial.distance import squareform
 from scipy.stats import rankdata
 
 from analysis.s0_build_rdms.common import load_manifest, load_rdm
-from analysis.utils.hierarchy import Parts, lca_depth_condensed, lca_depth_matrix, path_depths, path_parts
+from analysis.utils.hierarchy import Parts, lca_depth_condensed, path_parts
 
 # Directory level -> what that level of the tree encodes.
 LEVEL_NAMES: dict[int, str] = {
@@ -65,24 +62,6 @@ _DEFAULT_RDMS = ["sem_km", "sem_wn", "clip_pre", "clip_post", "sens_pre", "sens_
 def manifest_parts() -> Parts:
     """Directory components of every manifest path, in manifest row order."""
     return path_parts(load_manifest()["curated_path"])
-
-
-def reconstruct_km_from_hierarchy() -> np.ndarray:
-    """
-    Rebuild D_sem_km from the tree alone: d(i,j) = depth_i + depth_j - 2*lca(i,j),
-    floored at 1 off-diagonal.
-
-    Compare against load_rdm("sem_km") to confirm the KM RDM is exactly the tree
-    and nothing else. Uses an LCA implementation independent of kiani's.
-    """
-    parts = manifest_parts()
-    depths = path_depths(parts)
-    lca = lca_depth_matrix(parts).astype(np.float64)
-    dist = np.add.outer(depths, depths) - 2.0 * lca
-    np.fill_diagonal(dist, 0.0)
-    dist = np.maximum(dist, 1.0)
-    np.fill_diagonal(dist, 0.0)
-    return squareform(dist, checks=False)
 
 
 # ---------------------------------------------------------------------------

@@ -101,7 +101,7 @@ jobs:
           python -m nltk.downloader wordnet omw-1.4
 
       - name: Run pytest
-        run: pytest analysis/s0_build_rdms/__tests__/ analysis/utils/__tests__/ -v -m "not manual"
+        run: pytest analysis/s0_build_rdms/__tests__/ analysis/s2_semantic_hierarchy/__tests__/ analysis/utils/__tests__/ -v -m "not manual"
 
   python-simulations-tests:
     name: Python SpAM-simulations tests
