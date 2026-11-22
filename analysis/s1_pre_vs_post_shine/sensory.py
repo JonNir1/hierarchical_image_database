@@ -30,14 +30,13 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.spatial.distance import squareform
-from scipy.stats import rankdata
 
 from analysis.s0_build_rdms.common import (
     REPO_ROOT, image_paths, load_embeddings, load_image_rgb, load_manifest, order_hash,
 )
 from analysis.s1_pre_vs_post_shine.reference_agreement import percentile_ci
 from analysis.utils.disk_cache import cached_array, cached_frame, fingerprint
-from analysis.utils.stats import kendall_tau_a
+from analysis.utils.stats import kendall_tau_a, pearson_r, spearman_rho
 
 SENSORY_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "pre_vs_post_shine" / "sensory_cache"
 
@@ -59,8 +58,8 @@ _SPACE_COLOR = {"sens": "#c8692b", "clip": "#2b7bb9"}
 def _agreement_stats(pre: np.ndarray, post: np.ndarray) -> list[float]:
     return [
         kendall_tau_a(pre, post),
-        float(np.corrcoef(rankdata(pre), rankdata(post))[0, 1]),
-        float(np.corrcoef(pre, post)[0, 1]),
+        spearman_rho(pre, post),
+        pearson_r(pre, post),
         float(post.mean() / pre.mean()),
     ]
 
@@ -121,14 +120,7 @@ def row_agreement(d_pre: np.ndarray, d_post: np.ndarray) -> np.ndarray:
     pre_sq, post_sq = squareform(d_pre), squareform(d_post)
     n = len(pre_sq)
     off_diagonal = ~np.eye(n, dtype=bool)
-
-    def z_ranks(sq: np.ndarray) -> np.ndarray:
-        ranks = rankdata(sq[off_diagonal].reshape(n, n - 1), axis=1)
-        return ranks - ranks.mean(axis=1, keepdims=True)
-
-    z_pre, z_post = z_ranks(pre_sq), z_ranks(post_sq)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        return (z_pre * z_post).sum(axis=1) / np.sqrt((z_pre ** 2).sum(axis=1) * (z_post ** 2).sum(axis=1))
+    return spearman_rho(pre_sq[off_diagonal].reshape(n, n - 1), post_sq[off_diagonal].reshape(n, n - 1), axis=1)
 
 
 def shift_between(pre: np.ndarray, post: np.ndarray) -> pd.DataFrame:

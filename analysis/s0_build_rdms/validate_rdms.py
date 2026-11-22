@@ -17,7 +17,6 @@ import sys
 
 import numpy as np
 from scipy.spatial.distance import squareform
-from scipy.stats import spearmanr
 
 import json
 
@@ -25,7 +24,7 @@ from analysis.s0_build_rdms.common import (
     IMAGES_ROOT, RESULTS_DIR, _EXPECTED_LEN, _EXPECTED_N, load_manifest, load_rdm,
 )
 from analysis.utils.hierarchy import lca_depth_matrix, path_depths, path_parts
-from analysis.utils.stats import masked_rank_correlation
+from analysis.utils.stats import masked_rank_correlation, spearman_rho
 
 _BEHAV_METHODS = ("evidence", "mean")
 _BEHAV_NAMES = [f"behav_{v}_{m}" for v in ("pre", "post") for m in _BEHAV_METHODS]
@@ -128,7 +127,7 @@ def check_sens_correlation(d_pre: np.ndarray, d_post: np.ndarray) -> None:
     (vs 0.9 for CLIP) reflects this: we just check the correlation is
     meaningfully positive, not that pixel statistics are preserved.
     """
-    rho = float(spearmanr(d_pre, d_post).statistic)
+    rho = spearman_rho(d_pre, d_post)
     _check(rho > 0.5, f"Spearman rho(sens_pre, sens_post) = {rho:.3f} < 0.5")
 
 
@@ -194,7 +193,7 @@ def check_clip(d: np.ndarray) -> None:
 
 def check_clip_correlation(d_pre: np.ndarray, d_post: np.ndarray) -> None:
     """Pre- and post-SHINE CLIP RDMs should be strongly correlated (same objects)."""
-    rho = float(spearmanr(d_pre, d_post).statistic)
+    rho = spearman_rho(d_pre, d_post)
     _check(rho > 0.9, f"Spearman rho(clip_pre, clip_post) = {rho:.3f} < 0.9")
 
 

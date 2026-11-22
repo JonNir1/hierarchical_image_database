@@ -1,13 +1,13 @@
 """
 General statistical comparison helpers shared across analysis/ subdirectories:
-masked rank correlation between two (possibly incomplete) same-length vectors,
+Pearson r, Spearman rho (vector or row-wise) and Kendall tau-a, masked rank correlation between two (possibly incomplete) same-length vectors,
 rank-biserial effect size, independent-samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect
 sizes, an image-relabeling permutation test for RDM agreement, and a one-line significance-summary printer. None of this is specific
 to RDMs or MDS -- see analysis/s0_build_rdms/behavior/mds.py for that layer.
 
 Usage (from repo root):
     from analysis.utils.stats import (
-        masked_rank_correlation, mwu_effect_size, mwu_family,
+        pearson_r, spearman_rho, kendall_tau_a, masked_rank_correlation, mwu_effect_size, mwu_family,
         wilcoxon_effect_size, print_comparison_line, label_shuffle_test,
     )
 """
@@ -21,10 +21,39 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import squareform
-from scipy.stats import kendalltau, mannwhitneyu, rankdata, spearmanr, wilcoxon
+from scipy.stats import kendalltau, mannwhitneyu, rankdata, wilcoxon
 from statsmodels.stats.multitest import multipletests
 
 from analysis.utils.disk_cache import cached_array, fingerprint
+
+
+def _unit(x: np.ndarray, axis: int) -> np.ndarray:
+    """`x` centred along `axis` and scaled to unit length (the dot product of two is their Pearson r)."""
+    centred = np.asarray(x, dtype=np.float64)
+    centred = centred - centred.mean(axis=axis, keepdims=True)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return centred / np.sqrt((centred ** 2).sum(axis=axis, keepdims=True))
+
+
+def pearson_r(a: np.ndarray, b: np.ndarray, *, axis: int = -1) -> float | np.ndarray:
+    """Pearson correlation of `a` and `b` along `axis` (a float for 1-D input, one value per row
+    otherwise). NaN where either input is constant along the axis."""
+    r = np.clip((_unit(a, axis) * _unit(b, axis)).sum(axis=axis), -1.0, 1.0)
+    return float(r) if np.ndim(r) == 0 else r
+
+
+def z_ranks(x: np.ndarray, *, axis: int = -1) -> np.ndarray:
+    """Z-scored (tie-averaged) ranks along `axis`, so the mean of two such vectors' product is their
+    Spearman rho."""
+    ranks = rankdata(x, axis=axis)
+    return _unit(ranks, axis) * np.sqrt(ranks.shape[axis])
+
+
+def spearman_rho(a: np.ndarray, b: np.ndarray, *, axis: int = -1) -> float | np.ndarray:
+    """Spearman rank correlation of `a` and `b` along `axis`: Pearson r of the tie-averaged ranks
+    (so, like scipy.stats.spearmanr, ties are handled but not discounted). Use `axis=1` on two
+    (N, M) matrices to get one rho per row."""
+    return pearson_r(rankdata(a, axis=axis), rankdata(b, axis=axis), axis=axis)
 
 
 def _tie_pairs(x: np.ndarray) -> float:
@@ -69,7 +98,7 @@ def masked_rank_correlation(
         return {**under, "kendall_a": np.nan} if tau_a else under
     a_masked, b_masked = a[mask], b[mask]
     tau = float(kendalltau(a_masked, b_masked).statistic)
-    rho = float(spearmanr(a_masked, b_masked).statistic)
+    rho = spearman_rho(a_masked, b_masked)
     result = {"kendall": tau, "spearman": rho, "n_overlap": n}
     if tau_a:
         result["kendall_a"] = kendall_tau_a(a_masked, b_masked)
@@ -176,7 +205,7 @@ def print_comparison_line(result: dict, *, alpha: float = 0.05, corrected: bool 
 
 _RDM_STATISTICS: dict[str, Callable[[np.ndarray, np.ndarray], float]] = {
     "kendall_a": kendall_tau_a,
-    "spearman": lambda a, b: float(spearmanr(a, b).statistic),
+    "spearman": spearman_rho,
 }
 _DEFAULT_STATISTICS = tuple(_RDM_STATISTICS)
 

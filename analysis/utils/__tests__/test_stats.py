@@ -6,14 +6,14 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.stats import kendalltau, spearmanr
+from scipy.stats import kendalltau, pearsonr, spearmanr
 from statsmodels.stats.multitest import multipletests
 
 from scipy.spatial.distance import squareform
 
 from analysis.utils.stats import (
-    kendall_tau_a, label_shuffle_test, masked_rank_correlation, mwu_effect_size, mwu_family, print_comparison_line,
-    wilcoxon_effect_size,
+    kendall_tau_a, label_shuffle_test, masked_rank_correlation, mwu_effect_size, mwu_family, pearson_r,
+    print_comparison_line, spearman_rho, wilcoxon_effect_size, z_ranks,
 )
 
 # ---------------------------------------------------------------------------
@@ -201,3 +201,22 @@ def test_label_shuffle_test_statistic_subset_matches_the_full_run_and_reuses_its
     first = label_shuffle_test(perceptual, reference, n_perm=30, seed=4, cache_path=path)
     again = label_shuffle_test(perceptual, reference, n_perm=30, seed=4, cache_path=path)
     np.testing.assert_array_equal(first.null["kendall_a"], again.null["kendall_a"])
+
+
+# ---------------------------------------------------------------------------
+# pearson_r / spearman_rho / z_ranks
+# ---------------------------------------------------------------------------
+
+def test_pearson_and_spearman_match_scipy_for_vectors_with_ties_and_row_wise():
+    rng = np.random.default_rng(0)
+    a = rng.integers(0, 6, size=(5, 40)).astype(float)  # integer values: many ties
+    b = a + rng.normal(size=a.shape)
+    assert pearson_r(a[0], b[0]) == pytest.approx(pearsonr(a[0], b[0]).statistic)
+    assert spearman_rho(a[0], b[0]) == pytest.approx(spearmanr(a[0], b[0]).statistic)
+    assert spearman_rho(a, b, axis=1) == pytest.approx([spearmanr(x, y).statistic for x, y in zip(a, b)])
+    assert float(np.mean(z_ranks(a[0]) * z_ranks(b[0]))) == pytest.approx(spearman_rho(a[0], b[0]))
+
+
+def test_correlations_of_a_constant_vector_are_nan_not_an_error():
+    flat, ramp = np.ones(6), np.arange(6.0)
+    assert np.isnan(pearson_r(flat, ramp)) and np.isnan(spearman_rho(ramp, flat))
