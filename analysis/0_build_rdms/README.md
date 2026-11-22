@@ -4,7 +4,7 @@ Code that **builds** the RDMs the analysis consumes, plus the methodological che
 validate them (which aggregation to use, how the reference RDMs relate to the hierarchy, why
 WordNet is built by direct assignment). One subfolder per RDM type, each holding the builder(s)
 for that type; shared infrastructure stays at this level. Cohort comparisons (pre vs post SHINE)
-live in `analysis/pre_vs_post_shine/`, not here.
+live in `../1_pre_vs_post_shine`, not here.
 
 ```
 build_rdms/

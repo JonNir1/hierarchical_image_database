@@ -18,7 +18,7 @@ has been done and what is pending.
   the non-lossy artifact (re-deriving a distance metric doesn't require re-running
   the encoder); distances are computed from them via the shared, embedder-agnostic
   `common.euclidean_distances()` / `common.cosine_distances()` helpers, with
-  `save_result=True` persisting the RDM in the same call. `analysis/build_rdms/sensory/pixels.py`
+  `save_result=True` persisting the RDM in the same call. `../analysis/0_build_rdms`
   (raw pixels, not a learned embedder) uses `euclidean_distances()` for the same
   reason but does not persist its pixel matrix — at 175×175×3 it would dwarf the RDM.
 
@@ -44,14 +44,14 @@ has been done and what is pending.
       Per pair: sum of mismatch indicators across the 3 KM tree levels
       (animate/inanimate, mid-level, basic). Out: `D_sem_km.npy`.
 - [ ] Semantic RDM (WordNet). `code: analysis/build_rdms/semantic/wordnet.py`.
-      Synsets assigned directly from image category labels (filename stem + directory,
-      with manual overrides for polysemous cases; see `images/manifest.csv` column
+  Synsets assigned directly from image category labels (filename stem + directory,
+  with manual overrides for polysemous cases; see `images/manifest.csv` column
       `wn_synset_name`). Pairwise WordNet shortest-path distance. Out: `D_sem_wn.npy`.
-      **`wn_synset_name` is the reference concept assignment for the dataset.** Any
-      later analysis needing a per-image concept reads that column; do not re-derive
-      concepts from the path or from a classifier. Automatic derivation disagrees with
-      it for 376 of 717 resolvable images (median 9 WordNet edges) and drops to 3.7%
-      agreement on the human branch. Evidence: `analysis/build_rdms/semantic/imagenet_vs_path.py`.
+  **`wn_synset_name` is the reference concept assignment for the dataset.** Any
+  later analysis needing a per-image concept reads that column; do not re-derive
+  concepts from the path or from a classifier. Automatic derivation disagrees with
+  it for 376 of 717 resolvable images (median 9 WordNet edges) and drops to 3.7%
+  agreement on the human branch. Evidence: `../analysis/0_build_rdms`.
 - [ ] Visual-semantic RDM (CLIP). `code: analysis/build_rdms/semantic/clip.py`.
       Load OpenAI pretrained CLIP **ViT-B/32** (via `open_clip`), using the
       `ViT-B-32-quickgelu` config — **not** plain `ViT-B-32`, which pairs OpenAI's
@@ -78,16 +78,16 @@ has been done and what is pending.
       RDM, used for both cohorts.
       Out: `E_sem_sgpt.npy`, `D_sem_sgpt.npy`.
 - [ ] Reference-RDM diagnostics vs the curated hierarchy.
-      `code: analysis/build_rdms/rdm_vs_hierarchy.py` + `analysis/build_rdms/rdm_vs_hierarchy.ipynb`.
-      Confirms `D_sem_km` reproduces the directory tree exactly (independent
-      reimplementation of the LCA computation, so the check is not a tautology),
-      then asks how far each non-KM RDM tracks that tree. Two distinct questions,
-      deliberately plotted as two separate figures: pairwise rank agreement
-      (`plot_correlation_matrix`) and distance-vs-hierarchical-depth
-      (`plot_depth_profile`). Inference uses image-label shuffling, never analytic
-      p-values, since the 262,450 condensed entries come from only 725 images.
-      Not a gate on anything; run it after the reference RDMs are built and before
-      committing to a `D_sem` source for RQ3.
+      `code: analysis/build_rdms/rdm_vs_hierarchy.py` + `../analysis/0_build_rdms`.
+  Confirms `D_sem_km` reproduces the directory tree exactly (independent
+  reimplementation of the LCA computation, so the check is not a tautology),
+  then asks how far each non-KM RDM tracks that tree. Two distinct questions,
+  deliberately plotted as two separate figures: pairwise rank agreement
+  (`plot_correlation_matrix`) and distance-vs-hierarchical-depth
+  (`plot_depth_profile`). Inference uses image-label shuffling, never analytic
+  p-values, since the 262,450 condensed entries come from only 725 images.
+  Not a gate on anything; run it after the reference RDMs are built and before
+  committing to a `D_sem` source for RQ3.
 - [ ] SHINE manipulation check. `code: analysis/build_rdms/manip_check.ipynb`.
       Verify `D_sens_post` has much lower variance in luminance + color-histogram
       moments than `D_sens_pre`. If not, abort and re-run SHINE.
