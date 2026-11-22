@@ -20,7 +20,7 @@ is meaningless. Everything here is compared after median-rescaling, and the grad
 standardised gaps, which are scale-free.
 
 Uses ``SpAM_Task/stimuli_manifest.json`` as the only ordering source. ``images/manifest.csv`` (what
-``analysis/build_rdms/common.py`` reads) is not usable: it has 725 rows but only 719 distinct paths, with
+``analysis/s0_build_rdms/common.py`` reads) is not usable: it has 725 rows but only 719 distinct paths, with
 six caucasian faces duplicated and the six hispanic ones missing entirely.
 """
 from __future__ import annotations
@@ -55,8 +55,8 @@ def _lca_depth(a: tuple, b: tuple) -> int:
 def hierarchy_levels(manifest_images: Sequence[str]) -> np.ndarray:
     """Condensed vector of LCA depth for every image pair, in ``scipy`` condensed order.
 
-    Deliberately a small reimplementation of ``analysis.build_rdms.semantic.kiani``'s ``_dir_parts`` /
-    ``_lca_depth`` rather than an import: that module pulls in ``analysis.build_rdms.common``, which reads
+    Deliberately a small reimplementation of ``analysis.s0_build_rdms.semantic.kiani``'s ``_dir_parts`` /
+    ``_lca_depth`` rather than an import: that module pulls in ``analysis.s0_build_rdms.common``, which reads
     the broken ``images/manifest.csv`` and would need a third sparse-checkout path on EC2. The
     tests assert the two agree on a hand-written path list.
     """
@@ -234,7 +234,7 @@ def summarise_gradients(per_cell: pd.DataFrame, group: str = "arm") -> pd.DataFr
 # The third validity check, and the sharpest of the three, because it is about the shape of the
 # NOISE rather than the shape of the signal.
 #
-# The empirical finding (analysis/pilot/figures.py, "Reliability vs. distance"): for every image
+# The empirical finding (analysis/_retired/pilot/figures.py, "Reliability vs. distance"): for every image
 # pair a subject judged twice, plot the RMSE between the two judgements against their mean, and the
 # curve is an inverted U. Pairs that are clearly similar and pairs that are clearly dissimilar are
 # both judged consistently; the ambiguous middle is where subjects disagree with themselves. A
@@ -339,7 +339,7 @@ def noise_vs_distance(d_orig: np.ndarray, d_repeat: np.ndarray, n_bins: int = 10
 
     One row per bin of ``pair_mean = (d_orig + d_repeat) / 2``, carrying
     ``rmse = sqrt(mean((d_orig - d_repeat)**2))``. This is the same quantity
-    ``analysis/pilot/figures.py`` plots, and ``binning="fixed"`` with ``rescale="none"`` reproduces
+    ``analysis/_retired/pilot/figures.py`` plots, and ``binning="fixed"`` with ``rescale="none"`` reproduces
     its fixed-width bins; a test asserts the two agree on the same input.
 
     ``binning="quantile"`` is the default here because this comparison is cross-scale. Simulated
@@ -460,7 +460,7 @@ def noise_curve_shape(table: pd.DataFrame, tolerance: float = TURNOVER_TOLERANCE
 def null_distances(num_dots: int = 20, num_trials: int = 2000, seed: int = 42) -> np.ndarray:
     """Pairwise distances for ``num_dots`` points dropped uniformly on the unit square.
 
-    Delegates to ``analysis/pilot/simulate_null_distances.py`` rather than restating it, so the
+    Delegates to ``analysis/_retired/pilot/simulate_null_distances.py`` rather than restating it, so the
     report's null and the pilot analysis's null cannot drift apart. Distances come back divided by
     the unit-square diagonal, which is the same normalisation the deployed task and the v5 canvas
     simulator apply, so the three sources are directly comparable with no rescaling.
