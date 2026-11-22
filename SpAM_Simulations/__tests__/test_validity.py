@@ -1,7 +1,7 @@
 """Tests for the empirical-validity checks.
 
 Hand-built hierarchies with known LCA depths, plus an agreement test against
-``analysis.build_rdms.semantic.kiani`` (skipped when that module cannot be imported, since it drags in the
+``analysis.s0_build_rdms.semantic.kiani`` (skipped when that module cannot be imported, since it drags in the
 broken images/manifest.csv loader).
 
 No R needed.
@@ -152,9 +152,9 @@ def test_compare_to_pilot_detects_a_structurally_wrong_simulation():
 # --------------------------------------------------------------------- cross-check
 
 def test_lca_agrees_with_kiani():
-    """The reimplementation must match analysis.build_rdms.semantic.kiani, which it deliberately avoids importing."""
-    km = pytest.importorskip("analysis.build_rdms.semantic.kiani",
-                             reason="analysis.build_rdms unavailable (it reads the broken images/manifest.csv)")
+    """The reimplementation must match analysis.s0_build_rdms.semantic.kiani, which it deliberately avoids importing."""
+    km = pytest.importorskip("analysis.s0_build_rdms.semantic.kiani",
+                             reason="analysis.s0_build_rdms unavailable (it reads the broken images/manifest.csv)")
     for a in PATHS:
         for b in PATHS:
             mine = val._lca_depth(val._dir_parts(a), val._dir_parts(b))
@@ -218,7 +218,7 @@ def test_noise_vs_distance_rmse_is_hand_computable():
 
 
 def test_noise_vs_distance_matches_the_pilot_figures_definition():
-    """Same quantity as analysis/pilot/figures.py: sqrt(mean(sq_diff)) over a bin of pair_mean."""
+    """Same quantity as analysis/_retired/pilot/figures.py: sqrt(mean(sq_diff)) over a bin of pair_mean."""
     rng = np.random.default_rng(0)
     o, r = rng.random(500), rng.random(500)
     t = val.noise_vs_distance(o, r, n_bins=4, binning="fixed", rescale="none")

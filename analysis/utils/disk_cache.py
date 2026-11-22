@@ -3,7 +3,7 @@ Small disk cache for expensive, deterministic results (permutation nulls, bootst
 stored with a fingerprint of the inputs that produced it and reused only when the fingerprint
 matches, so changing the subjects, n or seed recomputes instead of returning stale numbers.
 
-`cached_array` keeps the .npz layout analysis/pre_vs_post_shine/geometry.py always wrote (the array
+`cached_array` keeps the .npz layout analysis/s1_pre_vs_post_shine/geometry.py always wrote (the array
 under `key`, plus `fingerprint`), so caches written before this module existed stay valid.
 
 Usage (from repo root):

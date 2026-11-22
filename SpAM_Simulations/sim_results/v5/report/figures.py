@@ -365,7 +365,7 @@ def realism_calibration_realised(run: Run) -> go.Figure:
 def realism_null_distance(run: Run) -> go.Figure:
     """Simulated and pilot distances against random placement on the same canvas.
 
-    The null is ``analysis/pilot/simulate_null_distances.py``: 20 points dropped uniformly on the
+    The null is ``analysis/_retired/pilot/simulate_null_distances.py``: 20 points dropped uniformly on the
     unit square, distances divided by the diagonal. Under task-v5 the simulated distances are
     divided by the canvas diagonal too, so all three live on the same [0, 1] axis with no rescaling.
     """
@@ -1107,7 +1107,7 @@ FIGURES: Dict[str, Fig] = {
         realism_null_distance,
         "Error bars are ±1 SD across all pairs in each source. The null is 2,000 trials of 20 "
         "points dropped uniformly on the canvas, from the same script the pilot analysis uses "
-        "(analysis/pilot/simulate_null_distances.py)."),
+        "(analysis/_retired/pilot/simulate_null_distances.py)."),
     "realism_semantic_gradient": Fig(
         realism_semantic_gradient,
         "One simulated cohort per arm at N=500, so there is no spread to show. The caveat "

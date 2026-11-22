@@ -1,6 +1,6 @@
 """
 Shared plotly scaffolding for the per-group figure idioms used across
-analysis/pilot/figures.py and analysis/pre_vs_post_shine/demographics_and_behavior.py: a
+analysis/_retired/pilot/figures.py and analysis/s1_pre_vs_post_shine/demographics_and_behavior.py: a
 colorblind-safe categorical palette generator, a violin+per-key-dots panel, a
 mean+/-SE-progression-over-x panel (thin per-subject lines underneath), a
 split violin (one group per side), a horizontal %-status bar chart, and an
@@ -24,7 +24,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Colorblind-safe categorical hues already validated in this project (see
-# analysis/pilot/figures.py's former _VERSION_PALETTE comment: "blue/orange/
+# analysis/_retired/pilot/figures.py's former _VERSION_PALETTE comment: "blue/orange/
 # aqua/violet is one of the passing 4-hue combinations from the reference
 # 8-hue theme"). A 5th+ hue needs the same manual CVD-validation step before
 # being added here -- role_palette() raises rather than silently generating one.
@@ -69,10 +69,10 @@ def add_violin_dots_panel(
     trial-level values, or all subject-level values). `dots[key]` is a
     DataFrame with a "value" column (dot x-positions, pre-sorted by the
     caller) and an optional "error" column (shown as error_x) -- this is what
-    lets the same function cover both analysis/pilot/figures.py's former
+    lets the same function cover both analysis/_retired/pilot/figures.py's former
     _add_violin_dots_panel (dots = per-subject mean +/- SD, aggregated from a
     finer-grained trial-level violin) and
-    analysis/pre_vs_post_shine/demographics_and_behavior.py's former inline violin+dots code
+    analysis/s1_pre_vs_post_shine/demographics_and_behavior.py's former inline violin+dots code
     (dots = the same already-per-subject values as the violin, no error
     bars).
     """
@@ -121,8 +121,8 @@ def add_progression_panel(
     """Mean +/- SE line over `x_col` (e.g. trial number, repeat index), with
     thin per-participant lines underneath (unless `show_participants` is
     False), one set of traces per key in `frames`. Unifies the identically-named _add_progression_panel() that
-    used to live independently in both analysis/pilot/figures.py and
-    analysis/pre_vs_post_shine/demographics_and_behavior.py.
+    used to live independently in both analysis/_retired/pilot/figures.py and
+    analysis/s1_pre_vs_post_shine/demographics_and_behavior.py.
 
     `show_legend` is per-call (not inferred from `row`) so a caller building
     a multi-row figure can show the legend once, on whichever call it likes
@@ -222,9 +222,9 @@ def fig_group_status_bar(
     title: str = "", height: int = 300, width: int | None = None,
 ) -> go.Figure:
     """Horizontal %-of-rows bar chart of `status_col` categories, one panel
-    per key in `panels`. Unifies analysis/pilot/figures.py's former
+    per key in `panels`. Unifies analysis/_retired/pilot/figures.py's former
     fig_completion_status (bar_colors keyed by status) and
-    analysis/pre_vs_post_shine/demographics_and_behavior.py's former fig_retention_status
+    analysis/s1_pre_vs_post_shine/demographics_and_behavior.py's former fig_retention_status
     (bar_colors keyed by panel key, one color per panel)."""
     keys = list(panels)
     n_panels = len(keys)

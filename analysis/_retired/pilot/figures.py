@@ -6,7 +6,7 @@ All functions accept DataFrames returned by analysis.utils.parser.parse_raw_data
 
 Usage (from repo root):
     from analysis.utils.parser import parse_raw_data
-    from analysis.pilot.figures import (
+    from analysis._retired.pilot.figures import (
         fig_completion_status, fig_demographics,
         fig_trial_duration, fig_moves, fig_reliability,
         fig_duration_vs_moves, fig_within_subject_variability,

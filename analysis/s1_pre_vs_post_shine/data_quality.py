@@ -1,0 +1,240 @@
+"""
+Pre- vs post-SHINE cohort comparison, data-quality layer (analysis/s1_pre_vs_post_shine/
+2_data_quality.ipynb): within-subject test-retest reliability (overall and
+over repeat index) and pairwise-distance distributions vs the random-placement
+null (Wasserstein primary, KS secondary).
+
+Usage (from repo root):
+    from analysis.s1_pre_vs_post_shine.data_quality import (
+        subject_reliability, subject_repeat_slope, pairwise_distance_values,
+        subject_wasserstein_distance, subject_ks_distance, fig_reliability,
+        fig_repeat_reliability, fig_distance_vs_null,
+    )
+"""
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from scipy.stats import gaussian_kde, wasserstein_distance
+
+from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORT_COLORS, COHORT_LABEL, COHORTS, cohort_colors, cohort_label
+from analysis._retired.pilot.figures import trial_ks_distance
+from analysis.utils.parser import parse_pairwise_distances
+from analysis.utils.plotting import add_progression_panel, add_split_violin
+
+
+def subject_reliability(df_trials: pd.DataFrame, participant_ids: pd.Series | list) -> pd.Series:
+    """Per-participant within-subject reliability: mean Spearman r across that
+    subject's verbatim trial repeats (the 'reliability' column, precomputed
+    per repeat trial by analysis/utils/parser.py). Index is participant_id."""
+    df = df_trials[df_trials["participant_id"].isin(participant_ids)]
+    return df.groupby("participant_id")["reliability"].mean().dropna()
+
+
+def subject_repeat_slope(repeat_df: pd.DataFrame, *, min_repeats: int = 3) -> pd.Series:
+    """Per-participant least-squares slope of test-retest Spearman r on repeat
+    index (analysis.utils.repeat_reliability.repeat_reliability_by_index()'s
+    output), in r units per repeat. Participants with fewer than *min_repeats*
+    valid repeats are dropped. Index is participant_id."""
+    slopes = {
+        pid: float(np.polyfit(grp["repeat_index"], grp["spearman_r"], 1)[0])
+        for pid, grp in repeat_df.groupby("participant_id")
+        if len(grp) >= min_repeats
+    }
+    return pd.Series(slopes, dtype=float)
+
+
+def pairwise_distance_values(df_trials_main: pd.DataFrame) -> list[float]:
+    """Flatten every main trial's pairwise_distances into one list of
+    normalised SpAM distances (same unit as the null distribution simulated
+    by analysis._retired.pilot.simulate_null_distances.simulate())."""
+    return [
+        dist
+        for pw_json in df_trials_main["pairwise_distances"]
+        for dist in parse_pairwise_distances(pw_json).values()
+    ]
+
+
+def trial_wasserstein_distance(pw_json: str, null_distribution: np.ndarray) -> float:
+    """Earth mover's (Wasserstein-1) distance between one trial's pairwise
+    distances and *null_distribution*. Unlike the KS D statistic (max gap
+    between CDFs, shape-only), Wasserstein integrates over the full gap
+    between distributions, so it's sensitive to *how far* the trial's
+    distances sit from the null, not just whether the two shapes differ --
+    the more appropriate primary measure for a magnitude comparison here.
+    Companion to analysis._retired.pilot.figures.trial_ks_distance(), which is kept as
+    a secondary/shape-robustness check."""
+    dists = list(parse_pairwise_distances(pw_json).values())
+    if len(dists) < 2:
+        return np.nan
+    return wasserstein_distance(dists, null_distribution)
+
+
+def subject_wasserstein_distance(df_trials_main: pd.DataFrame, null_distribution: np.ndarray) -> pd.Series:
+    """Per-participant mean Wasserstein distance of each main trial's
+    pairwise-distance distribution from *null_distribution* -- primary
+    distance-from-null measure (see trial_wasserstein_distance())."""
+    w = df_trials_main["pairwise_distances"].apply(trial_wasserstein_distance, null_distribution=null_distribution)
+    return w.groupby(df_trials_main["participant_id"]).mean()
+
+
+def subject_ks_distance(df_trials_main: pd.DataFrame, null_distribution: np.ndarray) -> pd.Series:
+    """Per-participant mean KS distance (D statistic) of each main trial's
+    pairwise-distance distribution against *null_distribution* -- reuses
+    analysis._retired.pilot.figures.trial_ks_distance(), the same measure as
+    analysis/_retired/pilot/analysis.ipynb's Test 3 (KS distance from null). Secondary
+    to subject_wasserstein_distance() here (see its docstring); grouped by
+    SHINE cohort instead of task version."""
+    ks = df_trials_main["pairwise_distances"].apply(trial_ks_distance, null_distribution=null_distribution)
+    return ks.groupby(df_trials_main["participant_id"]).mean()
+
+
+# ---------------------------------------------------------------------------
+# Figures
+# ---------------------------------------------------------------------------
+
+
+def fig_reliability(rel_by_cohort: dict[str, pd.Series], *, show_participants: bool = True) -> go.Figure:
+    """Within-subject reliability (per-subject mean Spearman r across trial
+    repeats): one split violin, pre on the left and post on the right, with
+    individual subject dots when `show_participants` -- via
+    analysis.utils.plotting.add_split_violin()."""
+    fig = make_subplots(rows=1, cols=1)
+    values = {c: rel_by_cohort[c].values for c in COHORTS}
+    add_split_violin(
+        fig, values["pre"], values["post"], left_key="pre", right_key="post", colors=COHORT_COLORS,
+        labels=COHORT_LABEL, left_dots=values["pre"], right_dots=values["post"],
+        show_participants=show_participants, show_legend=True,
+    )
+    fig.update_xaxes(showticklabels=False, range=[-0.6, 0.6])
+    fig.update_yaxes(title_text="Within-subject reliability (Spearman r)")
+    fig.update_layout(
+        template="plotly_white",
+        title="Within-subject reliability by cohort",
+        height=420, margin={"l": 70, "r": 40, "t": 60, "b": 40},
+        showlegend=True,
+    )
+    return fig
+
+
+def fig_repeat_reliability(repeat_by_cohort: dict[str, pd.DataFrame]) -> go.Figure:
+    """Test-retest Spearman r over repeat index (mean +/- SE per repeat), one
+    trace per cohort, without the per-subject lines -- via
+    analysis.utils.plotting.add_progression_panel()."""
+    fig = make_subplots(rows=1, cols=1)
+    add_progression_panel(
+        fig, repeat_by_cohort, "spearman_r", "repeat_index", row=1, colors=COHORT_COLORS, labels=COHORT_LABEL,
+        xaxis_title="Repeat #", yaxis_title="Spearman r (repeat vs. original)", show_legend=True,
+        show_participants=False,
+    )
+    n_repeats = max(int(df["repeat_index"].max()) for df in repeat_by_cohort.values())
+    fig.update_xaxes(tickvals=list(range(1, n_repeats + 1)))
+    fig.update_layout(
+        template="plotly_white",
+        title="Test-retest reliability over repeat trials, by cohort",
+        height=420, margin={"l": 70, "r": 40, "t": 70, "b": 60},
+        showlegend=True, legend={"groupclick": "togglegroup"},
+    )
+    return fig
+
+
+def fig_distance_vs_null(
+    dists_by_cohort: dict[str, list[float]],
+    null_distribution: np.ndarray,
+    wasserstein_by_cohort: dict[str, pd.Series],
+    ks_by_cohort: dict[str, pd.Series],
+    *, show_participants: bool = True,
+) -> go.Figure:
+    """2x3 grid: top row (spans all 3 cols) = per-cohort KDE of pairwise SpAM
+    distances vs. the random-placement null; bottom-left = per-subject
+    distance from null as two split violins (pre left, post right): Wasserstein
+    on the left y-axis (primary, see trial_wasserstein_distance()) and KS on
+    the right y-axis (secondary/shape-robustness check); bottom-middle =
+    per-cohort deviation from null (KDE_cohort - KDE_null); bottom-right =
+    density difference between cohorts (KDE_pre - KDE_post). The legend sits
+    inside the top-right corner of the top panel. Adapted from
+    analysis/_retired/pilot/figures.py's fig_pairwise_distance_distribution, grouped by
+    SHINE cohort instead of task version."""
+    x = np.linspace(0.0, 1.0, 500)
+    null_kde = gaussian_kde(null_distribution)(x)
+    cohort_kde = {c: gaussian_kde(dists_by_cohort[c])(x) for c in COHORTS}
+    total_obs = sum(len(v) for v in dists_by_cohort.values())
+
+    fig = make_subplots(
+        rows=2, cols=3,
+        specs=[[{"colspan": 3}, None, None], [{"secondary_y": True}, {}, {}]],
+        subplot_titles=[
+            f"Pairwise SpAM distance distribution (n={total_obs:,} pair observations)",
+            "Distance from null per subject",
+            "Δ density vs. null",
+            "Δ density pre - post",
+        ],
+        row_heights=[0.42, 0.58], vertical_spacing=0.18, horizontal_spacing=0.1,
+    )
+
+    fig.add_trace(go.Scatter(
+        x=x.tolist(), y=null_kde.tolist(),
+        fill="tozeroy", fillcolor="rgba(160,160,160,0.30)",
+        line={"color": "rgba(100,100,100,0.70)", "width": 1.5},
+        name="Null (random placement)",
+    ), row=1, col=1)
+    for cohort in COHORTS:
+        cc = cohort_colors(cohort)
+        fig.add_trace(go.Scatter(
+            x=x.tolist(), y=cohort_kde[cohort].tolist(),
+            line={"color": cc["main"], "width": 2.5},
+            name=cohort_label(cohort), legendgroup=cohort,
+        ), row=1, col=1)
+        dev = (cohort_kde[cohort] - null_kde).tolist()
+        fig.add_trace(go.Scatter(
+            x=x.tolist(), y=dev,
+            fill="tozeroy", fillcolor=cc["violin"],
+            line={"color": cc["main"], "width": 1.5},
+            name=cohort_label(cohort), legendgroup=cohort, showlegend=False,
+        ), row=2, col=2)
+    fig.add_trace(go.Scatter(
+        x=x.tolist(), y=(cohort_kde["pre"] - cohort_kde["post"]).tolist(),
+        fill="tozeroy", fillcolor="rgba(90,90,90,0.30)",
+        line={"color": "rgba(60,60,60,0.9)", "width": 1.5},
+        name="Pre - post", showlegend=False,
+    ), row=2, col=3)
+    for col_idx in (2, 3):
+        fig.add_trace(go.Scatter(
+            x=[0.0, 1.0], y=[0.0, 0.0],
+            line={"color": "rgba(80,80,80,0.55)", "width": 1.2, "dash": "dot"},
+            showlegend=False,
+        ), row=2, col=col_idx)
+
+    for values_by_cohort, position, secondary_y in ((wasserstein_by_cohort, 0.0, False), (ks_by_cohort, 1.0, True)):
+        values = {c: values_by_cohort[c].values for c in COHORTS}
+        add_split_violin(
+            fig, values["pre"], values["post"], left_key="pre", right_key="post", colors=COHORT_COLORS,
+            labels=COHORT_LABEL, left_dots=values["pre"], right_dots=values["post"], position=position,
+            show_participants=show_participants, row=2, col_idx=1, secondary_y=secondary_y,
+        )
+
+    fig.update_yaxes(title_text="Density", row=1, col=1)
+    fig.update_xaxes(title_text="Normalised distance", row=1, col=1)
+    fig.update_xaxes(
+        tickvals=[0.0, 1.0], ticktext=["Wasserstein", "KS Divergence"], range=[-0.6, 1.6], row=2, col=1,
+    )
+    fig.update_yaxes(title_text="Distance from Null", rangemode="tozero", secondary_y=False, row=2, col=1)
+    fig.update_yaxes(title_text="Distance from Null", rangemode="tozero", secondary_y=True, row=2, col=1)
+    fig.update_yaxes(title_text="Δ density vs null", row=2, col=2)
+    fig.update_xaxes(title_text="Normalised distance", row=2, col=2)
+    fig.update_yaxes(title_text="Δ density pre - post", row=2, col=3)
+    fig.update_xaxes(title_text="Normalised distance", row=2, col=3)
+
+    fig.update_layout(
+        template="plotly_white",
+        height=680, width=1200,
+        margin={"l": 80, "r": 40, "t": 60, "b": 60},
+        showlegend=True,
+        legend={
+            "x": 0.99, "y": 0.99, "xanchor": "right", "yanchor": "top",
+            "bgcolor": "rgba(255,255,255,0.8)", "bordercolor": "rgba(0,0,0,0.15)", "borderwidth": 1,
+        },
+    )
+    return fig

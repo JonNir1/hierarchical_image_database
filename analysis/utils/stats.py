@@ -3,7 +3,7 @@ General statistical comparison helpers shared across analysis/ subdirectories:
 masked rank correlation between two (possibly incomplete) same-length vectors,
 rank-biserial effect size, independent-samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect
 sizes, an image-relabeling permutation test for RDM agreement, and a one-line significance-summary printer. None of this is specific
-to RDMs or MDS -- see analysis/build_rdms/behavior/mds.py for that layer.
+to RDMs or MDS -- see analysis/s0_build_rdms/behavior/mds.py for that layer.
 
 Usage (from repo root):
     from analysis.utils.stats import (
@@ -50,9 +50,9 @@ def masked_rank_correlation(
 ) -> dict:
     """Kendall tau + Spearman rho between two (possibly incomplete) same-length
     vectors, restricted to positions non-NaN in both. Unifies
-    analysis/build_rdms/behavior/noise_ceiling.py's former _kendall_spearman(),
-    analysis/pre_vs_post_shine/demographics_and_behavior.py's former masked_kendall_spearman(),
-    and the correlation analysis/build_rdms/validate_rdms.py's
+    analysis/s0_build_rdms/behavior/noise_ceiling.py's former _kendall_spearman(),
+    analysis/s1_pre_vs_post_shine/demographics_and_behavior.py's former masked_kendall_spearman(),
+    and the correlation analysis/s0_build_rdms/validate_rdms.py's
     report_behav_correlation() does inline.
 
     If `min_overlap` is given, an `"underpowered"` bool flag is added (True,
@@ -92,8 +92,8 @@ def rank_biserial(values_a: np.ndarray, values_b: np.ndarray) -> float:
 def mwu_effect_size(values_a, values_b, *, label_a: str = "A", label_b: str = "B") -> dict:
     """Two-sided Mann-Whitney U between two independent samples, with
     rank-biserial effect size r = 1 - 2U/(n_A*n_B). Unifies
-    analysis/pre_vs_post_shine/demographics_and_behavior.py's former mwu_two_group() and
-    analysis/pilot/analysis.ipynb's former inline mwu_compare()."""
+    analysis/s1_pre_vs_post_shine/demographics_and_behavior.py's former mwu_two_group() and
+    analysis/_retired/pilot/analysis.ipynb's former inline mwu_compare()."""
     a = np.asarray(values_a, dtype=float)
     b = np.asarray(values_b, dtype=float)
     a, b = a[~np.isnan(a)], b[~np.isnan(b)]
@@ -118,7 +118,7 @@ def mwu_family(
     multiple-comparison correction applied across the family. `correction`
     accepts any method string supported by
     statsmodels.stats.multitest.multipletests (e.g. "bonferroni", "holm",
-    "fdr_bh"). Promotes analysis/pilot/analysis.ipynb's former inline
+    "fdr_bh"). Promotes analysis/_retired/pilot/analysis.ipynb's former inline
     mwu_family() to reusable code, built on mwu_effect_size(). `label_fn`
     formats each group value for the "comparison" column/index (default
     str(); pilot's original notebook used f"v{v:g}" for float task versions --
@@ -143,7 +143,7 @@ def mwu_family(
 def wilcoxon_effect_size(x: np.ndarray, y: np.ndarray) -> dict:
     """Paired Wilcoxon signed-rank test + matched-pairs rank-biserial effect
     size (R+ - R-) / sum(ranks). Extracts
-    analysis/build_rdms/behavior/aggregation_comparison.ipynb's former inline
+    analysis/s0_build_rdms/behavior/aggregation_comparison.ipynb's former inline
     _wilcoxon_row()."""
     diff = np.asarray(x) - np.asarray(y)
     diff_nz = diff[diff != 0]
@@ -161,8 +161,8 @@ def wilcoxon_effect_size(x: np.ndarray, y: np.ndarray) -> dict:
 def print_comparison_line(result: dict, *, alpha: float = 0.05, corrected: bool = False) -> None:
     """One-line significance summary for an mwu_effect_size()/mwu_family()-row
     result dict. `corrected` reads "p_corrected" instead of "p" (use True for
-    an mwu_family() row). Unifies analysis/pilot/analysis.ipynb's former
-    print_bottom_line() and analysis/pre_vs_post_shine/1_demographics_and_behavior.ipynb's
+    an mwu_family() row). Unifies analysis/_retired/pilot/analysis.ipynb's former
+    print_bottom_line() and analysis/s1_pre_vs_post_shine/1_demographics_and_behavior.ipynb's
     former _print_mwu()."""
     p_key = "p_corrected" if corrected else "p"
     p = result[p_key]

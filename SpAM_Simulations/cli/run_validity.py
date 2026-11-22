@@ -1,7 +1,7 @@
 """Run the noise-shape validity check locally, against a downloaded run's calibration.
 
 This is the sharpest of the validity checks and the only one that does not need the sweep. The
-empirical finding it tests (``analysis/pilot/figures.py``, "Reliability vs. distance"): for every
+empirical finding it tests (``analysis/_retired/pilot/figures.py``, "Reliability vs. distance"): for every
 pair a subject judged twice, RMSE between the two judgements against their mean is an inverted U.
 Clearly-similar and clearly-dissimilar pairs are judged consistently; the ambiguous middle is not.
 The high-distance turnover is the discriminating half, because it requires a bounded canvas - a pair
