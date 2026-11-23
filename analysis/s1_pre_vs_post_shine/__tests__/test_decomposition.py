@@ -40,16 +40,20 @@ def test_betas_are_invariant_to_rescaling_and_shifting_the_inputs():
     assert rescaled == pytest.approx(betas, abs=1e-8)
 
 
-def test_hierarchical_delta_r2_sums_to_the_full_ols_r2():
+def test_hierarchical_delta_r2_sums_to_the_full_ols_r2_and_ols_betas_match_lstsq():
     rng = np.random.default_rng(1)
     predictors = {t: rng.normal(size=_N_PAIRS) for t in dec.TERMS}
     y = predictors["pix"] + 0.5 * predictors["clip"] + 0.3 * predictors["sem_km"] + rng.normal(size=_N_PAIRS)
     fit = dec.fit_models(y, predictors)
     rows = fit[fit["model"] == "km+clip"]
     design = np.column_stack([_z(predictors[t]) for t in ("sem_km", "clip", "pix")])
-    residual = _z(y) - design @ np.linalg.lstsq(design, _z(y), rcond=None)[0]
+    ols = np.linalg.lstsq(design, _z(y), rcond=None)[0]
+    residual = _z(y) - design @ ols
     assert rows["delta_r2"].sum() == pytest.approx(1 - residual.var(), abs=1e-8)
-    assert fit[fit["model"] == "km+wn"]["delta_r2"].isna().all()
+    assert rows["beta_ols"].to_numpy() == pytest.approx(ols, abs=1e-8)  # rows are in model order: sem_km, clip, pix
+    full = np.column_stack([_z(predictors[t]) for t in dec.TERMS])  # km+wn+clip: two semantic predictors enter in turn
+    full_residual = _z(y) - full @ np.linalg.lstsq(full, _z(y), rcond=None)[0]
+    assert fit[fit["model"] == "km+wn+clip"]["delta_r2"].sum() == pytest.approx(1 - full_residual.var(), abs=1e-8)
 
 
 def test_bootstrap_is_seeded_and_its_difference_is_a_minus_b():

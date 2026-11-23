@@ -10,7 +10,8 @@ pairs the cohort observed (optionally intersected with a `mask`, e.g. the pairs 
 The predictors are variant-specific where the stimuli are (pixels and CLIP of the cohort's own SHINE
 variant) and shared where they are not (the KM and WordNet semantic RDMs).
 
-All statistics of a fit (NNLS betas and R^2, partial correlations, hierarchical delta R^2) are computed
+All statistics of a fit (NNLS betas and R^2, unconstrained OLS betas as a sensitivity check, partial
+correlations, hierarchical delta R^2) are computed
 from one correlation matrix of [perceptual, predictors], so fitting every model of MODELS on a bootstrap
 draw costs one pass over the 262,450 pairs, not one per model.
 
@@ -42,6 +43,7 @@ from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, coh
 from analysis.s1_pre_vs_post_shine.reference_agreement import TrialsByParticipant, _digest, percentile_ci
 from analysis.utils.disk_cache import cached_frame, fingerprint
 from analysis.utils.equivalence import equivalence_test_bootstrap_effect
+from analysis.utils.plotting import _EQUIVALENT_COLOR, _NOT_EQUIVALENT_COLOR
 
 TERMS = ("sem_km", "sem_wn", "clip", "pix")
 TERM_LABEL = {"sem_km": "semantic (KM)", "sem_wn": "semantic (WordNet)", "clip": "CLIP", "pix": "pixels"}
@@ -55,12 +57,12 @@ MODELS: dict[str, tuple[str, ...]] = {
     "km+wn": ("sem_km", "sem_wn", "pix"),
     "km+wn+clip": ("sem_km", "sem_wn", "clip", "pix"),
 }
-# models with one semantic predictor, for which the pre-registered entry order (pixels, then CLIP,
-# then semantic) defines a hierarchical delta R^2
-HIERARCHICAL_MODELS = ("km", "km+clip", "wn", "wn+clip")
 
-STATS = ("beta", "partial_r", "delta_r2", "r2")
-STAT_LABEL = {"beta": "standardized beta", "partial_r": "partial correlation", "delta_r2": "delta R^2", "r2": "R^2"}
+STATS = ("beta", "beta_ols", "partial_r", "delta_r2", "r2")
+STAT_LABEL = {
+    "beta": "standardized beta (NNLS)", "beta_ols": "standardized beta (OLS)", "partial_r": "partial correlation",
+    "delta_r2": "delta R^2", "r2": "R^2",
+}
 _RIDGE = 1e-12
 _TEMPLATE = "plotly_white"
 
@@ -97,9 +99,15 @@ def _nnls(corr: np.ndarray, cols: list[int]) -> tuple[np.ndarray, float]:
     return betas, float(2.0 * cov @ betas - betas @ gram @ betas)
 
 
-def _ols_r2(corr: np.ndarray, cols: list[int]) -> float:
+def _ols(corr: np.ndarray, cols: list[int]) -> tuple[np.ndarray, float]:
+    """Unconstrained standardized betas and R^2 of y on the columns `cols` of a correlation matrix."""
     cov = corr[0, cols]
-    return float(cov @ np.linalg.solve(corr[np.ix_(cols, cols)], cov))
+    betas = np.linalg.solve(corr[np.ix_(cols, cols)], cov)
+    return betas, float(cov @ betas)
+
+
+def _ols_r2(corr: np.ndarray, cols: list[int]) -> float:
+    return _ols(corr, cols)[1]
 
 
 def _partial_correlations(corr: np.ndarray, cols: list[int]) -> np.ndarray:
@@ -109,9 +117,9 @@ def _partial_correlations(corr: np.ndarray, cols: list[int]) -> np.ndarray:
 
 
 def _delta_r2(corr: np.ndarray, terms: tuple[str, ...], column: dict[str, int]) -> list[float]:
-    """Hierarchical delta R^2 per term: pixels first, then CLIP (if in the model), then the semantic term."""
-    semantic = next(t for t in terms if t.startswith("sem"))
-    entry = ["pix"] + (["clip"] if "clip" in terms else []) + [semantic]
+    """Hierarchical delta R^2 per term: pixels first, then CLIP (if in the model), then the semantic terms
+    in model order (so in km+wn, WordNet's share is what it adds beyond KM)."""
+    entry = ["pix"] + (["clip"] if "clip" in terms else []) + [t for t in terms if t.startswith("sem")]
     r2_so_far = [_ols_r2(corr, [column[t] for t in entry[: i + 1]]) for i in range(len(entry))]
     gain = {t: r2 - previous for t, r2, previous in zip(entry, r2_so_far, [0.0, *r2_so_far])}
     return [gain[t] for t in terms]
@@ -128,19 +136,20 @@ def fit_models(
     perceptual: np.ndarray, predictors: dict[str, np.ndarray], *, mask: np.ndarray | None = None,
     models: dict[str, tuple[str, ...]] = MODELS,
 ) -> pd.DataFrame:
-    """One row per (model, term): NNLS beta, partial correlation, delta R^2 (hierarchical models only,
-    NaN otherwise) and the model's NNLS R^2. Row order depends only on `models`."""
+    """One row per (model, term): NNLS beta, OLS beta, partial correlation, hierarchical delta R^2 and the
+    model's NNLS R^2. Row order depends only on `models`."""
     corr = _correlation_matrix(perceptual, [predictors[t] for t in TERMS], mask)
     column = {t: i + 1 for i, t in enumerate(TERMS)}
     rows = []
     for name, terms in models.items():
         cols = [column[t] for t in terms]
         betas, r2 = _nnls(corr, cols)
+        ols_betas, _ = _ols(corr, cols)
         partial = _partial_correlations(corr, cols)
-        delta = _delta_r2(corr, terms, column) if name in HIERARCHICAL_MODELS else [np.nan] * len(terms)
+        delta = _delta_r2(corr, terms, column)
         rows += [
-            {"model": name, "term": t, "beta": b, "partial_r": p, "delta_r2": d, "r2": r2}
-            for t, b, p, d in zip(terms, betas, partial, delta)
+            {"model": name, "term": t, "beta": b, "beta_ols": o, "partial_r": p, "delta_r2": d, "r2": r2}
+            for t, b, o, p, d in zip(terms, betas, ols_betas, partial, delta)
         ]
     return pd.DataFrame(rows)
 
@@ -224,7 +233,7 @@ def bootstrap_decomposition(
 
     key = fingerprint(
         _digest(trials_a), _digest(trials_b), *(predictors_a[t] for t in TERMS), *(predictors_b[t] for t in TERMS),
-        n_conds, aggregation, n_boot, seed, list(masks), *masks.values(),
+        n_conds, aggregation, n_boot, seed, list(masks), *masks.values(), "delta_r2:all-models",
     )
     return cached_frame(cache_path, key, run)
 
@@ -297,36 +306,114 @@ def zero_fraction(boots: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def fig_estimates(estimates: pd.DataFrame, models: list[str], *, y_title: str) -> go.Figure:
-    """Pre and post estimate of every term with its CI, one panel per model (cohort_estimates() output)."""
-    fig = make_subplots(rows=1, cols=len(models), subplot_titles=models, shared_yaxes=True, horizontal_spacing=0.04)
-    for col, model in enumerate(models, start=1):
-        for cohort in COHORTS:
-            rows = estimates[(estimates["model"] == model) & (estimates["cohort"] == cohort)]
-            color = cohort_colors(cohort)["violin_line"]
-            fig.add_trace(go.Scatter(
-                x=[TERM_LABEL[t] for t in rows["term"]], y=rows["estimate"], mode="markers", name=cohort_label(cohort),
-                marker={"color": color, "size": 10}, showlegend=col == 1, legendgroup=cohort,
-                error_y={"type": "data", "symmetric": False, "color": color,
-                         "array": rows["ci_high"] - rows["estimate"], "arrayminus": rows["estimate"] - rows["ci_low"]},
-            ), row=1, col=col)
-    fig.update_yaxes(title_text=y_title, row=1, col=1)
-    fig.update_layout(template=_TEMPLATE, height=440, width=max(520, 330 * len(models)),
-                      legend={"orientation": "h", "y": -0.2, "x": 0.5, "xanchor": "center"})
+_TERM_COLOR = {"pix": "#4c78a8", "clip": "#59a14f", "sem_km": "#f28e2b", "sem_wn": "#b07aa1"}
+_DODGE = 0.17  # vertical offset of the pre and post marker within a term's row
+_ROW_PX, _GAP_PX = 42, 95  # forest panels: height per term, space between panels (title and tick labels)
+_SEMANTIC_NAME = {"sem_km": "KM", "sem_wn": "WordNet"}
+DELTA_R2_PANELS = (("km", "km+clip"), ("wn", "wn+clip"), ("km+wn", "km+wn+clip"))
+
+
+def _model_title(model: str) -> str:
+    return " + ".join(TERM_LABEL[t] for t in MODELS[model])
+
+
+def _stacked_forest(models: list[str], x_title: str) -> go.Figure:
+    """One panel per model stacked vertically on a shared x axis, each as tall as the model has terms, the
+    terms on the y axis (first on top). Tick labels are kept on every panel and the panels are spaced to
+    leave room for them and for the panel title, which is left-aligned above the panel."""
+    n_terms = [len(MODELS[m]) for m in models]
+    heights = [40 + _ROW_PX * n for n in n_terms]
+    plot_px = sum(heights) + _GAP_PX * (len(models) - 1)
+    fig = make_subplots(
+        rows=len(models), cols=1, row_heights=heights, vertical_spacing=_GAP_PX / plot_px,
+        subplot_titles=[_model_title(m) for m in models],
+    )
+    for row, (model, n) in enumerate(zip(models, n_terms), start=1):
+        fig.update_yaxes(
+            tickmode="array", tickvals=list(range(n)), ticktext=[TERM_LABEL[t] for t in MODELS[model]],
+            range=[n - 0.5, -0.5], showgrid=False, zeroline=False, row=row, col=1,
+        )
+        fig.update_xaxes(matches="x", showticklabels=True, row=row, col=1)
+        fig.add_vline(x=0, line={"color": "rgba(80,80,80,0.5)", "width": 1, "dash": "dot"}, row=row, col=1)
+    fig.update_xaxes(title_text=x_title, row=len(models), col=1)
+    for annotation in fig.layout.annotations:
+        annotation.update(x=0, xanchor="left", font={"size": 13})
+    fig.update_layout(
+        template=_TEMPLATE, height=plot_px + 150, margin={"l": 150, "r": 30, "t": 70, "b": 60},
+        legend={"orientation": "h", "x": 0, "y": 1, "yanchor": "top", "yref": "container"},
+    )
     return fig
 
 
-def fig_delta_r2(observed: pd.DataFrame, models: list[str] = list(HIERARCHICAL_MODELS)) -> go.Figure:
-    """Stacked hierarchical delta R^2 (pixels, then CLIP, then semantic) per cohort and model."""
-    fig = go.Figure()
-    for term in ("pix", "clip", "sem_km", "sem_wn"):
-        for cohort, suffix in zip(COHORTS, ("a", "b")):
-            rows = observed[(observed["term"] == term) & observed["model"].isin(models)]
-            if rows.empty:
-                continue
-            fig.add_trace(go.Bar(
-                x=[[m for m in rows["model"]], [cohort_label(cohort)] * len(rows)], y=rows[f"delta_r2_{suffix}"],
-                name=TERM_LABEL[term], legendgroup=term, showlegend=cohort == COHORTS[0],
-            ))
-    fig.update_layout(template=_TEMPLATE, barmode="relative", height=440, yaxis_title="delta R^2 (hierarchical)")
+def fig_estimates(estimates: pd.DataFrame, models: list[str], *, x_title: str) -> go.Figure:
+    """Forest plot of every model's weights (cohort_estimates() output): predictors on the y axis, pre and
+    post estimate with its CI on a shared x axis, one panel per model."""
+    fig = _stacked_forest(models, x_title)
+    for row, model in enumerate(models, start=1):
+        terms = list(MODELS[model])
+        for cohort, side in zip(COHORTS, (-1, 1)):
+            rows = estimates[(estimates["model"] == model) & (estimates["cohort"] == cohort)].set_index("term").loc[terms]
+            color = cohort_colors(cohort)["violin_line"]
+            fig.add_trace(go.Scatter(
+                x=rows["estimate"], y=[i + side * _DODGE for i in range(len(terms))], mode="markers",
+                name=cohort_label(cohort), marker={"color": color, "size": 9}, showlegend=row == 1, legendgroup=cohort,
+                error_x={"type": "data", "symmetric": False, "color": color, "thickness": 1.8, "width": 4,
+                         "array": rows["ci_high"] - rows["estimate"], "arrayminus": rows["estimate"] - rows["ci_low"]},
+                customdata=np.column_stack([rows["ci_low"], rows["ci_high"]]),
+                hovertemplate=f"{cohort_label(cohort)}<br>%{{x:.3f}} [%{{customdata[0]:.3f}}, %{{customdata[1]:.3f}}]<extra></extra>",
+            ), row=row, col=1)
+    return fig
+
+
+def fig_difference_forest(differences: pd.DataFrame, models: list[str], *, x_title: str) -> go.Figure:
+    """Forest plot of the pre - post difference of every weight (difference_table() output, one pair set and
+    statistic): the effect with its 90% TOST interval and the +/- equivalence bound as two ticks on the
+    same row; blue rows are equivalent to 0, orange ones are not. One panel per model, shared x axis."""
+    fig = _stacked_forest(models, x_title)
+    for row, model in enumerate(models, start=1):
+        rows = differences[differences["model"] == model].set_index("term")
+        for i, term in enumerate(MODELS[model]):
+            r = rows.loc[term]
+            color = _EQUIVALENT_COLOR if r["equivalent"] else _NOT_EQUIVALENT_COLOR
+            fig.add_trace(go.Scatter(
+                x=[r["effect"]], y=[i], mode="markers", marker={"color": color, "size": 9}, showlegend=False,
+                error_x={"type": "data", "symmetric": False, "color": color, "thickness": 1.8, "width": 4,
+                         "array": [r["ci_high"] - r["effect"]], "arrayminus": [r["effect"] - r["ci_low"]]},
+                hovertemplate=f"{TERM_LABEL[term]}<br>effect=%{{x:.3f}}, 90% CI [{r['ci_low']:.3f}, {r['ci_high']:.3f}]<extra></extra>",
+            ), row=row, col=1)
+            fig.add_trace(go.Scatter(
+                x=[-r["bound"], r["bound"]], y=[i, i], mode="markers", showlegend=False, hoverinfo="skip",
+                marker={"color": "rgba(80,80,80,0.8)", "size": 14, "symbol": "line-ns-open", "line": {"width": 2}},
+            ), row=row, col=1)
+    for label, color in (("equivalent to 0", _EQUIVALENT_COLOR), ("not equivalent", _NOT_EQUIVALENT_COLOR)):
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers", marker={"color": color, "size": 9}, name=label), row=1, col=1)
+    return fig
+
+
+def fig_delta_r2(observed: pd.DataFrame, panels: tuple[tuple[str, ...], ...] = DELTA_R2_PANELS) -> go.Figure:
+    """Stacked hierarchical delta R^2 (pixels, then CLIP, then the semantic predictors) per model and cohort,
+    one panel per tuple of `panels` models, on a shared y axis and one shared legend (one colour per predictor,
+    the same for both cohorts)."""
+    fig = make_subplots(
+        rows=1, cols=len(panels), shared_yaxes=True, horizontal_spacing=0.07,
+        subplot_titles=[" + ".join(_SEMANTIC_NAME[t] for t in MODELS[p[0]] if t.startswith("sem")) for p in panels],
+    )
+    shown: set[str] = set()
+    for col, models in enumerate(panels, start=1):
+        for term in ("pix", "clip", "sem_km", "sem_wn"):
+            for cohort, suffix in zip(COHORTS, ("a", "b")):
+                rows = observed[(observed["term"] == term) & observed["model"].isin(models)]
+                if rows.empty:
+                    continue
+                fig.add_trace(go.Bar(
+                    x=[list(rows["model"]), [cohort_label(cohort).split("-")[0]] * len(rows)], y=rows[f"delta_r2_{suffix}"],
+                    name=TERM_LABEL[term], legendgroup=term, showlegend=term not in shown, marker={"color": _TERM_COLOR[term]},
+                ), row=1, col=col)
+                shown.add(term)
+    fig.update_yaxes(title_text="delta R^2 (hierarchical)", row=1, col=1)
+    fig.update_xaxes(tickangle=0)
+    fig.update_layout(
+        template=_TEMPLATE, barmode="relative", height=470, margin={"l": 70, "r": 20, "t": 110, "b": 70},
+        legend={"orientation": "h", "x": 0.5, "xanchor": "center", "y": 1.2, "yanchor": "bottom"},
+    )
     return fig
