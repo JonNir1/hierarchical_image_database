@@ -177,10 +177,12 @@ has been done and what is pending.
         • Hierarchical MLR: ΔR² for D_sens → +D_clip → +D_sem_km
         • Partial correlations for each predictor controlling for the other two
         • Fisher-z transform + FDR across the three predictors
-      `code: analysis/pipeline/rq3_decomp.py`.
+      `code: analysis/s1_pre_vs_post_shine/decomposition.py` + `analysis/s1_pre_vs_post_shine/6_decomposition.ipynb`
+      (standardized NNLS, 1,000 participant bootstraps, TOST for the semantic weight; the notebook
+      reports bootstrap CIs on the partial correlations and delta R², not Fisher-z t-tests).
 - [ ] `[SECONDARY]` RQ3 / WN — same with D_sem = D_sem_wn (supplementary
       robustness check; reported alongside KM but not required to support H3).
-      `code: analysis/pipeline/rq3_decomp_wn.py`.
+      `code: 6_decomposition.ipynb` section 5 (`wn`, `wn+clip`, and `km+wn`, `km+wn+clip`).
 - [ ] `[EXPLORATORY]` RQ3 / SGPT — same with D_sem = D_sem_sgpt (Shoham et al.
       2024 exact specification). `code: analysis/pipeline/rq3_decomp_sgpt.py`.
 - [ ] `[EXPLORATORY]` RQ3 / 4-predictor — add D_VGG (FC7 cosine) as a 4th predictor:
