@@ -32,10 +32,10 @@ from scipy.spatial.distance import pdist, squareform
 from scipy.stats import rankdata
 
 from analysis.utils.mds import run_mds_sweep
-from analysis.s0_build_rdms.common import load_manifest
+from analysis.s0_build_rdms.common import manifest_parts
 from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
 from analysis.utils.disk_cache import cached_array, fingerprint
-from analysis.utils.hierarchy import Parts, path_parts
+from analysis.utils.hierarchy import Parts
 from SpAM_Simulations.measures.cluster_stability import (
     baker_gamma, build_linkage, cophenetic_fidelity, cophenetic_ranks, variation_of_information,
 )
@@ -51,11 +51,6 @@ __all__ = [
     "perceptual_tree", "agglomerative_agreement", "GammaShuffleResult", "dendrogram_shuffle_test",
     "tree_shuffle_test", "hdbscan_level_agreement", "fig_baker_gamma", "fig_hdbscan_agreement",
 ]
-
-
-def manifest_parts() -> Parts:
-    """Directory components of every manifest path, in manifest row order (the Kiani tree)."""
-    return path_parts(load_manifest()["curated_path"])
 
 
 def path_tree_to_linkage(parts: Parts) -> np.ndarray:
