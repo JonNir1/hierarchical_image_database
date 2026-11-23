@@ -5,7 +5,7 @@ Retained subjects: N=79 pre-SHINE, N=76 post-SHINE. Tests are two-sided Mann-Whi
 
 ## Pre- vs post-SHINE cohort comparison
 
-Six notebooks, one question each (`0_` is a stimulus check with no participants). Effect signs: positive means the pre-SHINE cohort tends to be lower.
+Seven notebooks, one question each (`0_` is a stimulus check with no participants). Effect signs: positive means the pre-SHINE cohort tends to be lower.
 
 - **Caveat, equivalence tests and the permutation test:** there is no pre-defined smallest effect size of interest. Every equivalence bound is the smallest bound with 80% power at these sample sizes (simulated, `../utils/equivalence.py`), rounded up, so a bound says what the sample can resolve, not that the difference is negligible (for the bootstrap and jackknife RDM comparisons in notebooks 3 to 5 the equivalent closed form, (z(0.95) + z(0.90)) x SE, is used). Equivalence is TOST in its 90%-CI form. The permutation and equivalence tests on RDM agreement assume subjects are exchangeable across cohorts apart from SHINE.
 
@@ -71,3 +71,14 @@ Notebook: [`5_ground_truth.ipynb`](5_ground_truth.ipynb) (commit `f675a8c`)
 - **Calibration of the bound rule:** on 10 random halves of the pre cohort, where the true difference is zero, 46 of 60 tests (77%) declared equivalence, close to the 80% the rule targets.
 - **Multiple comparisons:** within each cohort, the three permutation tests and three gamma tests all have p_fdr = 0.0002.
 - **Caveat:** 42 images with no faces limit generalisation, and each bound says what the design can resolve, not that a difference is negligible. The 8 human-IT RDMs are 4 subjects x 2 sessions, so they are not independent, and HDBSCAN on 42 images is exploratory only (see the notebook).
+
+### What is the similarity made of: semantic and sensory weights?
+
+Notebook: [`6_decomposition.ipynb`](6_decomposition.ipynb) (commit `b3e9352`; z-scored NNLS of each cohort's perceptual RDM on its predictor RDMs over its own observed pairs; 95% participant bootstrap, 1,000 draws; weights are standardized betas)
+
+- **H3(i) is not supported, and the direction is reversed:** with `km+clip` the pixel weight is higher post-SHINE (0.065 vs 0.024, pre - post = -0.041 [-0.049, -0.026]), the opposite of the pre-registered expectation. It holds in all six models and on the jointly observed pairs, and is not equivalent to 0 (bound 0.02), but the pixel weight is small in both cohorts.
+- **H3(ii) is supported:** the semantic (KM) weight is equivalent across cohorts (-0.008 [-0.039, +0.028], bound 0.05), and so is the CLIP weight (-0.006 [-0.024, +0.008], bound 0.03).
+- **Variance attribution:** unique shares (delta R^2, order pixels, CLIP, semantic) are about 0.06 to 0.07 for KM, 0.08 for CLIP and 0.01 to 0.015 for pixels; total R^2 is 0.151 (pre) and 0.163 (post).
+- **Robustness:** WordNet alone gives the same pattern. With KM and WordNet together neither beta is 0 in any bootstrap draw (KM about 0.30, WordNet about 0.11), so the expected "one of them drops out" does not occur: the two RDMs are complementary (rho about 0.29). WordNet's weight is nominally higher pre-SHINE (+0.020 [-0.003, +0.038] with CLIP), inconclusive.
+- **Estimator:** NNLS and unconstrained OLS betas agree to 4 decimals in every model (no constraint is active).
+- **Caveat:** percentile CIs of single-cohort weights are not centered on the estimates (participant resampling lowers the number of distinct pairs), so rely on the pre - post differences.
