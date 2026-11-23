@@ -10,11 +10,12 @@ decode any marker or line without a legend lookup:
       hues of analysis/utils/plotting.py, so no unvalidated hue is introduced.
   variant         (which stimuli / cohort)    -> marker symbol, and shade within the family hue
       pre = circle (full hue), post = diamond (lighter), joint = star (full hue), none (sem_*) = square.
-  representation  (raw RDM or MDS embedding)  -> marker fill
-      raw = filled, mds = the open version of the same symbol.
+  representation  (raw RDM or MDS embedding)  -> marker fill (and line dash)
+      raw = filled, mds = the open version of the same symbol; a low-d embedding is a lighter shade
+      than a high-d one (dash-dot vs dotted lines).
 
 Names follow the analysis/results/rdms/ stems: sem_km, sem_wn, clip_pre, sens_post, behav_joint,
-behav_joint_mds, and optionally a trailing dimensionality (behav_joint_mds9).
+behav_joint_mds_low / behav_joint_mds_high, and optionally a dimensionality (behav_joint_mds9).
 
 Usage (from repo root):
     from analysis.utils import rdm_style
@@ -42,7 +43,7 @@ VARIANT_LIGHTEN = {None: 0.0, "pre": 0.0, "post": 0.45, "joint": 0.0}
 _FAMILY_ORDER = list(FAMILY_HUE)
 _VARIANT_ORDER = [None, "pre", "post", "joint"]
 _NAME = re.compile(r"^(?P<stem>sem_km|sem_wn|clip|sens|behav)(?:_(?P<variant>pre|post|joint))?"
-                   r"(?:_(?P<repr>mds)(?P<ndim>\d+)?)?$")
+                   r"(?:_(?P<repr>mds)(?P<ndim>\d+)?(?:_(?P<tier>low|high))?)?$")
 _STEM_FAMILY = {"sem_km": "km", "sem_wn": "wn", "clip": "clip", "sens": "sens", "behav": "behav"}
 
 
@@ -52,6 +53,7 @@ class RdmStyle:
     variant: str | None
     representation: str
     ndim: int | None
+    tier: str | None
     color: str
     symbol: str
     dash: str
@@ -74,22 +76,30 @@ def parse(name: str) -> tuple[str, str | None, str, int | None]:
     return _STEM_FAMILY[m["stem"]], m["variant"], "mds" if m["repr"] else "raw", ndim
 
 
+def _tier(name: str) -> str | None:
+    m = _NAME.match(name)
+    return m["tier"] if m else None
+
+
 def label(name: str) -> str:
     """Human-readable label, e.g. 'CLIP pre', 'behavior joint, MDS d=9'."""
     family, variant, representation, ndim = parse(name)
     text = " ".join(filter(None, [FAMILY_LABEL[family], variant]))
     if representation == "mds":
-        text += ", MDS" + (f" d={ndim}" if ndim else "")
+        tier = _tier(name)
+        text += ", MDS" + (f" d={ndim}" if ndim else "") + (f" {tier}-d" if tier else "")
     return text
 
 
 def style(name: str, *, lighten: float = 0.0) -> RdmStyle:
     """Full visual specification of RDM `name`. `lighten` adds extra whitening (e.g. to grade a sweep)."""
     family, variant, representation, ndim = parse(name)
-    color = _lighten(FAMILY_HUE[family], min(1.0, VARIANT_LIGHTEN[variant] + lighten))
+    tier = _tier(name)
+    tier_lighten = 0.4 if tier == "low" else 0.0
+    color = _lighten(FAMILY_HUE[family], min(1.0, VARIANT_LIGHTEN[variant] + tier_lighten + lighten))
     symbol = VARIANT_SYMBOL[variant] + ("-open" if representation == "mds" else "")
-    dash = "dash" if family == "km" else ("dot" if representation == "mds" else "solid")
-    return RdmStyle(family, variant, representation, ndim, color, symbol, dash, label(name))
+    dash = "dash" if family == "km" else ("solid" if representation == "raw" else ("dashdot" if tier == "low" else "dot"))
+    return RdmStyle(family, variant, representation, ndim, tier, color, symbol, dash, label(name))
 
 
 def marker(name: str, *, size: int = 10, lighten: float = 0.0) -> dict:
@@ -115,7 +125,8 @@ def legend_order(names: list[str]) -> list[str]:
     """`names` sorted by family (reference first), then variant, then raw before MDS, then ndim."""
     def key(name: str) -> tuple:
         family, variant, representation, ndim = parse(name)
-        return (_FAMILY_ORDER.index(family), _VARIANT_ORDER.index(variant), representation != "raw", ndim or 0)
+        tier = {None: 0, "low": 1, "high": 2}[_tier(name)]
+        return (_FAMILY_ORDER.index(family), _VARIANT_ORDER.index(variant), representation != "raw", tier, ndim or 0)
     return sorted(names, key=key)
 
 

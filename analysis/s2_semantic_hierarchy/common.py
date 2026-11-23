@@ -4,7 +4,9 @@ RDMs are compared, how the tree is binned, and the NaN-aware rank agreement ever
 
 The RDM set. Six stimulus-derived reference RDMs (sem_km is the tree itself), the cohort-pooled
 behavioral RDM (behav_joint, built as D_behav_joint_simple; ~13% of pairs unobserved, so NaN), and from
-notebook 1 on its SMACOF embedding at the dimensionality notebook 1 selects (behav_joint_mds, complete).
+notebook 1 on two SMACOF embeddings of it (complete), at the dimensionalities notebook 1 selects without
+using the tree: behav_joint_mds_low (the stress elbow) and behav_joint_mds_high (the smallest d capturing
+95% of the held-out prediction gain).
 The per-cohort behavioral RDMs are deliberately absent: s2 is cohort-agnostic, SHINE is s1's question.
 
 Pooling the deep tree. Leaves sit at depth 3, 4 or 5. Depths 4 and 5 are both below the basic level, and
@@ -32,9 +34,11 @@ from analysis.utils.stats import kendall_tau_a, spearman_rho
 REFERENCE = "sem_km"
 REFERENCE_RDMS = ["sem_km", "sem_wn", "clip_pre", "clip_post", "sens_pre", "sens_post"]
 BEHAV = "behav_joint"
-BEHAV_MDS = "behav_joint_mds"
+BEHAV_MDS_LOW = "behav_joint_mds_low"
+BEHAV_MDS_HIGH = "behav_joint_mds_high"
+BEHAV_MDS_SET = [BEHAV_MDS_LOW, BEHAV_MDS_HIGH]
 RAW_SET = [*REFERENCE_RDMS, BEHAV]
-FULL_SET = [*RAW_SET, BEHAV_MDS]
+FULL_SET = [*RAW_SET, *BEHAV_MDS_SET]
 RDM_FILE = {BEHAV: "behav_joint_simple"}
 
 S2_RESULTS_DIR = REPO_ROOT / "analysis" / "results" / "semantic_hierarchy"
@@ -61,10 +65,10 @@ def cache_path(name: str) -> Path:
 def load_rdm_set(names: list[str] | None = None) -> dict[str, np.ndarray]:
     """Condensed RDMs by s2 name (default FULL_SET), in the order given."""
     names = FULL_SET if names is None else names
-    if BEHAV_MDS in names and not (RESULTS_DIR / f"D_{BEHAV_MDS}.npy").exists():
+    missing = [n for n in BEHAV_MDS_SET if n in names and not (RESULTS_DIR / f"D_{n}.npy").exists()]
+    if missing:
         raise FileNotFoundError(
-            f"D_{BEHAV_MDS}.npy is not built yet: run 1_mds_dimensionality.ipynb first, "
-            f"or pass names=RAW_SET."
+            f"{missing} not built yet: run 1_mds_dimensionality.ipynb first, or pass names=RAW_SET."
         )
     return {n: load_rdm(RDM_FILE.get(n, n)) for n in names}
 
