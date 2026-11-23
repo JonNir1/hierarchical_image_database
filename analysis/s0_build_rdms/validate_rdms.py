@@ -26,8 +26,11 @@ from analysis.s0_build_rdms.common import (
 from analysis.utils.hierarchy import lca_depth_matrix, path_depths, path_parts
 from analysis.utils.stats import masked_rank_correlation, spearman_rho
 
-_BEHAV_METHODS = ("evidence", "mean")
-_BEHAV_NAMES = [f"behav_{v}_{m}" for v in ("pre", "post") for m in _BEHAV_METHODS]
+_BEHAV_METHODS = ("evidence", "mean", "simple")
+#: "joint" is the cohort-pooled build (spam_ratings.JOINT_VARIANT). Names that were
+#: never built are skipped at load, so listing every combination costs nothing and
+#: keeps a newly built RDM from going unvalidated.
+_BEHAV_NAMES = [f"behav_{v}_{m}" for v in ("pre", "post", "joint") for m in _BEHAV_METHODS]
 _ALL_NAMES = [
     "sens_pre", "sens_post", "sem_km", "sem_wn", "clip_pre", "clip_post",
     *_BEHAV_NAMES,
