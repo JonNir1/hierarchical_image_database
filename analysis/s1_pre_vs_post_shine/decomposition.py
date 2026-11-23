@@ -234,6 +234,8 @@ def cohort_estimates(observed: pd.DataFrame, boots: pd.DataFrame, stat: str = "b
     Columns pairs, model, term, cohort, estimate, ci_low, ci_high (cohort in COHORTS)."""
     rows = []
     for (pairs, model, term), draws in boots.groupby(["pairs", "model", "term"], sort=False):
+        if draws[f"{stat}_a"].isna().all():
+            continue
         point = observed[(observed["pairs"] == pairs) & (observed["model"] == model) & (observed["term"] == term)].iloc[0]
         for cohort, suffix in zip(COHORTS, ("a", "b")):
             low, high = percentile_ci(draws[f"{stat}_{suffix}"].to_numpy(), level)
@@ -250,6 +252,8 @@ def difference_table(
     equivalence result (equivalence_test_bootstrap_effect: 90% CI inside the 80%-power bound)."""
     rows = []
     for (pairs, model, term), draws in boots.groupby(["pairs", "model", "term"], sort=False):
+        if draws[f"{stat}_diff"].isna().all():
+            continue
         point = observed[(observed["pairs"] == pairs) & (observed["model"] == model) & (observed["term"] == term)].iloc[0]
         effect = point[f"{stat}_diff"]
         tost = equivalence_test_bootstrap_effect(
@@ -259,6 +263,26 @@ def difference_table(
         rows.append({"pairs": pairs, "model": model, "term": term, "stat": stat, **tost,
                      "ci95_low": low95, "ci95_high": high95, "a_exceeds_b": bool(low95 > 0)})
     return pd.DataFrame(rows)
+
+
+def model_summary(estimates: pd.DataFrame, differences: pd.DataFrame, model: str, *, pairs: str = "own") -> pd.DataFrame:
+    """One row per term of `model`: each cohort's estimate with its 95% CI, the pre - post difference with
+    its 95% CI, whether that CI lies above 0 and whether the TOST equivalence test passed."""
+    def interval(row: pd.Series) -> str:
+        return f"{row['estimate']:.3f} [{row['ci_low']:.3f}, {row['ci_high']:.3f}]"
+
+    est = estimates[(estimates["model"] == model) & (estimates["pairs"] == pairs)]
+    diff = differences[(differences["model"] == model) & (differences["pairs"] == pairs)].set_index("term")
+    rows = []
+    for term, group in est.groupby("term", sort=False):
+        by_cohort = {r["cohort"]: interval(r) for _, r in group.iterrows()}
+        d = diff.loc[term]
+        rows.append({
+            "term": TERM_LABEL[term], **by_cohort,
+            "pre - post": f"{d['effect']:+.3f} [{d['ci95_low']:+.3f}, {d['ci95_high']:+.3f}]",
+            "pre > post": d["a_exceeds_b"], "equivalent": d["equivalent"], "bound": d["bound"],
+        })
+    return pd.DataFrame(rows).set_index("term")
 
 
 def zero_fraction(boots: pd.DataFrame) -> pd.DataFrame:
