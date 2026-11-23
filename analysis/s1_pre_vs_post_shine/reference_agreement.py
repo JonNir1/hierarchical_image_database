@@ -43,7 +43,7 @@ from analysis.s0_build_rdms.common import REPO_ROOT, subset_condensed
 from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
 from analysis.utils.disk_cache import cached_frame, fingerprint
 from analysis.utils.equivalence import equivalence_test_bootstrap_effect
-from analysis.utils.stats import masked_rank_correlation
+from analysis.utils.stats import masked_rank_correlation, percentile_ci  # percentile_ci re-exported for notebooks
 
 REFERENCE_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "pre_vs_post_shine" / "reference_cache"
 
@@ -181,14 +181,6 @@ def loo_model_fit(
 
     key = fingerprint(_digest(trials_by_participant), reference, n_conds, aggregation, min_overlap)
     return cached_frame(cache_path, key, run)
-
-
-def percentile_ci(values: np.ndarray, level: float = 0.95) -> tuple[float, float]:
-    """Percentile confidence interval of a bootstrap distribution, NaNs ignored."""
-    finite = np.asarray(values, dtype=float)
-    finite = finite[np.isfinite(finite)]
-    tail = (1.0 - level) / 2.0 * 100.0
-    return float(np.percentile(finite, tail)), float(np.percentile(finite, 100.0 - tail))
 
 
 def bootstrap_mean_ci(

@@ -1,14 +1,14 @@
 """
 General statistical comparison helpers shared across analysis/ subdirectories:
 Pearson r, Spearman rho (vector or row-wise) and Kendall tau-a, masked rank correlation between two (possibly incomplete) same-length vectors,
-rank-biserial effect size, independent-samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect
+percentile CIs and an image bootstrap over k RDMs, rank-biserial effect size, independent-samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect
 sizes, an image-relabeling permutation test for RDM agreement, and a one-line significance-summary printer. None of this is specific
 to RDMs or MDS -- see analysis/utils/mds.py for that layer.
 
 Usage (from repo root):
     from analysis.utils.stats import (
-        pearson_r, spearman_rho, kendall_tau_a, masked_rank_correlation, mwu_effect_size, mwu_family,
-        wilcoxon_effect_size, print_comparison_line, label_shuffle_test,
+        pearson_r, spearman_rho, kendall_tau_a, masked_rank_correlation, percentile_ci, image_bootstrap,
+        mwu_effect_size, mwu_family, wilcoxon_effect_size, print_comparison_line, label_shuffle_test,
     )
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -105,6 +105,44 @@ def masked_rank_correlation(
     if min_overlap is not None:
         result["underpowered"] = False
     return result
+
+
+def percentile_ci(values: np.ndarray, level: float = 0.95) -> tuple[float, float]:
+    """Percentile confidence interval of a bootstrap distribution, NaNs ignored."""
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    tail = (1.0 - level) / 2.0 * 100.0
+    return float(np.percentile(finite, tail)), float(np.percentile(finite, 100.0 - tail))
+
+
+def image_bootstrap(
+    rdms: Sequence[np.ndarray], statistic: Callable[..., Sequence[float]], *, n_boot: int = 1000,
+    seed: int = 0, cache_path: Path | None = None, extra_key: tuple = (),
+) -> np.ndarray:
+    """Image-bootstrap draws of `statistic` over k condensed RDMs of the same images, shape (n_boot, n_stats).
+
+    Each draw resamples the images with replacement and calls `statistic(*resampled)` on the pairs of the
+    resampled set, one condensed-like vector per input RDM. A pair of an image with its own duplicate is
+    dropped, so duplicates add repeated pairs but no artificial agreement. NaNs (unobserved pairs) are
+    passed through, so `statistic` must mask them itself if any input can be incomplete. `cache_path`
+    stores the draws; `extra_key` separates caches of different statistics over the same RDMs (the empty
+    default keeps the fingerprint of caches written before this function existed).
+    """
+    def draw() -> np.ndarray:
+        squares = [squareform(r, checks=False) for r in rdms]
+        n = len(squares[0])
+        iu = np.triu_indices(n, 1)
+        rng = np.random.default_rng(seed)
+        rows = []
+        for _ in range(n_boot):
+            idx = rng.integers(0, n, n)
+            i, j = idx[iu[0]], idx[iu[1]]
+            keep = i != j
+            rows.append(np.atleast_1d(statistic(*(sq[i[keep], j[keep]] for sq in squares))))
+        return np.asarray(rows, dtype=np.float64)
+
+    key = fingerprint(*rdms, n_boot, seed, *extra_key)
+    return cached_array(cache_path, key, draw, key="draws")
 
 
 def rank_biserial(values_a: np.ndarray, values_b: np.ndarray) -> float:

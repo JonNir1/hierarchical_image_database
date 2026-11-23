@@ -34,9 +34,8 @@ from scipy.spatial.distance import squareform
 from analysis.s0_build_rdms.common import (
     REPO_ROOT, image_paths, load_embeddings, load_image_rgb, load_manifest, order_hash,
 )
-from analysis.s1_pre_vs_post_shine.reference_agreement import percentile_ci
 from analysis.utils.disk_cache import cached_array, cached_frame, fingerprint
-from analysis.utils.stats import kendall_tau_a, pearson_r, spearman_rho
+from analysis.utils.stats import image_bootstrap, kendall_tau_a, pearson_r, percentile_ci, spearman_rho
 
 SENSORY_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "pre_vs_post_shine" / "sensory_cache"
 
@@ -80,20 +79,9 @@ def bootstrap_rdm_agreement(
     the resampled set; a pair of an image with its own duplicate (distance 0 in both RDMs) is dropped,
     so duplicates add repeated pairs but no artificial agreement. `cache_path` stores the draws.
     """
-    def draw() -> np.ndarray:
-        pre_sq, post_sq = squareform(d_pre), squareform(d_post)
-        n = len(pre_sq)
-        iu = np.triu_indices(n, 1)
-        rng = np.random.default_rng(seed)
-        draws = np.empty((n_boot, len(STATS)))
-        for b in range(n_boot):
-            idx = rng.integers(0, n, n)
-            i, j = idx[iu[0]], idx[iu[1]]
-            keep = i != j
-            draws[b] = _agreement_stats(pre_sq[i[keep], j[keep]], post_sq[i[keep], j[keep]])
-        return draws
-
-    draws = cached_array(cache_path, fingerprint(d_pre, d_post, n_boot, seed), draw, key="draws")
+    draws = image_bootstrap(
+        [d_pre, d_post], _agreement_stats, n_boot=n_boot, seed=seed, cache_path=cache_path,
+    )
     return pd.DataFrame(draws, columns=list(STATS))
 
 
