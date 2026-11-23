@@ -26,6 +26,18 @@ Available targets:
     behav_post_evidence -- D_behav_post_evidence.npy (rsatoolbox multi-arrangement combination, post-SHINE)
     behav_pre_mean  -- D_behav_pre_mean.npy  (PiCS/SpAM_Simulations-style plain mean, pre-SHINE)
     behav_post_mean -- D_behav_post_mean.npy (PiCS/SpAM_Simulations-style plain mean, post-SHINE)
+    behav_pre_simple   -- D_behav_pre_simple.npy   (uniform-weight rescaling, pre-SHINE)
+    behav_post_simple  -- D_behav_post_simple.npy  (uniform-weight rescaling, post-SHINE)
+    behav_joint_simple -- D_behav_joint_simple.npy (uniform-weight rescaling, both cohorts pooled)
+
+'simple' is build_behavioral_rdm()'s default and the aggregation the reliability
+comparison selected, so the three *_simple targets are the behavioral RDMs the
+downstream analyses actually load. 'evidence' and 'mean' are kept as targets for
+the aggregation comparison, not because anything depends on them.
+
+behav_joint_simple pools both SHINE cohorts, ignoring shine_variant: for
+cohort-agnostic questions only, since it averages the manipulation away. See
+analysis/s0_build_rdms/behavior/spam_ratings.py's module docstring.
 """
 from __future__ import annotations
 
@@ -50,6 +62,12 @@ _BUILDERS: dict[str, tuple[str, str, list, dict]] = {
                              ["pre_shine"], {"aggregation": "mean"}),
     "behav_post_mean":     ("analysis.s0_build_rdms.behavior.spam_ratings", "build_behavioral_rdm",
                              ["post_shine"], {"aggregation": "mean"}),
+    "behav_pre_simple":    ("analysis.s0_build_rdms.behavior.spam_ratings", "build_behavioral_rdm",
+                             ["pre_shine"], {"aggregation": "simple"}),
+    "behav_post_simple":   ("analysis.s0_build_rdms.behavior.spam_ratings", "build_behavioral_rdm",
+                             ["post_shine"], {"aggregation": "simple"}),
+    "behav_joint_simple":  ("analysis.s0_build_rdms.behavior.spam_ratings", "build_behavioral_rdm",
+                             ["joint"], {"aggregation": "simple"}),
 }
 
 _ALL_NAMES = list(_BUILDERS.keys())
