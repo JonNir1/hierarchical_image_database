@@ -34,7 +34,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from joblib import Parallel, delayed
 from plotly.subplots import make_subplots
 from scipy.spatial.distance import squareform
 
@@ -42,6 +41,7 @@ from analysis.s0_build_rdms.behavior.noise_ceiling import (
     _DEFAULT_CACHE_DIR, _parse_trials_by_participant, _spearman_brown, group_size_reliability, make_splits,
     nili_upper_reliability,
 )
+from analysis.s0_build_rdms.behavior.resampling import participant_jackknife
 from analysis.s0_build_rdms.behavior.spam_ratings import JOINT_VARIANT, _combine, _select_participants
 from analysis.s0_build_rdms.common import image_manifest_index, load_manifest, load_rdm
 from analysis.s1_pre_vs_post_shine import decomposition as dec
@@ -52,7 +52,7 @@ from analysis.utils import plotting
 from analysis.utils.disk_cache import cached_frame, fingerprint
 from analysis.utils.hierarchy import Parts
 from analysis.utils.load_data import load_data
-from analysis.utils.stats import percentile_ci
+from analysis.utils.stats import jackknife_bias, jackknife_ci, jackknife_se
 
 AGGREGATION = "simple"
 SEED = 0
@@ -239,50 +239,34 @@ def joint_predictors() -> dict[str, np.ndarray]:
     }
 
 
-def _bootstrap_chunk(draws: list[tuple[int, np.random.SeedSequence]], trials: TrialsByParticipant,
-                     predictors: dict[str, np.ndarray], n_conds: int, models: dict[str, tuple[str, ...]]) -> pd.DataFrame:
-    ids = list(trials)
-    frames = []
-    for b, seed_sequence in draws:
-        drawn = np.random.default_rng(seed_sequence).choice(len(ids), size=len(ids), replace=True)
-        rdm = _combine([t for i in drawn for t in trials[ids[i]]], n_conds, AGGREGATION)[0]
-        frames.append(dec.fit_models(rdm, predictors, models=models).assign(boot=b))
-    return pd.concat(frames, ignore_index=True)
-
-
-def bootstrap_fits(
+def jackknife_fits(
     trials: TrialsByParticipant, predictors: dict[str, np.ndarray], n_conds: int, *,
-    models: dict[str, tuple[str, ...]] = JOINT_MODELS, n_boot: int = 1000, seed: int = SEED, n_jobs: int = 6,
-    cache_path: Path | None = None,
+    models: dict[str, tuple[str, ...]] = JOINT_MODELS, n_jobs: int = 6, cache_path: Path | None = None,
 ) -> pd.DataFrame:
-    """Participant bootstrap of every model's fit to the joint RDM: each draw resamples the 155 participants
-    with replacement, re-combines their trials once and refits every model. One row per (draw, model, term).
-    Each draw has its own seed, so the result does not depend on `n_jobs`."""
+    """Delete-one participant jackknife of every model's fit to the joint RDM: each of the 155 participants is
+    left out in turn, the others' trials re-combined once and every model refit. One row per (left-out
+    participant, model, term). See analysis.s0_build_rdms.behavior.resampling for why not a bootstrap."""
+    def score(rdm: np.ndarray) -> list[dict]:
+        return dec.fit_models(rdm, predictors, models=models).to_dict("records")
+
     def run() -> pd.DataFrame:
-        draws = list(enumerate(np.random.SeedSequence(seed).spawn(n_boot)))
-        chunks = [draws[i::n_jobs * 4] for i in range(n_jobs * 4)] if n_jobs > 1 else [draws]
-        frames = Parallel(n_jobs=n_jobs)(
-            delayed(_bootstrap_chunk)(chunk, trials, predictors, n_conds, models) for chunk in chunks if chunk
-        )
-        return pd.concat(frames, ignore_index=True).sort_values("boot", kind="stable", ignore_index=True)
+        return participant_jackknife(trials, n_conds, score, aggregation=AGGREGATION, n_jobs=n_jobs)
 
     key = fingerprint(_digest(trials), *(predictors[t] for t in dec.TERMS), n_conds, AGGREGATION, list(models),
-                      n_boot, seed)
+                      "jackknife")
     return cached_frame(cache_path, key, run)
 
 
-def fit_estimates(observed: pd.DataFrame, boots: pd.DataFrame, stat: str = "beta", level: float = 0.95) -> pd.DataFrame:
-    """Observed value of `stat` per (model, term) with its percentile bootstrap CI and the bootstrap mean.
-
-    On these sparse RDMs a participant resample (about 63% distinct participants) behaves like a smaller,
-    noisier group, so the draws are shifted below the full-sample estimate; `boot_mean` makes that visible.
-    """
+def fit_estimates(observed: pd.DataFrame, jack: pd.DataFrame, stat: str = "beta", level: float = 0.95) -> pd.DataFrame:
+    """Observed value of `stat` per (model, term) with its jackknife SE and CI (centred on the estimate) and
+    the jackknife bias estimate, which is large here because the statistic grows with the number of
+    participants (a diagnostic, never subtracted)."""
     rows = []
-    for (model, term), draws in boots.groupby(["model", "term"], sort=False):
-        lo, hi = percentile_ci(draws[stat].to_numpy(), level)
-        value = observed.loc[(observed["model"] == model) & (observed["term"] == term), stat].iloc[0]
-        rows.append({"model": model, "term": term, "estimate": float(value), "ci_low": lo, "ci_high": hi,
-                     "boot_mean": float(draws[stat].mean())})
+    for (model, term), values in jack.groupby(["model", "term"], sort=False)[stat]:
+        value = float(observed.loc[(observed["model"] == model) & (observed["term"] == term), stat].iloc[0])
+        lo, hi = jackknife_ci(value, values.to_numpy(), level)
+        rows.append({"model": model, "term": term, "estimate": value, "se": jackknife_se(values.to_numpy()),
+                     "ci_low": lo, "ci_high": hi, "bias": jackknife_bias(value, values.to_numpy())})
     return pd.DataFrame(rows)
 
 
@@ -383,7 +367,7 @@ def fig_null_distances(distances: list[float], null: np.ndarray, *, n_bins: int 
 
 
 def fig_betas(estimates: pd.DataFrame) -> go.Figure:
-    """Forest plot of standardized NNLS betas (with bootstrap CIs) per model, each predictor in its family hue."""
+    """Forest plot of standardized NNLS betas (with jackknife CIs) per model, each predictor in its family hue."""
     models = list(dict.fromkeys(estimates["model"]))
     fig = make_subplots(rows=len(models), cols=1, shared_xaxes=True, vertical_spacing=0.12,
                         subplot_titles=[" + ".join(dec.TERM_LABEL[t] for t in dec.MODELS[m]) for m in models])
