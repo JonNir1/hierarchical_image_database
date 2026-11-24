@@ -93,6 +93,32 @@ def test_loo_reliability_returns_exactly_n_rows(trials_by_participant, aggregati
     assert not result["underpowered"].any()
 
 
+def test_nili_upper_counts_each_participants_share_and_is_not_below_the_lower_bound(trials_by_participant):
+    """Every synthetic participant rates the same pairs equally often, so each owns 1/8 of every entry."""
+    n_conds = len(_IMAGES)
+    upper = noise_ceiling.nili_upper_reliability(
+        "mean", trials_by_participant=trials_by_participant, n_conds=n_conds, min_overlap=3,
+    )
+    lower = noise_ceiling.loo_reliability(
+        "pre_shine", "mean", trials_by_participant=trials_by_participant, n_conds=n_conds, min_overlap=3,
+    )
+    assert np.allclose(upper["self_share"], 1 / _N_PARTICIPANTS)
+    assert upper["spearman"].mean() >= lower["spearman"].mean()
+
+
+def test_group_size_reliability_draws_disjoint_groups_per_size(trials_by_participant):
+    n_conds = len(_IMAGES)
+    table = noise_ceiling.group_size_reliability(
+        "mean", trials_by_participant=trials_by_participant, n_conds=n_conds, sizes=(2, 4), n_splits=3, min_overlap=3,
+    )
+    assert list(table["group_size"]) == [2, 2, 2, 4, 4, 4]
+    assert {"kendall", "kendall_a", "spearman"} <= set(table.columns)
+    with pytest.raises(ValueError, match="exceed half"):
+        noise_ceiling.group_size_reliability(
+            "mean", trials_by_participant=trials_by_participant, n_conds=n_conds, sizes=(5,), n_splits=1,
+        )
+
+
 # ---------------------------------------------------------------------------
 # _spearman_brown / _add_ceiling_full
 # ---------------------------------------------------------------------------

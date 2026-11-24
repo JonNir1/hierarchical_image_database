@@ -18,6 +18,15 @@ following the lower/upper-bound noise-ceiling logic of Nili et al. (2014):
       is paired/matched at each split index rather than confounded by which
       participants happened to land in which half for a given method.
 
+Two further estimates serve the cohort-pooled description in
+analysis/s2_semantic_hierarchy/0b_joint_behavior.ipynb:
+
+  nili_upper_reliability() -- Nili et al.'s own upper bound (each participant vs the group RDM
+      *including* that participant), with the participant's share of each group entry it rated, which
+      shows how strongly sparse coverage inflates that bound here.
+  group_size_reliability() -- agreement between two disjoint random groups of n participants for
+      several n: the empirical reliability at each group size, with no Spearman-Brown assumption.
+
 Both bounds are scored with Kendall's tau (the leading metric) and Spearman's
 rho (secondary/consistency check), computed directly on the condensed RDM
 vectors over pair positions non-NaN in both sides -- no MDS/embedding step is
@@ -187,6 +196,67 @@ def split_half_reliability(
         condensed_b, _ = _combine(trials_b, n_conds, aggregation)
         stats = masked_rank_correlation(condensed_a, condensed_b, min_overlap=min_overlap)
         rows.append({"fold_id": split_id, **stats})
+    return pd.DataFrame(rows)
+
+
+def nili_upper_reliability(
+    aggregation: str,
+    *,
+    trials_by_participant: dict[str, list[tuple[np.ndarray, np.ndarray]]],
+    n_conds: int,
+    min_overlap: int = _DEFAULT_MIN_OVERLAP,
+) -> pd.DataFrame:
+    """Nili et al. (2014) upper bound: each participant's own plain-mean RDM against the combined RDM of
+    *all* participants, that participant included. One row per participant.
+
+    Nili's bound assumes each participant contributes about 1/N of every entry of the group RDM. On
+    sparse SpAM data a pair is rated only a few times, so a participant's own ratings are a large share
+    of the group entry on the pairs they rated, which inflates this bound. `self_share` reports that
+    share (mean over the participant's rated pairs of own ratings / all ratings), so the inflation can be
+    read off directly. Kendall tau-a is reported alongside tau-b and Spearman.
+    """
+    participant_ids = list(trials_by_participant.keys())
+    full, full_counts = _combine([t for pid in participant_ids for t in trials_by_participant[pid]], n_conds, aggregation)
+    rows = []
+    for pid in participant_ids:
+        own, own_counts = _mean_combine(trials_by_participant[pid], n_conds)
+        rated = own_counts > 0
+        stats = masked_rank_correlation(own, full, min_overlap=min_overlap, tau_a=True)
+        rows.append({"fold_id": pid, **stats, "self_share": float(np.mean(own_counts[rated] / full_counts[rated]))})
+    return pd.DataFrame(rows)
+
+
+def group_size_reliability(
+    aggregation: str,
+    *,
+    trials_by_participant: dict[str, list[tuple[np.ndarray, np.ndarray]]],
+    n_conds: int,
+    sizes: tuple[int, ...],
+    n_splits: int,
+    seed: int = 0,
+    min_overlap: int = _DEFAULT_MIN_OVERLAP,
+) -> pd.DataFrame:
+    """Agreement between the combined RDMs of two disjoint random groups of n participants, for each n in
+    `sizes` (n <= N / 2) and `n_splits` random draws per n: an empirical reliability-by-group-size curve.
+
+    Unlike a Spearman-Brown projection, this makes no assumption about how agreement grows with group
+    size, which matters here because extra participants mostly add newly covered pairs rather than more
+    ratings of the same pairs. One row per (n, draw), with Kendall tau-b, tau-a and Spearman.
+    """
+    participant_ids = list(trials_by_participant.keys())
+    too_big = [n for n in sizes if 2 * n > len(participant_ids)]
+    if too_big:
+        raise ValueError(f"group sizes {too_big} exceed half of the {len(participant_ids)} participants")
+    rng = np.random.default_rng(seed)
+    rows = []
+    for n in sizes:
+        for draw in range(n_splits):
+            perm = rng.permutation(participant_ids)
+            group_a, group_b = perm[:n], perm[n:2 * n]
+            rdm_a, _ = _combine([t for pid in group_a for t in trials_by_participant[pid]], n_conds, aggregation)
+            rdm_b, _ = _combine([t for pid in group_b for t in trials_by_participant[pid]], n_conds, aggregation)
+            stats = masked_rank_correlation(rdm_a, rdm_b, min_overlap=min_overlap, tau_a=True)
+            rows.append({"group_size": n, "draw": draw, **stats})
     return pd.DataFrame(rows)
 
 
