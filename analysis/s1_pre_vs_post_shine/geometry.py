@@ -29,7 +29,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.stats import norm
 
-from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
+from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label, cohort_symbol
 from analysis.s0_build_rdms.behavior.noise_ceiling import _parse_trials_by_participant
 from analysis.s0_build_rdms.behavior.spam_ratings import _combine
 from analysis.s0_build_rdms.common import REPO_ROOT, image_manifest_index
@@ -62,7 +62,7 @@ def fig_embedding_spectrum(spectra_by_dim: dict[int, dict[str, np.ndarray]]) -> 
             fig.add_trace(go.Scatter(
                 x=list(range(1, dim + 1)), y=spectra_by_dim[dim][cohort].tolist(),
                 mode="lines+markers", line={"color": cc["main"], "width": 2.5},
-                marker={"size": 7, "color": cc["main"]}, name=cohort_label(cohort), legendgroup=cohort,
+                marker={"size": 7, "color": cc["main"], "symbol": cohort_symbol(cohort)}, name=cohort_label(cohort), legendgroup=cohort,
                 showlegend=col_idx == 1,
             ), row=1, col=col_idx)
         fig.update_xaxes(title_text="Component", tickvals=list(range(1, dim + 1)), row=1, col=col_idx)
@@ -83,7 +83,7 @@ def fig_stress_scree(mds_results_by_cohort: dict[str, dict[int, dict]], dims: li
         stresses = [mds_results_by_cohort[cohort][d]["stress"] for d in dims]
         fig.add_trace(go.Scatter(
             x=dims, y=stresses, mode="lines+markers",
-            line={"color": cc["main"], "width": 2.5}, marker={"size": 8, "color": cc["main"]},
+            line={"color": cc["main"], "width": 2.5}, marker={"size": 8, "color": cc["main"], "symbol": cohort_symbol(cohort)},
             name=cohort_label(cohort),
         ))
     fig.update_xaxes(title_text="Embedding dimensionality", tickvals=list(dims))

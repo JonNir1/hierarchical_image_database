@@ -34,7 +34,7 @@ from analysis.utils.dendrogram import (
 )
 from analysis.utils.mds import run_mds_sweep
 from analysis.s0_build_rdms.common import manifest_parts
-from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
+from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label, cohort_symbol
 from analysis.utils.hierarchy import Parts
 from SpAM_Simulations.measures.cluster_stability import (
     baker_gamma, build_linkage, cophenetic_fidelity, cophenetic_ranks, variation_of_information,
@@ -144,7 +144,8 @@ def fig_hdbscan_agreement(table: pd.DataFrame, *, level_names: dict[int, str], n
         for cohort in COHORTS:
             d = data[(data["cohort"] == cohort) & (data["km_level"] == level)]
             fig.add_trace(go.Scatter(x=d["min_cluster_size"], y=d["ari"], mode="lines+markers", name=cohort_label(cohort),
-                                     line_color=cohort_colors(cohort)["violin_line"], showlegend=col == 1), row=1, col=col)
+                                     line_color=cohort_colors(cohort)["violin_line"],
+                                     marker_symbol=cohort_symbol(cohort), showlegend=col == 1), row=1, col=col)
     fig.update_xaxes(type="log", title_text="min_cluster_size")
     fig.update_yaxes(title_text="ARI over clustered images", row=1, col=1)
     fig.update_layout(template=_TEMPLATE, height=420)

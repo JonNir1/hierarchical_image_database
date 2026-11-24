@@ -35,6 +35,7 @@ from analysis.s0_build_rdms.common import (
     REPO_ROOT, image_paths, load_embeddings, load_image_rgb, load_manifest, order_hash,
 )
 from analysis.utils.disk_cache import cached_array, cached_frame, fingerprint
+from analysis.utils.plotting import rdm_style
 from analysis.utils.stats import image_bootstrap, kendall_tau_a, pearson_r, percentile_ci, spearman_rho
 
 SENSORY_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "pre_vs_post_shine" / "sensory_cache"
@@ -46,7 +47,7 @@ STAT_LABEL = {
 }
 SPACE_LABEL = {"sens": "pixels (Euclidean)", "clip": "CLIP ViT-B/32 (cosine)"}
 _TEMPLATE = "plotly_white"
-_SPACE_COLOR = {"sens": "#c8692b", "clip": "#2b7bb9"}
+_SPACE_COLOR = {s: rdm_style(f"{s}_pre").color for s in ("sens", "clip")}  # the RDM family hue
 
 
 # ---------------------------------------------------------------------------

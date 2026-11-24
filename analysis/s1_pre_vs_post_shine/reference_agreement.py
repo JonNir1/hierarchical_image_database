@@ -40,7 +40,7 @@ from statsmodels.stats.multitest import multipletests
 
 from analysis.s0_build_rdms.behavior.spam_ratings import _combine, _mean_combine
 from analysis.s0_build_rdms.common import REPO_ROOT, subset_condensed
-from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
+from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label, cohort_symbol
 from analysis.utils.disk_cache import cached_frame, fingerprint
 from analysis.utils.equivalence import equivalence_test_bootstrap_effect
 from analysis.utils.stats import masked_rank_correlation, percentile_ci  # percentile_ci re-exported for notebooks
@@ -262,7 +262,7 @@ def fig_agreement_with_ci(
         color = cohort_colors(cohort)["violin_line"]
         fig.add_trace(go.Scatter(
             x=[targets[t] for t in rows.index], y=rows["tau_a"], mode="markers", name=cohort_label(cohort),
-            marker={"color": color, "size": 11},
+            marker={"color": color, "size": 11, "symbol": cohort_symbol(cohort)},
             error_y={"type": "data", "symmetric": False, "array": rows["ci_hi"] - rows["tau_a"],
                      "arrayminus": rows["tau_a"] - rows["ci_lo"], "color": color},
         ))
