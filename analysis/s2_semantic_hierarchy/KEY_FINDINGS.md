@@ -17,7 +17,7 @@ are image-relabeling permutations (1,000, so p >= 0.001).
 
 ## The shape of the tree
 
-Notebook: [`0_tree_shape.ipynb`](0_tree_shape.ipynb) (commit `8e5bb00b`)
+Notebook: [`0a_tree_shape.ipynb`](0a_tree_shape.ipynb) (commit `8e5bb00b`)
 
 - **Structure:** 2 domains, 4 mid-level and 16 basic-level categories; basic-level categories hold 6 to 102 images.
 - **Ragged:** leaves sit at depths 3 (336 images), 4 (316) and 5 (73), so KM distance is not a function of LCA depth alone (each LCA depth maps to two to five KM values).
@@ -25,25 +25,37 @@ Notebook: [`0_tree_shape.ipynb`](0_tree_shape.ipynb) (commit `8e5bb00b`)
 - **Caveat, strata are confounded with domain:** every animate image is at depth >= 4 and every depth-3 image is inanimate, so the 3x3 stratum is inanimate-only.
 - **Pooling hides WordNet's primate reversal** at LCA depth 5 (WordNet routes Old to New World monkeys through the primate root); it is a WordNet bookkeeping quirk, noted and not analysed.
 
+## The joint behavioral RDM on its own
+
+Notebook: [`0b_joint_behavior.ipynb`](0b_joint_behavior.ipynb) (commit `d70fadaa`)
+
+- **Missing data are spread evenly:** 86.9% of pairs observed overall; every pooled LCA bin, branch-depth stratum and category pair (HF, HB, AF, AB, NO, HO) is within about one percentage point (86.0% to 87.6%), at 2.8 ratings per observed pair.
+- **Test-retest:** median within-participant Spearman r 0.289 (IQR 0.227 to 0.399), none below 0, as in s1.
+- **Nili et al. (2014) bounds on a participant's fit:** the KM tree fits single participants at mean tau-a 0.187, above the lower bound (0.146) for 87.1% of them. The upper bound (0.513) is not usable: each participant is a median 43.0% of every group entry they rated (1/N would be 0.6%).
+- **Group RDM reliability grows slowly with group size:** Spearman 0.172 (10 per group), 0.195 (20), 0.201 (38), 0.221 (77), far below what Spearman-Brown predicts (0.335 from 0.201 at 38). So the full-sample ceiling on a noise-free model's Spearman is bracketed between 0.470 (sqrt 0.221) and 0.601 (sqrt of the Spearman-Brown 0.361); the raw RDM's 0.351 with the tree is 58% to 75% of it.
+- **Placements are not random:** Wasserstein distance to random placement 0.0275 pooled (per participant median 0.041); more close and far placements than chance (SD 0.202 vs 0.175, mean almost equal).
+- **Agreement with the Mur et al. (2013) ratings (42 images):** tau-a 0.280 [0.232, 0.299], Spearman 0.418, p = 0.0002; above either cohort alone (0.258, 0.270 in s1), closer to the raters' consensus than to single raters (0.239 per rater; raters' leave-one-out 0.355).
+- **Decomposition (NNLS, pixels and CLIP as the mean of their pre and post RDMs):** full-model R^2 0.210; betas KM 0.270, CLIP 0.204, WordNet 0.111, pixels 0.055. Hierarchically, pixels add 0.018, CLIP 0.103, the KM tree a further 0.078 and WordNet 0.011. The ordering KM > CLIP > WordNet > pixels holds in all 1000 bootstrap draws.
+- **Caveat, participant-bootstrap CIs are shifted down:** a resample has about 63% distinct participants and behaves like a smaller group on these sparse RDMs, so its fits are attenuated (KM beta 0.270, bootstrap mean 0.245; R^2 0.210 vs 0.174; Mur tau-a 0.280 vs 0.264). The CIs describe a smaller sample and understate the full-sample values.
+
 ## Which behavioral embeddings, and does embedding move behavior toward the tree?
 
-Notebook: [`1_mds_dimensionality.ipynb`](1_mds_dimensionality.ipynb) (commit `638281c8`)
+Notebook: [`1_mds_dimensionality.ipynb`](1_mds_dimensionality.ipynb) (commit `54cbfafc`; coverage and the noise ceiling are in `0b`)
 
-- **Coverage is even over the tree:** 86.9% of pairs observed overall and 86.5% to 87.2% in every LCA bin and stratum, at about 2.8 ratings per observed pair.
-- **Reliability of the raw RDM:** split-half Spearman 0.220 (100 participant splits), Spearman-Brown 0.361, so a noise-free model can reach at most Spearman sqrt(0.361) = 0.601 with it.
 - **Held-out prediction:** an embedded half predicts the other half's raw ratings better than the raw half does (0.221) from d = 2 on (0.329), rising slowly to 0.362 at d = 30 with no interior optimum (5 splits). Hence two embeddings: low d = 5 (stress elbow, kneedle; d = 4 if only d = 1 to 15 is searched) and high d = 20 (smallest d capturing 95% of the held-out gain).
 - **Embedding moves behavior toward the tree:** Spearman with `sem_km` 0.351 raw, 0.558 (d = 5), 0.625 (d = 20), peaking at d = 2 (0.648); tau-a 0.231, 0.373, 0.421. On the raw RDM's observed pairs and on all pairs the values differ by at most 0.002, so the gain is smoothing, not the filled-in pairs.
 - **Robust across d:** for every d from 3 to 30 the depth-gradient rank slope lies between 0.63 and 0.70 (raw 0.39), and the nested separation peaks at the mid-level.
+- **The raw RDM's ceiling does not bound the embeddings:** their Spearman with the tree (0.558, 0.625) exceeds the bracket's lower end (0.470), and the high-d one its upper end (0.601).
 - **Caveat:** the five half splits share participants, so the held-out SEs understate sampling variability; robustness CIs hold each MDS fit fixed.
 
 ## How much rank structure does each RDM share with the tree?
 
-Notebook: [`2_rank_agreement.ipynb`](2_rank_agreement.ipynb) (commit `9432acdd`)
+Notebook: [`2_rank_agreement.ipynb`](2_rank_agreement.ipynb) (commit `9432acdd`; ceiling `157a0ef6`)
 
 - **Agreement with `sem_km` (tau-a [CI]; Spearman):** CLIP pre 0.233 [0.210, 0.260]; 0.348. Raw behavior 0.231 [0.221, 0.243]; 0.351. CLIP post 0.207; 0.310. WordNet 0.189 [0.155, 0.222]; 0.286. Pixels pre 0.058, post 0.034 (0.090, 0.054). Embeddings: 0.372 [0.354, 0.391] (d = 5) and 0.421 [0.401, 0.439] (d = 20); 0.557 and 0.625. All permutation p = 0.001.
 - **The old "CLIP tracks the tree better than WordNet" is not supported:** tau-a difference +0.045 [-0.001, 0.092], p = 0.054, p_fdr = 0.072 (BH over four tested differences).
 - **Raw behavior equals CLIP pre** (tau-a -0.003 [-0.025, 0.018], p_fdr = 0.80); both embeddings exceed it (+0.138 [0.112, 0.164] and +0.187 [0.161, 0.214], p_fdr = 0.002).
-- **Ceiling:** raw behavior reaches 58% of its 0.601 bound; the embeddings reach 0.93 and 1.04 of it, which shows the bound does not apply to smoothed models.
+- **Ceiling:** raw behavior reaches 58% to 75% of the bracket 0.470 to 0.601 (from `0b`); the embeddings reach 0.93 to 1.19 (d = 5) and 1.04 to 1.33 (d = 20) of it, which shows the bound does not apply to smoothed models.
 - **Families share little with each other:** WordNet vs CLIP tau-a 0.03, WordNet vs raw behavior 0.10, CLIP vs raw behavior 0.20; pre vs post 0.76 (CLIP) and 0.53 (pixels).
 - **Missing pairs do not distort the comparison:** restricted to behavior's 228,001 observed pairs, every RDM's agreement changes by at most 0.002.
 

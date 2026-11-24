@@ -78,7 +78,7 @@ has been done and what is pending.
       RDM, used for both cohorts.
       Out: `E_sem_sgpt.npy`, `D_sem_sgpt.npy`.
 - [ ] Reference-RDM diagnostics vs the curated hierarchy.
-      `code: analysis/s2_semantic_hierarchy/` (numbered notebooks `0_` to `6_`, see its README).
+      `code: analysis/s2_semantic_hierarchy/` (numbered notebooks `0a_`, `0b_` and `1_` to `6_`, see its README).
       (That `D_sem_km` reproduces the directory tree exactly is an invariant of
       `analysis/s0_build_rdms/validate_rdms.py`, with an independent LCA implementation
       so the check is not a tautology.)

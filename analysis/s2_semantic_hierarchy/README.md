@@ -17,7 +17,10 @@ is binned {0, 1, 2, 3, >=4} and pairs fall into three branch-depth strata (3x3, 
 ```
 s2_semantic_hierarchy/
   common.py                  RDM set and loading, pooled tree bins and strata, NaN-aware rank agreement
-  0_tree_shape               the tree itself: shape, raggedness, pooled bins       (tree_shape.py)
+  0a_tree_shape              observational: the tree itself, raggedness, pooled bins   (tree_shape.py)
+  0b_joint_behavior          observational: the joint behavioral RDM, missing data, noise model
+                             (test-retest, Nili and group-size ceilings), external references,
+                             semantic + sensory decomposition                           (joint_behavior.py)
   1_mds_dimensionality       which embeddings of behav_joint to carry forward, chosen
                              without the tree; does embedding move it toward the tree?  (mds_dimensionality.py)
   2_rank_agreement           how much rank structure each RDM shares with the tree    (rank_agreement.py)
