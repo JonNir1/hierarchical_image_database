@@ -24,12 +24,18 @@ import pandas as pd
 import plotly.colors as pcolors
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from scipy.stats import gaussian_kde, spearmanr
+from scipy.stats import gaussian_kde
 
 from analysis.utils.null_distances import trial_ks_distance
 from analysis.utils.parser import parse_pairwise_distances
 from analysis.utils.plotting import add_progression_panel, add_violin_dots_panel, fig_group_status_bar, role_palette
 from analysis.utils.repeat_reliability import repeat_reliability_by_index
+from analysis.utils.stats import spearman_rho
+
+# Statistics kept local because analysis/utils/stats.py has no equivalent: the OLS trend
+# (np.polyfit), the Gaussian KDEs and the delta-method SEM of the RMSE in fig_reliability_vs_distance.
+
+_TEMPLATE = "plotly_white"
 
 # ---------------------------------------------------------------------------
 # Version colour palette
@@ -95,23 +101,19 @@ def _rt_s(df: pd.DataFrame) -> pd.Series:
     return df["rt"] * _RT_TO_S
 
 
-def _subject_stats(df: pd.DataFrame, col: str) -> pd.DataFrame:
-    """Per-subject mean and SD for *col*."""
-    return (
-        df.groupby("participant_id")[col]
-        .agg(mean="mean", std="std")
-        .reset_index()
-    )
-
-
 def _subject_se(df: pd.DataFrame, col: str) -> pd.DataFrame:
-    """Per-subject mean and SE for *col*."""
+    """Per-subject mean, SD, n and SE for *col*."""
     grouped = df.groupby("participant_id")[col]
     return (
         grouped.agg(mean="mean", std="std", n="count")
         .assign(se=lambda x: x["std"] / np.sqrt(x["n"]))
         .reset_index()
     )
+
+
+def _subject_stats(df: pd.DataFrame, col: str) -> pd.DataFrame:
+    """Per-subject mean and SD for *col*."""
+    return _subject_se(df, col)[["participant_id", "mean", "std"]]
 
 
 def _repeated_pair_distances(df_subject: pd.DataFrame) -> tuple[list[float], list[float]]:
@@ -134,6 +136,26 @@ def _repeated_pair_distances(df_subject: pd.DataFrame) -> tuple[list[float], lis
             d1.append(obs[0])
             d2.append(obs[1])
     return d1, d2
+
+
+def _sigma_d(df_subject: pd.DataFrame) -> float:
+    """SD of all of a subject's pairwise distances (1.0 when there are fewer than two)."""
+    all_dists = [
+        dist
+        for pw_json in df_subject["pairwise_distances"]
+        for dist in parse_pairwise_distances(pw_json).values()
+    ]
+    return float(np.std(all_dists)) if len(all_dists) > 1 else 1.0
+
+
+def subject_snr(df_subject: pd.DataFrame) -> float:
+    """v1/v2 SNR, sigma_d / mean(|d1 - d2|), over the subject's incidentally repeated image pairs
+    (see _repeated_pair_distances). NaN when no pair recurs or the pairs never differ."""
+    d1, d2 = _repeated_pair_distances(df_subject)
+    if not d1:
+        return np.nan
+    mean_abs_diff = float(np.mean(np.abs(np.array(d1) - np.array(d2))))
+    return _sigma_d(df_subject) / mean_abs_diff if mean_abs_diff > 0 else np.nan
 
 
 def _repeated_trial_distances(df_subject: pd.DataFrame) -> tuple[list[float], list[float]]:
@@ -191,11 +213,12 @@ _STATUS_LABEL_MAP = {
     "revoked consent": "Revoked consent",
     "missing data": "Missing data",
 }
+_STATUS_HUES = role_palette(["revoked consent", "screened out", "full data"])  # blue / orange / green
 _STATUS_COLOR_MAP = {
-    "full data": "#2ecc71",
-    "screened out": "#f39c12",
-    "revoked consent": "#e74c3c",
-    "missing data": "#95a5a6",
+    "full data": _STATUS_HUES["full data"]["main"],
+    "screened out": _STATUS_HUES["screened out"]["main"],
+    "revoked consent": _STATUS_HUES["revoked consent"]["main"],
+    "missing data": "#969696",  # neutral grey: no usable status
 }
 
 
@@ -268,7 +291,7 @@ def fig_trial_duration(df_trials: pd.DataFrame) -> go.Figure:
     fig.add_vline(x=60, line={"color": "rgba(120,120,120,0.55)", "width": 1.5, "dash": "dash"}, row=1, col=1)
 
     fig.update_layout(
-        template="plotly_white",
+        template=_TEMPLATE,
         title="Trial duration",
         height=620,
         margin={"l": 60, "r": 40, "t": 70, "b": 60},
@@ -315,7 +338,7 @@ def fig_moves(df_trials: pd.DataFrame) -> go.Figure:
     )
 
     fig.update_layout(
-        template="plotly_white",
+        template=_TEMPLATE,
         title="Number of moves",
         height=620,
         margin={"l": 60, "r": 40, "t": 70, "b": 60},
@@ -332,13 +355,8 @@ def fig_moves(df_trials: pd.DataFrame) -> go.Figure:
 # Aggregated by major version group (v3.* pools 3.0/3.06, v4.* pools 4.0/...),
 # not exact version -- the point of this figure is comparing the two repeat
 # designs (3 repeats/session for v3.x, 4 for v4.x), not individual sub-versions.
-_GROUP_COLORS: dict[str, dict[str, str]] = {
-    "v3.*": {"main": "#1e7a45", "subj": "rgba(46,160,90,0.25)", "violin": "rgba(46,160,90,0.30)"},
-    "v4.*": {"main": "#8e44ad", "subj": "rgba(142,68,173,0.25)", "violin": "rgba(142,68,173,0.30)"},
-}
-_GROUP_COLOR_FALLBACK: dict[str, str] = {
-    "main": "#555555", "subj": "rgba(85,85,85,0.25)", "violin": "rgba(85,85,85,0.30)",
-}
+_GROUP_COLORS: dict[str, dict[str, str]] = {"v3.*": _VERSION_PALETTE[3.0], "v4.*": _VERSION_PALETTE[4.0]}
+_GROUP_COLOR_FALLBACK: dict[str, str] = _PALETTE_FALLBACK
 
 
 def _repeat_reliability_by_index(df_trials: pd.DataFrame) -> pd.DataFrame:
@@ -431,7 +449,7 @@ def fig_reliability(df_trials: pd.DataFrame) -> go.Figure:
     fig.update_xaxes(tickvals=list(range(1, max_repeat + 1)), row=2, col=1)
 
     fig.update_layout(
-        template="plotly_white",
+        template=_TEMPLATE,
         title="Test-retest reliability (Spearman r)",
         height=620,
         margin={"l": 60, "r": 40, "t": 70, "b": 60},
@@ -480,7 +498,7 @@ def fig_duration_vs_moves(df_trials: pd.DataFrame) -> go.Figure:
         ))
 
     fig.update_layout(
-        template="plotly_white",
+        template=_TEMPLATE,
         title="Trial duration vs. number of moves (per subject, mean ± SD)",
         xaxis_title="Moves per trial",
         yaxis_title="Trial duration (s)",
@@ -522,12 +540,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
         if len(d1) == 0:
             continue
 
-        all_dists = [
-            dist
-            for pw_json in df_s["pairwise_distances"]
-            for dist in parse_pairwise_distances(pw_json).values()
-        ]
-        sigma_d = float(np.std(all_dists)) if len(all_dists) > 1 else 1.0
+        sigma_d = _sigma_d(df_s)
 
         abs_diffs = np.abs(np.array(d1) - np.array(d2))
         mean_abs_diff = float(np.mean(abs_diffs))
@@ -536,7 +549,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
         snr_hi = sigma_d / (mean_abs_diff - sd_abs_diff) if mean_abs_diff > sd_abs_diff else np.nan
         snr_lo = sigma_d / (mean_abs_diff + sd_abs_diff) if (mean_abs_diff + sd_abs_diff) > 0 else np.nan
 
-        r, _ = spearmanr(d1, d2)
+        r = spearman_rho(np.asarray(d1), np.asarray(d2))
         v = float(df_s["task_version"].iloc[0])
         records.append({
             "label":         subj_short[pid],
@@ -651,7 +664,7 @@ def fig_within_subject_variability(df_trials: pd.DataFrame) -> go.Figure:
     fig.update_yaxes(title_text="Subject", row=1, col=1)
     fig.update_yaxes(title_text="Spearman r", row=1, col=2)
     fig.update_layout(
-        template="plotly_white",
+        template=_TEMPLATE,
         title={
             "text": (
                 "Within-subject variability and reliability"
@@ -717,7 +730,7 @@ def fig_demographics(df_participants: pd.DataFrame) -> go.Figure:
     fig.update_xaxes(title_text="Count", row=2, col=2)
 
     fig.update_layout(
-        template="plotly_white",
+        template=_TEMPLATE,
         title="Participant demographics (full data + screened out)",
         height=600,
         margin={"l": 120, "r": 40, "t": 80, "b": 60},
@@ -913,7 +926,7 @@ def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
     fig.update_xaxes(title_text="Time from trial start (s)", range=[0, max_ms / 1000], row=2, col=2)
     fig.update_yaxes(title_text="Moves / s (avg. over trials)", row=2, col=2)
     fig.update_layout(
-        template="plotly_white",
+        template=_TEMPLATE,
         title="Temporal engagement profile during trials",
         height=620,
         margin={"l": 70, "r": 40, "t": 80, "b": 60},
@@ -1057,7 +1070,7 @@ def fig_pairwise_distance_distribution(
         fig.update_yaxes(range=y_range, visible=False, row=2, col=2)
 
     fig.update_layout(
-        template="plotly_white",
+        template=_TEMPLATE,
         height=680,
         margin={"l": 80, "r": 40, "t": 60, "b": 60},
         showlegend=True,
@@ -1070,6 +1083,7 @@ def fig_pairwise_distance_distribution(
 # Fig 10 — Reliability vs. distance (v3+ only)
 # ---------------------------------------------------------------------------
 
+# Exact minor versions (6 present) outnumber role_palette()'s 4 validated hues, so this figure keeps Set2.
 _MINOR_VERSION_PALETTE = pcolors.qualitative.Set2
 _OVERALL_COLOR = "#333333"
 
@@ -1259,7 +1273,7 @@ def fig_reliability_vs_distance(df_trials: pd.DataFrame) -> go.Figure:
     fig.update_yaxes(title_text="Test-retest RMSE", row=2, col=1)
 
     fig.update_layout(
-        template="plotly_white",
+        template=_TEMPLATE,
         title="Reliability vs. distance (v3+)",
         height=680,
         margin={"l": 70, "r": 40, "t": 80, "b": 60},
