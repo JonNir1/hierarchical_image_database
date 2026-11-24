@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual runs: GitHub -> Actions -> CI -> "Run workflow" (choose any branch).
+  workflow_dispatch:
 
 # ============================================================================
 # MATLAB job -- runs on a self-hosted runner (your lab machine).
