@@ -8,9 +8,9 @@ natural_object 160, human_face 102, animal_body 81, human_body 62, animal_face 5
 (mean luminance, Michelson and RMS contrast, global contrast factor, perimeter-to-area ratio of the alpha mask),
 foreground pixels only. Tests are the original parametric ones (t-test, one-way ANOVA, Bonferroni t-tests,
 Tukey HSD); `analysis/utils/stats.py` has only rank-based comparisons, so they were not swapped. Bars show a
-seeded 1,000-draw bootstrap 95% CI of the mean. Numbers come from a sandbox re-run on 2026-11-24. The
-notebook's stored outputs (matplotlib images) were not overwritten: the one printed number that differs
-between the stored output and the re-run is the sub-sampled pixel correlation (below).
+seeded 1,000-draw bootstrap 95% CI of the mean. Numbers come from a sandbox re-run on 2026-11-24, whose
+output is now the notebook's stored output (it replaced the older matplotlib run; the one printed number that
+changed is the sub-sampled pixel correlation, below).
 
 - **Caveat, SHINE itself is not re-run:** the MATLAB pipeline (`resize_images.m`, `shine_equalize.m`) was not
   executed in this review. Its unit tests (`__tests__/TestShineEqualize.m`, 18 tests) pass under MATLAB R2023b
@@ -22,7 +22,7 @@ Notebook: [`postprocess_analysis.ipynb`](postprocess_analysis.ipynb) (commit `55
 
 - **Spread collapsed:** mean luminance goes from 0.592 (SD 0.169 across images) to 0.579 (SD 0.0012).
 - **By group:** every L2 group lands within 0.5791 to 0.5797 after SHINE, from 0.499 (human_face) to 0.680 (natural_object) before.
-- **Pixel similarity left:** for 1,000 randomly sampled post-SHINE image pairs (seed 42) the mean RGB Pearson correlation is 0.267 (SD 0.165). The stored output says 0.2678; the images or their order have changed since it was run.
+- **Pixel similarity left:** for 1,000 randomly sampled post-SHINE image pairs (seed 42) the mean RGB Pearson correlation is 0.267 (SD 0.165). The earlier stored output said 0.2678; the images or their order had changed since it was run.
 
 ## Are the post-SHINE images still different across categories?
 
