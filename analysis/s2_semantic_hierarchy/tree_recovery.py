@@ -8,8 +8,8 @@ analysis.utils.dendrogram) and compare the dendrogram it yields with the exact t
 (dendrogram.path_tree_to_linkage of the directory paths).
 
 Complete RDMs only. Hierarchical clustering needs every pair, so the raw joint behavioral RDM (~13% of
-pairs unobserved) cannot be clustered and is set aside; its SMACOF embedding (behav_joint_mds, complete)
-stands for behavior. The embeddings at fixed dimensionality used in s1 (d = 3, 9, 15) are added for
+pairs unobserved) cannot be clustered and is set aside; its two SMACOF embeddings (behav_joint_mds_low and
+behav_joint_mds_high, complete) stand for behavior. The embeddings at fixed dimensionality used in s1 (d = 3, 9, 15) are added for
 comparison when their fits are already cached (never refitted here).
 
 Whole-tree agreement is Baker's gamma (Pearson correlation of the two dendrograms' cophenetic ranks,
@@ -25,6 +25,12 @@ outlier-robust cut is reported alongside: the dendrogram is cut at the smallest 
 clusters holding at least MIN_CLUSTER_SIZE images reaches the level's category count, and ARI is taken over
 the images in those clusters only (descriptive; it asks whether the substantial clusters are the tree's).
 
+HDBSCAN, the density-based method of the v5 simulation report, is the second clustering method. It does
+not force every image into a cluster: images in no dense group are labelled noise. Its flat labels are
+scored against the tree's categories at each level over the images it clustered (ARI), across a sweep of
+min_cluster_size, together with the noise fraction. All RDMs are run, and the references frame the result
+(common.EXPECTED_ROLE): sem_km is the expected ceiling and the two pixel RDMs the expected floor.
+
 Usage (from repo root):
     from analysis.s2_semantic_hierarchy import tree_recovery as tr
     trees = tr.rdm_trees(rdms)
@@ -37,17 +43,18 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from scipy.cluster.hierarchy import fcluster
 from scipy.spatial.distance import squareform
 from sklearn.metrics import adjusted_rand_score
 
 from analysis.s2_semantic_hierarchy import common as c
 from analysis.utils import plotting
-from analysis.utils.dendrogram import km_level_labels, path_tree_to_linkage, perceptual_tree
+from analysis.utils.dendrogram import hdbscan_level_agreement, km_level_labels, path_tree_to_linkage, perceptual_tree
 from analysis.utils.disk_cache import cached_array, fingerprint
 from analysis.utils.hierarchy import Parts
 from SpAM_Simulations.measures.cluster_stability import baker_gamma, cophenetic_fidelity, cophenetic_ranks
-from SpAM_Simulations.measures.density_clustering import NOISE_LABEL
+from SpAM_Simulations.measures.density_clustering import DEFAULT_MIN_CLUSTER_SIZES, NOISE_LABEL
 
 EMBEDDING_DIMS = (3, 9, 15)
 MIN_CLUSTER_SIZE = 5
@@ -186,6 +193,22 @@ def flat_cut_ari(trees: dict[str, np.ndarray], parts: Parts, levels: list[int] |
 
 
 # ---------------------------------------------------------------------------
+# HDBSCAN
+# ---------------------------------------------------------------------------
+
+
+def hdbscan_table(
+    rdms: dict[str, np.ndarray], parts: Parts, levels: list[int] | None = None,
+    min_cluster_sizes: tuple[int, ...] = DEFAULT_MIN_CLUSTER_SIZES,
+) -> pd.DataFrame:
+    """Per (RDM, min_cluster_size, tree level): HDBSCAN's clusters and noise fraction, and the ARI of its
+    labels with the tree's categories over the images it clustered, plus each RDM's expected role."""
+    levels = list(c.LEVEL_NAMES) if levels is None else levels
+    table = hdbscan_level_agreement(rdms, parts, levels, min_cluster_sizes, key="rdm")
+    return table.assign(expected_role=table["rdm"].map(c.EXPECTED_ROLE).fillna(""))
+
+
+# ---------------------------------------------------------------------------
 # Figures
 # ---------------------------------------------------------------------------
 
@@ -222,4 +245,28 @@ def fig_ari_heatmap(table: pd.DataFrame) -> go.Figure:
         text=np.round(wide.to_numpy(), 2), texttemplate="%{text}", colorbar={"title": "ARI"},
     ))
     fig.update_layout(template=_TEMPLATE, height=140 + 45 * len(names), yaxis={"autorange": "reversed"})
+    return fig
+
+
+def fig_hdbscan(table: pd.DataFrame) -> go.Figure:
+    """HDBSCAN against the tree: ARI over the clustered images per tree level (top row) and the noise
+    fraction (bottom row, the same in every column), against min_cluster_size, one line per RDM."""
+    levels = sorted(table["km_level"].unique())
+    names = plotting.rdm_legend_order(list(table["rdm"].unique()))
+    fig = make_subplots(rows=2, cols=len(levels), shared_xaxes=True, shared_yaxes="rows",
+                        row_heights=[0.62, 0.38], vertical_spacing=0.1, horizontal_spacing=0.04,
+                        subplot_titles=[c.LEVEL_NAMES[lv] for lv in levels])
+    for col, level in enumerate(levels, start=1):
+        for name in names:
+            d = table[(table["rdm"] == name) & (table["km_level"] == level)].sort_values("min_cluster_size")
+            kwargs = plotting.rdm_scatter_kwargs(name, size=8, width=2)
+            fig.add_trace(go.Scatter(x=d["min_cluster_size"], y=d["ari"], mode="lines+markers",
+                                     showlegend=col == 1, **kwargs), row=1, col=col)
+            kwargs = plotting.rdm_scatter_kwargs(name, size=8, width=2)
+            fig.add_trace(go.Scatter(x=d["min_cluster_size"], y=d["frac_noise"], mode="lines+markers",
+                                     showlegend=False, **kwargs), row=2, col=col)
+    fig.update_xaxes(type="log", title_text="min_cluster_size", row=2)
+    fig.update_yaxes(title_text="ARI over clustered images", row=1, col=1)
+    fig.update_yaxes(title_text="noise fraction", range=[0, 1], row=2, col=1)
+    fig.update_layout(template=_TEMPLATE, height=640, legend={"orientation": "h", "y": -0.18})
     return fig

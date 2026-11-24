@@ -1,4 +1,4 @@
-"""Tests for analysis.s2_semantic_hierarchy.tree_recovery: flat cuts of an RDM's own dendrogram."""
+"""Tests for analysis.s2_semantic_hierarchy.tree_recovery: flat cuts of an RDM's own dendrogram, and HDBSCAN."""
 from __future__ import annotations
 
 from analysis.s2_semantic_hierarchy import tree_recovery as tr
@@ -18,3 +18,13 @@ def test_sem_km_dendrogram_cut_at_true_category_counts_recovers_every_level():
     assert list(table["n_clusters"]) == [2, 4, 8]
     assert (table["ari"] == 1.0).all()
     assert (table["robust_ari"] == 1.0).all()
+
+
+def test_hdbscan_recovers_two_separated_domains_without_noise():
+    parts = path_parts(_TOY_PATHS)
+    lca = lca_depth_condensed(parts)
+    dist = 0.1 * (3 - lca) + 10.0 * (lca == 0)  # two tight domain groups far apart
+    table = tr.hdbscan_table({"sem_km": dist}, parts, levels=[1], min_cluster_sizes=(5,))
+    row = table.iloc[0]
+    assert (row["n_clusters"], row["frac_noise"], row["ari"]) == (2, 0.0, 1.0)
+    assert row["expected_role"] == "ceiling"

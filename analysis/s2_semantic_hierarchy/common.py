@@ -40,6 +40,9 @@ BEHAV_MDS_SET = [BEHAV_MDS_LOW, BEHAV_MDS_HIGH]
 RAW_SET = [*REFERENCE_RDMS, BEHAV]
 FULL_SET = [*RAW_SET, *BEHAV_MDS_SET]
 RDM_FILE = {BEHAV: "behav_joint_simple"}
+#: What each reference RDM is expected to be against the tree: `sem_km` is the tree itself (the ceiling),
+#: the pixel RDMs are the low-level floor. An expectation used to frame results, not an assumption of any test.
+EXPECTED_ROLE = {"sem_km": "ceiling", "sens_pre": "floor", "sens_post": "floor"}
 
 S2_RESULTS_DIR = REPO_ROOT / "analysis" / "results" / "semantic_hierarchy"
 
