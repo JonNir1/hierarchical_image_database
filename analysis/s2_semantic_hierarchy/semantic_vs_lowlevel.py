@@ -35,7 +35,7 @@ import plotly.graph_objects as go
 from scipy.stats import rankdata
 
 from analysis.s2_semantic_hierarchy.common import BEHAV, BEHAV_MDS_SET, REFERENCE, cache_path, pairwise_complete
-from analysis.utils import rdm_style
+from analysis.utils import plotting
 from analysis.utils.stats import image_bootstrap, percentile_ci, z_ranks
 
 _TEMPLATE = "plotly_white"
@@ -75,7 +75,7 @@ class PartialSpec:
 
     @property
     def control_label(self) -> str:
-        return " + ".join(rdm_style.label(k) for k in self.controls)
+        return " + ".join(plotting.rdm_label(k) for k in self.controls)
 
 
 def default_specs(names: Sequence[str], *, pixels: str = "sens_pre", clip: str = "clip_pre") -> list[PartialSpec]:
@@ -139,20 +139,20 @@ def partial_table(
 
 def plot_partial(table: pd.DataFrame, *, target: str = REFERENCE) -> go.Figure:
     """Dot plot, one row per comparison: pale marker = raw rho, solid marker = partial rho (95% CI bars)."""
-    rows = [f"{rdm_style.tick_label(r.predictor)}<br><sub>controlling {r.controls}</sub>" for r in table.itertuples()]
+    rows = [f"{plotting.rdm_tick_label(r.predictor)}<br><sub>controlling {r.controls}</sub>" for r in table.itertuples()]
     fig = go.Figure()
     for kind, lighten in (("raw", 0.6), ("partial", 0.0)):
         for r, row in zip(table.itertuples(), rows):
             value, lo, hi = getattr(r, kind), getattr(r, f"{kind}_lo"), getattr(r, f"{kind}_hi")
-            marker = rdm_style.marker(r.predictor, size=11, lighten=lighten)
+            marker = plotting.rdm_marker(r.predictor, size=11, lighten=lighten)
             fig.add_trace(go.Scatter(
                 x=[value], y=[row], mode="markers", marker=marker, showlegend=False,
                 error_x=dict(type="data", symmetric=False, array=[hi - value], arrayminus=[value - lo],
                              color=marker["color"], thickness=1.5),
-                hovertemplate=f"{kind}: %{{x:.3f}}<extra>{rdm_style.label(r.predictor)}</extra>",
+                hovertemplate=f"{kind}: %{{x:.3f}}<extra>{plotting.rdm_label(r.predictor)}</extra>",
             ))
     fig.update_layout(
-        title=f"Agreement with {rdm_style.label(target)}: raw (pale) vs partial (solid)"
+        title=f"Agreement with {plotting.rdm_label(target)}: raw (pale) vs partial (solid)"
               "<br><sub>Spearman rho on shared pairs, 95% image-bootstrap CI</sub>",
         xaxis=dict(title="Spearman rho with the tree", zeroline=True), yaxis=dict(autorange="reversed"),
         template=_TEMPLATE, height=160 + 62 * len(table), width=900, margin=dict(l=260),
@@ -285,15 +285,15 @@ def plot_unique(result: dict, *, target: str = REFERENCE) -> go.Figure:
     fig = go.Figure()
     for name, row in result["summary"].iterrows():
         fig.add_trace(go.Bar(
-            x=[rdm_style.tick_label(name)], y=[row["unique"]], marker_color=rdm_style.style(name).color,
+            x=[plotting.rdm_tick_label(name)], y=[row["unique"]], marker_color=plotting.rdm_style(name).color,
             showlegend=False,
             error_y=dict(type="data", symmetric=False, array=[row["unique_hi"] - row["unique"]],
                          arrayminus=[row["unique"] - row["unique_lo"]], color="#555555"),
-            hovertemplate="unique R<sup>2</sup>: %{y:.4f}<extra>" + rdm_style.label(name) + "</extra>",
+            hovertemplate="unique R<sup>2</sup>: %{y:.4f}<extra>" + plotting.rdm_label(name) + "</extra>",
         ))
     lo, hi = result["full_r2_ci"]
     fig.update_layout(
-        title=f"Variance in {rdm_style.label(target)} that only one predictor explains"
+        title=f"Variance in {plotting.rdm_label(target)} that only one predictor explains"
               f"<br><sub>full-model R<sup>2</sup> = {result['full_r2']:.3f} [{lo:.3f}, {hi:.3f}]; "
               f"shared by two or more = {result['shared_total']:.3f}</sub>",
         yaxis=dict(title="unique R<sup>2</sup>", rangemode="tozero"), template=_TEMPLATE, height=460, width=760,

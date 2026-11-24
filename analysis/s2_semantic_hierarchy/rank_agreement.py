@@ -30,7 +30,7 @@ import plotly.graph_objects as go
 from statsmodels.stats.multitest import multipletests
 
 from analysis.s2_semantic_hierarchy import common as c
-from analysis.utils import rdm_style
+from analysis.utils import plotting
 from analysis.utils.stats import image_bootstrap, label_shuffle_test, percentile_ci
 
 _TEMPLATE = "plotly_white"
@@ -56,9 +56,9 @@ def correlation_matrix(rdms: dict[str, np.ndarray], stat: str = "kendall_a") -> 
 
 def plot_correlation_matrix(corr: pd.DataFrame, *, stat: str = "kendall_a", title: str | None = None) -> go.Figure:
     """Heatmap of rank agreement between RDMs. Answers: what shares rank structure?"""
-    names = rdm_style.legend_order(list(corr.columns))
+    names = plotting.rdm_legend_order(list(corr.columns))
     corr = corr.loc[names, names]
-    ticks = [rdm_style.tick_label(n) for n in names]
+    ticks = [plotting.rdm_tick_label(n) for n in names]
     fig = go.Figure(go.Heatmap(
         z=corr.to_numpy(), x=ticks, y=ticks, colorscale="RdBu", zmid=0, zmin=-1, zmax=1,
         text=corr.round(2).to_numpy(), texttemplate="%{text}", textfont={"size": 12},
@@ -97,7 +97,7 @@ def agreement_with_reference(
                     f"{stat}_p": shuffle.p_value[stat]}
         rows.append({"rdm": name, **row})
     table = pd.DataFrame(rows).set_index("rdm")
-    return table.loc[rdm_style.legend_order(list(table.index))]
+    return table.loc[plotting.rdm_legend_order(list(table.index))]
 
 
 def plot_forest(table: pd.DataFrame, *, stat: str = "kendall_a", title: str | None = None) -> go.Figure:
@@ -106,10 +106,10 @@ def plot_forest(table: pd.DataFrame, *, stat: str = "kendall_a", title: str | No
     for name in table.index:
         row = table.loc[name]
         fig.add_trace(go.Scatter(
-            x=[row[stat]], y=[rdm_style.label(name)], mode="markers",
+            x=[row[stat]], y=[plotting.rdm_label(name)], mode="markers",
             error_x={"type": "data", "symmetric": False, "array": [row[f"{stat}_hi"] - row[stat]],
-                     "arrayminus": [row[stat] - row[f"{stat}_lo"]], "color": rdm_style.style(name).color},
-            **{k: v for k, v in rdm_style.scatter_kwargs(name, size=11).items() if k != "line"},
+                     "arrayminus": [row[stat] - row[f"{stat}_lo"]], "color": plotting.rdm_style(name).color},
+            **{k: v for k, v in plotting.rdm_scatter_kwargs(name, size=11).items() if k != "line"},
         ))
     fig.add_vline(x=0, line={"color": "grey", "dash": "dot"})
     fig.update_layout(
@@ -196,4 +196,4 @@ def agreement_on_pairs_of(
     rows = [{"rdm": n, "n_pairs": int(mask.sum()), **c.rank_agreement(np.where(mask, r, np.nan), rdms[reference])}
             for n, r in rdms.items() if n != reference]
     table = pd.DataFrame(rows).set_index("rdm")
-    return table.loc[rdm_style.legend_order(list(table.index))]
+    return table.loc[plotting.rdm_legend_order(list(table.index))]

@@ -35,7 +35,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from analysis.s2_semantic_hierarchy import common
-from analysis.utils import rdm_style
+from analysis.utils import plotting
 from analysis.utils.disk_cache import fingerprint
 from analysis.utils.hierarchy import Parts
 from analysis.utils.stats import image_bootstrap, percentile_ci, spearman_rho
@@ -237,13 +237,13 @@ def _add_curve(
 ) -> None:
     where = {} if row is None else {"row": row, "col": col}
     x = list(range(len(y)))
-    kwargs = rdm_style.scatter_kwargs(name)
+    kwargs = plotting.rdm_scatter_kwargs(name)
     if lo is not None and not np.all(np.isnan(lo)):
         ok = ~(np.isnan(lo) | np.isnan(hi))
         xs = [i for i, o in zip(x, ok) if o]
         fig.add_trace(go.Scatter(
             x=xs + xs[::-1], y=list(hi[ok]) + list(lo[ok])[::-1], fill="toself", mode="none",
-            fillcolor=_rgba(rdm_style.style(name).color, 0.15), legendgroup=kwargs["legendgroup"],
+            fillcolor=_rgba(plotting.rdm_style(name).color, 0.15), legendgroup=kwargs["legendgroup"],
             showlegend=False, hoverinfo="skip",
         ), **where)
     fig.add_trace(go.Scatter(x=x, y=y, mode="lines+markers", showlegend=show_legend, **kwargs), **where)
@@ -255,7 +255,7 @@ def plot_depth_profile(
 ) -> go.Figure:
     """Normalised mean distance per LCA bin, one curve per RDM (profile minus its `n_pairs` column), with
     optional bootstrap bands. The tick labels carry the number of pairs in each bin."""
-    names = rdm_style.legend_order([c for c in profile.columns if c != "n_pairs"])
+    names = plotting.rdm_legend_order([c for c in profile.columns if c != "n_pairs"])
     fig = go.Figure()
     for name in names:
         band = (None, None) if lower is None else (lower[name].to_numpy(), upper[name].to_numpy())
@@ -276,13 +276,13 @@ def plot_rank_slopes(table: pd.DataFrame, *, title: str | None = None) -> go.Fig
     """Rank slope per RDM with its bootstrap CI (columns rank_slope, and slope_low/slope_high or ci_low/ci_high)."""
     low = "slope_low" if "slope_low" in table else "ci_low"
     high = "slope_high" if "slope_high" in table else "ci_high"
-    names = rdm_style.legend_order(list(table.index))
+    names = plotting.rdm_legend_order(list(table.index))
     fig = go.Figure()
     for name in names:
         row = table.loc[name]
-        kwargs = rdm_style.scatter_kwargs(name)
+        kwargs = plotting.rdm_scatter_kwargs(name)
         fig.add_trace(go.Scatter(
-            x=[rdm_style.tick_label(name)], y=[row["rank_slope"]], mode="markers", showlegend=False,
+            x=[plotting.rdm_tick_label(name)], y=[row["rank_slope"]], mode="markers", showlegend=False,
             error_y=dict(type="data", symmetric=False, array=[row[high] - row["rank_slope"]],
                          arrayminus=[row["rank_slope"] - row[low]], color=kwargs["marker"]["color"]),
             name=kwargs["name"], marker=kwargs["marker"],
@@ -290,7 +290,7 @@ def plot_rank_slopes(table: pd.DataFrame, *, title: str | None = None) -> go.Fig
     fig.update_layout(
         title=title or "Rank slope of distance on LCA bin<br><sub>positive = distance grows as pairs diverge "
                        "higher up the tree; 95% image bootstrap</sub>",
-        yaxis=dict(title="rank slope (-Spearman rho)"), xaxis=dict(categoryorder="array", categoryarray=[rdm_style.tick_label(n) for n in names]),
+        yaxis=dict(title="rank slope (-Spearman rho)"), xaxis=dict(categoryorder="array", categoryarray=[plotting.rdm_tick_label(n) for n in names]),
         template=_TEMPLATE, height=460, width=900,
     )
     return fig
@@ -302,7 +302,7 @@ def plot_strata_profiles(results: dict[str, RdmDepth], parts: Parts, *, title: s
     counts = strata_table(results, parts)
     titles = [f"{s} ({int(counts.loc[s, tb.labels].sum()):,} pairs)" for s in tb.strata]
     fig = make_subplots(rows=1, cols=len(tb.strata), shared_yaxes=True, subplot_titles=titles, horizontal_spacing=0.04)
-    for name in rdm_style.legend_order(list(results)):
+    for name in plotting.rdm_legend_order(list(results)):
         r = results[name]
         for k in range(len(tb.strata)):
             empty = counts.loc[tb.strata[k], tb.labels].to_numpy() == 0

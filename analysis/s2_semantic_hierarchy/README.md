@@ -29,7 +29,7 @@ s2_semantic_hierarchy/
   __tests__/                 tests for the modules above
 ```
 
-Figures share one design language (`analysis/utils/rdm_style.py`): hue = RDM family, marker symbol =
+Figures share one design language (the RDM section of `analysis/utils/plotting.py`): hue = RDM family, marker symbol =
 variant (pre circle, post diamond, joint star, variant-free square), open marker = MDS embedding (lighter
 for the low-d one).
 

@@ -42,7 +42,7 @@ from scipy.spatial.distance import squareform
 from sklearn.metrics import adjusted_rand_score
 
 from analysis.s2_semantic_hierarchy import common as c
-from analysis.utils import rdm_style
+from analysis.utils import plotting
 from analysis.utils.dendrogram import km_level_labels, path_tree_to_linkage, perceptual_tree
 from analysis.utils.disk_cache import cached_array, fingerprint
 from analysis.utils.hierarchy import Parts
@@ -192,33 +192,33 @@ def flat_cut_ari(trees: dict[str, np.ndarray], parts: Parts, levels: list[int] |
 
 def fig_gamma(table: pd.DataFrame) -> go.Figure:
     """Baker's gamma per RDM (marker) over the image-shuffle null's 95% range (grey bar)."""
-    names = rdm_style.legend_order(list(table.index))
+    names = plotting.rdm_legend_order(list(table.index))
     fig = go.Figure()
     for k, name in enumerate(names):
-        x = rdm_style.label(name)
+        x = plotting.rdm_label(name)
         fig.add_trace(go.Scatter(
             x=[x, x], y=[table.loc[name, "null_lo"], table.loc[name, "null_hi"]], mode="lines",
             line={"color": "lightgrey", "width": 10}, name="image-shuffle null, 95% range", showlegend=k == 0,
         ))
     for name in names:
-        kwargs = rdm_style.scatter_kwargs(name, size=13)
+        kwargs = plotting.rdm_scatter_kwargs(name, size=13)
         kwargs.pop("line")
-        fig.add_trace(go.Scatter(x=[rdm_style.label(name)], y=[table.loc[name, "baker_gamma"]], mode="markers",
+        fig.add_trace(go.Scatter(x=[plotting.rdm_label(name)], y=[table.loc[name, "baker_gamma"]], mode="markers",
                                  showlegend=False, **kwargs))
     fig.update_layout(template=_TEMPLATE, height=440, yaxis_title="Baker's gamma with the exact tree",
-                      xaxis={"categoryorder": "array", "categoryarray": [rdm_style.label(n) for n in names]},
+                      xaxis={"categoryorder": "array", "categoryarray": [plotting.rdm_label(n) for n in names]},
                       legend={"orientation": "h", "y": 1.1})
     return fig
 
 
 def fig_ari_heatmap(table: pd.DataFrame) -> go.Figure:
     """ARI of each RDM's flat cut (rows) per tree level (columns), values printed in the cells."""
-    names = rdm_style.legend_order(list(table["rdm"].unique()))
+    names = plotting.rdm_legend_order(list(table["rdm"].unique()))
     wide = table.pivot(index="rdm", columns="level", values="ari").loc[names]
     counts = table.groupby("level")["n_categories"].first()
     fig = go.Figure(go.Heatmap(
         z=wide.to_numpy(), x=[f"{c.LEVEL_NAMES[lv]}<br>({counts[lv]} clusters)" for lv in wide.columns],
-        y=[rdm_style.tick_label(n) for n in names], zmin=0, zmax=1, colorscale="Viridis",
+        y=[plotting.rdm_tick_label(n) for n in names], zmin=0, zmax=1, colorscale="Viridis",
         text=np.round(wide.to_numpy(), 2), texttemplate="%{text}", colorbar={"title": "ARI"},
     ))
     fig.update_layout(template=_TEMPLATE, height=140 + 45 * len(names), yaxis={"autorange": "reversed"})

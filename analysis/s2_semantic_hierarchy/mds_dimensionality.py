@@ -36,7 +36,7 @@ from analysis.s0_build_rdms.behavior.noise_ceiling import (
 from analysis.s0_build_rdms.behavior.spam_ratings import JOINT_VARIANT, _combine, _select_participants
 from analysis.s0_build_rdms.common import image_manifest_index, save_rdm
 from analysis.s2_semantic_hierarchy import common as c
-from analysis.utils import rdm_style
+from analysis.utils import plotting
 from analysis.utils.disk_cache import cached_array, cached_frame, fingerprint
 from analysis.utils.hierarchy import Parts
 from analysis.utils.load_data import load_data
@@ -233,7 +233,7 @@ Chosen = dict[str, int]  # {c.BEHAV_MDS_LOW: d, c.BEHAV_MDS_HIGH: d}
 
 def _d_line(fig: go.Figure, chosen: Chosen, **where) -> None:
     for name, d in chosen.items():
-        s = rdm_style.style(name)
+        s = plotting.rdm_style(name)
         fig.add_vline(x=d, line={"color": s.color, "dash": s.dash, "width": 1.5},
                       annotation_text=f"{s.tier} d = {d}", annotation_position="top right", **where)
 
@@ -243,7 +243,7 @@ def fig_coverage(table: pd.DataFrame) -> go.Figure:
     overall = float(table.loc[("overall", "all"), "frac_observed"])
     fig = make_subplots(rows=1, cols=2, subplot_titles=["per LCA bin", "per branch-depth stratum"],
                         shared_yaxes=True, horizontal_spacing=0.08)
-    s = rdm_style.style(c.BEHAV)
+    s = plotting.rdm_style(c.BEHAV)
     for col, grouping in enumerate(("LCA bin", "stratum"), start=1):
         part = table.loc[grouping]
         fig.add_trace(go.Bar(x=list(part.index), y=part["frac_observed"], marker_color=s.color,
@@ -258,7 +258,7 @@ def fig_coverage(table: pd.DataFrame) -> go.Figure:
 
 def fig_stress(stress: pd.DataFrame, chosen: Chosen) -> go.Figure:
     fig = go.Figure(go.Scatter(x=stress.index, y=stress["stress"], mode="lines+markers",
-                               **rdm_style.scatter_kwargs(SWEEP_STYLE)))
+                               **plotting.rdm_scatter_kwargs(SWEEP_STYLE)))
     _d_line(fig, chosen)
     fig.update_layout(title="Stress-1 of the SMACOF embedding of the joint behavioral RDM",
                       xaxis_title="MDS dimensionality d", yaxis_title="stress-1",
@@ -269,10 +269,10 @@ def fig_stress(stress: pd.DataFrame, chosen: Chosen) -> go.Figure:
 def fig_heldout(summary: pd.DataFrame, chosen: Chosen, *, stat_label: str = "Spearman rho") -> go.Figure:
     """Held-out prediction per d (mean +/- SE across splits), with the raw half-vs-half value as a line."""
     emb = summary.drop(index=0)
-    kw = rdm_style.scatter_kwargs(SWEEP_STYLE)
+    kw = plotting.rdm_scatter_kwargs(SWEEP_STYLE)
     fig = go.Figure(go.Scatter(x=emb.index, y=emb["mean"], mode="lines+markers",
                                error_y={"type": "data", "array": emb["se"], "visible": True}, **kw))
-    raw = rdm_style.style(c.BEHAV)
+    raw = plotting.rdm_style(c.BEHAV)
     fig.add_hline(y=summary.at[0, "mean"], line={"color": raw.color, "width": 1.5},
                   annotation_text="raw half vs raw half", annotation_position="bottom right")
     _d_line(fig, chosen)
@@ -288,11 +288,11 @@ def fig_km_by_dim(table: pd.DataFrame, chosen: Chosen, *, ceiling: float | None,
     raw = table.loc[table["ndim"] == 0, stat].iloc[0]
     for pairs, dash in (("observed", "solid"), ("all", "dot")):
         part = table[(table["ndim"] > 0) & (table["pairs"] == pairs)]
-        kw = rdm_style.scatter_kwargs(SWEEP_STYLE)
+        kw = plotting.rdm_scatter_kwargs(SWEEP_STYLE)
         kw["line"]["dash"] = dash
         kw["name"] = f"embedding, {pairs} pairs"
         fig.add_trace(go.Scatter(x=part["ndim"], y=part[stat], mode="lines+markers", **kw))
-    colour = rdm_style.style(c.BEHAV).color
+    colour = plotting.rdm_style(c.BEHAV).color
     fig.add_hline(y=raw, line={"color": colour, "width": 1.5}, annotation_text="raw RDM",
                   annotation_position="bottom right")
     if ceiling is not None:
@@ -314,22 +314,22 @@ def fig_robustness(slopes: pd.DataFrame, nested: pd.DataFrame, chosen: Chosen) -
     """
     fig = make_subplots(rows=1, cols=2, horizontal_spacing=0.1,
                         subplot_titles=["depth-gradient rank slope", "nested separation d per level"])
-    raw = rdm_style.style(c.BEHAV)
+    raw = plotting.rdm_style(c.BEHAV)
     emb = slopes.drop(index=c.BEHAV)
-    dims = [rdm_style.parse(n)[3] for n in emb.index]
+    dims = [plotting.parse_rdm_name(n)[3] for n in emb.index]
     fig.add_trace(go.Scatter(
         x=dims, y=emb["rank_slope"], mode="lines+markers", showlegend=False,
         error_y={"type": "data", "symmetric": False, "array": emb["ci_high"] - emb["rank_slope"],
                  "arrayminus": emb["rank_slope"] - emb["ci_low"]},
-        **rdm_style.scatter_kwargs(SWEEP_STYLE)), row=1, col=1)
+        **plotting.rdm_scatter_kwargs(SWEEP_STYLE)), row=1, col=1)
     fig.add_hline(y=slopes.at[c.BEHAV, "rank_slope"], line={"color": raw.color, "width": 1.5}, row=1, col=1)
     for k, level in enumerate(sorted(nested["level"].unique())):
         part = nested[(nested["level"] == level) & (nested["rdm"] != c.BEHAV)]
-        kw = rdm_style.scatter_kwargs(SWEEP_STYLE, lighten=0.3 * k)
+        kw = plotting.rdm_scatter_kwargs(SWEEP_STYLE, lighten=0.3 * k)
         kw["name"] = f"L{level}: {c.LEVEL_NAMES[level]}"
         kw["legendgroup"] = f"L{level}"
         fig.add_trace(go.Scatter(
-            x=[rdm_style.parse(n)[3] for n in part["rdm"]], y=part["d"], mode="lines+markers",
+            x=[plotting.parse_rdm_name(n)[3] for n in part["rdm"]], y=part["d"], mode="lines+markers",
             error_y={"type": "data", "symmetric": False, "array": part["ci_hi"] - part["d"],
                      "arrayminus": part["d"] - part["ci_lo"]}, **kw), row=1, col=2)
         raw_d = nested.loc[(nested["level"] == level) & (nested["rdm"] == c.BEHAV), "d"].iloc[0]

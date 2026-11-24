@@ -35,7 +35,7 @@ from plotly.subplots import make_subplots
 from scipy.spatial.distance import squareform
 
 from analysis.s2_semantic_hierarchy import common as c
-from analysis.utils import rdm_style
+from analysis.utils import plotting
 from analysis.utils.hierarchy import Parts
 from analysis.utils.stats import image_bootstrap, percentile_ci
 
@@ -209,7 +209,7 @@ def category_separation(rdms: dict[str, np.ndarray], *, level: int = 3) -> pd.Da
 
 def fig_levels(table: pd.DataFrame) -> go.Figure:
     """d by level per RDM, nested (left) and global (right), CI as error bars."""
-    names = rdm_style.legend_order(list(table["rdm"].unique()))
+    names = plotting.rdm_legend_order(list(table["rdm"].unique()))
     fig = make_subplots(rows=1, cols=2, shared_yaxes=True, horizontal_spacing=0.05,
                         subplot_titles=("Nested contrast (siblings only)", "Global contrast (all other categories)"))
     for col, contrast in enumerate(("nested", "global"), start=1):
@@ -220,7 +220,7 @@ def fig_levels(table: pd.DataFrame) -> go.Figure:
                 x=sub["level"] + offset, y=sub["d"], mode="lines+markers", showlegend=col == 1,
                 error_y={"type": "data", "symmetric": False, "array": sub["ci_hi"] - sub["d"],
                          "arrayminus": sub["d"] - sub["ci_lo"], "thickness": 1.2},
-                **rdm_style.scatter_kwargs(name, size=9, width=1.8),
+                **plotting.rdm_scatter_kwargs(name, size=9, width=1.8),
             ), row=1, col=col)
     ticks = {"tickmode": "array", "tickvals": LEVELS, "ticktext": [c.LEVEL_NAMES[lv] for lv in LEVELS]}
     fig.update_xaxes(**ticks)
@@ -231,13 +231,13 @@ def fig_levels(table: pd.DataFrame) -> go.Figure:
 
 def fig_categories(table: pd.DataFrame) -> go.Figure:
     """Heatmap of category_separation(): categories x RDMs."""
-    names = rdm_style.legend_order(list(table.columns))
+    names = plotting.rdm_legend_order(list(table.columns))
     z = table[names].to_numpy(dtype=float)
     fig = go.Figure(go.Heatmap(
         z=z, x=list(range(len(names))), y=list(table.index), colorscale="RdBu", zmid=0,
         text=np.round(z, 2), texttemplate="%{text}", colorbar={"title": "d"},
     ))
-    fig.update_xaxes(tickmode="array", tickvals=list(range(len(names))), ticktext=[rdm_style.tick_label(n) for n in names])
+    fig.update_xaxes(tickmode="array", tickvals=list(range(len(names))), ticktext=[plotting.rdm_tick_label(n) for n in names])
     fig.update_yaxes(autorange="reversed")
     fig.update_layout(template=_TEMPLATE, height=640, width=900,
                       title="Nested separation per basic-level category (d, category vs its siblings)")
