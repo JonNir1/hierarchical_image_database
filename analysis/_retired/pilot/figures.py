@@ -24,8 +24,9 @@ import pandas as pd
 import plotly.colors as pcolors
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from scipy.stats import gaussian_kde, ks_2samp, spearmanr
+from scipy.stats import gaussian_kde, spearmanr
 
+from analysis.utils.null_distances import trial_ks_distance
 from analysis.utils.parser import parse_pairwise_distances
 from analysis.utils.plotting import add_progression_panel, add_violin_dots_panel, fig_group_status_bar, role_palette
 from analysis.utils.repeat_reliability import repeat_reliability_by_index
@@ -925,17 +926,6 @@ def fig_move_temporal_profile(df_trials: pd.DataFrame) -> go.Figure:
 # ---------------------------------------------------------------------------
 # Fig 9 — Pairwise distance distribution + KS distance from null (2x2)
 # ---------------------------------------------------------------------------
-
-
-def trial_ks_distance(pw_json: str, null_distribution: np.ndarray) -> float:
-    """KS D statistic of one trial's pairwise distances against a null distribution.
-    Shared by fig_pairwise_distance_distribution and the notebook's KS-vs-null
-    cohort test."""
-    dists = list(parse_pairwise_distances(pw_json).values())
-    if len(dists) < 2:
-        return np.nan
-    D, _ = ks_2samp(dists, null_distribution)
-    return D
 
 
 def fig_pairwise_distance_distribution(

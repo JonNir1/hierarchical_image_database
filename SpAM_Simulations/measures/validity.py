@@ -460,12 +460,12 @@ def noise_curve_shape(table: pd.DataFrame, tolerance: float = TURNOVER_TOLERANCE
 def null_distances(num_dots: int = 20, num_trials: int = 2000, seed: int = 42) -> np.ndarray:
     """Pairwise distances for ``num_dots`` points dropped uniformly on the unit square.
 
-    Delegates to ``analysis/_retired/pilot/simulate_null_distances.py`` rather than restating it, so the
+    Delegates to ``analysis/utils/null_distances.py`` rather than restating it, so the
     report's null and the pilot analysis's null cannot drift apart. Distances come back divided by
     the unit-square diagonal, which is the same normalisation the deployed task and the v5 canvas
     simulator apply, so the three sources are directly comparable with no rescaling.
     """
-    from analysis._retired.pilot.simulate_null_distances import simulate
+    from analysis.utils.null_distances import simulate
     return simulate(num_dots, num_trials, seed=seed)
 
 
