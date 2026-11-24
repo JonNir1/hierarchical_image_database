@@ -40,10 +40,10 @@ from statsmodels.stats.multitest import multipletests
 
 from analysis.s0_build_rdms.behavior.spam_ratings import _combine, _mean_combine
 from analysis.s0_build_rdms.common import REPO_ROOT, subset_condensed
-from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
+from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label, cohort_symbol
 from analysis.utils.disk_cache import cached_frame, fingerprint
 from analysis.utils.equivalence import equivalence_test_bootstrap_effect
-from analysis.utils.stats import masked_rank_correlation
+from analysis.utils.stats import masked_rank_correlation, percentile_ci  # percentile_ci re-exported for notebooks
 
 REFERENCE_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "pre_vs_post_shine" / "reference_cache"
 
@@ -183,14 +183,6 @@ def loo_model_fit(
     return cached_frame(cache_path, key, run)
 
 
-def percentile_ci(values: np.ndarray, level: float = 0.95) -> tuple[float, float]:
-    """Percentile confidence interval of a bootstrap distribution, NaNs ignored."""
-    finite = np.asarray(values, dtype=float)
-    finite = finite[np.isfinite(finite)]
-    tail = (1.0 - level) / 2.0 * 100.0
-    return float(np.percentile(finite, tail)), float(np.percentile(finite, 100.0 - tail))
-
-
 def bootstrap_mean_ci(
     values: np.ndarray, *, n_boot: int = 5000, seed: int = 0, level: float = 0.95,
 ) -> tuple[float, float]:
@@ -270,7 +262,7 @@ def fig_agreement_with_ci(
         color = cohort_colors(cohort)["violin_line"]
         fig.add_trace(go.Scatter(
             x=[targets[t] for t in rows.index], y=rows["tau_a"], mode="markers", name=cohort_label(cohort),
-            marker={"color": color, "size": 11},
+            marker={"color": color, "size": 11, "symbol": cohort_symbol(cohort)},
             error_y={"type": "data", "symmetric": False, "array": rows["ci_hi"] - rows["tau_a"],
                      "arrayminus": rows["tau_a"] - rows["ci_lo"], "color": color},
         ))

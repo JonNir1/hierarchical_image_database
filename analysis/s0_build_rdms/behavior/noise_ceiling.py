@@ -56,13 +56,13 @@ import numpy as np
 import pandas as pd
 
 from analysis.s0_build_rdms.behavior.spam_ratings import (
-    _AGGREGATIONS, _combine, _mean_combine, _select_participants, _trial_sparse,
+    _AGGREGATIONS, _SHINE_VARIANTS, _VALID_VARIANTS, _VARIANT_SHORT, _combine, _mean_combine,
+    _select_participants, _trial_sparse,
 )
 from analysis.s0_build_rdms.common import REPO_ROOT, image_manifest_index
 from analysis.utils.load_data import load_data
 from analysis.utils.stats import masked_rank_correlation
 
-_VALID_VARIANTS = ("pre_shine", "post_shine")
 _DEFAULT_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "parsed_data"
 CSV_CACHE_DIR = REPO_ROOT / "analysis" / "s0_build_rdms" / "behavior" / "cache"  # gitignored: fold_id is a participant id
 _DEFAULT_MIN_OVERLAP = 20
@@ -70,7 +70,8 @@ _DEFAULT_N_SPLITS = 100
 
 
 def _cohort_name(variant: str) -> str:
-    return "pre" if variant == "pre_shine" else "post"
+    """'pre', 'post' or 'joint' (the cohort-pooled build, see spam_ratings.JOINT_VARIANT)."""
+    return _VARIANT_SHORT[variant]
 
 
 def _spearman_brown(r: float) -> float:
@@ -196,8 +197,11 @@ def run_comparison(
     n_splits: int = _DEFAULT_N_SPLITS,
     seed: int = 0,
     min_overlap: int = _DEFAULT_MIN_OVERLAP,
+    aggregations: tuple[str, ...] = _AGGREGATIONS,
 ) -> pd.DataFrame:
-    """Run LOO + split-half reliability for all three aggregation methods on one variant.
+    """Run LOO + split-half reliability for each of `aggregations` (default all three) on one variant:
+    'pre_shine', 'post_shine', or 'joint' (both cohorts pooled, the same participants
+    spam_ratings.build_behavioral_rdm(variant='joint') uses).
 
     Returns a tidy long-format DataFrame with columns
     [cohort, aggregation, bound, fold_id, metric, value, n_overlap, ceiling_full], `metric` in
@@ -206,7 +210,7 @@ def run_comparison(
     rows (see module docstring).
     """
     if variant not in _VALID_VARIANTS:
-        raise ValueError(f"variant must be 'pre_shine' or 'post_shine', got {variant!r}")
+        raise ValueError(f"variant must be one of {_VALID_VARIANTS}, got {variant!r}")
 
     data = load_data(cache_dir, prod_only=True)
     participants = _select_participants(data["participants"], variant)
@@ -224,7 +228,7 @@ def run_comparison(
     cohort = _cohort_name(variant)
 
     frames = []
-    for aggregation in _AGGREGATIONS:
+    for aggregation in aggregations:
         loo = loo_reliability(
             variant, aggregation, trials_by_participant=trials_by_participant,
             n_conds=n_conds, min_overlap=min_overlap,
@@ -258,7 +262,7 @@ def main() -> None:
     parser.add_argument("--n-splits", type=int, default=_DEFAULT_N_SPLITS)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--min-overlap", type=int, default=_DEFAULT_MIN_OVERLAP)
-    parser.add_argument("--only", nargs="+", choices=list(_VALID_VARIANTS), default=list(_VALID_VARIANTS))
+    parser.add_argument("--only", nargs="+", choices=list(_VALID_VARIANTS), default=list(_SHINE_VARIANTS))
     args = parser.parse_args()
 
     CSV_CACHE_DIR.mkdir(parents=True, exist_ok=True)

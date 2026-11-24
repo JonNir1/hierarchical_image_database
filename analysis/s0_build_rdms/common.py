@@ -29,6 +29,8 @@ import pandas as pd
 from PIL import Image
 from scipy.spatial.distance import pdist, squareform
 
+from analysis.utils.hierarchy import Parts, path_parts
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -71,6 +73,11 @@ def load_manifest() -> pd.DataFrame:
             f"  {listed}"
         )
     return df
+
+
+def manifest_parts() -> Parts:
+    """Directory components of every manifest path, in manifest row order (the Kiani-Mur tree)."""
+    return path_parts(load_manifest()["curated_path"])
 
 
 @lru_cache(maxsize=1)

@@ -34,7 +34,7 @@ from plotly.subplots import make_subplots
 from analysis.s0_build_rdms.behavior.spam_ratings import _build_trials, _mean_combine, _select_participants
 from analysis.s0_build_rdms.common import image_manifest_index
 from analysis.utils.load_data import load_data
-from analysis.utils.plotting import add_progression_panel, add_split_violin, fig_group_status_bar, role_palette
+from analysis.utils.plotting import add_progression_panel, add_split_violin, fig_group_status_bar, rdm_style, role_palette
 
 # ---------------------------------------------------------------------------
 # Cohort labels / colours
@@ -43,14 +43,21 @@ from analysis.utils.plotting import add_progression_panel, add_split_violin, fig
 COHORTS = ("pre", "post")
 COHORT_LABEL = {"pre": "Pre-SHINE", "post": "Post-SHINE"}
 
-# Same validated colorblind-safe blue/orange pair used for v1.0/v2.0 in
-# analysis/_retired/pilot/figures.py -- reused here via the shared palette generator
-# rather than re-validating a new pair.
-COHORT_COLORS: dict[str, dict[str, str]] = role_palette(COHORTS)
+# A cohort is a variant of the behavioral RDM family, so it follows the shared RDM design language
+# (analysis/utils/plotting.py): the behavior hue, full for pre and lighter for post, with a circle
+# (pre) and a diamond (post) wherever a cohort is drawn as markers.
+COHORT_COLORS: dict[str, dict[str, str]] = role_palette(
+    COHORTS, hues=[rdm_style(f"behav_{c}").color for c in COHORTS],
+)
+COHORT_SYMBOL: dict[str, str] = {c: rdm_style(f"behav_{c}").symbol for c in COHORTS}
 
 
 def cohort_colors(cohort: str) -> dict[str, str]:
     return COHORT_COLORS[cohort]
+
+
+def cohort_symbol(cohort: str) -> str:
+    return COHORT_SYMBOL[cohort]
 
 
 def cohort_label(cohort: str) -> str:
@@ -162,7 +169,7 @@ def fig_trial_time_moves(
         sdf = subj_stats_by_cohort[cohort]
         fig.add_trace(go.Scatter(
             x=sdf["num_moves"], y=sdf["rt_s"], mode="markers",
-            marker={"color": cc["dot"], "size": 8, "opacity": 0.8},
+            marker={"color": cc["dot"], "size": 8, "opacity": 0.8, "symbol": cohort_symbol(cohort)},
             name=cohort_label(cohort), legendgroup=cohort, showlegend=False,
             hovertemplate="Moves: %{x:.1f}<br>Duration: %{y:.1f}s<extra></extra>",
         ), row=1, col=3)

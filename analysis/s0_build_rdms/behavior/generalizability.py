@@ -79,10 +79,10 @@ import numpy as np
 import pandas as pd
 
 from analysis.s0_build_rdms.behavior.noise_ceiling import (
-    _DEFAULT_CACHE_DIR, _DEFAULT_MIN_OVERLAP, CSV_CACHE_DIR, _VALID_VARIANTS, _cohort_name,
+    _DEFAULT_CACHE_DIR, _DEFAULT_MIN_OVERLAP, CSV_CACHE_DIR, _cohort_name,
 )
 from analysis.s0_build_rdms.behavior.spam_ratings import (
-    _AGGREGATIONS, _build_trials, _combine, _select_participants, build_behavioral_rdm,
+    _AGGREGATIONS, _SHINE_VARIANTS, _build_trials, _combine, _select_participants, build_behavioral_rdm,
 )
 from analysis.s0_build_rdms.common import image_manifest_index, save_rdm
 from analysis.utils.mds import compare_mds_configs
@@ -204,7 +204,7 @@ def run_generalizability_comparison(
         compare_generalizability(
             variant, aggregation, cache_dir=cache_dir, min_overlap=min_overlap, save_oos=save_oos,
         )
-        for variant in _VALID_VARIANTS
+        for variant in _SHINE_VARIANTS
         for aggregation in _AGGREGATIONS
     ]
     wide = pd.DataFrame(rows)
@@ -267,7 +267,7 @@ def run_generalizability_mds_comparison(
     message) any (variant, aggregation, ndim) whose RDM turns out disconnected rather than
     failing the whole sweep, though both OOS pools were confirmed connected on real data."""
     rows = []
-    for variant in _VALID_VARIANTS:
+    for variant in _SHINE_VARIANTS:
         for aggregation in _AGGREGATIONS:
             for ndim in dims:
                 try:

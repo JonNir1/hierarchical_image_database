@@ -1,5 +1,5 @@
 """Tests for analysis.utils.plotting: the categorical palette generator and
-the shared panel/figure builders. Light structural checks only (trace counts,
+the shared panel/figure builders, and the RDM design language. Light structural checks only (trace counts,
 colors, axis ranges) -- matching this repo's existing convention of not
 deep-testing plotly figure internals (neither analysis/_retired/pilot/figures.py nor
 analysis/s1_pre_vs_post_shine/demographics_and_behavior.py have unit tests for their fig_*
@@ -14,7 +14,7 @@ from plotly.subplots import make_subplots
 
 from analysis.utils.plotting import (
     add_progression_panel, add_split_violin, add_violin_dots_panel, fig_equivalence_forest, fig_group_status_bar,
-    role_palette,
+    rdm_style, role_palette,
 )
 
 # ---------------------------------------------------------------------------
@@ -189,3 +189,23 @@ def test_fig_equivalence_forest_colors_rows_by_verdict_and_draws_bounds():
     assert fig.data[0].marker.color == "#2a78d6"
     assert fig.data[2].marker.color == "#eb6834"
     assert list(fig.data[1].x) == [-0.3, 0.3]
+
+
+# ---------------------------------------------------------------------------
+# RDM design language
+# ---------------------------------------------------------------------------
+
+_RDM_NAMES = ["sem_km", "sem_wn", "clip_pre", "clip_post", "sens_pre", "sens_post",
+              "behav_joint", "behav_joint_mds_low", "behav_joint_mds_high"]
+
+
+def test_rdm_channels_are_independent_and_unambiguous():
+    styles = {n: rdm_style(n) for n in _RDM_NAMES}
+    assert len({(s.color, s.symbol) for s in styles.values()}) == len(_RDM_NAMES)
+    for family in ("clip", "sens"):
+        pre, post = styles[f"{family}_pre"], styles[f"{family}_post"]
+        assert pre.family == post.family and pre.color != post.color
+        assert (pre.symbol, post.symbol) == ("circle", "diamond")
+    raw, low, high = styles["behav_joint"], styles["behav_joint_mds_low"], styles["behav_joint_mds_high"]
+    assert raw.color == high.color and high.symbol == low.symbol == raw.symbol + "-open"
+    assert low.color != high.color
