@@ -123,8 +123,10 @@ jobs:
         # is required because multi_dimensional_scaling.py imports sklearn.manifold.MDS
         # at module level (before its rpy2 import); without it here, the R/rpy2-dependent
         # MDS tests would self-skip for the wrong reason (missing sklearn instead of
-        # missing R). torch/nltk are not needed.
-        run: pip install pytest numpy scipy pandas tqdm plotly scikit-learn
+        # missing R). statsmodels is required because SpAM_Simulations/empirical imports
+        # analysis.utils.parser, whose stats module imports it at module level.
+        # torch/nltk are not needed.
+        run: pip install pytest numpy scipy pandas tqdm plotly scikit-learn statsmodels
 
       - name: Run pytest
         run: pytest SpAM_Simulations/__tests__/ -v -m "not manual"
