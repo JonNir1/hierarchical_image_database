@@ -28,6 +28,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from scipy.spatial.distance import pdist
 
+from analysis.utils import dendrogram
 from analysis.utils.dendrogram import (
     LINKAGE, GammaShuffleResult, dendrogram_shuffle_test, km_level_labels, path_tree_to_linkage, perceptual_tree,
     tree_shuffle_test,
@@ -37,11 +38,9 @@ from analysis.s0_build_rdms.common import manifest_parts
 from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label, cohort_symbol
 from analysis.utils.hierarchy import Parts
 from SpAM_Simulations.measures.cluster_stability import (
-    baker_gamma, build_linkage, cophenetic_fidelity, cophenetic_ranks, variation_of_information,
+    baker_gamma, build_linkage, cophenetic_fidelity, cophenetic_ranks,
 )
-from SpAM_Simulations.measures.density_clustering import (
-    DEFAULT_MIN_CLUSTER_SIZES, NOISE_LABEL, clustered_ari, hdbscan_labels, noise_summary,
-)
+from SpAM_Simulations.measures.density_clustering import DEFAULT_MIN_CLUSTER_SIZES
 
 MDS_DIMS = (3, 9, 15)
 
@@ -86,28 +85,9 @@ def hdbscan_level_agreement(
     embedded: dict[int, np.ndarray], parts: Parts, levels: Sequence[int],
     min_cluster_sizes: Sequence[int] = DEFAULT_MIN_CLUSTER_SIZES,
 ) -> pd.DataFrame:
-    """HDBSCAN flat labels vs KM category labels, per (ndim, min_cluster_size, KM level).
-
-    ARI and VI are computed over the images that HDBSCAN clustered and that reach the KM level, so
-    `frac_shared` must be read with them: an aggressive setting keeps only an easy core.
-    """
-    rows = []
-    for dim, dists in embedded.items():
-        for mcs in min_cluster_sizes:
-            labels = hdbscan_labels(dists, mcs)
-            noise = noise_summary(labels)
-            for level in levels:
-                km = km_level_labels(parts, level)
-                agreement = clustered_ari(labels, km)
-                shared = (labels != NOISE_LABEL) & (km != NOISE_LABEL)
-                vi = variation_of_information(labels[shared], km[shared]) if shared.sum() >= 2 else np.nan
-                rows.append({
-                    "ndim": dim, "min_cluster_size": mcs, "km_level": level,
-                    "n_clusters": noise["n_clusters"], "frac_noise": noise["frac_noise"],
-                    "ari": agreement["ari_shared_clustered"], "vi_norm": vi,
-                    "frac_shared": agreement["frac_shared_clustered"],
-                })
-    return pd.DataFrame(rows)
+    """HDBSCAN flat labels vs KM category labels, per (ndim, min_cluster_size, KM level): the shared
+    analysis.utils.dendrogram.hdbscan_level_agreement keyed by embedding dimensionality."""
+    return dendrogram.hdbscan_level_agreement(embedded, parts, levels, min_cluster_sizes, key="ndim")
 
 
 # ---------------------------------------------------------------------------
