@@ -43,7 +43,7 @@ from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, coh
 from analysis.s1_pre_vs_post_shine.reference_agreement import TrialsByParticipant, _digest, percentile_ci
 from analysis.utils.disk_cache import cached_frame, fingerprint
 from analysis.utils.equivalence import equivalence_test_bootstrap_effect
-from analysis.utils.plotting import RDM_FAMILY_HUE, _EQUIVALENT_COLOR, _NOT_EQUIVALENT_COLOR
+from analysis.utils.plotting import RDM_FAMILY_HUE, add_verdict_legend, verdict_color
 
 TERMS = ("sem_km", "sem_wn", "clip", "pix")
 TERM_LABEL = {"sem_km": "semantic (KM)", "sem_wn": "semantic (WordNet)", "clip": "CLIP", "pix": "pixels"}
@@ -370,13 +370,13 @@ def fig_estimates(estimates: pd.DataFrame, models: list[str], *, x_title: str) -
 def fig_difference_forest(differences: pd.DataFrame, models: list[str], *, x_title: str) -> go.Figure:
     """Forest plot of the pre - post difference of every weight (difference_table() output, one pair set and
     statistic): the effect with its 90% TOST interval and the +/- equivalence bound as two ticks on the
-    same row; blue rows are equivalent to 0, orange ones are not. One panel per model, shared x axis."""
+    same row; blue rows are equivalent to 0, red ones are not (the shared verdict colours). One panel per model, shared x axis."""
     fig = _stacked_forest(models, x_title)
     for row, model in enumerate(models, start=1):
         rows = differences[differences["model"] == model].set_index("term")
         for i, term in enumerate(MODELS[model]):
             r = rows.loc[term]
-            color = _EQUIVALENT_COLOR if r["equivalent"] else _NOT_EQUIVALENT_COLOR
+            color = verdict_color(r["equivalent"])
             fig.add_trace(go.Scatter(
                 x=[r["effect"]], y=[i], mode="markers", marker={"color": color, "size": 9}, showlegend=False,
                 error_x={"type": "data", "symmetric": False, "color": color, "thickness": 1.8, "width": 4,
@@ -387,8 +387,7 @@ def fig_difference_forest(differences: pd.DataFrame, models: list[str], *, x_tit
                 x=[-r["bound"], r["bound"]], y=[i, i], mode="markers", showlegend=False, hoverinfo="skip",
                 marker={"color": "rgba(80,80,80,0.8)", "size": 14, "symbol": "line-ns-open", "line": {"width": 2}},
             ), row=row, col=1)
-    for label, color in (("equivalent to 0", _EQUIVALENT_COLOR), ("not equivalent", _NOT_EQUIVALENT_COLOR)):
-        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers", marker={"color": color, "size": 9}, name=label), row=1, col=1)
+    add_verdict_legend(fig, row=1, col=1)
     return fig
 
 
