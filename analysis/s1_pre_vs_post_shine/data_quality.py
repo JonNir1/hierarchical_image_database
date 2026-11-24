@@ -20,7 +20,7 @@ from plotly.subplots import make_subplots
 from scipy.stats import gaussian_kde, wasserstein_distance
 
 from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORT_COLORS, COHORT_LABEL, COHORTS, cohort_colors, cohort_label
-from analysis._retired.pilot.figures import trial_ks_distance
+from analysis.utils.null_distances import trial_ks_distance
 from analysis.utils.parser import parse_pairwise_distances
 from analysis.utils.plotting import add_progression_panel, add_split_violin
 
@@ -49,7 +49,7 @@ def subject_repeat_slope(repeat_df: pd.DataFrame, *, min_repeats: int = 3) -> pd
 def pairwise_distance_values(df_trials_main: pd.DataFrame) -> list[float]:
     """Flatten every main trial's pairwise_distances into one list of
     normalised SpAM distances (same unit as the null distribution simulated
-    by analysis._retired.pilot.simulate_null_distances.simulate())."""
+    by analysis.utils.null_distances.simulate())."""
     return [
         dist
         for pw_json in df_trials_main["pairwise_distances"]
@@ -64,7 +64,7 @@ def trial_wasserstein_distance(pw_json: str, null_distribution: np.ndarray) -> f
     between distributions, so it's sensitive to *how far* the trial's
     distances sit from the null, not just whether the two shapes differ --
     the more appropriate primary measure for a magnitude comparison here.
-    Companion to analysis._retired.pilot.figures.trial_ks_distance(), which is kept as
+    Companion to analysis.utils.null_distances.trial_ks_distance(), which is kept as
     a secondary/shape-robustness check."""
     dists = list(parse_pairwise_distances(pw_json).values())
     if len(dists) < 2:
@@ -83,7 +83,7 @@ def subject_wasserstein_distance(df_trials_main: pd.DataFrame, null_distribution
 def subject_ks_distance(df_trials_main: pd.DataFrame, null_distribution: np.ndarray) -> pd.Series:
     """Per-participant mean KS distance (D statistic) of each main trial's
     pairwise-distance distribution against *null_distribution* -- reuses
-    analysis._retired.pilot.figures.trial_ks_distance(), the same measure as
+    analysis.utils.null_distances.trial_ks_distance(), the same measure as
     analysis/_retired/pilot/analysis.ipynb's Test 3 (KS distance from null). Secondary
     to subject_wasserstein_distance() here (see its docstring); grouped by
     SHINE cohort instead of task version."""

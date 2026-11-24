@@ -51,10 +51,10 @@ from typing import Any, Dict, Optional
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
 from scipy.sparse.csgraph import connected_components
-from scipy.spatial import procrustes
 
 os.environ.setdefault("R_LIBS_USER", r"C:\Users\nirjo\R_library\4.5")
 
+from analysis.utils.mds import compare_mds_configs
 from SpAM_Simulations.core.helpers import convert_to_condensed
 from SpAM_Simulations.core.multi_dimensional_scaling import (
     run_mds, _precalculate_initial_embeddings,
@@ -142,15 +142,10 @@ def compare_one(
     print(f"  rsatoolbox: niter={rsa_out['niter']}, stress={rsa_out['stress']:.6g}, "
           f"needs_more_iters={rsa_out['needs_more_iters']}")
 
-    r_conf = np.asarray(r_out["conf"]).reshape(-1, ndim)
-    rsa_conf = np.asarray(rsa_out["conf"]).reshape(-1, ndim)
-    _, _, disparity = procrustes(r_conf, rsa_conf)
-    print(f"  Procrustes disparity (0 = identical up to rotation/reflection/scale): {disparity:.6g}")
-
-    r_confdist = np.asarray(r_out["confdist"])
-    rsa_confdist = np.asarray(rsa_out["confdist"])
-    rho = float(np.corrcoef(r_confdist, rsa_confdist)[0, 1])
-    print(f"  Pearson r between fitted distance vectors (confdist): {rho:.6f}")
+    agreement = compare_mds_configs(r_out, rsa_out, ndim)
+    print(f"  Procrustes disparity (0 = identical up to rotation/reflection/scale): {agreement['disparity']:.6g}")
+    print(f"  Pearson r between fitted distance vectors (confdist): {agreement['confdist_r']:.6f}")
+    print(f"  Verdict: {agreement['verdict']}")
 
 
 def _synthetic_case():
@@ -170,11 +165,11 @@ def _synthetic_case():
 
 
 def _real_behavioral_case(variant_name: str):
-    """Real behav_pre/behav_post RDM + a coverage-derived weight matrix (0 for
-    never-observed pairs). Restricted to a dense, fully-connected sub-block since
-    the full RDM (35% uncovered pairs) is not guaranteed connected as-is."""
-    from analysis.s0_build_rdms.common import load_rdm, RESULTS_DIR
-    import json
+    """Real behavioral RDM (an analysis/results/rdms stem, e.g. "behav_pre_simple") + a
+    coverage-derived weight matrix (0 for never-observed pairs). Restricted to a dense,
+    fully-connected sub-block since the full RDM (35% uncovered pairs) is not guaranteed
+    connected as-is."""
+    from analysis.s0_build_rdms.common import load_rdm
 
     condensed = load_rdm(variant_name)
     sq = squareform(condensed)
@@ -198,12 +193,8 @@ def main() -> None:
         compare_one("synthetic", dists, weights, ndim=3, max_iters=300,
                     convergence_tol=1e-6, precalc_init=precalc)
 
-    for variant_name in ("behav_pre", "behav_post"):
-        try:
-            dists, weights = _real_behavioral_case(variant_name)
-        except FileNotFoundError:
-            print(f"\n{variant_name} not built yet -- skipping.")
-            continue
+    for variant_name in ("behav_pre_simple", "behav_post_simple"):
+        dists, weights = _real_behavioral_case(variant_name)  # raises if not built (analysis/s0_build_rdms/build_all.py)
         print("\n" + "=" * 70)
         print(f"Real data: {variant_name} (60 best-covered images subset)")
         print("=" * 70)

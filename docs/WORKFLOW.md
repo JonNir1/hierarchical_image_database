@@ -26,13 +26,13 @@ has been done and what is pending.
 
 ## Phase 0 — Pre-launch prep (no data yet)
 - [ ] Resize images. Images should already be resized to 175×175 px, but need to make sure.
-      `code: image_processing/run_resize.py`.
+      `code: analysis/_retired/image_processing/resize_images.m` (MATLAB).
       input: `images/pre_shine/`, output: `images/pre_shine/`.
-- [ ] SHINE images. `code: image_processing/run_shine.py`.
+- [ ] SHINE images. `code: analysis/_retired/image_processing/shine_equalize.m` (MATLAB).
       Operations: `lumMatch` + `histMatch`. **Must preserve filenames and directory
       structure** so per-image pre/post correspondence is a filename match.
       input: `images/pre_shine/`, output: `images/post_shine/`
-- [ ] Dataset manifest. `code: image_processing/build_dataset_manifest.py`.
+- [ ] Dataset manifest. `code: none yet` (the tracked manifest is `images/manifest.csv`).
       Build a manifest CSV with one row per image, including source attribution,
       Kiani-Mur labels, WordNet labels, and a per-image **text description**
       (~1 sentence; consumed by SGPT in the exploratory semantic RDM step below).

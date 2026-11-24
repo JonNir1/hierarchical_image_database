@@ -14,11 +14,11 @@ classdef TestShineEqualize < matlab.unittest.TestCase
 % images/pre_shine/ or images/post_shine/ is ever read or written.
 %
 % Run from the repo root:
-%   results = runtests('image_processing/__tests__/TestShineEqualize');
+%   results = runtests('analysis/_retired/image_processing/__tests__/TestShineEqualize');
 %   disp(results.table)
 
     properties
-        HelpersDir   % absolute path to image_processing/helpers/
+        HelpersDir   % absolute path to analysis/_retired/image_processing/helpers/
         FixtureIn    % root of synthetic input tree  (tmp/fixture_in/)
         FlatIn       % temp flat input dir           (tmp/flat_in/)
         FlatOut      % temp flat output dir          (tmp/flat_out/)
