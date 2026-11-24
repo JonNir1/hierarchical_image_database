@@ -48,7 +48,7 @@ jobs:
         # matlab -batch exits with code 1 if the assert fails, which fails the job.
         run: >
           matlab -batch
-          "suite = matlab.unittest.TestSuite.fromFile('image_processing/__tests__/TestShineEqualize.m');
+          "suite = matlab.unittest.TestSuite.fromFile('analysis/_retired/image_processing/__tests__/TestShineEqualize.m');
            runner = matlab.unittest.TestRunner.withTextOutput;
            results = runner.run(suite);
            disp(results.table);

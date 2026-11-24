@@ -26,7 +26,7 @@ numpy, no loop. `_laplacian()` below IS that identity; `_smacof_single_vectorize
 stress, B matrix, pinv, the eps-based break condition, including its bug) is unchanged, so
 this is a performance fix only, not a behavior change. Verified bit-close (not just
 "similar") against the real rsatoolbox implementation at n small enough for both to run --
-see __tests__ or the __main__ block below.
+see the __main__ block below (run it with `python -m analysis._retired.rsatoolbox_eval.mds_rsatoolbox_vectorized`).
 
 Derivation of V = diag(weight.sum(axis=1)) - weight:
 For nn < mm, v = e_nn - e_mm (as a column vector), so v @ v.T has +1 at (nn,nn) and (mm,mm),

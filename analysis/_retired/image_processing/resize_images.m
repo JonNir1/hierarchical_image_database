@@ -6,7 +6,7 @@
 % input subdirectory structure.
 %
 % Source images must have an alpha channel (4-channel RGBA PNG).
-% Uses gray2rgb.m from image_processing/helpers/ for any single-channel inputs.
+% Uses gray2rgb.m from analysis/_retired/image_processing/helpers/ for any single-channel inputs.
 %
 % Edit INPUT_DIR and OUTPUT_DIR before running.
 
