@@ -79,11 +79,12 @@ images/                    ← canonical 725-image curated dataset (tracked on b
 source_datasets/           ← original datasets (structure tracked; image files NOT redistributed)
 docs/                      ← planning documents (pre-reg draft + workflow checklist)
 SpAM_Simulations/          ← MDS simulations (developer-only; not on Pavlovia)
-visualize_dataset/         ← dataset visualization tools (developer-only; not on Pavlovia)
-analysis/                  ← future: analysis notebooks (developer-only; not on Pavlovia)
+analysis/                  ← analysis notebooks and shared utils (developer-only; not on Pavlovia)
+                             _retired/ holds superseded work (pilot, SHINE pipeline, rsatoolbox
+                             evaluation, dataset visualization), kept with its own KEY_FINDINGS.md
 ```
 
 The `main` and `pavlovia_deploy` branches share an identical structure for the task and
 dataset. `pavlovia_deploy` differs only in a stricter `.gitignore` that excludes the
-developer-only directories (`SpAM_Simulations/`, `visualize_dataset/`, etc.) so they
+developer-only directories (`SpAM_Simulations/`, `analysis/`, etc.) so they
 don't reach Pavlovia.

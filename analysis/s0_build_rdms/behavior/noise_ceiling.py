@@ -41,7 +41,7 @@ The pairwise significance testing (evidence-vs-mean primary; evidence-vs-simple,
 simple-vs-mean secondary) and the summary figure are deliberately NOT in this
 module -- they're notebook work, see analysis/s0_build_rdms/behavior/aggregation_comparison.ipynb,
 matching this repo's existing notebook-as-analysis-surface convention
-(SpAM_Simulations/evaluation_v0_1.ipynb, visualize_dataset/dataset_visualizations.ipynb).
+(SpAM_Simulations/evaluation_v0_1.ipynb, analysis/_retired/visualize_dataset/dataset_visualizations.ipynb).
 This module only produces the underlying tidy long-format reliability data.
 
 Usage (from repo root, with the main checkout's .venv active):

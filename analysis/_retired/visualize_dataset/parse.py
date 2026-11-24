@@ -1,12 +1,26 @@
-import os
-from glob import glob
-from typing import Dict, Set
-from collections import defaultdict
+"""
+Parse an image directory tree (``<cat1>/<cat2>/.../<name><instance>.png``) into a metadata frame, per-category
+instance counts, and an ete3 tree.
 
-import pandas as pd
+Usage (from repo root):
+    from analysis._retired.visualize_dataset.parse import as_frame, as_counts, as_tree
+
+``ete3`` is only needed by ``as_tree`` (and ``visualize.show_tree``); it is imported lazily so the frame and
+count helpers work without it.
+"""
+from __future__ import annotations
+
+import os
+from collections import defaultdict
+from glob import glob
+from typing import TYPE_CHECKING, Dict, Set
+
 import cv2
-import ete3
+import pandas as pd
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    import ete3
 
 
 def as_frame(dataset_path: str, extensions: str | list[str] = "png") -> pd.DataFrame:
@@ -25,10 +39,10 @@ def as_frame(dataset_path: str, extensions: str | list[str] = "png") -> pd.DataF
     assert os.path.isdir(dataset_path), f"{dataset_path} is not a directory"
     if isinstance(extensions, str):
         extensions = [extensions]
-    assert extensions, f"extensions must be a string or list of strings"
-    image_paths = []
+    assert extensions, "extensions must be a string or list of strings"
+    image_paths: list[str] = []
     for ext in extensions:
-        image_paths = glob(os.path.join(dataset_path, f"**{os.sep}*.{ext}"), recursive=True)
+        image_paths.extend(glob(os.path.join(dataset_path, f"**{os.sep}*.{ext}"), recursive=True))
     records = []
     for image_path in tqdm(image_paths, desc="Processing images"):
         try:
@@ -68,10 +82,12 @@ def as_counts(dataset: str | pd.DataFrame) -> Dict[tuple, int]:
 
 def as_tree(dataset: str | pd.DataFrame, as_newick: bool = False) -> str | ete3.Tree:
     """ Parse the dataset as a tree representation, either in Newick (str) format or as an ete3.Tree object. """
+    import ete3
+
     leaf_counts = as_counts(dataset)
     tree, counts = _build_tree(leaf_counts, update_internal_counts=True)
 
-    def newick_subtree(node):
+    def newick_subtree(node: tuple) -> str:
         """ Converts the subtree rooted at `node` to Newick format. """
         name = node[-1] if node else "ROOT"
         kids = sorted(tree.get(node, []), key=lambda t: t[-1])
@@ -83,7 +99,7 @@ def as_tree(dataset: str | pd.DataFrame, as_newick: bool = False) -> str | ete3.
     return ete3_tree
 
 
-def _extract_image_metadata(image_path: str, base_path: str = ""):
+def _extract_image_metadata(image_path: str, base_path: str = "") -> dict:
     """
     Extract the image's category (from the path structure), instance (from the filename), and metadata such as height,
     width, channels, has_alpha, extension, and relative path.
@@ -114,7 +130,7 @@ def _extract_image_metadata(image_path: str, base_path: str = ""):
     return {**categories, **metadata, }
 
 
-def _build_tree(counts: dict, update_internal_counts: bool = True) -> (Dict[tuple, Set[tuple]], Dict[tuple, int]):
+def _build_tree(counts: dict, update_internal_counts: bool = True) -> tuple[Dict[tuple, Set[tuple]], Dict[tuple, int]]:
     """
     Build a tree representation of the category hierarchy from counts.
     If `update_internal_counts` is True, the input `counts` is updated to include counts for internal nodes.
