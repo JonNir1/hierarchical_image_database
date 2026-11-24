@@ -4,7 +4,7 @@ histogram, the pairwise-correlation histogram, and the per-feature bar grids wit
 
 Usage (from repo root):
     from analysis._retired.image_processing.postprocess_figures import (
-        bootstrap_mean_ci, fig_luminance_hist, fig_correlation_hist, fig_feature_bars, L1_COLORS, L2_COLORS,
+        bootstrap_mean_ci, fig_luminance_hist, fig_correlation_hist, fig_feature_bars, L1_COLORS, L2_COLORS, L2_LABELS,
     )
 """
 from __future__ import annotations
@@ -27,6 +27,9 @@ L2_COLORS: dict[str, str] = {
     g: L1_COLORS["animate" if g.startswith(("animal", "human")) else "inanimate"]
     for g in ("animal_body", "animal_face", "human_body", "human_face", "handmade_object", "natural_object")
 }
+
+# Display names put the two object groups next to each other when sorted.
+L2_LABELS: dict[str, str] = {"handmade_object": "object_handmade", "natural_object": "object_natural"}
 
 
 def bootstrap_mean_ci(values: np.ndarray, *, n_boot: int = 1000, seed: int = 0, level: float = 0.95) -> tuple[float, float, float]:
@@ -76,27 +79,34 @@ def fig_feature_bars(
     df: pd.DataFrame, group_col: str, order: list[str], features: list[str], labels: dict[str, str], *,
     colors: dict[str, str], ylabel: str, title: str, rows: int, cols: int,
     x_notes: dict[str, str] | None = None, brackets: dict[str, list[tuple[int, int, float]]] | None = None,
-    zero_line: bool = False, tickangle: int = 30, width: int = 1000, height: int = 700,
+    group_labels: dict[str, str] | None = None, zero_line: bool = False, tickangle: int = 30,
+    width: int = 1100, height: int = 900, vertical_spacing: float = 0.26,
 ) -> go.Figure:
     """One panel per feature: group means with bootstrap 95% CI bars.
 
-    *x_notes[feature]* is the panel's x-axis title (the omnibus or two-group p-value text);
-    *brackets[feature]* lists significant pairs as (i, j, p) over positions in *order*, drawn above the bars.
+    *x_notes[feature]* (the omnibus or two-group p-value text) is printed under the panel title, so it
+    cannot be mistaken for the next row's panel. *brackets[feature]* lists significant pairs as (i, j, p)
+    over positions in *order*; each is drawn above the bars with its stars centred over the bracket.
+    *group_labels* maps a group's name to the tick label shown for it.
     """
-    x_notes, brackets = x_notes or {}, brackets or {}
+    x_notes, brackets, group_labels = x_notes or {}, brackets or {}, group_labels or {}
+    names = [group_labels.get(g, g) for g in order]
     specs = [[{} for _ in range(cols)] for _ in range(rows)]
     for k in range(len(features), rows * cols):
         specs[k // cols][k % cols] = None
+    panel_titles = [
+        f"<b>{labels[f]}</b>" + (f"<br><sup>{x_notes[f]}</sup>" if f in x_notes else "") for f in features
+    ]
     fig = make_subplots(
-        rows=rows, cols=cols, specs=specs, subplot_titles=[f"<b>{labels[f]}</b>" for f in features],
-        horizontal_spacing=0.08, vertical_spacing=0.2,
+        rows=rows, cols=cols, specs=specs, subplot_titles=panel_titles,
+        horizontal_spacing=0.09, vertical_spacing=vertical_spacing,
     )
     for k, feat in enumerate(features):
         row, col = k // cols + 1, k % cols + 1
         stats_ = [bootstrap_mean_ci(df.loc[df[group_col] == g, feat].dropna().to_numpy()) for g in order]
         means, lows, highs = (np.array(x) for x in zip(*stats_))
         fig.add_trace(go.Bar(
-            x=order, y=means, marker={"color": [colors[g] for g in order]}, showlegend=False,
+            x=list(range(len(order))), y=means, marker={"color": [colors[g] for g in order]}, showlegend=False,
             error_y={"type": "data", "symmetric": False, "array": highs - means, "arrayminus": means - lows},
         ), row=row, col=col)
         if zero_line:
@@ -104,21 +114,27 @@ def fig_feature_bars(
 
         y_lo, y_hi = min(0.0, float(lows.min())), float(highs.max())
         span = (y_hi - y_lo) or 1.0
-        step, leg = span * 0.08, span * 0.025
+        step, leg = span * 0.12, span * 0.03
         pairs = brackets.get(feat, [])
         for n, (i, j, p) in enumerate(pairs):
             top = y_hi + step * (n + 1)
             fig.add_trace(go.Scatter(
-                x=[order[i], order[i], order[j], order[j]], y=[top - leg, top, top, top - leg], mode="lines",
+                x=[i, i, j, j], y=[top - leg, top, top, top - leg], mode="lines",
                 line={"color": "black", "width": 1.2}, showlegend=False, hoverinfo="skip",
             ), row=row, col=col)
             fig.add_trace(go.Scatter(
-                x=[order[i]], y=[top + leg * 0.5], mode="text", text=["***" if p < 0.001 else "**" if p < 0.01 else "*"],
-                textposition="top center", showlegend=False, hoverinfo="skip",
+                x=[(i + j) / 2], y=[top], mode="text", text=["***" if p < 0.001 else "**" if p < 0.01 else "*"],
+                textposition="top center", textfont={"size": 14, "color": "black"},
+                showlegend=False, hoverinfo="skip",
             ), row=row, col=col)
         fig.update_yaxes(
-            title_text=ylabel, range=[y_lo - 0.05 * span, y_hi + step * (len(pairs) + 1)], row=row, col=col,
+            title_text=ylabel, range=[y_lo - 0.05 * span, y_hi + step * (len(pairs) + 1.6)], row=row, col=col,
         )
-        fig.update_xaxes(title_text=x_notes.get(feat, ""), title_font={"size": 11}, tickangle=tickangle, row=row, col=col)
-    fig.update_layout(template=_TEMPLATE, title=title, width=width, height=height, margin={"l": 70, "r": 30, "t": 90, "b": 60})
+        fig.update_xaxes(  # numeric positions so bracket stars can sit between two groups
+            tickmode="array", tickvals=list(range(len(order))), ticktext=names,
+            range=[-0.6, len(order) - 0.4], tickangle=tickangle, row=row, col=col,
+        )
+    fig.update_layout(
+        template=_TEMPLATE, title=title, width=width, height=height, margin={"l": 70, "r": 30, "t": 100, "b": 90},
+    )
     return fig
