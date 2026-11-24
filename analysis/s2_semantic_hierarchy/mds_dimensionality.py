@@ -13,9 +13,10 @@ is privileged (held-out prediction keeps rising slowly up to the largest d fitte
        half's raw RDM is embedded at every d, and the embedding is scored by how well its distances predict
        the *other* half's raw ratings.
 
-Agreement with the tree is then reported for every d, descriptively, against two references: the raw RDM
-and the highest Spearman any noise-free model could reach given the raw RDM's own reliability,
-sqrt(r_SB), where r_SB is the Spearman-Brown-projected split-half reliability.
+Agreement with the tree is then reported for every d, descriptively, against the raw RDM and the
+bracket for the highest Spearman a noise-free model could reach with the raw RDM
+(joint_behavior.ceiling_bracket, from 0b_joint_behavior). The pooled participants' trials, half splits and
+coverage helpers live in joint_behavior.
 
 Usage (from repo root):
     from analysis.s2_semantic_hierarchy import mds_dimensionality as md
@@ -30,74 +31,20 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from analysis.s0_build_rdms.behavior.noise_ceiling import (
-    _DEFAULT_CACHE_DIR, _parse_trials_by_participant, _spearman_brown, make_splits,
-)
-from analysis.s0_build_rdms.behavior.spam_ratings import JOINT_VARIANT, _combine, _select_participants
-from analysis.s0_build_rdms.common import image_manifest_index, save_rdm
+from analysis.s0_build_rdms.common import save_rdm
 from analysis.s2_semantic_hierarchy import common as c
 from analysis.utils import plotting
-from analysis.utils.disk_cache import cached_array, cached_frame, fingerprint
-from analysis.utils.hierarchy import Parts
-from analysis.utils.load_data import load_data
+from analysis.s2_semantic_hierarchy.joint_behavior import AGGREGATION, SEED, TrialsByParticipant
+from analysis.utils.disk_cache import fingerprint
 from analysis.utils.mds import run_mds_sweep
 
-AGGREGATION = "simple"
 MDS_DIMS = (*range(1, 16), 20, 25, 30)
 SPLIT_DIMS = (1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30)
 N_SPLITS_MDS = 5
 HIGH_GAIN = 0.95
-N_SPLITS_CEILING = 100
-SEED = 0
 MDS_CACHE_DIR = c.cache_path("mds")
 _TEMPLATE = "plotly_white"
 SWEEP_STYLE = "behav_joint_mds"  # style of curves over d (an embedding without a chosen tier)
-
-TrialsByParticipant = dict[str, list[tuple[np.ndarray, np.ndarray]]]
-
-
-# ---------------------------------------------------------------------------
-# Data: the pooled participants' trials, and the full and half RDMs built from them
-# ---------------------------------------------------------------------------
-
-
-def joint_trials() -> tuple[TrialsByParticipant, int]:
-    """Every retained participant of both cohorts, with their parsed non-catch trials (as in behav_joint)."""
-    data = load_data(_DEFAULT_CACHE_DIR, prod_only=True)
-    ids = list(_select_participants(data["participants"], JOINT_VARIANT)["participant_id"])
-    image_to_idx, n_conds = image_manifest_index()
-    return _parse_trials_by_participant(data["trials"], ids, JOINT_VARIANT, image_to_idx, n_conds), n_conds
-
-
-def combine(trials_by_participant: TrialsByParticipant, ids: list[str], n_conds: int) -> tuple[np.ndarray, np.ndarray]:
-    """('simple' RDM, ratings per pair) of the participants `ids`."""
-    return _combine([t for pid in ids for t in trials_by_participant[pid]], n_conds, AGGREGATION)
-
-
-def split_halves(
-    trials_by_participant: TrialsByParticipant, n_conds: int, *, n_splits: int, seed: int = SEED,
-) -> list[tuple[np.ndarray, np.ndarray]]:
-    """Raw RDMs of the two participant halves of each of `n_splits` random splits (noise_ceiling.make_splits)."""
-    splits = make_splits(list(trials_by_participant), n_splits, seed)
-    return [(combine(trials_by_participant, a, n_conds)[0], combine(trials_by_participant, b, n_conds)[0])
-            for a, b in splits]
-
-
-def coverage(counts: np.ndarray, parts: Parts) -> pd.DataFrame:
-    """Fraction of pairs observed and ratings per observed pair: overall, per pooled LCA bin, per stratum."""
-    observed = counts > 0
-    groups = {"overall": np.full(len(counts), "all", dtype=object),
-              "LCA bin": np.array([c.tier_label(int(b)) for b in c.lca_bins(parts)], dtype=object),
-              "stratum": c.branch_strata(parts)}
-    rows = []
-    for grouping, labels in groups.items():
-        for value in sorted(pd.unique(labels), key=str):  # str order puts ">=4" after the digits
-            sel = labels == value
-            rows.append({"grouping": grouping, "group": value, "n_pairs": int(sel.sum()),
-                         "frac_observed": float(observed[sel].mean()),
-                         "ratings_per_observed_pair": float(counts[sel & observed].mean())})
-    return pd.DataFrame(rows).set_index(["grouping", "group"])
-
 
 # ---------------------------------------------------------------------------
 # Embeddings
@@ -180,25 +127,6 @@ def choose_low(stress: pd.DataFrame) -> int:
     return int(stress.index[int(np.argmax((1.0 - x_n) - y_n))])
 
 
-def raw_ceiling(trials_by_participant: TrialsByParticipant, n_conds: int, *, n_splits: int = N_SPLITS_CEILING,
-                seed: int = SEED) -> pd.DataFrame:
-    """Split-half reliability of the raw joint RDM per split, with its Spearman-Brown projection (cached)."""
-    def run() -> pd.DataFrame:
-        rows = []
-        for s, (a, b) in enumerate(split_halves(trials_by_participant, n_conds, n_splits=n_splits, seed=seed)):
-            stats = c.rank_agreement(a, b)
-            rows.append({"split": s, **stats, "spearman_brown": _spearman_brown(stats["spearman"])})
-        return pd.DataFrame(rows)
-
-    key = fingerprint(sorted(trials_by_participant), n_conds, n_splits, seed, AGGREGATION)
-    return cached_frame(c.cache_path("raw_ceiling.pkl"), key, run)
-
-
-def attenuation_bound(r_sb: float) -> float:
-    """Highest Spearman a noise-free model can reach with an RDM of split-half reliability r_SB (sqrt r_SB)."""
-    return float(np.sqrt(r_sb))
-
-
 # ---------------------------------------------------------------------------
 # Agreement with the tree, per d (descriptive)
 # ---------------------------------------------------------------------------
@@ -238,24 +166,6 @@ def _d_line(fig: go.Figure, chosen: Chosen, **where) -> None:
                       annotation_text=f"{s.tier} d = {d}", annotation_position="top right", **where)
 
 
-def fig_coverage(table: pd.DataFrame) -> go.Figure:
-    """Fraction of pairs observed per pooled LCA bin and per stratum, with the overall fraction as a line."""
-    overall = float(table.loc[("overall", "all"), "frac_observed"])
-    fig = make_subplots(rows=1, cols=2, subplot_titles=["per LCA bin", "per branch-depth stratum"],
-                        shared_yaxes=True, horizontal_spacing=0.08)
-    s = plotting.rdm_style(c.BEHAV)
-    for col, grouping in enumerate(("LCA bin", "stratum"), start=1):
-        part = table.loc[grouping]
-        fig.add_trace(go.Bar(x=list(part.index), y=part["frac_observed"], marker_color=s.color,
-                             text=[f"{v:.1%}" for v in part["frac_observed"]], textposition="outside",
-                             showlegend=False), row=1, col=col)
-        fig.add_hline(y=overall, line={"color": s.color, "dash": "dot", "width": 1}, row=1, col=col)
-    fig.update_yaxes(title_text="fraction of pairs observed", range=[0, 1.08], row=1, col=1)
-    fig.update_layout(title=f"Pair coverage of the joint behavioral RDM (dotted: overall {overall:.1%})",
-                      template=_TEMPLATE, height=420, width=900)
-    return fig
-
-
 def fig_stress(stress: pd.DataFrame, chosen: Chosen) -> go.Figure:
     fig = go.Figure(go.Scatter(x=stress.index, y=stress["stress"], mode="lines+markers",
                                **plotting.rdm_scatter_kwargs(SWEEP_STYLE)))
@@ -282,8 +192,10 @@ def fig_heldout(summary: pd.DataFrame, chosen: Chosen, *, stat_label: str = "Spe
     return fig
 
 
-def fig_km_by_dim(table: pd.DataFrame, chosen: Chosen, *, ceiling: float | None, stat: str = "spearman") -> go.Figure:
-    """Agreement with sem_km per d (observed and all pairs), raw RDM and attenuation ceiling as lines."""
+def fig_km_by_dim(table: pd.DataFrame, chosen: Chosen, *, ceiling: tuple[float, float] | None,
+                  stat: str = "spearman") -> go.Figure:
+    """Agreement with sem_km per d (observed and all pairs), the raw RDM as a line, and the raw RDM's
+    noise-free-model ceiling as a shaded bracket (low, high)."""
     fig = go.Figure()
     raw = table.loc[table["ndim"] == 0, stat].iloc[0]
     for pairs, dash in (("observed", "solid"), ("all", "dot")):
@@ -296,8 +208,8 @@ def fig_km_by_dim(table: pd.DataFrame, chosen: Chosen, *, ceiling: float | None,
     fig.add_hline(y=raw, line={"color": colour, "width": 1.5}, annotation_text="raw RDM",
                   annotation_position="bottom right")
     if ceiling is not None:
-        fig.add_hline(y=ceiling, line={"color": colour, "width": 1.5, "dash": "dot"},
-                      annotation_text="noise-free-model ceiling", annotation_position="top right")
+        fig.add_hrect(y0=ceiling[0], y1=ceiling[1], fillcolor=colour, opacity=0.12, line_width=0,
+                      annotation_text="raw RDM's ceiling (bracket)", annotation_position="top right")
     _d_line(fig, chosen)
     fig.update_layout(title=f"Agreement of the behavioral embedding with the KM tree ({c.STAT_LABEL[stat]})",
                       xaxis_title="MDS dimensionality d", yaxis_title=c.STAT_LABEL[stat],
