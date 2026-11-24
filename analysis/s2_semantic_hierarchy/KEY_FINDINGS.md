@@ -28,7 +28,7 @@ Notebook: [`0a_tree_shape.ipynb`](0a_tree_shape.ipynb) (commit `8e5bb00b`)
 
 ## The joint behavioral RDM on its own
 
-Notebook: [`0b_joint_behavior.ipynb`](0b_joint_behavior.ipynb) (commit `d70fadaa`)
+Notebook: [`0b_joint_behavior.ipynb`](0b_joint_behavior.ipynb) (commit `d70fadaa`; jackknife CIs `7007e35b`)
 
 - **Missing data are spread evenly:** 86.9% of pairs observed overall; every pooled LCA bin, branch-depth stratum and category pair (HF, HB, AF, AB, NO, HO) is within about one percentage point (86.0% to 87.6%), at 2.8 ratings per observed pair.
 - **Test-retest:** median within-participant Spearman r 0.289 (IQR 0.227 to 0.399), none below 0, as in s1.

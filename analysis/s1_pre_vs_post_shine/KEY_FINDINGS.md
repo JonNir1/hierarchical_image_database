@@ -49,7 +49,7 @@ Notebook: [`3_geometry.ipynb`](3_geometry.ipynb) (commit `e62fb14`)
 
 ### Are they equally similar to the Kiani hierarchy?
 
-Notebook: [`4_semantic_hierarchy.ipynb`](4_semantic_hierarchy.ipynb) (commit `f675a8c`)
+Notebook: [`4_semantic_hierarchy.ipynb`](4_semantic_hierarchy.ipynb) (commit `0d0cab8e`)
 
 - **Agreement with the Kiani tree (725 images):** Kendall tau-a (primary) is 0.209 pre and 0.210 post, with 95% participant-jackknife CIs [0.192, 0.227] and [0.190, 0.230]; Spearman rho (secondary) is 0.318 and 0.320. Both image-relabeling permutation p-values are at the floor for 1,000 permutations (0.001).
 - **Per participant:** mean tau-a against the Kiani RDM is 0.186 pre and 0.189 post, above the same participants' lower noise bounds (0.131 and 0.139; Wilcoxon p < 0.001 in both). The Kiani RDM takes few integer values, which is why tau-a is primary.
@@ -61,7 +61,7 @@ Notebook: [`4_semantic_hierarchy.ipynb`](4_semantic_hierarchy.ipynb) (commit `f6
 
 ### Are they equally similar to earlier ratings and recordings?
 
-Notebook: [`5_ground_truth.ipynb`](5_ground_truth.ipynb) (commit `f675a8c`)
+Notebook: [`5_ground_truth.ipynb`](5_ground_truth.ipynb) (commit `0d0cab8e`)
 
 - **Overlap:** the external 92-image data (the rsatoolbox demo copy of Kriegeskorte et al. 2008b and Mur et al. 2013) has no image IDs, so images were matched by content and confirmed by eye: 42 shared images (861 pairs; pre observed 536, post 534, both 334). Categories: natural 19, artificial 10, nonhuman face 6, human body part 5, nonhuman body part 2. There are no human faces, so everything below concerns objects, animals and body parts only.
 - **5a, Mur 2013 ratings (16 raters):** tau-a is 0.258 pre and 0.270 post (jackknife CIs [0.195, 0.322] and [0.203, 0.337]); rho is 0.382 and 0.404; permutation p = 0.0002 (the floor for 5,000). Each individual rater is fitted at 0.204 (pre) and 0.236 (post) on average, below the raters' leave-one-out ceiling of 0.356.
@@ -75,7 +75,7 @@ Notebook: [`5_ground_truth.ipynb`](5_ground_truth.ipynb) (commit `f675a8c`)
 
 ### What is the similarity made of: semantic and sensory weights?
 
-Notebook: [`6_decomposition.ipynb`](6_decomposition.ipynb) (commit `b3e9352`; z-scored NNLS of each cohort's perceptual RDM on its predictor RDMs over its own observed pairs; 95% delete-one participant jackknife CIs, centred on the estimates; weights are standardized betas)
+Notebook: [`6_decomposition.ipynb`](6_decomposition.ipynb) (commit `0d0cab8e`; z-scored NNLS of each cohort's perceptual RDM on its predictor RDMs over its own observed pairs; 95% delete-one participant jackknife CIs, centred on the estimates; weights are standardized betas)
 
 - **H3(i) is not supported, and the direction is reversed:** with `km+clip` the pixel weight is higher post-SHINE (0.065 vs 0.024, pre - post = -0.041 [-0.056, -0.026]), the opposite of the pre-registered expectation. It holds in all six models and on the jointly observed pairs, and is not equivalent to 0 (bound 0.03), but the pixel weight is small in both cohorts.
 - **H3(ii) is supported:** the semantic (KM) weight is equivalent across cohorts (-0.008 [-0.050, +0.035], bound 0.07), and so is the CLIP weight (-0.006 [-0.027, +0.015], bound 0.04).
