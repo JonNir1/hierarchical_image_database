@@ -39,9 +39,10 @@ Notebook: [`2_data_quality.ipynb`](2_data_quality.ipynb) (commit `856daa5`)
 
 ### Do they give the same similarity structure?
 
-Notebook: [`3_geometry.ipynb`](3_geometry.ipynb) (commit `f675a8c`)
+Notebook: [`3_geometry.ipynb`](3_geometry.ipynb) (commit `e62fb14`)
 
 - **Structural agreement, pre vs post:** on the raw RDMs (107,040 jointly rated pairs) Kendall tau is 0.15 and Spearman rho 0.22. After SMACOF embedding, agreement is much higher (d=2: tau 0.50, rho 0.69). Rank correlation dips to about 0.40 at d=4-6 and recovers to 0.47/0.65 at d=15, while Procrustes m^2 worsens overall (0.31 at d=2 to 0.56 at d=15).
+- **Within- vs between-cohort agreement at a matched group size (38 subjects per group, 100 random splits):** Spearman rho is 0.195 for pre vs pre, 0.209 for post vs post and 0.201 for pre vs post (Kendall tau 0.131, 0.140 and 0.135). The between-cohort agreement lies between the two within-cohort values, so the cohorts agree with each other about as well as halves of the same cohort do. This is descriptive (the splits reuse the same subjects); the tests are the next two bullets.
 - **Label permutation:** the raw pre-post agreement (tau 0.148, rho 0.220) is no lower than for shuffled cohort labels (null mean 0.148 and 0.220, one-sided p=0.43 for both, 250 permutations). There is no detectable cohort effect on the similarity structure.
 - **Equivalence of agreement:** observed minus the exchangeable expectation is -0.0003 for tau (90% CI [-0.005, 0.004], bound +/-0.01) and -0.0004 for rho (CI [-0.007, 0.006], bound +/-0.02), so the cohorts agree as much as identical cohorts would, to within about 0.01 to 0.02.
 - **Stress:** stress-1 falls from about 0.45 (d=2) to about 0.36 (d=15) in both cohorts, with no sharp elbow. All 28 fits converged at `max_iters=1000`.
