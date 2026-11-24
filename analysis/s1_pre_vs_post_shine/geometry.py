@@ -35,6 +35,7 @@ from analysis.s0_build_rdms.behavior.spam_ratings import _combine
 from analysis.s0_build_rdms.common import REPO_ROOT, image_manifest_index
 from analysis.utils.disk_cache import cached_array
 from analysis.utils.equivalence import resolvable_bound, tost_bound_multiplier
+from analysis.utils.plotting import NULL_COLOR, OBSERVED_COLOR, stat_scatter_kwargs
 from analysis.utils.stats import masked_rank_correlation
 
 RESULTS_DIR = REPO_ROOT / "analysis" / "results" / "pre_vs_post_shine"
@@ -96,7 +97,6 @@ def fig_stress_scree(mds_results_by_cohort: dict[str, dict[int, dict]], dims: li
     return fig
 
 
-_AGREEMENT_COLORS = {"kendall": "#2a78d6", "spearman": "#1baf7a", "one_minus_m2": "#4a3aa7"}
 
 
 def fig_cross_cohort_agreement(agreement_by_x: dict[str, dict], dims: list[int]) -> go.Figure:
@@ -114,9 +114,9 @@ def fig_cross_cohort_agreement(agreement_by_x: dict[str, dict], dims: list[int])
     ]
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=x_labels, y=kendall, mode="lines+markers", name="Kendall tau", line={"color": _AGREEMENT_COLORS["kendall"], "width": 2.5}, marker={"size": 8}))
-    fig.add_trace(go.Scatter(x=x_labels, y=spearman, mode="lines+markers", name="Spearman rho", line={"color": _AGREEMENT_COLORS["spearman"], "width": 2.5}, marker={"size": 8}))
-    fig.add_trace(go.Scatter(x=x_labels, y=one_minus_m2, mode="lines+markers", name="1 - Procrustes m2", line={"color": _AGREEMENT_COLORS["one_minus_m2"], "width": 2.5}, marker={"size": 8}))
+    fig.add_trace(go.Scatter(x=x_labels, y=kendall, mode="lines+markers", **stat_scatter_kwargs("kendall")))
+    fig.add_trace(go.Scatter(x=x_labels, y=spearman, mode="lines+markers", **stat_scatter_kwargs("spearman")))
+    fig.add_trace(go.Scatter(x=x_labels, y=one_minus_m2, mode="lines+markers", **stat_scatter_kwargs("one_minus_m2")))
 
     fig.update_xaxes(title_text="Embedding dimensionality", type="category")
     fig.update_yaxes(title_text="Agreement (bigger = better)")
@@ -239,10 +239,10 @@ def fig_permutation_null(result: dict, statistic: str, *, statistic_label: str) 
     column = ("kendall", "spearman").index(statistic)
     summary = result[statistic]
     fig = go.Figure(go.Histogram(
-        x=result["null"][:, column], nbinsx=40, marker_color="rgba(120,120,120,0.6)", name="Shuffled cohort labels",
+        x=result["null"][:, column], nbinsx=40, marker_color=NULL_COLOR, name="Shuffled cohort labels",
     ))
     fig.add_vline(
-        x=summary["observed"], line={"color": "#eb6834", "width": 3},
+        x=summary["observed"], line={"color": OBSERVED_COLOR, "width": 3},
         annotation_text=f"Observed {summary['observed']:.3f} (p={summary['p']:.3f})", annotation_position="top",
     )
     fig.update_xaxes(title_text=f"{statistic_label} between the two groups' RDMs")

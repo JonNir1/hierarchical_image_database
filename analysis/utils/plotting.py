@@ -13,7 +13,7 @@ keys/frames/colors/labels.
 Usage (from repo root):
     from analysis.utils.plotting import (
         role_palette, add_violin_dots_panel, add_progression_panel, add_split_violin,
-        fig_group_status_bar, fig_equivalence_forest,
+        fig_group_status_bar, fig_equivalence_forest, verdict_color, add_verdict_legend, stat_scatter_kwargs,
         rdm_style, rdm_label, rdm_scatter_kwargs, rdm_tick_label, rdm_legend_order,
     )
 """
@@ -264,8 +264,55 @@ def fig_group_status_bar(
     return fig
 
 
-_EQUIVALENT_COLOR = "#2a78d6"
-_NOT_EQUIVALENT_COLOR = "#eb6834"
+# ---------------------------------------------------------------------------
+# Shared encodings for what is not an RDM: verdicts, statistics, nulls, aggregation methods
+# ---------------------------------------------------------------------------
+#
+# These never borrow an RDM family hue (see the RDM design language at the end of this module), so a colour
+# in any figure means one thing only.
+#
+#   equivalence verdict -> blue (equivalent within the bound) / red (not equivalent), in every forest plot
+#   agreement statistic -> greyscale shade + line dash + marker symbol (STAT_STYLE)
+#   permutation null    -> light grey fill; the observed value is a black line (NULL_COLOR, OBSERVED_COLOR)
+#   aggregation method  -> bar pattern; the bar colour stays the behavioral cohort's (BEHAV_AGGREGATION_PATTERN)
+
+EQUIVALENT_COLOR = "#2a78d6"
+NOT_EQUIVALENT_COLOR = "#d62728"
+VERDICT_LABEL = {True: "equivalent within the bound", False: "not equivalent"}
+
+NULL_COLOR = "rgba(150,150,150,0.55)"
+OBSERVED_COLOR = "#000000"
+
+STAT_STYLE: dict[str, dict[str, str]] = {
+    "kendall": {"color": "#222222", "dash": "solid", "symbol": "circle", "label": "Kendall tau"},
+    "kendall_a": {"color": "#222222", "dash": "solid", "symbol": "circle", "label": "Kendall tau-a"},
+    "spearman": {"color": "#666666", "dash": "dash", "symbol": "square", "label": "Spearman rho"},
+    "pearson": {"color": "#666666", "dash": "dashdot", "symbol": "triangle-up", "label": "Pearson r"},
+    "one_minus_m2": {"color": "#999999", "dash": "dot", "symbol": "diamond", "label": "1 - Procrustes m2"},
+}
+
+BEHAV_AGGREGATION_PATTERN = {"mean": "", "simple": "/", "evidence": "."}
+
+
+def verdict_color(equivalent: bool) -> str:
+    return EQUIVALENT_COLOR if equivalent else NOT_EQUIVALENT_COLOR
+
+
+def add_verdict_legend(fig: go.Figure, *, row: int | None = None, col: int | None = None) -> None:
+    """Two legend-only entries naming the verdict colours (no data drawn)."""
+    where = {} if row is None else {"row": row, "col": col}
+    for equivalent in (True, False):
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers", marker={"color": verdict_color(equivalent), "size": 10},
+            name=VERDICT_LABEL[equivalent], legendgroup=f"verdict_{equivalent}",
+        ), **where)
+
+
+def stat_scatter_kwargs(stat: str, *, width: float = 2.5, size: int = 8) -> dict:
+    """go.Scatter keyword arguments (name, line, marker) for one agreement statistic."""
+    s = STAT_STYLE[stat]
+    return {"name": s["label"], "line": {"color": s["color"], "dash": s["dash"], "width": width},
+            "marker": {"color": s["color"], "symbol": s["symbol"], "size": size}}
 
 
 def fig_equivalence_forest(results: dict[str, dict], *, x_title: str, title: str) -> go.Figure:
@@ -273,12 +320,12 @@ def fig_equivalence_forest(results: dict[str, dict], *, x_title: str, title: str
     equivalence_test_*() dicts), one row per outcome: effect marker with its
     (1 - 2*alpha) CI, and the +/- bound drawn as two tick marks on the same row
     (bounds may differ per row). Rows whose CI lies inside the bound are blue,
-    the rest orange."""
+    the rest red (the shared verdict colours, named in the legend)."""
     fig = go.Figure()
     names = list(results)
     for name in names:
         result = results[name]
-        color = _EQUIVALENT_COLOR if result["equivalent"] else _NOT_EQUIVALENT_COLOR
+        color = verdict_color(result["equivalent"])
         fig.add_trace(go.Scatter(
             x=[result["effect"]], y=[name], mode="markers",
             marker={"color": color, "size": 10},
@@ -294,6 +341,7 @@ def fig_equivalence_forest(results: dict[str, dict], *, x_title: str, title: str
             marker={"color": "rgba(80,80,80,0.8)", "size": 14, "symbol": "line-ns-open", "line": {"width": 2}},
             showlegend=False, hoverinfo="skip",
         ))
+    add_verdict_legend(fig)
     fig.add_vline(x=0, line={"color": "rgba(80,80,80,0.5)", "width": 1, "dash": "dot"})
     fig.update_yaxes(autorange="reversed", categoryorder="array", categoryarray=names)
     fig.update_xaxes(title_text=x_title)

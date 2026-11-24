@@ -185,9 +185,9 @@ def test_fig_equivalence_forest_colors_rows_by_verdict_and_draws_bounds():
         "Moves": {"effect": 0.25, "ci_low": 0.05, "ci_high": 0.45, "bound": 0.3, "equivalent": False},
     }
     fig = fig_equivalence_forest(results, x_title="Rank-biserial r", title="t")
-    assert len(fig.data) == 4  # effect+CI trace and bound-tick trace per outcome
-    assert fig.data[0].marker.color == "#2a78d6"
-    assert fig.data[2].marker.color == "#eb6834"
+    assert len(fig.data) == 6  # effect+CI and bound-tick trace per outcome, then two legend-only verdict entries
+    assert fig.data[0].marker.color == "#2a78d6"  # equivalent: blue
+    assert fig.data[2].marker.color == "#d62728"  # not equivalent: red
     assert list(fig.data[1].x) == [-0.3, 0.3]
 
 
