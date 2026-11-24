@@ -2,7 +2,8 @@
 Pre- vs post-SHINE cohort comparison, structure layer (analysis/s1_pre_vs_post_shine/
 3_geometry.ipynb): MDS-based structural comparison of the two cohorts'
 behavioral RDMs (weighted-SMACOF stress, embedding eigenvalue spectra, cross-cohort
-agreement), the cohort-label permutation test of pre-vs-post RDM agreement, and
+agreement), within- vs between-cohort RDM agreement at a matched group size, the
+cohort-label permutation test of pre-vs-post RDM agreement, and
 its equivalence counterpart (delete-a-group jackknife CI of observed minus the
 exchangeable-null expectation).
 
@@ -12,8 +13,8 @@ cross-embedding comparison) lives in analysis/utils/mds.py.
 Usage (from repo root):
     from analysis.s1_pre_vs_post_shine.geometry import (
         MDS_CACHE_DIR, PERMUTATION_CACHE_DIR, fig_stress_scree, fig_embedding_spectrum,
-        fig_cross_cohort_agreement, permutation_test_cohort_agreement, fig_permutation_null,
-        equivalence_test_cohort_agreement,
+        fig_cross_cohort_agreement, within_between_agreement, fig_within_between,
+        permutation_test_cohort_agreement, fig_permutation_null, equivalence_test_cohort_agreement,
     )
 """
 from __future__ import annotations
@@ -250,6 +251,114 @@ def fig_permutation_null(result: dict, statistic: str, *, statistic_label: str) 
     fig.update_layout(
         template="plotly_white", title=f"Pre vs. post {statistic_label} against the label-permutation null",
         height=380, margin={"l": 70, "r": 40, "t": 70, "b": 60}, showlegend=False,
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Within- vs between-cohort agreement at a matched group size
+# ---------------------------------------------------------------------------
+
+_WITHIN_BETWEEN_CONDITIONS = ("within_a", "within_b", "between")
+
+
+def _within_between_draw(task: tuple[list[str], list[str], list[str], list[str]]) -> np.ndarray:
+    a_first, a_second, b_first, b_second = task
+    rdms = {key: _worker_builder(ids) for key, ids in (
+        ("a1", a_first), ("a2", a_second), ("b1", b_first), ("b2", b_second),
+    )}
+
+    def agreement(left: str, right: str) -> np.ndarray:
+        result = masked_rank_correlation(rdms[left], rdms[right])
+        return np.array([result["kendall"], result["spearman"]])
+
+    between = (agreement("a1", "b1") + agreement("a2", "b2")) / 2
+    return np.stack([agreement("a1", "a2"), agreement("b1", "b2"), between])
+
+
+def _within_between_tasks(
+    ids_a: Sequence[str], ids_b: Sequence[str], group_size: int, n_draws: int, rng: np.random.Generator,
+) -> list[tuple[list[str], list[str], list[str], list[str]]]:
+    tasks = []
+    for _ in range(n_draws):
+        shuffled_a, shuffled_b = rng.permutation(np.array(ids_a)).tolist(), rng.permutation(np.array(ids_b)).tolist()
+        tasks.append((
+            shuffled_a[:group_size], shuffled_a[group_size:2 * group_size],
+            shuffled_b[:group_size], shuffled_b[group_size:2 * group_size],
+        ))
+    return tasks
+
+
+def within_between_agreement(
+    rdm_builder: RdmBuilder, ids_a: Sequence[str], ids_b: Sequence[str], *,
+    group_size: int | None = None, n_draws: int = 100, seed: int = 0, n_jobs: int = 1,
+    cache_path: Path | None = None,
+) -> dict:
+    """Rank agreement between two disjoint groups of `group_size` subjects, within cohort A, within cohort B and
+    between the cohorts, so that all three come from groups of the same size (default: half of the smaller
+    cohort). Each draw splits each cohort at random into two groups; "within_a"/"within_b" correlate a cohort's two
+    groups, and "between" averages the correlations of cohort A's group 1 with cohort B's group 1 and group 2 with
+    group 2. All correlations are Kendall tau / Spearman rho on jointly covered pairs.
+
+    The within-cohort values are the noise ceiling for the between-cohort value at that group size (the logic of
+    the split-half bound, without the Spearman-Brown extrapolation to the full sample, which does not hold for
+    these sparse RDMs). The draws reuse the same subjects, so their spread is descriptive, not sampling
+    uncertainty. With `cache_path` the draws are cached under a fingerprint of the subject ids and design.
+
+    Returns {condition: {"kendall"/"spearman": {mean, low, high}}} (low/high: 2.5th/97.5th percentile over draws),
+    plus "draws" (n_draws, 3, 2) in the order of "conditions", "group_size", "n_draws" and "seed"."""
+    group_size = group_size or min(len(ids_a), len(ids_b)) // 2
+    if 2 * group_size > min(len(ids_a), len(ids_b)):
+        raise ValueError(f"group_size {group_size} needs {2 * group_size} subjects per cohort")
+    draws = cached_array(
+        cache_path, _fingerprint(ids_a, ids_b, f"within_between_g{group_size}_n{n_draws}", seed),
+        lambda: _run_tasks(
+            _within_between_draw,
+            _within_between_tasks(ids_a, ids_b, group_size, n_draws, np.random.default_rng(seed)),
+            rdm_builder, n_jobs,
+        ),
+    )
+    result = {
+        "conditions": _WITHIN_BETWEEN_CONDITIONS, "draws": draws,
+        "group_size": group_size, "n_draws": n_draws, "seed": seed,
+    }
+    for row, condition in enumerate(_WITHIN_BETWEEN_CONDITIONS):
+        result[condition] = {}
+        for column, statistic in enumerate(("kendall", "spearman")):
+            low, high = np.quantile(draws[:, row, column], [0.025, 0.975])
+            result[condition][statistic] = {
+                "mean": float(draws[:, row, column].mean()), "low": float(low), "high": float(high),
+            }
+    return result
+
+
+def fig_within_between(result: dict, statistic: str, *, statistic_label: str) -> go.Figure:
+    """Violins of the within-pre, within-post and between-cohort agreement of two groups of the same size
+    (one value per random split), with the mean marked."""
+    column = ("kendall", "spearman").index(statistic)
+    first, second = COHORTS
+    labels = {
+        "within_a": f"{cohort_label(first)} vs. {cohort_label(first)}",
+        "within_b": f"{cohort_label(second)} vs. {cohort_label(second)}",
+        "between": f"{cohort_label(first)} vs. {cohort_label(second)}",
+    }
+    line_colors = {
+        "within_a": cohort_colors(first)["main"], "within_b": cohort_colors(second)["main"], "between": OBSERVED_COLOR,
+    }
+    fill_colors = {
+        "within_a": cohort_colors(first)["violin"], "within_b": cohort_colors(second)["violin"], "between": NULL_COLOR,
+    }
+    fig = go.Figure()
+    for row, condition in enumerate(result["conditions"]):
+        fig.add_trace(go.Violin(
+            y=result["draws"][:, row, column], name=labels[condition], line_color=line_colors[condition],
+            fillcolor=fill_colors[condition], box_visible=True, meanline_visible=True, points=False, showlegend=False,
+        ))
+    fig.update_yaxes(title_text=f"{statistic_label} between two groups of {result['group_size']} subjects")
+    fig.update_layout(
+        template="plotly_white",
+        title=f"Within- vs. between-cohort agreement at a matched group size ({result['n_draws']} random splits)",
+        height=420, margin={"l": 70, "r": 40, "t": 70, "b": 60},
     )
     return fig
 

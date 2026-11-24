@@ -10,6 +10,7 @@ import pytest
 
 from analysis.s1_pre_vs_post_shine.geometry import (
     equivalence_test_cohort_agreement, permutation_test_cohort_agreement, rdm_from_subject_trials,
+    within_between_agreement,
 )
 
 _N_PAIRS = 300
@@ -79,6 +80,29 @@ def test_cohort_label_tests_tell_exchangeable_cohorts_from_different_ones(exchan
     assert equivalent["ci_low"] < equivalent["effect"] < equivalent["ci_high"]
     assert equivalent["bound"] >= equivalent["sensitivity"] and equivalent["equivalent"]
     assert not_equivalent["effect"] < -0.1 and not not_equivalent["equivalent"]
+
+
+def test_within_between_agreement_matches_within_for_exchangeable_cohorts_and_falls_below_for_different_ones(
+    exchangeable_cohorts, different_cohorts, tmp_path,
+):
+    def run(cohorts: _Cohorts, **kwargs) -> dict:
+        return within_between_agreement(
+            cohorts.builder, cohorts.ids_a, cohorts.ids_b, group_size=7, n_draws=30, **kwargs,
+        )
+
+    same = run(exchangeable_cohorts, cache_path=tmp_path / "draws.npz")
+    different = run(different_cohorts)
+    assert same["draws"].shape == (30, 3, 2) and same["group_size"] == 7
+    assert abs(same["between"]["spearman"]["mean"] - same["within_a"]["spearman"]["mean"]) < 0.05
+    assert different["between"]["spearman"]["mean"] < different["within_a"]["spearman"]["mean"] - 0.1
+
+    calls_before = exchangeable_cohorts.builder.calls
+    np.testing.assert_array_equal(run(exchangeable_cohorts, cache_path=tmp_path / "draws.npz")["draws"], same["draws"])
+    assert exchangeable_cohorts.builder.calls == calls_before  # second run reads the cached draws
+    with pytest.raises(ValueError):
+        within_between_agreement(
+            exchangeable_cohorts.builder, exchangeable_cohorts.ids_a, exchangeable_cohorts.ids_b, group_size=9,
+        )
 
 
 def test_rdm_from_subject_trials_pools_selected_subjects_with_simple_rescaling():
