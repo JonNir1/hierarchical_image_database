@@ -125,17 +125,13 @@ def plot_forest(table: pd.DataFrame, *, stat: str = "kendall_a", title: str | No
 # ---------------------------------------------------------------------------
 
 
-def ceiling_fraction(spearman: float, r_sb: float) -> float:
-    """A Spearman agreement as a fraction of sqrt(r_SB), the highest a noise-free model could reach."""
-    return float(spearman / np.sqrt(r_sb))
-
-
-def ceiling_table(table: pd.DataFrame, r_sb: float, names: list[str]) -> pd.DataFrame:
-    """Spearman with the tree, the bound sqrt(r_SB) and their ratio for the behavioral RDMs in `names`."""
-    bound = float(np.sqrt(r_sb))
-    rows = [{"rdm": n, "spearman": table.loc[n, "spearman"], "bound": bound,
-             "fraction_of_bound": ceiling_fraction(table.loc[n, "spearman"], r_sb),
-             "kendall_a": table.loc[n, "kendall_a"]} for n in names if n in table.index]
+def ceiling_table(table: pd.DataFrame, bracket: dict[str, float], names: list[str]) -> pd.DataFrame:
+    """Spearman with the tree of the behavioral RDMs in `names`, as a fraction of both ends of the raw
+    RDM's noise-free-model ceiling bracket (joint_behavior.ceiling_bracket: `low` from the empirical
+    half-sample reliability, `high` from the Spearman-Brown projection)."""
+    rows = [{"rdm": n, "spearman": table.loc[n, "spearman"], "kendall_a": table.loc[n, "kendall_a"],
+             "of_low": table.loc[n, "spearman"] / bracket["low"], "of_high": table.loc[n, "spearman"] / bracket["high"]}
+            for n in names if n in table.index]
     return pd.DataFrame(rows).set_index("rdm")
 
 
