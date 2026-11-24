@@ -6,9 +6,9 @@ What did the SpAM pilot show about task versions v1 to v4.01? Data: `data/` as o
 and 5,252 trials, task versions v1.0, v2.0, v3.0, v3.06, v4.0, v4.01. Comparisons are pairwise Mann-Whitney U on
 per-subject aggregates (one value per subject), Bonferroni-corrected across the 15 version pairs, with
 rank-biserial r as the effect size (positive r: the first-named version has the smaller values). Numbers below
-come from a sandbox re-run of the notebook on the current data. The notebook's stored outputs predate it
-(earlier data, an older print format) and were not overwritten: the new run also stores 10 figures and grows
-the file from 0.1 MB to 5.6 MB.
+come from a sandbox re-run of the notebook on the current data, which is now the notebook's stored output. It
+replaces an older run (earlier data, an older print format, no figures); the file grows from 0.1 MB to 5.6 MB
+because it now stores the 10 figures.
 
 - **Caveat, version confound:** each version changed the task (time floor, repeats, screening), so a version
   difference is a bundle of design changes, not one manipulation. Cohorts are also unequal (v4.01 has 154 participants, v2 has 10).
