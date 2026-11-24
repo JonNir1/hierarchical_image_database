@@ -17,7 +17,7 @@ Method choices:
     "distance grows as pairs diverge higher up the tree". sem_km is not 1 because the tree is ragged.
   * Strata. Within a branch-depth stratum (3x3, 3x>=4, >=4x>=4) some LCA bins are empty (3x3 has no LCA-0
     pairs), so each stratum's curve is normalised to its own first non-empty bin. Strata are confounded
-    with domain (every animate image is deep; every depth-3 image is inanimate), see 0_tree_shape.
+    with domain (every animate image is deep; every depth-3 image is inanimate), see 0a_tree_shape.
 
 Usage (from repo root):
     from analysis.s2_semantic_hierarchy import common as c, depth_gradient as dg

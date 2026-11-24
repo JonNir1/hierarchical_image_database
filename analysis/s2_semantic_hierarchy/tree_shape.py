@@ -1,5 +1,5 @@
 """
-The a priori hierarchy itself (0_tree_shape.ipynb is the front end): its shape, why KM distance is not
+The a priori hierarchy itself (0a_tree_shape.ipynb is the front end): its shape, why KM distance is not
 a function of how far up two images diverge, and the pooled bins every later notebook uses.
 
 No RDM other than sem_km is involved: this notebook describes the reference, not agreement with it.
