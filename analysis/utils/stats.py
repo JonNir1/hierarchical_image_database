@@ -1,7 +1,7 @@
 """
 General statistical comparison helpers shared across analysis/ subdirectories:
 Pearson r, Spearman rho (vector or row-wise) and Kendall tau-a, masked rank correlation between two (possibly incomplete) same-length vectors,
-percentile CIs and an image bootstrap over k RDMs, rank-biserial effect size, independent-samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect
+percentile CIs, delete-one jackknife SEs and CIs, an image bootstrap over k RDMs, rank-biserial effect size, independent-samples (Mann-Whitney U) and paired-samples (Wilcoxon) effect
 sizes, an image-relabeling permutation test for RDM agreement, and a one-line significance-summary printer. None of this is specific
 to RDMs or MDS -- see analysis/utils/mds.py for that layer.
 
@@ -21,7 +21,7 @@ from typing import Callable, Sequence
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import squareform
-from scipy.stats import kendalltau, mannwhitneyu, rankdata, wilcoxon
+from scipy.stats import kendalltau, mannwhitneyu, norm, rankdata, wilcoxon
 from statsmodels.stats.multitest import multipletests
 
 from analysis.utils.disk_cache import cached_array, fingerprint
@@ -113,6 +113,31 @@ def percentile_ci(values: np.ndarray, level: float = 0.95) -> tuple[float, float
     finite = finite[np.isfinite(finite)]
     tail = (1.0 - level) / 2.0 * 100.0
     return float(np.percentile(finite, tail)), float(np.percentile(finite, 100.0 - tail))
+
+
+def jackknife_se(values: np.ndarray) -> float:
+    """Delete-one jackknife standard error from the n leave-one-out values of a statistic:
+    sqrt((n - 1) / n * sum((v_i - mean v)^2)). NaNs ignored."""
+    v = np.asarray(values, dtype=float)
+    v = v[np.isfinite(v)]
+    return float(np.sqrt((len(v) - 1) / len(v) * np.sum((v - v.mean()) ** 2)))
+
+
+def jackknife_bias(estimate: float, values: np.ndarray) -> float:
+    """Delete-one jackknife bias estimate, (n - 1) * (mean of the leave-one-out values - estimate). NaNs ignored.
+
+    For a statistic that grows with sample size (e.g. the agreement of a group RDM pooled over participants)
+    this is large and says how far the estimate is from an infinitely large sample's value, not that the
+    jackknife CI is off-centre: it is reported as a diagnostic, never subtracted."""
+    v = np.asarray(values, dtype=float)
+    v = v[np.isfinite(v)]
+    return float((len(v) - 1) * (v.mean() - estimate))
+
+
+def jackknife_ci(estimate: float, values: np.ndarray, level: float = 0.95) -> tuple[float, float]:
+    """Normal confidence interval around `estimate` with the jackknife standard error of `values`."""
+    half = float(norm.ppf(0.5 + level / 2.0)) * jackknife_se(values)
+    return float(estimate - half), float(estimate + half)
 
 
 def image_bootstrap(

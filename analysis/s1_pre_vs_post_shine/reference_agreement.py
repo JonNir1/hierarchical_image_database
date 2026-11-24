@@ -12,20 +12,25 @@ primary statistic (the reference RDMs are heavily tied), Spearman rho the second
 
   (The image-relabeling permutation test, restricted to the pairs the behavioral RDM observed, is the
       shared analysis.utils.stats.label_shuffle_test.)
-  bootstrap_combined_fit_multi -- participant bootstrap of the combined RDM's fit to several references.
+  jackknife_combined_fit_multi -- delete-one participant jackknife of the combined RDM's fit to several
+      references (SE and CI via analysis.utils.stats.jackknife_se / jackknife_ci, centred on the estimate).
   loo_model_fit -- Nili et al. (2014) style: each left-out participant's own RDM scored against the
       reference, next to the same participant's lower-bound score against the combined others.
-  bootstrap_cohort_difference + cohort_difference_equivalence -- pre minus post fit, with a TOST
-      (analysis.utils.equivalence.equivalence_test_bootstrap_effect, the project's 80%-power bound, closed form).
+  jackknife_cohort_difference + cohort_difference_equivalence -- pre minus post fit, each cohort
+      jackknifed on its own, with a TOST on the jackknife SE (analysis.utils.equivalence.equivalence_test_se_effect,
+      the project's 80%-power bound, closed form).
+
+A participant bootstrap was used before; on these sparse RDMs its draws are attenuated (a resample has about
+63% distinct participants), so its CIs sat below the estimates. See analysis.s0_build_rdms.behavior.resampling.
   bh_within_cohort -- Benjamini-Hochberg within each cohort, never pooled across cohorts.
 
 Every expensive call takes `cache_path` (analysis.utils.disk_cache): results are reused only under a
-matching fingerprint of the inputs, n and seed.
+matching fingerprint of the inputs.
 
 Usage (from repo root):
     from analysis.s1_pre_vs_post_shine.reference_agreement import (
-        bootstrap_combined_fit_multi, loo_model_fit,
-        bootstrap_cohort_difference, cohort_difference_equivalence, bh_within_cohort,
+        jackknife_combined_fit_multi, loo_model_fit,
+        jackknife_cohort_difference, cohort_difference_equivalence, bh_within_cohort,
     )
 """
 from __future__ import annotations
@@ -38,12 +43,13 @@ import pandas as pd
 import plotly.graph_objects as go
 from statsmodels.stats.multitest import multipletests
 
+from analysis.s0_build_rdms.behavior.resampling import participant_jackknife
 from analysis.s0_build_rdms.behavior.spam_ratings import _combine, _mean_combine
 from analysis.s0_build_rdms.common import REPO_ROOT, subset_condensed
 from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label, cohort_symbol
 from analysis.utils.disk_cache import cached_frame, fingerprint
-from analysis.utils.equivalence import equivalence_test_bootstrap_effect
-from analysis.utils.stats import masked_rank_correlation, percentile_ci  # percentile_ci re-exported for notebooks
+from analysis.utils.equivalence import equivalence_test_se_effect
+from analysis.utils.stats import jackknife_ci, jackknife_se, masked_rank_correlation, percentile_ci
 
 REFERENCE_CACHE_DIR = REPO_ROOT / "analysis" / "results" / "pre_vs_post_shine" / "reference_cache"
 
@@ -75,80 +81,92 @@ def _stats(perceptual: np.ndarray, reference: np.ndarray) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 
 
-def bootstrap_combined_fit_multi(
-    trials_by_participant: TrialsByParticipant, references: dict[str, np.ndarray], n_conds: int,
-    *, aggregation: str = "simple", n_boot: int = 500, seed: int = 0, subset: np.ndarray | None = None,
-    cache_path: Path | None = None,
-) -> pd.DataFrame:
-    """Participant bootstrap of the combined RDM's correlation with several reference RDMs at once.
+def _scored(rdm: np.ndarray, subset: np.ndarray | None, mask: np.ndarray | None) -> np.ndarray:
+    rdm = subset_condensed(rdm, subset) if subset is not None else rdm
+    return rdm if mask is None else np.where(mask, rdm, np.nan)
 
-    Each draw resamples participants with replacement and re-combines their pooled trials with
-    `aggregation` once, then scores that combined RDM against every reference, so the (expensive)
-    combination is shared. One row per (draw, reference); percentile CIs via percentile_ci(). With
-    `subset` (manifest row indices) the combined RDM is restricted to those images before scoring, so
-    every reference must be that subset's RDM.
+
+def jackknife_combined_fit_multi(
+    trials_by_participant: TrialsByParticipant, references: dict[str, np.ndarray], n_conds: int,
+    *, aggregation: str = "simple", subset: np.ndarray | None = None, n_jobs: int = 6, cache_path: Path | None = None,
+) -> pd.DataFrame:
+    """Delete-one participant jackknife of the combined RDM's correlation with several reference RDMs at once.
+
+    Each participant is left out in turn, the others' trials combined with `aggregation` once and scored
+    against every reference; the jackknife SE and CI (analysis.utils.stats.jackknife_se / jackknife_ci) come
+    from these values, centred on the full-sample estimate. One row per (left-out participant, reference),
+    columns left_out, model, kendall_a, spearman, n_overlap. With `subset` (manifest row indices) the
+    combined RDM is restricted to those images first, so every reference must be that subset's RDM.
+    See analysis.s0_build_rdms.behavior.resampling for why this replaces a participant bootstrap.
     """
+    def score(rdm: np.ndarray) -> list[dict]:
+        scored = _scored(rdm, subset, None)
+        return [{"model": name, **_stats(scored, ref)} for name, ref in references.items()]
+
     def run() -> pd.DataFrame:
-        rng = np.random.default_rng(seed)
-        ids = list(trials_by_participant)
-        rows = []
-        for b in range(n_boot):
-            drawn = rng.choice(len(ids), size=len(ids), replace=True)
-            combined, _ = _combine([t for i in drawn for t in trials_by_participant[ids[i]]], n_conds, aggregation)
-            if subset is not None:
-                combined = subset_condensed(combined, subset)
-            rows += [{"boot": b, "model": name, **_stats(combined, ref)} for name, ref in references.items()]
-        return pd.DataFrame(rows)
+        return participant_jackknife(trials_by_participant, n_conds, score, aggregation=aggregation, n_jobs=n_jobs)
 
     key = fingerprint(_digest(trials_by_participant), list(references), *references.values(), n_conds,
-                      aggregation, n_boot, seed, subset)
+                      aggregation, subset, "jackknife")
     return cached_frame(cache_path, key, run)
 
 
-def bootstrap_cohort_difference(
-    trials_a: TrialsByParticipant, trials_b: TrialsByParticipant, references: dict[str, np.ndarray], n_conds: int,
-    *, aggregation: str = "simple", n_boot: int = 1000, seed: int = 0, subset: np.ndarray | None = None,
-    pair_masks: dict[str, np.ndarray | None] | None = None, cache_path: Path | None = None,
-) -> pd.DataFrame:
-    """Bootstrap of (cohort A - cohort B) in each cohort's combined-RDM correlation with each reference.
+def _difference_score(side: str, other: np.ndarray, references: dict[str, np.ndarray], subset: np.ndarray | None,
+                      masks: dict[str, np.ndarray | None]):
+    """Scorer for one cohort's leave-one-out RDMs against the other cohort's full RDM."""
+    def score(rdm: np.ndarray) -> list[dict]:
+        rdm_a, rdm_b = (rdm, other) if side == "a" else (other, rdm)
+        rows = []
+        for pairs, mask in masks.items():
+            scored_a, scored_b = _scored(rdm_a, subset, mask), _scored(rdm_b, subset, mask)
+            for name, ref in references.items():
+                stats_a, stats_b = _stats(scored_a, ref), _stats(scored_b, ref)
+                row = {"side": side, "pairs": pairs, "model": name,
+                       "n_overlap_a": stats_a["n_overlap"], "n_overlap_b": stats_b["n_overlap"]}
+                for k in _STAT_KEYS:
+                    row.update({f"{k}_a": stats_a[k], f"{k}_b": stats_b[k], f"{k}_diff": stats_a[k] - stats_b[k]})
+                rows.append(row)
+        return rows
 
-    The cohorts are disjoint participants, so each is resampled on its own; per draw both are
-    re-combined with `aggregation` once and restricted to `subset`. `pair_masks` names the pair sets
-    to score on (default {"own": None}, each cohort on the pairs it observed); a boolean mask over the
-    subset's condensed pairs restricts both cohorts to those pairs, removing any difference in which
-    pairs they happened to observe. One row per (draw, pair set, reference) with `<stat>_a`, `<stat>_b`,
-    `<stat>_diff` and the overlap counts.
+    return score
+
+
+def jackknife_cohort_difference(
+    trials_a: TrialsByParticipant, trials_b: TrialsByParticipant, references: dict[str, np.ndarray], n_conds: int,
+    *, aggregation: str = "simple", subset: np.ndarray | None = None,
+    pair_masks: dict[str, np.ndarray | None] | None = None, n_jobs: int = 6, cache_path: Path | None = None,
+) -> pd.DataFrame:
+    """Delete-one jackknife of (cohort A - cohort B) in each cohort's combined-RDM correlation with each reference.
+
+    The cohorts are disjoint participants, so each is jackknifed on its own with the other at full size;
+    the SE of the difference is the root of the sum of the two jackknife variances (difference_se()).
+    `pair_masks` names the pair sets to score on (default {"own": None}, each cohort on the pairs it
+    observed); a boolean mask over the subset's condensed pairs restricts both cohorts to those pairs.
+    One row per (side, left-out participant, pair set, reference): `side` says which cohort lost a
+    participant, with `<stat>_a`, `<stat>_b` and `<stat>_diff` for each statistic.
     """
     masks = {"own": None} if pair_masks is None else pair_masks
 
     def run() -> pd.DataFrame:
-        rng = np.random.default_rng(seed)
-        ids_a, ids_b = list(trials_a), list(trials_b)
-
-        def combined_rdm(trials: TrialsByParticipant, ids: list[str]) -> np.ndarray:
-            drawn = rng.choice(len(ids), size=len(ids), replace=True)
-            combined, _ = _combine([t for i in drawn for t in trials[ids[i]]], n_conds, aggregation)
-            return subset_condensed(combined, subset) if subset is not None else combined
-
-        rows = []
-        for b in range(n_boot):
-            rdm_a, rdm_b = combined_rdm(trials_a, ids_a), combined_rdm(trials_b, ids_b)
-            for pairs, mask in masks.items():
-                scored_a = rdm_a if mask is None else np.where(mask, rdm_a, np.nan)
-                scored_b = rdm_b if mask is None else np.where(mask, rdm_b, np.nan)
-                for name, ref in references.items():
-                    stats_a, stats_b = _stats(scored_a, ref), _stats(scored_b, ref)
-                    row = {"boot": b, "pairs": pairs, "model": name,
-                           "n_overlap_a": stats_a["n_overlap"], "n_overlap_b": stats_b["n_overlap"]}
-                    for key in _STAT_KEYS:
-                        row.update({f"{key}_a": stats_a[key], f"{key}_b": stats_b[key],
-                                    f"{key}_diff": stats_a[key] - stats_b[key]})
-                    rows.append(row)
-        return pd.DataFrame(rows)
+        full = {side: _combine([t for ts in trials.values() for t in ts], n_conds, aggregation)[0]
+                for side, trials in (("a", trials_a), ("b", trials_b))}
+        frames = [
+            participant_jackknife(trials, n_conds, _difference_score(side, full["b" if side == "a" else "a"],
+                                                                     references, subset, masks),
+                                  aggregation=aggregation, n_jobs=n_jobs)
+            for side, trials in (("a", trials_a), ("b", trials_b))
+        ]
+        return pd.concat(frames, ignore_index=True)
 
     key = fingerprint(_digest(trials_a), _digest(trials_b), list(references), *references.values(), n_conds,
-                      aggregation, n_boot, seed, subset, list(masks), *masks.values())
+                      aggregation, subset, list(masks), *masks.values(), "jackknife")
     return cached_frame(cache_path, key, run)
+
+
+def difference_se(draws: pd.DataFrame, column: str) -> float:
+    """SE of an A - B difference from jackknife_cohort_difference()-style rows: the root of the sum of the
+    jackknife variances over cohort A's leave-one-out rows and cohort B's."""
+    return float(np.sqrt(sum(jackknife_se(draws.loc[draws["side"] == side, column]) ** 2 for side in ("a", "b"))))
 
 
 def loo_model_fit(
@@ -203,7 +221,7 @@ def observed_cohort_fit(
     rdm_a: np.ndarray, rdm_b: np.ndarray, references: dict[str, np.ndarray], mask: np.ndarray | None = None,
 ) -> pd.DataFrame:
     """Full-data `<stat>_a` / `<stat>_b` per reference (index), on `mask`'s pairs if given: the point
-    estimates the bootstrap draws of bootstrap_cohort_difference() are centred on."""
+    estimates the jackknife CIs of jackknife_cohort_difference() are centred on."""
     def scored(rdm: np.ndarray) -> np.ndarray:
         return rdm if mask is None else np.where(mask, rdm, np.nan)
 
@@ -215,18 +233,19 @@ def observed_cohort_fit(
 
 
 def cohort_difference_equivalence(
-    observed: dict[str, pd.DataFrame], boots: pd.DataFrame, n_a: int, n_b: int,
+    observed: dict[str, pd.DataFrame], jack: pd.DataFrame, n_a: int, n_b: int,
 ) -> pd.DataFrame:
     """One TOST row per (pair set, reference, statistic) on D = A - B (here pre - post).
 
-    `observed[pairs]` is observed_cohort_fit() for that pair set; `boots` is the matching
-    bootstrap_cohort_difference() output. Bound rule: equivalence_test_bootstrap_effect()."""
+    `observed[pairs]` is observed_cohort_fit() for that pair set; `jack` is the matching
+    jackknife_cohort_difference() output. The 90% CI is D +/- z * SE with the jackknife SE of the
+    difference; bound rule: equivalence_test_se_effect()."""
     rows = []
-    for (pairs, model), draws in boots.groupby(["pairs", "model"]):
+    for (pairs, model), draws in jack.groupby(["pairs", "model"]):
         for key, label in _STAT_LABEL.items():
             effect = observed[pairs].at[model, f"{key}_a"] - observed[pairs].at[model, f"{key}_b"]
-            result = equivalence_test_bootstrap_effect(
-                effect, draws[f"{key}_diff"], n_a=n_a, n_b=n_b, label=f"pre - post, {label}, {model}",
+            result = equivalence_test_se_effect(
+                effect, difference_se(draws, f"{key}_diff"), n_a=n_a, n_b=n_b, label=f"pre - post, {label}, {model}",
             )
             rows.append({"pairs": pairs, "target": model, "statistic": key, **result})
     return pd.DataFrame(rows)
@@ -288,16 +307,4 @@ def fig_fit_vs_lower_bound(loo_by_cohort: dict[str, pd.DataFrame]) -> go.Figure:
                 points="all", line_color=color, opacity=opacity, showlegend=False,
             ))
     fig.update_layout(template=_TEMPLATE, height=460, yaxis_title="per-participant Kendall tau-a")
-    return fig
-
-
-def fig_bootstrap_distributions(boots_by_cohort: dict[str, pd.DataFrame], column: str, *, x_title: str) -> go.Figure:
-    """Overlaid participant-bootstrap histograms of `column`, one per cohort."""
-    fig = go.Figure()
-    for cohort in COHORTS:
-        fig.add_trace(go.Histogram(
-            x=boots_by_cohort[cohort][column], name=cohort_label(cohort), nbinsx=30, opacity=0.7,
-            marker_color=cohort_colors(cohort)["violin_line"],
-        ))
-    fig.update_layout(template=_TEMPLATE, barmode="overlay", height=420, xaxis_title=x_title)
     return fig

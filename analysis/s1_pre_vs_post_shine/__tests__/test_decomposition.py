@@ -3,6 +3,7 @@ the participant bootstrap of the pre vs post comparison."""
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 from scipy.optimize import nnls
 
@@ -56,7 +57,7 @@ def test_hierarchical_delta_r2_sums_to_the_full_ols_r2_and_ols_betas_match_lstsq
     assert fit[fit["model"] == "km+wn+clip"]["delta_r2"].sum() == pytest.approx(1 - full_residual.var(), abs=1e-8)
 
 
-def test_bootstrap_is_seeded_and_its_difference_is_a_minus_b():
+def test_jackknife_leaves_each_participant_out_once_and_its_difference_is_a_minus_b():
     rng = np.random.default_rng(2)
     n_conds, n_pairs = 8, 28
     predictors = {t: rng.normal(size=n_pairs) for t in dec.TERMS}
@@ -65,8 +66,8 @@ def test_bootstrap_is_seeded_and_its_difference_is_a_minus_b():
         return {f"p{i}": [(rng.choice(n_pairs, 20, replace=False), rng.random(20)) for _ in range(3)] for i in range(6)}
 
     args = (cohort(), cohort(), predictors, predictors, n_conds)
-    first = dec.bootstrap_decomposition(*args, aggregation="mean", n_boot=5, seed=3)
-    again = dec.bootstrap_decomposition(*args, aggregation="mean", n_boot=5, seed=3)
-    assert first.equals(again)
+    first = dec.jackknife_decomposition(*args, aggregation="mean", n_jobs=1)
+    again = dec.jackknife_decomposition(*args, aggregation="mean", n_jobs=2)
+    pd.testing.assert_frame_equal(first, again)  # does not depend on the number of workers
     assert first["beta_diff"].to_numpy() == pytest.approx((first["beta_a"] - first["beta_b"]).to_numpy())
-    assert first["boot"].nunique() == 5 and set(first["pairs"]) == {"own"}
+    assert first.groupby("side")["left_out"].nunique().to_dict() == {"a": 6, "b": 6} and set(first["pairs"]) == {"own"}

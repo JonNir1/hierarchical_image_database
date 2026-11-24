@@ -16,7 +16,8 @@ Usage (from repo root):
     from analysis.utils.equivalence import (
         equivalence_test_rank_biserial, equivalence_test_risk_difference,
         equivalence_sensitivity, equivalence_sensitivity_risk_difference,
-        resolvable_bound, print_equivalence_line, equivalence_test_bootstrap_effect, tost_bound_multiplier,
+        resolvable_bound, print_equivalence_line, equivalence_test_bootstrap_effect, equivalence_test_se_effect,
+        tost_bound_multiplier,
     )
 """
 from __future__ import annotations
@@ -176,6 +177,25 @@ def equivalence_test_bootstrap_effect(
         "effect": round(float(effect), 4), "ci_low": round(low, 4), "ci_high": round(high, 4),
         "bound": bound, "equivalent": bool(-bound < low and high < bound),
         "se": round(se, 5), "sensitivity": round(sensitivity, 5), "min_bound": round(max(abs(low), abs(high)), 4),
+    }
+
+
+def equivalence_test_se_effect(
+    effect: float, se: float, *, label: str = "effect", alpha: float = 0.05, power: float = 0.8,
+    step: float = 0.01, n_a: int | None = None, n_b: int | None = None,
+) -> dict:
+    """Equivalence test for an effect with a known standard error (e.g. a jackknife SE of a difference of two
+    cohorts' RDM-vs-target correlations): the (1 - 2*alpha) normal CI effect +/- z * SE must lie inside
+    +/- bound. Same bound rule and output as equivalence_test_bootstrap_effect()."""
+    half = float(norm.ppf(1 - alpha)) * se
+    low, high = effect - half, effect + half
+    sensitivity = tost_bound_multiplier(alpha, power) * se
+    bound = resolvable_bound(sensitivity, step=step)
+    return {
+        "comparison": label, "n (A)": n_a, "n (B)": n_b,
+        "effect": round(float(effect), 4), "ci_low": round(low, 4), "ci_high": round(high, 4),
+        "bound": bound, "equivalent": bool(-bound < low and high < bound),
+        "se": round(float(se), 5), "sensitivity": round(sensitivity, 5), "min_bound": round(max(abs(low), abs(high)), 4),
     }
 
 
