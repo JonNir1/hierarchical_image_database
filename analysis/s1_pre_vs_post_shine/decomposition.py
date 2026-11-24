@@ -39,11 +39,11 @@ from scipy.optimize import nnls
 
 from analysis.s0_build_rdms.behavior.spam_ratings import _combine
 from analysis.s0_build_rdms.common import load_rdm
-from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label
+from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label, cohort_symbol
 from analysis.s1_pre_vs_post_shine.reference_agreement import TrialsByParticipant, _digest, percentile_ci
 from analysis.utils.disk_cache import cached_frame, fingerprint
 from analysis.utils.equivalence import equivalence_test_bootstrap_effect
-from analysis.utils.plotting import _EQUIVALENT_COLOR, _NOT_EQUIVALENT_COLOR
+from analysis.utils.plotting import RDM_FAMILY_HUE, _EQUIVALENT_COLOR, _NOT_EQUIVALENT_COLOR
 
 TERMS = ("sem_km", "sem_wn", "clip", "pix")
 TERM_LABEL = {"sem_km": "semantic (KM)", "sem_wn": "semantic (WordNet)", "clip": "CLIP", "pix": "pixels"}
@@ -306,7 +306,8 @@ def zero_fraction(boots: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-_TERM_COLOR = {"pix": "#4c78a8", "clip": "#59a14f", "sem_km": "#f28e2b", "sem_wn": "#b07aa1"}
+_TERM_COLOR = {term: RDM_FAMILY_HUE[family]  # each predictor RDM in its family hue (shared RDM design language)
+               for term, family in {"pix": "sens", "clip": "clip", "sem_km": "km", "sem_wn": "wn"}.items()}
 _DODGE = 0.17  # vertical offset of the pre and post marker within a term's row
 _ROW_PX, _GAP_PX = 42, 95  # forest panels: height per term, space between panels (title and tick labels)
 _SEMANTIC_NAME = {"sem_km": "KM", "sem_wn": "WordNet"}
@@ -356,7 +357,8 @@ def fig_estimates(estimates: pd.DataFrame, models: list[str], *, x_title: str) -
             color = cohort_colors(cohort)["violin_line"]
             fig.add_trace(go.Scatter(
                 x=rows["estimate"], y=[i + side * _DODGE for i in range(len(terms))], mode="markers",
-                name=cohort_label(cohort), marker={"color": color, "size": 9}, showlegend=row == 1, legendgroup=cohort,
+                name=cohort_label(cohort), marker={"color": color, "size": 9, "symbol": cohort_symbol(cohort)},
+                showlegend=row == 1, legendgroup=cohort,
                 error_x={"type": "data", "symmetric": False, "color": color, "thickness": 1.8, "width": 4,
                          "array": rows["ci_high"] - rows["estimate"], "arrayminus": rows["estimate"] - rows["ci_low"]},
                 customdata=np.column_stack([rows["ci_low"], rows["ci_high"]]),
