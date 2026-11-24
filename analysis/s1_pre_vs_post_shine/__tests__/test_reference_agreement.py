@@ -32,26 +32,27 @@ def _trials(rng: np.random.Generator, n_participants: int, noise: float) -> ra.T
     return out
 
 
-def test_cohort_difference_bootstrap_invariants():
+def test_cohort_difference_jackknife_invariants():
     rng = np.random.default_rng(11)
     same_a, same_b, noisy_b = _trials(rng, 12, 0.3), _trials(rng, 12, 0.3), _trials(rng, 12, 6.0)
     ref = _reference()
-    kwargs = {"aggregation": "mean", "n_boot": 40, "seed": 1}
-    null = ra.bootstrap_cohort_difference(same_a, same_b, {"m": ref}, _N, **kwargs)
-    gap = ra.bootstrap_cohort_difference(same_a, noisy_b, {"m": ref}, _N, **kwargs)
-    assert abs(null["kendall_a_diff"].mean()) < 0.1 and gap["kendall_a_diff"].mean() > 0.2  # same population vs a real gap
+    kwargs = {"aggregation": "mean", "n_jobs": 1}
+    null = ra.jackknife_cohort_difference(same_a, same_b, {"m": ref}, _N, **kwargs)
+    gap = ra.jackknife_cohort_difference(same_a, noisy_b, {"m": ref}, _N, **kwargs)
+    assert abs(null["kendall_a_diff"].mean()) < 0.05 and gap["kendall_a_diff"].mean() > 0.1  # same population vs a real gap
 
     mask = np.zeros(len(ref), dtype=bool)
     mask[:30] = True
-    masked = ra.bootstrap_cohort_difference(
-        same_a, same_b, {"m": ref}, _N, aggregation="mean", n_boot=5, seed=2, pair_masks={"own": None, "mask": mask},
+    masked = ra.jackknife_cohort_difference(
+        same_a, same_b, {"m": ref}, _N, aggregation="mean", n_jobs=1, pair_masks={"own": None, "mask": mask},
     )
     restricted = masked[masked["pairs"] == "mask"]
     assert (restricted[["n_overlap_a", "n_overlap_b"]] <= 30).all().all() and (restricted["n_overlap_a"] > 0).all()
 
-    both = ra.bootstrap_combined_fit_multi(same_a, {"a": ref, "b": ref[::-1].copy()}, _N, aggregation="mean", n_boot=8, seed=3)
-    alone = ra.bootstrap_combined_fit_multi(same_a, {"a": ref}, _N, aggregation="mean", n_boot=8, seed=3)
-    np.testing.assert_allclose(both.loc[both["model"] == "a", "kendall_a"], alone["kendall_a"])  # shared resamples
+    both = ra.jackknife_combined_fit_multi(same_a, {"a": ref, "b": ref[::-1].copy()}, _N, aggregation="mean", n_jobs=1)
+    alone = ra.jackknife_combined_fit_multi(same_a, {"a": ref}, _N, aggregation="mean", n_jobs=1)
+    np.testing.assert_allclose(both.loc[both["model"] == "a", "kendall_a"], alone["kendall_a"])  # shared leave-one-out RDMs
+    assert sorted(alone["left_out"]) == sorted(same_a)
 
 
 def test_loo_fit_has_one_row_per_participant_and_positive_fit():

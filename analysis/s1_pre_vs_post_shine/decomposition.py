@@ -12,11 +12,14 @@ variant) and shared where they are not (the KM and WordNet semantic RDMs).
 
 All statistics of a fit (NNLS betas and R^2, unconstrained OLS betas as a sensitivity check, partial
 correlations, hierarchical delta R^2) are computed
-from one correlation matrix of [perceptual, predictors], so fitting every model of MODELS on a bootstrap
-draw costs one pass over the 262,450 pairs, not one per model.
+from one correlation matrix of [perceptual, predictors], so fitting every model of MODELS on a resampled
+RDM costs one pass over the 262,450 pairs, not one per model.
 
-Uncertainty is a participant bootstrap, as in reference_agreement.bootstrap_cohort_difference: each
-cohort's participants are resampled with replacement, the combined RDMs rebuilt, and every model refit.
+Uncertainty is a delete-one participant jackknife, as in reference_agreement.jackknife_cohort_difference:
+each cohort's participants are left out in turn, that cohort's combined RDM rebuilt, and every model refit;
+CIs are centred on the full-sample estimate. A participant bootstrap was used before; on these sparse RDMs
+its draws are attenuated (a resample has about 63% distinct participants), so its CIs sat below the
+estimates (see analysis.s0_build_rdms.behavior.resampling).
 
 Design decision: this stays one notebook with this one flat module. Reconsider splitting it into a
 confirmatory and a robustness notebook only if the pre-registered exploratory variants (4-predictor VGG
@@ -33,17 +36,19 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from joblib import Parallel, delayed
 from plotly.subplots import make_subplots
 from scipy.optimize import nnls
+from scipy.stats import norm
 
+from analysis.s0_build_rdms.behavior.resampling import participant_jackknife
 from analysis.s0_build_rdms.behavior.spam_ratings import _combine
 from analysis.s0_build_rdms.common import load_rdm
 from analysis.s1_pre_vs_post_shine.demographics_and_behavior import COHORTS, cohort_colors, cohort_label, cohort_symbol
-from analysis.s1_pre_vs_post_shine.reference_agreement import TrialsByParticipant, _digest, percentile_ci
+from analysis.s1_pre_vs_post_shine.reference_agreement import TrialsByParticipant, _digest, difference_se
 from analysis.utils.disk_cache import cached_frame, fingerprint
-from analysis.utils.equivalence import equivalence_test_bootstrap_effect
+from analysis.utils.equivalence import equivalence_test_se_effect
 from analysis.utils.plotting import RDM_FAMILY_HUE, add_verdict_legend, verdict_color
+from analysis.utils.stats import jackknife_bias, jackknife_ci
 
 TERMS = ("sem_km", "sem_wn", "clip", "pix")
 TERM_LABEL = {"sem_km": "semantic (KM)", "sem_wn": "semantic (WordNet)", "clip": "CLIP", "pix": "pixels"}
@@ -155,7 +160,7 @@ def fit_models(
 
 
 # ---------------------------------------------------------------------------
-# Cohort comparison: observed fits and the participant bootstrap
+# Cohort comparison: observed fits and the participant jackknife
 # ---------------------------------------------------------------------------
 
 
@@ -173,7 +178,7 @@ def observed_decomposition(
     *, pair_masks: dict[str, np.ndarray | None] | None = None,
 ) -> pd.DataFrame:
     """Full-data fits of both cohorts, one row per (pair set, model, term): the point estimates the
-    bootstrap draws are centred on. `pair_masks` as in bootstrap_decomposition()."""
+    jackknife CIs are centred on. `pair_masks` as in jackknife_decomposition()."""
     masks = {"own": None} if pair_masks is None else pair_masks
     frames = []
     for pairs, mask in masks.items():
@@ -182,93 +187,90 @@ def observed_decomposition(
     return pd.concat(frames, ignore_index=True)
 
 
-def _bootstrap_draws(
-    draws: list[tuple[int, np.random.SeedSequence]], trials_a: TrialsByParticipant, trials_b: TrialsByParticipant,
-    predictors_a: dict[str, np.ndarray], predictors_b: dict[str, np.ndarray], n_conds: int, aggregation: str,
-    masks: dict[str, np.ndarray | None],
-) -> pd.DataFrame:
-    """The bootstrap rows of the draws (draw index, its own seed) given, each fit on every pair set."""
-    def combined_rdm(trials: TrialsByParticipant, rng: np.random.Generator) -> np.ndarray:
-        ids = list(trials)
-        drawn = rng.choice(len(ids), size=len(ids), replace=True)
-        return _combine([t for i in drawn for t in trials[ids[i]]], n_conds, aggregation)[0]
-
-    frames = []
-    for b, seed_sequence in draws:
-        rng = np.random.default_rng(seed_sequence)
-        rdm_a, rdm_b = combined_rdm(trials_a, rng), combined_rdm(trials_b, rng)
+def _jackknife_score(side: str, other: np.ndarray, predictors_a: dict[str, np.ndarray],
+                     predictors_b: dict[str, np.ndarray], masks: dict[str, np.ndarray | None]):
+    """Scorer for one cohort's leave-one-out RDMs, paired with the other cohort's full RDM, on every pair set."""
+    def score(rdm: np.ndarray) -> list[dict]:
+        rdm_a, rdm_b = (rdm, other) if side == "a" else (other, rdm)
+        rows = []
         for pairs, mask in masks.items():
             paired = _paired(fit_models(rdm_a, predictors_a, mask=mask), fit_models(rdm_b, predictors_b, mask=mask))
-            frames.append(paired.assign(boot=b, pairs=pairs))
-    return pd.concat(frames, ignore_index=True)
+            rows += paired.assign(side=side, pairs=pairs).to_dict("records")
+        return rows
+
+    return score
 
 
-def bootstrap_decomposition(
+def jackknife_decomposition(
     trials_a: TrialsByParticipant, trials_b: TrialsByParticipant,
     predictors_a: dict[str, np.ndarray], predictors_b: dict[str, np.ndarray], n_conds: int,
-    *, aggregation: str = "simple", n_boot: int = 1000, seed: int = 0,
-    pair_masks: dict[str, np.ndarray | None] | None = None, n_jobs: int = 1, cache_path: Path | None = None,
+    *, aggregation: str = "simple", pair_masks: dict[str, np.ndarray | None] | None = None, n_jobs: int = 6,
+    cache_path: Path | None = None,
 ) -> pd.DataFrame:
-    """Participant bootstrap of every model's fit in both cohorts and of their A - B difference.
+    """Delete-one participant jackknife of every model's fit in both cohorts and of their A - B difference.
 
-    The cohorts are disjoint participants, so each is resampled on its own; per draw both are
-    re-combined with `aggregation` once and every model of MODELS is refit on each pair set.
-    `pair_masks` names the pair sets (default {"own": None}, each cohort on the pairs it observed); a
-    boolean mask over the condensed pairs restricts both cohorts to those pairs. One row per (draw,
-    pair set, model, term) with `<stat>_a`, `<stat>_b`, `<stat>_diff` for each of STATS.
-
-    Each draw has its own seed (spawned from `seed`), so the result does not depend on `n_jobs`, the
-    number of worker processes the draws are spread over (the combination step dominates the cost).
+    The cohorts are disjoint participants, so each is jackknifed on its own with the other at full size:
+    each participant is left out in turn, that cohort's RDM re-combined with `aggregation` and every model of
+    MODELS refit on each pair set. `pair_masks` names the pair sets (default {"own": None}, each cohort on
+    the pairs it observed); a boolean mask over the condensed pairs restricts both cohorts to those pairs.
+    One row per (side, left-out participant, pair set, model, term), `side` naming the cohort that lost a
+    participant, with `<stat>_a`, `<stat>_b`, `<stat>_diff` for each of STATS. SEs: jackknife_se over the
+    rows of one side (a cohort's own statistic) or reference_agreement.difference_se (the difference).
     """
     masks = {"own": None} if pair_masks is None else pair_masks
 
     def run() -> pd.DataFrame:
-        draws = list(enumerate(np.random.SeedSequence(seed).spawn(n_boot)))
-        chunks = [draws[i::n_jobs * 4] for i in range(n_jobs * 4)] if n_jobs > 1 else [draws]
-        frames = Parallel(n_jobs=n_jobs)(
-            delayed(_bootstrap_draws)(chunk, trials_a, trials_b, predictors_a, predictors_b, n_conds, aggregation, masks)
-            for chunk in chunks if chunk
-        )
-        return pd.concat(frames, ignore_index=True).sort_values("boot", kind="stable", ignore_index=True)
+        full = {side: _combine([t for ts in trials.values() for t in ts], n_conds, aggregation)[0]
+                for side, trials in (("a", trials_a), ("b", trials_b))}
+        frames = [
+            participant_jackknife(trials, n_conds,
+                                  _jackknife_score(side, full["b" if side == "a" else "a"], predictors_a, predictors_b, masks),
+                                  aggregation=aggregation, n_jobs=n_jobs)
+            for side, trials in (("a", trials_a), ("b", trials_b))
+        ]
+        return pd.concat(frames, ignore_index=True)
 
     key = fingerprint(
         _digest(trials_a), _digest(trials_b), *(predictors_a[t] for t in TERMS), *(predictors_b[t] for t in TERMS),
-        n_conds, aggregation, n_boot, seed, list(masks), *masks.values(), "delta_r2:all-models",
+        n_conds, aggregation, list(masks), *masks.values(), "jackknife",
     )
     return cached_frame(cache_path, key, run)
 
 
-def cohort_estimates(observed: pd.DataFrame, boots: pd.DataFrame, stat: str = "beta", level: float = 0.95) -> pd.DataFrame:
-    """Per cohort, pair set, model and term: the observed `stat` with its percentile bootstrap CI.
-    Columns pairs, model, term, cohort, estimate, ci_low, ci_high (cohort in COHORTS)."""
+def cohort_estimates(observed: pd.DataFrame, jack: pd.DataFrame, stat: str = "beta", level: float = 0.95) -> pd.DataFrame:
+    """Per cohort, pair set, model and term: the observed `stat` with its jackknife CI (centred on it) and
+    the jackknife bias estimate (a diagnostic of how much the statistic grows with the number of participants).
+    Columns pairs, model, term, cohort, estimate, ci_low, ci_high, bias (cohort in COHORTS)."""
     rows = []
-    for (pairs, model, term), draws in boots.groupby(["pairs", "model", "term"], sort=False):
+    for (pairs, model, term), draws in jack.groupby(["pairs", "model", "term"], sort=False):
         if draws[f"{stat}_a"].isna().all():
             continue
         point = observed[(observed["pairs"] == pairs) & (observed["model"] == model) & (observed["term"] == term)].iloc[0]
         for cohort, suffix in zip(COHORTS, ("a", "b")):
-            low, high = percentile_ci(draws[f"{stat}_{suffix}"].to_numpy(), level)
+            values = draws.loc[draws["side"] == suffix, f"{stat}_{suffix}"].to_numpy()
+            low, high = jackknife_ci(point[f"{stat}_{suffix}"], values, level)
             rows.append({"pairs": pairs, "model": model, "term": term, "cohort": cohort,
-                         "estimate": point[f"{stat}_{suffix}"], "ci_low": low, "ci_high": high})
+                         "estimate": point[f"{stat}_{suffix}"], "ci_low": low, "ci_high": high,
+                         "bias": jackknife_bias(point[f"{stat}_{suffix}"], values)})
     return pd.DataFrame(rows)
 
 
 def difference_table(
-    observed: pd.DataFrame, boots: pd.DataFrame, n_a: int, n_b: int, stat: str = "beta",
+    observed: pd.DataFrame, jack: pd.DataFrame, n_a: int, n_b: int, stat: str = "beta",
 ) -> pd.DataFrame:
-    """One row per (pair set, model, term) on D = A - B (here pre - post): the observed effect, its
-    95% percentile CI, `a_exceeds_b` (95% CI entirely above 0, the H3(i) criterion) and the TOST
-    equivalence result (equivalence_test_bootstrap_effect: 90% CI inside the 80%-power bound)."""
+    """One row per (pair set, model, term) on D = A - B (here pre - post): the observed effect, its 95% CI
+    (D +/- z * SE, SE the jackknife SE of the difference), `a_exceeds_b` (95% CI entirely above 0, the H3(i)
+    criterion) and the TOST equivalence result (equivalence_test_se_effect: 90% CI inside the 80%-power bound)."""
     rows = []
-    for (pairs, model, term), draws in boots.groupby(["pairs", "model", "term"], sort=False):
+    z95 = float(norm.ppf(0.975))
+    for (pairs, model, term), draws in jack.groupby(["pairs", "model", "term"], sort=False):
         if draws[f"{stat}_diff"].isna().all():
             continue
         point = observed[(observed["pairs"] == pairs) & (observed["model"] == model) & (observed["term"] == term)].iloc[0]
         effect = point[f"{stat}_diff"]
-        tost = equivalence_test_bootstrap_effect(
-            effect, draws[f"{stat}_diff"], n_a=n_a, n_b=n_b, label=f"pre - post, {model}, {TERM_LABEL[term]}",
-        )
-        low95, high95 = percentile_ci(draws[f"{stat}_diff"].to_numpy(), 0.95)
+        se = difference_se(draws, f"{stat}_diff")
+        tost = equivalence_test_se_effect(effect, se, n_a=n_a, n_b=n_b, label=f"pre - post, {model}, {TERM_LABEL[term]}")
+        low95, high95 = effect - z95 * se, effect + z95 * se
         rows.append({"pairs": pairs, "model": model, "term": term, "stat": stat, **tost,
                      "ci95_low": low95, "ci95_high": high95, "a_exceeds_b": bool(low95 > 0)})
     return pd.DataFrame(rows)
@@ -294,11 +296,14 @@ def model_summary(estimates: pd.DataFrame, differences: pd.DataFrame, model: str
     return pd.DataFrame(rows).set_index("term")
 
 
-def zero_fraction(boots: pd.DataFrame) -> pd.DataFrame:
-    """Share of bootstrap draws in which each NNLS beta is exactly 0 (the constraint is active), per
-    cohort; columns pairs, model, term, a, b."""
-    flags = boots.assign(a=boots["beta_a"] == 0.0, b=boots["beta_b"] == 0.0)
-    return flags.groupby(["pairs", "model", "term"], sort=False)[["a", "b"]].mean().reset_index()
+def zero_fraction(jack: pd.DataFrame) -> pd.DataFrame:
+    """Share of each cohort's leave-one-out refits in which each NNLS beta is exactly 0 (the constraint is
+    active); columns pairs, model, term, a, b."""
+    shares = {}
+    for side in ("a", "b"):
+        own = jack[jack["side"] == side]
+        shares[side] = (own["beta_" + side] == 0.0).groupby([own["pairs"], own["model"], own["term"]], sort=False).mean()
+    return pd.DataFrame(shares).reset_index()
 
 
 # ---------------------------------------------------------------------------
