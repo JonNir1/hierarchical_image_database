@@ -1,11 +1,15 @@
 """
 Generic dendrogram tools shared by the s1 and s2 analyses: the directory tree as an exact scipy linkage
-matrix, per-level category labels, the average-linkage tree of an embedding's distances, and Baker's
-gamma between two dendrograms with an image-relabeling shuffle null.
+matrix, per-level category labels, the average-linkage tree of an embedding's distances, Baker's
+gamma between two dendrograms with an image-relabeling shuffle null, and HDBSCAN's flat partitions
+scored against the tree's categories at each level.
 
 Average linkage is the only linkage used: the v5 simulation report (SpAM_Simulations/sim_results/v5/
 report/report_v5.src.html) finds it outperforms ward and complete throughout (Baker's gamma 0.611 vs
-0.579 and 0.471). The clustering and gamma machinery is reused from SpAM_Simulations.measures.
+0.579 and 0.471). HDBSCAN complements it as in that report: it yields flat labels rather than a dendrogram,
+and may leave images unassigned (noise), so it is scored per tree level, over the images it clustered,
+and reported with its noise fraction (descriptive). The clustering and gamma machinery is reused from
+SpAM_Simulations.measures.
 
 Usage (from repo root):
     from analysis.utils import dendrogram as dg
@@ -15,22 +19,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 import numpy as np
+import pandas as pd
 from scipy.cluster.hierarchy import cophenet
 from scipy.spatial.distance import squareform
 from scipy.stats import rankdata
 
 from analysis.utils.disk_cache import cached_array, fingerprint
 from analysis.utils.hierarchy import Parts
-from SpAM_Simulations.measures.cluster_stability import baker_gamma, build_linkage, cophenetic_ranks
-from SpAM_Simulations.measures.density_clustering import NOISE_LABEL
+from SpAM_Simulations.measures.cluster_stability import (
+    baker_gamma, build_linkage, cophenetic_ranks, variation_of_information,
+)
+from SpAM_Simulations.measures.density_clustering import (
+    DEFAULT_MIN_CLUSTER_SIZES, NOISE_LABEL, clustered_ari, hdbscan_labels, noise_summary,
+)
 
 LINKAGE = "average"
 
 __all__ = [
     "LINKAGE", "path_tree_to_linkage", "km_level_labels", "perceptual_tree", "GammaShuffleResult",
-    "dendrogram_shuffle_test", "tree_shuffle_test",
+    "dendrogram_shuffle_test", "tree_shuffle_test", "hdbscan_level_agreement",
 ]
 
 
@@ -148,3 +158,32 @@ def tree_shuffle_test(
     observed = baker_gamma(fixed_ranks, cophenetic_ranks(z_shuffled))
     null = cached_array(cache_path, fingerprint(z_fixed, z_shuffled, n_perm, seed), draw_null)
     return _shuffle_result(observed, null)
+
+
+def hdbscan_level_agreement(
+    rdms: dict, parts: Parts, levels: Sequence[int],
+    min_cluster_sizes: Sequence[int] = DEFAULT_MIN_CLUSTER_SIZES, *, key: str = "rdm",
+) -> pd.DataFrame:
+    """HDBSCAN flat labels of each complete condensed RDM vs the tree's category labels, one row per
+    (RDM, min_cluster_size, tree level); the RDM's dict key goes in column `key`.
+
+    ARI and VI are computed over the images that HDBSCAN clustered and that reach the level, so
+    `frac_shared` must be read with them: an aggressive setting keeps only an easy core.
+    """
+    rows = []
+    for name, dists in rdms.items():
+        for mcs in min_cluster_sizes:
+            labels = hdbscan_labels(dists, mcs)
+            noise = noise_summary(labels)
+            for level in levels:
+                km = km_level_labels(parts, level)
+                agreement = clustered_ari(labels, km)
+                shared = (labels != NOISE_LABEL) & (km != NOISE_LABEL)
+                vi = variation_of_information(labels[shared], km[shared]) if shared.sum() >= 2 else np.nan
+                rows.append({
+                    key: name, "min_cluster_size": mcs, "km_level": level,
+                    "n_clusters": noise["n_clusters"], "frac_noise": noise["frac_noise"],
+                    "ari": agreement["ari_shared_clustered"], "vi_norm": vi,
+                    "frac_shared": agreement["frac_shared_clustered"],
+                })
+    return pd.DataFrame(rows)
