@@ -8,7 +8,7 @@ import pytest
 from scipy.stats import norm
 
 from analysis.utils.equivalence import (
-    equivalence_sensitivity, equivalence_sensitivity_risk_difference, equivalence_test_bootstrap_effect,
+    equivalence_sensitivity, equivalence_sensitivity_risk_difference, equivalence_test_bootstrap_effect, equivalence_test_se_effect,
     equivalence_test_rank_biserial,
     equivalence_test_risk_difference, print_equivalence_line, resolvable_bound, tost_bound_multiplier,
 )
@@ -134,3 +134,7 @@ def test_bootstrap_effect_equivalence_follows_the_80_percent_power_bound_rule():
 
     shifted = equivalence_test_bootstrap_effect(0.15, rng.normal(0.15, 0.02, size=2000))
     assert not shifted["equivalent"] and shifted["ci_low"] > 0.1
+
+    known = equivalence_test_se_effect(0.0, 0.02, label="d")  # the same rule with the SE given directly
+    assert known["bound"] == resolvable_bound(multiplier * 0.02, step=0.01) and known["equivalent"]
+    assert known["ci_high"] == pytest.approx(norm.ppf(0.95) * 0.02, abs=1e-4)

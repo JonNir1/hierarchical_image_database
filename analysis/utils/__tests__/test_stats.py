@@ -12,8 +12,8 @@ from statsmodels.stats.multitest import multipletests
 from scipy.spatial.distance import squareform
 
 from analysis.utils.stats import (
-    kendall_tau_a, label_shuffle_test, masked_rank_correlation, mwu_effect_size, mwu_family, pearson_r,
-    print_comparison_line, spearman_rho, wilcoxon_effect_size, z_ranks,
+    jackknife_bias, jackknife_ci, jackknife_se, kendall_tau_a, label_shuffle_test, masked_rank_correlation,
+    mwu_effect_size, mwu_family, pearson_r, print_comparison_line, spearman_rho, wilcoxon_effect_size, z_ranks,
 )
 
 # ---------------------------------------------------------------------------
@@ -220,3 +220,12 @@ def test_pearson_and_spearman_match_scipy_for_vectors_with_ties_and_row_wise():
 def test_correlations_of_a_constant_vector_are_nan_not_an_error():
     flat, ramp = np.ones(6), np.arange(6.0)
     assert np.isnan(pearson_r(flat, ramp)) and np.isnan(spearman_rho(ramp, flat))
+
+
+def test_jackknife_of_the_mean_recovers_its_textbook_standard_error():
+    x = np.random.default_rng(0).normal(size=40)
+    leave_one_out_means = (x.sum() - x) / (len(x) - 1)
+    assert jackknife_se(leave_one_out_means) == pytest.approx(x.std(ddof=1) / np.sqrt(len(x)))
+    assert jackknife_bias(x.mean(), leave_one_out_means) == pytest.approx(0.0, abs=1e-12)  # the mean is unbiased
+    low, high = jackknife_ci(x.mean(), leave_one_out_means)
+    assert (low + high) / 2 == pytest.approx(x.mean())  # centred on the estimate
